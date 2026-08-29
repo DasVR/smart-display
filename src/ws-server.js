@@ -100,10 +100,6 @@ function getNowPlaying() {
 }
 
 
-function broadcast(data) {
-	const msg = JSON.stringify(data);
-	clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg); }
-
 // ---------- Ollama Inference Arbiter ----------
 // Polls /api/ps every 500ms. When models are loaded, broadcasts LOW_POWER
 // to freeze the WebGL fluid. When empty, broadcasts HIGH_PERFORMANCE.
@@ -187,7 +183,9 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const clients = new Set();
 let currentView = 'clock';
 
-);
+function broadcast(data) {
+	const msg = JSON.stringify(data);
+	clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg); });
 }
 
 wss.on('connection', (ws, req) => {
