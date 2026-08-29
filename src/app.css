@@ -95,6 +95,15 @@ body {
 	overflow-y: hidden;
 }
 
+@media (max-width: 768px) {
+	html,
+	body {
+		overflow-y: auto;
+		height: auto;
+		min-height: 100%;
+	}
+}
+
 :focus-visible {
 	outline: 3px solid var(--ring);
 	outline-offset: 2px;

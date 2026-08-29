@@ -67,4 +67,11 @@
 		font-size: 14px;
 		color: var(--text-tertiary);
 	}
+
+	@media (max-width: 414px) {
+		.metric-row {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+	}
 </style>

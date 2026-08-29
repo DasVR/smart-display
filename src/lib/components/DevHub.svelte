@@ -93,11 +93,6 @@
 			<span class="v num" role="cell">{loading ? '--' : fmtNet(netMbps)}</span>
 			<span class="h" role="cell">Mb/s · in {fmtNet($telemetry?.stats?.net_rx)} · out {fmtNet($telemetry?.stats?.net_tx)}</span>
 		</div>
-		<div class="ledger-row" role="row">
-			<span class="k" role="cell">Boxes</span>
-			<span class="v num" role="cell">{loading ? '--' : containers}</span>
-			<span class="h" role="cell">containers</span>
-		</div>
 	</div>
 
 	<div class="lower">
@@ -254,7 +249,7 @@
 	.state {
 		font-family: var(--font-display);
 		font-size: 12px;
-		color: var(--text-tertiary);
+		color: var(--warn);
 		flex-shrink: 0;
 	}
 	.state.ok {

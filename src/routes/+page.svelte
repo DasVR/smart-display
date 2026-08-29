@@ -223,6 +223,10 @@
 	.mast-wx {
 		justify-self: end;
 		text-align: right;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		min-width: 0;
 	}
 	.wx-label {
 		font-size: 13px;
@@ -231,11 +235,11 @@
 	}
 	.wx {
 		display: flex;
-		align-items: baseline;
-		justify-content: flex-end;
-		gap: var(--space-2);
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 0;
 		margin-top: var(--space-1);
-		flex-wrap: wrap;
+		min-width: 0;
 	}
 	.wx-temp {
 		font-size: clamp(2rem, 3vw, 3rem);
@@ -248,6 +252,8 @@
 	.wx-desc {
 		font-size: 18px;
 		color: var(--text-secondary);
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 	.center {
 		height: 55%;
@@ -299,6 +305,15 @@
 	}
 
 	@media (max-width: 768px) {
+		.display-shell {
+			height: auto;
+			min-height: 100vh;
+			overflow-y: visible;
+		}
+		.display-root {
+			height: auto;
+			min-height: 100vh;
+		}
 		.zone {
 			padding-inline: var(--space-4);
 		}
