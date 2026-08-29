@@ -1,6 +1,5 @@
 <script>
 	import { onMount } from 'svelte';
-
 	let time = new Date();
 	let colonVisible = true;
 	let mounted = false;
@@ -19,6 +18,7 @@
 	$: weekday = time.toLocaleDateString('en-US', { weekday: 'long' });
 	$: ampm = time.getHours() >= 12 ? 'PM' : 'AM';
 	$: dispH = time.getHours() % 12 || 12;
+	$: seconds = String(time.getSeconds()).padStart(2, '0');
 </script>
 
 <div class="clock-view" class:mounted>
@@ -27,6 +27,8 @@
 			<span class="digit">{dispH}</span>
 			<span class="colon" class:on={colonVisible}>:</span>
 			<span class="digit">{m}</span>
+			<span class="colon small" class:on={colonVisible}>:</span>
+			<span class="digit small">{seconds}</span>
 			<span class="ampm">{ampm}</span>
 		</div>
 		<div class="date-row">{weekday}, {month} {day}</div>
@@ -43,55 +45,49 @@
 		position: relative;
 		opacity: 0;
 		transform: scale(0.98);
-		transition:
-			opacity 0.7s var(--ease-standard),
-			transform 0.9s var(--ease-standard);
+		transition: opacity 0.7s var(--ease-standard), transform 0.9s var(--ease-standard);
 	}
-	.clock-view.mounted {
-		opacity: 1;
-		transform: scale(1);
-	}
+	.clock-view.mounted { opacity: 1; transform: scale(1); }
 
 	.clock-face {
 		text-align: center;
 		position: relative;
+		width: 100%;
+		padding: 0 60px;
 	}
 	.time-row {
 		font-family: var(--font-display);
-		font-size: clamp(140px, 24vw, 320px);
+		font-size: clamp(140px, 22vw, 340px);
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 1;
 		display: flex;
 		align-items: baseline;
 		justify-content: center;
-		gap: 0.05em;
+		gap: 0.04em;
 		color: var(--text-primary);
 	}
-	.digit {
-		color: var(--text-primary);
-	}
+	.digit { color: var(--text-primary); }
+	.digit.small { font-size: 0.55em; opacity: 0.7; }
 	.colon {
 		color: var(--text-secondary);
 		font-weight: 300;
 		opacity: 0.25;
 		transition: opacity 0.3s;
 	}
-	.colon.on {
-		opacity: 1;
-		color: var(--accent);
-	}
+	.colon.on { opacity: 1; color: var(--accent); }
+	.colon.small { font-size: 0.55em; }
 	.ampm {
-		font-size: 0.14em;
+		font-size: 0.12em;
 		font-weight: 500;
 		color: var(--text-tertiary);
-		margin-left: 0.4em;
+		margin-left: 0.3em;
 		align-self: flex-start;
-		margin-top: 0.45em;
+		margin-top: 0.5em;
 	}
 	.date-row {
-		margin-top: 26px;
-		font-size: clamp(24px, 3vw, 40px);
+		margin-top: 28px;
+		font-size: clamp(28px, 3.6vw, 50px);
 		font-weight: 400;
 		color: var(--text-secondary);
 		letter-spacing: 0.12em;
