@@ -15,7 +15,7 @@ Environment="WAYLAND_DISPLAY=wayland-1"
 ExecStartPre=/usr/bin/mkdir -p /run/user/1000
 ExecStartPre=/usr/bin/chown das:das /run/user/1000
 ExecStartPre=/usr/bin/chmod 700 /run/user/1000
-ExecStart=/usr/bin/cage -s -- /usr/bin/chromium-browser --enable-features=UseOzonePlatform --ozone-platform=wayland --kiosk --app=http://localhost:3000 --force-device-scale-factor=2 --disable-features=TranslateUI --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --noerrdialogs --hide-scrollbars --autoplay-policy=no-user-gesture-required --disable-features=OverscrollHistoryNavigation
+ExecStart=/home/das/projects/smart-display/start-kiosk.sh
 ExecStartPost=/bin/sh -c 'sleep 5 && curl -s -o /dev/null http://localhost:3000 || true'
 Restart=on-failure
 RestartSec=5
