@@ -7,11 +7,18 @@
 	import DevView from '$lib/components/DevView.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
 	import AmbientShader from '$lib/components/AmbientShader.svelte';
+	import GooeyNotification from '$lib/components/GooeyNotification.svelte';
 
 	let ws;
 	let reconnectTimer;
 	let transitioning = false;
 	let weatherLoading = true;
+	let notif = { visible: false, title: '', body: '', kind: 'info' };
+
+	function showNotif(title, body, kind = 'info', ms = 4000) {
+		notif = { visible: true, title, body, kind };
+		setTimeout(() => { notif = { ...notif, visible: false }; }, ms);
+	}
 
 	function connect() {
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -30,6 +37,7 @@
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
 					transitioning = true;
+					showNotif('Good morning', 'AP Gov deadline today', 'info');
 					setTimeout(() => { currentView.set('school'); transitioning = false; }, 150);
 				}
 			} catch {}
@@ -81,6 +89,7 @@
 
 <div class="display-root" class:transitioning>
 	<AmbientShader />
+	<GooeyNotification title={notif.title} body={notif.body} kind={notif.kind} visible={notif.visible} />
 	<div class="top-bar">
 		<div class="weather-pill">
 			{#if weatherLoading}
