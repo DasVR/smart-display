@@ -18,7 +18,16 @@ export WLR_LIBINPUT_NO_DEVICES=1
   --disable-restore-session-state \
   --noerrdialogs \
   --hide-scrollbars \
-  --autoplay-policy=no-user-gesture-required &
+  --autoplay-policy=no-user-gesture-required \
+  --incognito \
+  --disk-cache-dir=/dev/null \
+  --user-data-dir=/tmp/chromium-kiosk-cache \\
+  --disk-cache-size=1 \
+  --media-cache-size=1 \
+  --aggressive-cache-discard \\
+  --no-first-run \
+  --no-default-browser-check \
+  --disable-background-networking &
 
 CAGE_PID=$!
 
