@@ -22,15 +22,15 @@
 <style>
 	.glass-panel {
 		position: relative;
-		background: rgba(20, 20, 30, 0.42);
-		backdrop-filter: blur(26px) saturate(1.55);
-		-webkit-backdrop-filter: blur(26px) saturate(1.55);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		border-radius: 20px;
+		background: rgba(2, 6, 23, 0.4);
+		backdrop-filter: blur(16px) saturate(1.45);
+		-webkit-backdrop-filter: blur(16px) saturate(1.45);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 1rem;
 		padding: 20px 22px;
 		box-shadow:
 			0 12px 42px rgba(0, 0, 0, 0.45),
-			inset 0 1px 0 rgba(255, 255, 255, 0.10);
+			inset 0 1px 0 rgba(255, 255, 255, 0.12);
 		overflow: hidden;
 		z-index: 10;
 	}

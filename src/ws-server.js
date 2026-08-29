@@ -1,114 +1,25 @@
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import { handler } from '../build/handler.js';
-import { readFileSync } from 'fs';
-import { execSync } from 'child_process';
-import os from 'os';
+import {
+	getTelemetry,
+	getCalendar,
+	getNowPlaying,
+	getGitContext,
+	getOllamaPs
+} from './lib/server/hostData.js';
 
 const port = process.env.PORT || 3000;
 
-function run(cmd) {
-	try { return execSync(cmd, { encoding: 'utf8', timeout: 3000 }).trim(); } catch { return null; }
+function json(res, data, status = 200) {
+	res.writeHead(status, { 'Content-Type': 'application/json' });
+	res.end(JSON.stringify(data));
 }
 
-async function getTelemetry() {
-	const total = os.totalmem() / 1024 / 1024 / 1024;
-	const free = os.freemem() / 1024 / 1024 / 1024;
-	const used = total - free;
-	const load = os.loadavg()[0];
-	const cpus = os.cpus().length;
-	const cpuPct = Math.min(100, Math.round((load / cpus) * 100));
-
-	async function check(url, name, uptime = '99.9%') {
-		try {
-			const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(2000) });
-			return { name, status: r.ok, uptime };
-		} catch {
-			return { name, status: false, uptime: 'down' };
-		}
-	}
-
-	const services = await Promise.all([
-		check('https://dasdev.net', 'dasdev.net', '99.9%'),
-		check('http://localhost:8123', 'home assistant', '100%'),
-		check('http://localhost:3000', 'display', '100%')
-	]);
-
-	const containers = run('docker ps -q 2>/dev/null | wc -l') || '0';
-
-	return {
-		services,
-		stats: {
-			ram_used: Math.round(used),
-			ram_total: Math.round(total),
-			cpu: cpuPct,
-			containers: parseInt(containers, 10)
-		}
-	};
-}
-
-async function getCalendar(days = 3) {
-	try {
-		const tokenPath = '/home/das/.hermes/google_token.json';
-		const raw = readFileSync(tokenPath, 'utf8');
-		const token = JSON.parse(raw);
-		const now = new Date();
-		const end = new Date();
-		end.setDate(now.getDate() + parseInt(days, 10));
-		const timeMin = now.toISOString();
-		const timeMax = end.toISOString();
-		const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=20`;
-		const r = await fetch(url, { headers: { Authorization: `Bearer ${token.access_token || token.token}` } });
-		if (!r.ok) throw new Error(`calendar ${r.status}`);
-		const d = await r.json();
-		const events = (d.items || []).map(e => ({
-			id: e.id,
-			title: e.summary || '(no title)',
-			start: e.start?.dateTime || e.start?.date,
-			end: e.end?.dateTime || e.end?.date,
-			location: e.location || ''
-		}));
-		return { events };
-	} catch (e) {
-		console.error('calendar error:', e.message);
-		return { events: [] };
-	}
-}
-
-function getNowPlaying() {
-	try {
-		const status = run('playerctl status 2>/dev/null') || 'Not available';
-		if (!status.includes('Playing') && !status.includes('Paused')) {
-			return { playing: false };
-		}
-		const artist = run('playerctl metadata xesam:artist 2>/dev/null') || 'Unknown artist';
-		const title = run('playerctl metadata xesam:title 2>/dev/null') || 'Unknown title';
-		const album = run('playerctl metadata xesam:album 2>/dev/null') || '';
-		const posStr = run('playerctl position 2>/dev/null') || '0';
-		const lenStr = run('playerctl metadata mpris:length 2>/dev/null') || '0';
-		return {
-			playing: status.includes('Playing'),
-			artist,
-			title,
-			album,
-			position: parseFloat(posStr),
-			length: parseInt(lenStr, 10) / 1000000 || 0
-		};
-	} catch (e) {
-		return { playing: false };
-	}
-}
-
-
-// ---------- Ollama Inference Arbiter ----------
-// Polls /api/ps every 500ms. When models are loaded, broadcasts LOW_POWER
-// to freeze the WebGL fluid. When empty, broadcasts HIGH_PERFORMANCE.
 let ollamaPowerState = 'HIGH_PERFORMANCE';
 async function pollOllama() {
 	try {
-		const r = await fetch('http://localhost:11434/api/ps', { signal: AbortSignal.timeout(800) });
-		if (!r.ok) throw new Error('ollama unreachable');
-		const d = await r.json();
+		const d = await getOllamaPs();
 		const hasModels = d.models && d.models.length > 0;
 		const newState = hasModels ? 'LOW_POWER' : 'HIGH_PERFORMANCE';
 		if (newState !== ollamaPowerState) {
@@ -136,43 +47,47 @@ const server = createServer(async (req, res) => {
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
-		req.on('data', chunk => body += chunk);
+		req.on('data', (chunk) => (body += chunk));
 		req.on('end', () => {
 			try {
 				const data = JSON.parse(body);
 				if (data.event === 'morning') {
 					broadcast({ type: 'trigger', event: 'morning', data: data.data || {} });
-					res.writeHead(200, { 'Content-Type': 'application/json' });
-					res.end(JSON.stringify({ ok: true }));
+					json(res, { ok: true });
 					return;
 				}
-			} catch {}
-			res.writeHead(400, { 'Content-Type': 'application/json' });
-			res.end(JSON.stringify({ error: 'invalid payload' }));
+			} catch {
+				/* fall through */
+			}
+			json(res, { error: 'invalid payload' }, 400);
 		});
 		return;
 	}
 
 	if (req.method === 'GET' && req.url === '/api/telemetry') {
-		const data = await getTelemetry();
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify(data));
+		json(res, await getTelemetry());
 		return;
 	}
 
-	if (req.method === 'GET' && req.url.startsWith('/api/calendar')) {
+	if (req.method === 'GET' && req.url?.startsWith('/api/calendar')) {
 		const urlObj = new URL(req.url, `http://${req.headers.host}`);
 		const days = urlObj.searchParams.get('days') || '3';
-		const data = await getCalendar(days);
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify(data));
+		json(res, await getCalendar(days));
 		return;
 	}
 
 	if (req.method === 'GET' && req.url === '/api/nowplaying') {
-		const data = getNowPlaying();
-		res.writeHead(200, { 'Content-Type': 'application/json' });
-		res.end(JSON.stringify(data));
+		json(res, getNowPlaying());
+		return;
+	}
+
+	if (req.method === 'GET' && req.url === '/api/git') {
+		json(res, getGitContext());
+		return;
+	}
+
+	if (req.method === 'GET' && req.url === '/api/ollama/ps') {
+		json(res, await getOllamaPs());
 		return;
 	}
 
@@ -185,14 +100,16 @@ let currentView = 'clock';
 
 function broadcast(data) {
 	const msg = JSON.stringify(data);
-	clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg); });
+	clients.forEach((ws) => {
+		if (ws.readyState === 1) ws.send(msg);
+	});
 }
 
 wss.on('connection', (ws, req) => {
 	const isRemote = req.headers['x-remote'] === 'phone' || req.url?.includes('remote');
 	ws.isRemote = isRemote;
 	clients.add(ws);
-	ws.send(JSON.stringify({ type: 'init', view: currentView, ts: Date.now() }));
+	ws.send(JSON.stringify({ type: 'init', view: currentView, ts: Date.now(), power: ollamaPowerState }));
 
 	ws.on('message', (raw) => {
 		try {
@@ -213,7 +130,9 @@ wss.on('connection', (ws, req) => {
 			if (msg.type === 'trigger' && msg.event === 'morning') {
 				broadcast({ type: 'trigger', event: 'morning', data: msg.data });
 			}
-		} catch {}
+		} catch {
+			/* ignore */
+		}
 	});
 
 	ws.on('close', () => clients.delete(ws));

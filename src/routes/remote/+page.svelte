@@ -110,7 +110,7 @@
 		{/each}
 	</div>
 
-	<div class="gesture-hint" ontouchstart={handleTouchStart} ontouchend={handleTouchEnd}>
+	<div class="gesture-hint" role="button" tabindex="0" ontouchstart={handleTouchStart} ontouchend={handleTouchEnd}>
 		or swipe here
 	</div>
 </div>

@@ -1,41 +1,33 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, wsStatus, weather } from '$lib/stores.js';
-	import ClockView from '$lib/components/ClockView.svelte';
-	import SchoolView from '$lib/components/SchoolView.svelte';
-	import DevView from '$lib/components/DevView.svelte';
-	import MusicView from '$lib/components/MusicView.svelte';
-	import AmbientShader from '$lib/components/AmbientShader.svelte';
-	import GooeyNotification from '$lib/components/GooeyNotification.svelte';
+	import {
+		currentView,
+		wsStatus,
+		weather,
+		nowPlaying
+	} from '$lib/stores.js';
+	import { gpuLowPowerMode, ollamaStatus, startOllamaArbiter, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
+	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
+	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
+	import HeroClock from '$lib/components/HeroClock.svelte';
+	import SchoolHub from '$lib/components/SchoolHub.svelte';
+	import DevHub from '$lib/components/DevHub.svelte';
+	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
-	import TopBar from '$lib/components/TopBar.svelte';
-	import AudioZone from '$lib/components/AudioZone.svelte';
 
 	let ws;
 	let reconnectTimer;
-	let transitioning = false;
-	let weatherLoading = true;
-	let notif = { visible: false, title: '', body: '', kind: 'info' };
-	let viewKey = 0;
+	let time = $state(new Date());
+	let weatherLoading = $state(true);
+	let notif = $state({ visible: false, title: '', body: '', kind: 'info' });
+	let leftFocus = $state('school');
 
-	function showNotif(title, body, kind = 'info', ms = 4000) {
+	function showNotif(title, body, kind = 'info', ms = 4500) {
 		notif = { visible: true, title, body, kind };
-		setTimeout(() => { notif = { ...notif, visible: false }; }, ms);
-	}
-
-	function demoIsland() {
-		setTimeout(() => showNotif('system online', 'ambient display active', 'info', 5000), 800);
-	}
-
-	function goTo(view) {
-		if (view === $currentView) return;
-		transitioning = true;
 		setTimeout(() => {
-			currentView.set(view);
-			viewKey++;
-			transitioning = false;
-		}, 180);
+			notif = { ...notif, visible: false };
+		}, ms);
 	}
 
 	function connect() {
@@ -50,30 +42,29 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
-					goTo(msg.view);
+					currentView.set(msg.view);
+					if (msg.view === 'school') leftFocus = 'school';
+					if (msg.view === 'dev') leftFocus = 'dev';
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
-					showNotif('Good morning', 'AP Gov deadline today', 'info');
-					goTo('school');
+					showNotif('Good morning', 'Briefing ready · check due work', 'info');
+					leftFocus = 'school';
 				}
 				if (msg.type === 'power') {
 					window.dispatchEvent(new CustomEvent('power-state', { detail: msg.state }));
 				}
-			} catch {}
+			} catch {
+				/* ignore malformed frames */
+			}
 		};
 	}
-
-	onMount(() => {
-		connect();
-		fetchWeather();
-		demoIsland();
-		return () => { clearTimeout(reconnectTimer); ws?.close(); };
-	});
 
 	async function fetchWeather() {
 		weatherLoading = true;
 		try {
-			const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=27.9&longitude=-82.4&current_weather=true');
+			const r = await fetch(
+				'https://api.open-meteo.com/v1/forecast?latitude=27.9&longitude=-82.4&current_weather=true&temperature_unit=fahrenheit'
+			);
 			const d = await r.json();
 			weather.set({
 				temp: Math.round(d.current_weather.temperature),
@@ -84,6 +75,16 @@
 		} catch {
 			weatherLoading = false;
 			setTimeout(fetchWeather, 30000);
+		}
+	}
+
+	async function fetchNowPlaying() {
+		try {
+			const r = await fetch('/api/nowplaying');
+			if (!r.ok) return;
+			nowPlaying.set(await r.json());
+		} catch {
+			/* playerctl is optional */
 		}
 	}
 
@@ -99,59 +100,74 @@
 		return 'Fair';
 	}
 
-	const views = {
-		clock: ClockView,
-		school: SchoolView,
-		dev: DevView,
-		music: MusicView
-	};
+	onMount(() => {
+		connect();
+		fetchWeather();
+		fetchNowPlaying();
+		const clock = setInterval(() => {
+			time = new Date();
+		}, 1000);
+		const music = setInterval(fetchNowPlaying, 4000);
+		const stopArbiter = startOllamaArbiter();
+		const onKey = (e) => {
+			if (e.altKey && (e.key === 'y' || e.key === 'Y')) {
+				toggleGpuLowPower();
+			}
+		};
+		window.addEventListener('keydown', onKey);
+		setTimeout(() => showNotif('system online', 'ambient display active', 'info', 4200), 700);
+		return () => {
+			clearInterval(clock);
+			clearInterval(music);
+			clearTimeout(reconnectTimer);
+			stopArbiter?.();
+			window.removeEventListener('keydown', onKey);
+			ws?.close();
+		};
+	});
 </script>
 
 <div class="display-shell">
-	<AmbientShader />
-	<div class="display-root" class:transitioning>
-		<div class="zone top">
-			<div class="top-left">
-				<div class="clock-mini">
-					<ClockView compact />
-				</div>
-				<div class="weather-pill">
+	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode} />
+
+	<div class="display-root">
+		<header class="zone top">
+			<HeroClock {time} />
+			<DynamicIsland
+				{time}
+				weather={$weather}
+				nowPlaying={$nowPlaying}
+				notification={notif}
+				gpuLowPower={$gpuLowPowerMode}
+				ollamaStatus={$ollamaStatus}
+			/>
+			<div class="weather-badge" data-glass>
+				<div class="eyebrow">Outside</div>
+				<div class="wx">
 					{#if weatherLoading}
-						<span class="skeleton" style="width:90px;height:24px;display:inline-block"></span>
+						<span class="skeleton inline"></span>
 					{:else}
-						{$weather.temp}°F · {$weather.desc}
+						<span class="wx-temp">{$weather.temp}°</span>
+						<span class="wx-desc">{$weather.desc}</span>
 					{/if}
 				</div>
 			</div>
-			<div class="top-right">
-				<GooeyNotification title={notif.title} body={notif.body} kind={notif.kind} visible={notif.visible} />
-			</div>
-		</div>
+		</header>
 
-		<div class="zone center">
-			<div class="panel left-panel">
-				{#key viewKey}
-					{#if $currentView === 'dev'}
-						<DevView />
-					{:else}
-						<SchoolView />
-					{/if}
-				{/key}
-			</div>
-			<div class="panel right-panel">
-				{#if $currentView === 'music'}
-					<MusicView />
-				{:else}
-					<!-- Infrastructure / Agent grid -->
-					<TopBar />
-				{/if}
-			</div>
-		</div>
+		<main class="zone center">
+			<section class="command-panel glass-panel rounded-2xl border border-white/10 bg-slate-950/40" data-glass class:focus={leftFocus === 'school'}>
+				<SchoolHub />
+			</section>
+			<section class="command-panel glass-panel rounded-2xl border border-white/10 bg-slate-950/40" data-glass class:focus={leftFocus === 'dev'}>
+				<DevHub />
+			</section>
+		</main>
 
-		<div class="zone bottom">
-			<AudioZone />
-		</div>
+		<footer class="zone bottom">
+			<AmbientDeck weather={$weather} />
+		</footer>
 	</div>
+
 	<NoiseOverlay />
 </div>
 
@@ -161,118 +177,132 @@
 		height: 100vh;
 		overflow: hidden;
 		position: relative;
-		background: var(--bg);
+		background: #05060c;
 	}
 	.display-root {
+		position: relative;
+		z-index: 10;
 		width: 100vw;
 		height: 100vh;
 		display: flex;
 		flex-direction: column;
 		color: var(--text-primary);
 		font-family: var(--font-body);
-		position: relative;
-		z-index: 10;
-		transition: opacity 0.2s ease, filter 0.25s ease;
 	}
-	.display-root.transitioning { opacity: 0.4; filter: blur(2px); }
-
 	.zone {
 		width: 100%;
-		padding: 0 56px;
+		padding: 0 48px;
 		box-sizing: border-box;
-		position: relative;
 	}
-
 	.top {
-		height: 20%;
-		min-height: 160px;
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-start;
-		padding-top: 32px;
-	}
-	.top-left {
-		display: flex;
-		flex-direction: column;
-		gap: 14px;
-	}
-	.clock-mini {
-		width: 280px;
-		height: 90px;
-		overflow: hidden;
-		--clock-scale: 0.35;
-	}
-	.weather-pill {
-		background: var(--surface);
-		border: 1px solid var(--surface-border);
-		border-radius: var(--r-sm);
-		padding: 14px 22px;
-		font-family: var(--font-display);
-		font-size: 22px;
-		color: var(--text-secondary);
-		letter-spacing: 0.02em;
-	}
-	.top-right {
-		display: flex;
-		justify-content: flex-end;
-		align-items: flex-start;
-	}
-
-	.center {
-		height: 50%;
-		min-height: 400px;
+		height: 15%;
+		min-height: 140px;
 		display: grid;
-		grid-template-columns: 1.3fr 1fr;
-		gap: 32px;
-		padding-top: 10px;
-		padding-bottom: 10px;
+		grid-template-columns: 1.1fr 1.2fr 0.9fr;
+		align-items: center;
+		gap: 24px;
+		padding-top: 18px;
+		overflow: visible;
 	}
-	.panel {
-		background: var(--surface);
-		border: 1px solid var(--surface-border);
-		border-radius: var(--r-lg);
-		backdrop-filter: blur(10px) saturate(1.3);
-		-webkit-backdrop-filter: blur(10px) saturate(1.3);
-		overflow: hidden;
+	.weather-badge {
+		justify-self: end;
+		min-width: 180px;
+		padding: 14px 18px;
+		border-radius: 1.25rem;
+		background: rgba(2, 6, 23, 0.4);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		backdrop-filter: blur(16px) saturate(1.4);
+		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+	}
+	.eyebrow {
+		font-size: 11px;
+		letter-spacing: 0.2em;
+		text-transform: uppercase;
+		color: rgb(148, 163, 184);
+		font-weight: 500;
+	}
+	.wx {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
+		margin-top: 4px;
+	}
+	.wx-temp {
+		font-size: clamp(2rem, 3vw, 3rem);
+		font-weight: 700;
+		letter-spacing: -0.04em;
+		color: #fff;
+	}
+	.wx-desc {
+		font-size: 18px;
+		color: rgb(148, 163, 184);
+	}
+	.center {
+		height: 55%;
+		min-height: 360px;
+		display: grid;
+		grid-template-columns: 1.15fr 1fr;
+		gap: 22px;
+		padding-top: 8px;
+		padding-bottom: 8px;
+	}
+	.command-panel {
 		position: relative;
+		overflow: hidden;
+		border-radius: 1.25rem;
+		background: rgba(2, 6, 23, 0.4);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		backdrop-filter: blur(16px) saturate(1.45);
+		-webkit-backdrop-filter: blur(16px) saturate(1.45);
+		box-shadow:
+			inset 0 1px 0 rgba(255, 255, 255, 0.12),
+			0 24px 60px rgba(0, 0, 0, 0.35);
 	}
-	.panel::before {
+	.command-panel::before {
 		content: '';
 		position: absolute;
 		inset: 0;
 		border-radius: inherit;
 		padding: 1px;
-		background: linear-gradient(135deg, rgba(169,177,240,0.18), rgba(255,255,255,0.04) 50%, rgba(169,177,240,0.06));
-		-webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+		background: linear-gradient(
+			135deg,
+			rgba(255, 255, 255, 0.35),
+			rgba(169, 177, 240, 0.18) 40%,
+			rgba(255, 255, 255, 0.04) 50%,
+			rgba(103, 232, 249, 0.16)
+		);
+		-webkit-mask:
+			linear-gradient(#000 0 0) content-box,
+			linear-gradient(#000 0 0);
 		-webkit-mask-composite: xor;
 		mask-composite: exclude;
 		pointer-events: none;
 	}
-
+	.command-panel.focus {
+		border-color: rgba(169, 177, 240, 0.38);
+	}
 	.bottom {
 		height: 30%;
-		min-height: 200px;
-		display: flex;
-		align-items: flex-end;
-		justify-content: center;
-		padding-bottom: 28px;
-		pointer-events: none;
+		min-height: 180px;
 	}
-
-	:global(.skeleton) {
-		background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.10) 50%, rgba(255,255,255,0.04) 100%);
-		background-size: 200% 100%;
-		border-radius: var(--r-sm);
-		animation: shimmer 1.6s infinite;
-	}
-	@keyframes shimmer {
-		0% { background-position: 200% 0; }
-		100% { background-position: -200% 0; }
+	.inline {
+		display: inline-block;
+		width: 120px;
+		height: 28px;
 	}
 
 	@media (max-aspect-ratio: 4/3) {
-		.center { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; height: 60%; }
-		.top { height: 15%; min-height: 120px; }
-		.bottom { height: 25%; min-height: 140px; }
+		.top {
+			grid-template-columns: 1fr 1fr;
+			height: 18%;
+		}
+		.center {
+			grid-template-columns: 1fr;
+			grid-template-rows: 1fr 1fr;
+			height: 52%;
+		}
+		.bottom {
+			height: 30%;
+		}
 	}
 </style>
