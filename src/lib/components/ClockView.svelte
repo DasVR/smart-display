@@ -12,8 +12,8 @@
 		return () => { clearInterval(t1); clearInterval(t2); };
 	});
 
-	$: h = String(time.getHours()).padStart(2,'0');
-	$: m = String(time.getMinutes()).padStart(2,'0');
+	$: h = String(time.getHours()).padStart(2, '0');
+	$: m = String(time.getMinutes()).padStart(2, '0');
 	$: month = time.toLocaleDateString('en-US', { month: 'long' });
 	$: day = time.getDate();
 	$: weekday = time.toLocaleDateString('en-US', { weekday: 'long' });
@@ -22,7 +22,6 @@
 </script>
 
 <div class="clock-view" class:mounted>
-	<div class="glow-backdrop"></div>
 	<div class="clock-face">
 		<div class="time-row">
 			<span class="digit">{dispH}</span>
@@ -32,7 +31,6 @@
 		</div>
 		<div class="date-row">{weekday}, {month} {day}</div>
 	</div>
-	<div class="hint">wake up, twin.</div>
 </div>
 
 <style>
@@ -40,87 +38,63 @@
 		width: 100%;
 		height: 100%;
 		display: flex;
-		flex-direction: column;
 		align-items: center;
 		justify-content: center;
 		position: relative;
 		opacity: 0;
-		transform: scale(0.96);
-		transition: opacity 0.6s cubic-bezier(0.22,1,0.36,1), transform 0.8s cubic-bezier(0.22,1,0.36,1);
+		transform: scale(0.98);
+		transition:
+			opacity 0.7s var(--ease-standard),
+			transform 0.9s var(--ease-standard);
 	}
-	.clock-view.mounted { opacity: 1; transform: scale(1); }
-
-	.glow-backdrop {
-		position: absolute;
-		width: 600px; height: 600px;
-		border-radius: 50%;
-		background: radial-gradient(circle, rgba(69,42,132,0.15) 0%, transparent 70%);
-		filter: blur(80px);
-		animation: breathe 6s ease-in-out infinite;
-	}
-	@keyframes breathe {
-		0%, 100% { transform: scale(1); opacity: 0.6; }
-		50% { transform: scale(1.1); opacity: 1; }
+	.clock-view.mounted {
+		opacity: 1;
+		transform: scale(1);
 	}
 
 	.clock-face {
 		text-align: center;
 		position: relative;
-		z-index: 2;
 	}
 	.time-row {
-		font-family: 'JetBrains Mono', monospace;
-		font-size: clamp(96px, 18vw, 240px);
+		font-family: var(--font-display);
+		font-size: clamp(96px, 18vw, 230px);
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 1;
-		color: #f5f2ec;
 		display: flex;
 		align-items: baseline;
 		justify-content: center;
 		gap: 0.05em;
+		color: var(--text-primary);
 	}
 	.digit {
-		background: linear-gradient(180deg, #ffffff 0%, #a9b1f0 100%);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-		background-clip: text;
+		color: var(--text-primary);
 	}
 	.colon {
-		color: rgba(255,255,255,0.3);
+		color: var(--text-secondary);
 		font-weight: 300;
+		opacity: 0.25;
 		transition: opacity 0.3s;
-		opacity: 0.2;
 	}
-	.colon.on { opacity: 1; color: #00d992; text-shadow: 0 0 20px #00d99240; }
+	.colon.on {
+		opacity: 1;
+		color: var(--accent);
+	}
 	.ampm {
-		font-size: 0.18em;
+		font-size: 0.14em;
 		font-weight: 500;
-		color: rgba(255,255,255,0.3);
-		margin-left: 0.3em;
+		color: var(--text-tertiary);
+		margin-left: 0.4em;
 		align-self: flex-start;
-		margin-top: 0.4em;
+		margin-top: 0.45em;
 	}
 	.date-row {
-		font-size: clamp(18px, 2.5vw, 32px);
-		font-weight: 300;
-		color: rgba(255,255,255,0.4);
-		letter-spacing: 0.1em;
+		margin-top: 18px;
+		font-size: clamp(16px, 2.2vw, 26px);
+		font-weight: 400;
+		color: var(--text-secondary);
+		letter-spacing: 0.12em;
 		text-transform: uppercase;
-		margin-top: 16px;
-	}
-	.hint {
-		position: absolute;
-		bottom: 120px;
-		font-size: 14px;
-		color: rgba(255,255,255,0.12);
-		font-family: 'JetBrains Mono', monospace;
-		letter-spacing: 0.15em;
-		text-transform: lowercase;
-		animation: fadePulse 4s ease-in-out infinite;
-	}
-	@keyframes fadePulse {
-		0%, 100% { opacity: 0.08; }
-		50% { opacity: 0.2; }
 	}
 </style>

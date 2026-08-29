@@ -1,139 +1,142 @@
 <script>
-	import { nowPlaying } from '$lib/stores.js';
 	import { onMount } from 'svelte';
+	import { nowPlaying } from '$lib/stores.js';
 	let mounted = false;
-	onMount(() => { mounted = true; });
+	let loading = true;
+	onMount(() => {
+		mounted = true;
+		setTimeout(() => { loading = false; }, 600);
+	});
 
-	// placeholder until we wire apple music / bluetooth audio
-	let playing = {
+	// PLACEHOLDER until bluetooth receiver / apple-music metadata lands
+	let track = {
 		artist: 'Deftones',
 		title: 'Change (In the House of Flies)',
 		album: 'White Pony',
-		cover: null,
 		progress: 64
 	};
 </script>
 
-<div class="music-view" class:mounted>
-	<div class="album-art">
-		<div class="vinyl-groove"></div>
-		<div class="center-label">♪</div>
-	</div>
-	<div class="track-info">
-		<div class="track-title">{playing.title}</div>
-		<div class="track-artist">{playing.artist} — {playing.album}</div>
-	</div>
-	<div class="progress-bar">
-		<div class="progress-fill" style="width: {playing.progress}%"></div>
-	</div>
-	<div class="controls">
-		<button>⏮</button>
-		<button class="play">▶</button>
-		<button>⏭</button>
-	</div>
-	<div class="hint">bluetooth receiver mode coming soon</div>
+<div class="view-shell music-view" class:mounted>
+	{#if loading}
+		<div class="skeleton art-skeleton"></div>
+		<div class="skeleton title-skeleton"></div>
+		<div class="skeleton bar-skeleton"></div>
+	{:else}
+		<div class="album-art">
+			<div class="vinyl-groove"></div>
+			<div class="center-label"></div>
+		</div>
+		<div class="track-info">
+			<div class="track-title">{track.title}</div>
+			<div class="track-artist">{track.artist} - {track.album}</div>
+		</div>
+		<div class="progress">
+			<div class="progress-fill" style="width:{track.progress}%"></div>
+		</div>
+		<div class="controls">
+			<button aria-label="Previous">prev</button>
+			<button class="play" aria-label="Play">play</button>
+			<button aria-label="Next">next</button>
+		</div>
+		<div class="api-note">bluetooth receiver coming</div>
+	{/if}
 </div>
 
 <style>
 	.music-view {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: 32px;
-		opacity: 0;
-		transform: translateY(12px);
-		transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.22,1,0.36,1);
+		gap: 30px;
+		text-align: center;
 	}
-	.music-view.mounted { opacity: 1; transform: translateY(0); }
 
 	.album-art {
-		width: 280px; height: 280px;
-		border-radius: 24px;
-		background: linear-gradient(135deg, #1a1a2e 0%, #0f0f1a 100%);
-		border: 1px solid rgba(255,255,255,0.08);
-		position: relative;
-		overflow: hidden;
+		width: 260px; height: 260px;
+		border-radius: var(--r-lg);
+		background: linear-gradient(135deg, #12121c, #0b0b12);
+		border: 1px solid var(--surface-border);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03);
+		position: relative;
+		overflow: hidden;
 	}
+	/* vinyl kept subtle, no spin until real playback */
 	.vinyl-groove {
 		position: absolute;
-		inset: 24px;
+		inset: 22px;
 		border-radius: 50%;
 		border: 2px solid rgba(255,255,255,0.04);
-		box-shadow: inset 0 0 40px rgba(0,0,0,0.4);
-		animation: spin 8s linear infinite;
+		box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
 	}
 	.vinyl-groove::before, .vinyl-groove::after {
 		content: '';
 		position: absolute;
-		inset: 20px;
+		inset: 26px;
 		border-radius: 50%;
 		border: 1px solid rgba(255,255,255,0.03);
 	}
-	.vinyl-groove::after { inset: 40px; }
-	@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+	.vinyl-groove::after { inset: 46px; }
 	.center-label {
-		width: 64px; height: 64px;
+		width: 58px; height: 58px;
 		border-radius: 50%;
-		background: #0a0a12;
-		border: 2px solid rgba(255,255,255,0.08);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-size: 24px;
-		color: rgba(255,255,255,0.2);
+		background: #12121c;
+		border: 2px solid rgba(255,255,255,0.07);
 		z-index: 2;
 	}
 
-	.track-info { text-align: center; }
-	.track-title { font-size: 24px; font-weight: 600; color: #f5f2ec; letter-spacing: -0.01em; }
-	.track-artist { font-size: 14px; color: rgba(255,255,255,0.3); margin-top: 6px; }
+	.track-title { font-size: 22px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; }
+	.track-artist { font-size: 13px; color: var(--text-tertiary); margin-top: 6px; }
 
-	.progress-bar {
-		width: 320px; height: 4px;
-		background: rgba(255,255,255,0.06);
+	.progress {
+		width: 300px; height: 4px;
+		background: var(--surface);
 		border-radius: 999px;
 		overflow: hidden;
 	}
 	.progress-fill {
 		height: 100%;
-		background: linear-gradient(90deg, #452a84, #a9b1f0);
+		background: var(--accent);
 		border-radius: 999px;
-		transition: width 0.3s ease;
+		transition: width 0.4s var(--ease-enter);
 	}
 
-	.controls { display: flex; gap: 24px; align-items: center; }
+	.controls {
+		display: flex;
+		align-items: center;
+		gap: 22px;
+	}
 	.controls button {
 		background: none; border: none;
-		color: rgba(255,255,255,0.4);
-		font-size: 20px; cursor: pointer;
-		transition: color 0.2s, transform 0.1s;
-		padding: 8px;
+		color: var(--text-secondary);
+		font-family: var(--font-display);
+		font-size: 13px;
+		letter-spacing: 0.04em;
+		cursor: pointer;
+		padding: 10px;
+		transition: color 0.15s;
 	}
-	.controls button:hover { color: #f5f2ec; }
-	.controls button:active { transform: scale(0.92); }
+	.controls button:hover { color: var(--accent); }
 	.controls button.play {
-		width: 64px; height: 64px;
+		width: 62px; height: 62px;
 		border-radius: 50%;
-		background: rgba(255,255,255,0.06);
-		border: 1px solid rgba(255,255,255,0.1);
-		color: #f5f2ec;
-		font-size: 24px;
+		background: var(--accent-soft);
+		border: 1px solid var(--accent-border);
+		color: var(--accent-strong);
+		font-size: 15px;
 		display: flex; align-items: center; justify-content: center;
 	}
-	.controls button.play:hover { background: rgba(255,255,255,0.1); }
+	.controls button.play:hover { background: var(--accent); color: #08080d; }
 
-	.hint {
-		font-family: 'JetBrains Mono', monospace;
+	.api-note {
+		font-family: var(--font-display);
 		font-size: 11px;
-		color: rgba(255,255,255,0.1);
+		color: var(--text-tertiary);
 		letter-spacing: 0.08em;
-		text-transform: lowercase;
 	}
+
+	.art-skeleton { width: 260px; height: 260px; border-radius: var(--r-lg); }
+	.title-skeleton { width: 220px; height: 24px; }
+	.bar-skeleton { width: 300px; height: 4px; border-radius: 999px; }
 </style>

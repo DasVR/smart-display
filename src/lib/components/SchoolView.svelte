@@ -1,116 +1,103 @@
 <script>
-	import { upcomingEvents } from '$lib/stores.js';
 	import { onMount } from 'svelte';
+	import { upcomingEvents } from '$lib/stores.js';
 	let mounted = false;
-	onMount(() => { mounted = true; });
+	let loading = true;
+	onMount(() => {
+		mounted = true;
+		// placeholder until canvas/collegeboard APIs land
+		setTimeout(() => { loading = false; }, 700);
+	});
 
+	// PLACEHOLDER data - flagged, not fabricated as real
 	const mockEvents = [
-		{ title: 'Calc II HW #4', course: 'MAC 2312', due: 'Today 11:59PM', urgent: true },
-		{ title: 'Read Ch. 7-8', course: 'ENC 1102', due: 'Tomorrow 8:00AM', urgent: false },
+		{ title: 'Calculus II HW #4', course: 'MAC 2312', due: 'Today 11:59PM', urgent: true },
+		{ title: 'Reading Ch. 7-8', course: 'ENC 1102', due: 'Tomorrow 8:00AM', urgent: false },
 		{ title: 'Lab Report Draft', course: 'CHM 2045', due: 'Fri 5:00PM', urgent: false },
-		{ title: 'Discussion Post', course: 'HUM 2020', due: 'Sun 11:59PM', urgent: false },
+		{ title: 'Discussion Post', course: 'HUM 2020', due: 'Sun 11:59PM', urgent: false }
 	];
 </script>
 
-<div class="school-view" class:mounted>
-	<div class="header">
-		<h2>School Brain</h2>
-		<div class="meta">4 assignments this week</div>
+<div class="view-shell school-view" class:mounted>
+	<div class="view-head">
+		<h2 class="view-title">School</h2>
+		<div class="view-meta">4 this week</div>
 	</div>
-	<div class="events">
-		{#each mockEvents as e, i}
-			<div class="event-card" style="transition-delay: {i*60}ms">
-				<div class="event-left">
-					<div class="event-title">{e.title}</div>
-					<div class="event-course">{e.course}</div>
+
+	{#if loading}
+		<div class="list">
+			{#each [1,2,3,4] as i}
+				<div class="row skeleton" style="height:64px"></div>
+			{/each}
+		</div>
+	{:else}
+		<div class="list">
+			{#each mockEvents as e}
+				<div class="row">
+					<div class="row-left">
+						<div class="row-title">{e.title}</div>
+						<div class="row-course">{e.course}</div>
+					</div>
+					<div class="row-right">
+						<span class="due" class:urgent={e.urgent}>{e.due}</span>
+						{#if e.urgent}<span class="urgent-tag">due</span>{/if}
+					</div>
 				</div>
-				<div class="event-right">
-					<div class="due" class:urgent={e.urgent}>{e.due}</div>
-					{#if e.urgent}<div class="badge">urgent</div>{/if}
-				</div>
-			</div>
-		{/each}
-	</div>
-	<div class="placeholder">canvas + collegeboard apis coming soon</div>
+			{/each}
+		</div>
+		<div class="api-note">canvas + collegeboard APIs coming</div>
+	{/if}
 </div>
 
 <style>
-	.school-view {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		padding: 80px 60px 40px;
-		gap: 32px;
-		opacity: 0;
-		transform: translateY(12px);
-		transition: opacity 0.4s ease, transform 0.5s cubic-bezier(0.22,1,0.36,1);
-	}
-	.school-view.mounted { opacity: 1; transform: translateY(0); }
+	.school-view { gap: 20px; }
 
-	.header { display: flex; justify-content: space-between; align-items: baseline; }
-	.header h2 {
-		font-size: clamp(28px, 3vw, 40px);
-		font-weight: 600;
-		letter-spacing: -0.02em;
-		margin: 0;
-		background: linear-gradient(90deg, #a9b1f0, #f5f2ec);
-		-webkit-background-clip: text;
-		-webkit-text-fill-color: transparent;
-	}
-	.meta {
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 13px;
-		color: rgba(255,255,255,0.25);
-		letter-spacing: 0.05em;
-	}
-
-	.events {
+	.list {
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
 	}
-	.event-card {
-		background: rgba(255,255,255,0.03);
-		border: 1px solid rgba(255,255,255,0.06);
-		border-radius: 16px;
+	.row {
+		background: var(--surface);
+		border: 1px solid var(--surface-border);
+		border-radius: var(--r-md);
 		padding: 20px 24px;
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-		transition: background 0.2s, border-color 0.2s, transform 0.3s, opacity 0.4s;
-		transform: translateY(8px);
-		opacity: 0;
+		justify-content: space-between;
+		transition: background 0.2s, border-color 0.2s;
 	}
-	.school-view.mounted .event-card {
-		transform: translateY(0);
-		opacity: 1;
+	.row:hover {
+		background: var(--surface-hover);
+		border-color: var(--surface-border-strong);
 	}
-	.event-card:hover {
-		background: rgba(255,255,255,0.06);
-		border-color: rgba(255,255,255,0.12);
+	.row-title { font-size: 18px; font-weight: 500; color: var(--text-primary); }
+	.row-course { font-family: var(--font-display); font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
+	.row-right { text-align: right; }
+	.due {
+		font-family: var(--font-display);
+		font-size: 13px;
+		color: var(--text-secondary);
 	}
-	.event-title { font-size: 18px; font-weight: 500; color: #f5f2ec; }
-	.event-course { font-size: 13px; color: rgba(255,255,255,0.3); margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
-	.due { font-size: 13px; color: rgba(255,255,255,0.35); font-family: 'JetBrains Mono', monospace; }
-	.due.urgent { color: #fe6f69; }
-	.badge {
+	.due.urgent { color: var(--warn); }
+	.urgent-tag {
+		display: inline-block;
+		margin-top: 6px;
+		font-family: var(--font-display);
 		font-size: 10px;
 		font-weight: 600;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		padding: 4px 10px;
-		border-radius: 999px;
-		background: rgba(254,111,105,0.12);
-		color: #fe6f69;
-		border: 1px solid rgba(254,111,105,0.2);
-		margin-top: 6px;
+		padding: 3px 8px;
+		border-radius: var(--r-sm);
+		background: rgba(252,165,165,0.12);
+		color: var(--warn);
+		border: 1px solid rgba(252,165,165,0.2);
 	}
-
-	.placeholder {
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 12px;
-		color: rgba(255,255,255,0.1);
+	.api-note {
+		font-family: var(--font-display);
+		font-size: 11px;
+		color: var(--text-tertiary);
 		text-align: center;
 		margin-top: auto;
 		letter-spacing: 0.08em;

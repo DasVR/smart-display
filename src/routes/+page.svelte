@@ -1,7 +1,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, wsStatus, weather, nowPlaying } from '$lib/stores.js';
+	import { currentView, wsStatus, weather } from '$lib/stores.js';
 	import ClockView from '$lib/components/ClockView.svelte';
 	import SchoolView from '$lib/components/SchoolView.svelte';
 	import DevView from '$lib/components/DevView.svelte';
@@ -10,12 +10,16 @@
 	let ws;
 	let reconnectTimer;
 	let transitioning = false;
+	let weatherLoading = true;
 
 	function connect() {
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(`${proto}//${location.host}/ws`);
 		ws.onopen = () => wsStatus.set('connected');
-		ws.onclose = () => { wsStatus.set('disconnected'); reconnectTimer = setTimeout(connect, 2000); };
+		ws.onclose = () => {
+			wsStatus.set('disconnected');
+			reconnectTimer = setTimeout(connect, 2000);
+		};
 		ws.onmessage = (e) => {
 			try {
 				const msg = JSON.parse(e.data);
@@ -38,24 +42,32 @@
 	});
 
 	async function fetchWeather() {
+		weatherLoading = true;
 		try {
 			const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=27.9&longitude=-82.4&current_weather=true');
 			const d = await r.json();
-			weather.set({ temp: Math.round(d.current_weather.temperature), desc: d.current_weather.weathercode, icon: weatherIcon(d.current_weather.weathercode) });
+			weather.set({
+				temp: Math.round(d.current_weather.temperature),
+				desc: weatherLabel(d.current_weather.weathercode)
+			});
+			weatherLoading = false;
 			setTimeout(fetchWeather, 600000);
-		} catch { setTimeout(fetchWeather, 30000); }
+		} catch {
+			weatherLoading = false;
+			setTimeout(fetchWeather, 30000);
+		}
 	}
 
-	function weatherIcon(code) {
-		if (code <= 1) return '☀️';
-		if (code <= 3) return '⛅';
-		if (code <= 48) return '🌫️';
-		if (code <= 67) return '🌧️';
-		if (code <= 77) return '❄️';
-		if (code <= 82) return '🌧️';
-		if (code <= 86) return '❄️';
-		if (code <= 99) return '⛈️';
-		return '☁️';
+	function weatherLabel(code) {
+		if (code <= 1) return 'Clear';
+		if (code <= 3) return 'Cloudy';
+		if (code <= 48) return 'Fog';
+		if (code <= 67) return 'Rain';
+		if (code <= 77) return 'Snow';
+		if (code <= 82) return 'Showers';
+		if (code <= 86) return 'Snow';
+		if (code <= 99) return 'Storm';
+		return 'Fair';
 	}
 
 	const views = {
@@ -68,26 +80,33 @@
 
 <div class="display-root" class:transitioning>
 	<div class="top-bar">
-		<div class="weather-pill">{$weather.icon} {$weather.temp}°F</div>
-		<div class="connection-dot" class:connected={$wsStatus === 'connected'}></div>
+		<div class="weather-pill">
+			{#if weatherLoading}
+				<span class="skeleton" style="width:56px;height:14px;display:inline-block"></span>
+			{:else}
+				{$weather.temp}F - {$weather.desc}
+			{/if}
+		</div>
+		<div class="conn">
+			<span class="status-dot" class:ok={$wsStatus === 'connected'}></span>
+			<span class="conn-label">{$wsStatus === 'connected' ? 'linked' : 'connecting'}</span>
+		</div>
 	</div>
 
 	<div class="view-container">
 		<svelte:component this={views[$currentView]} />
 	</div>
 
-	<div class="bottom-hint">
-		⬅️ swipe on your phone ➡️
-	</div>
+	<div class="hint">swipe on your phone to switch views</div>
 </div>
 
 <style>
 	.display-root {
 		width: 100vw;
 		height: 100vh;
-		background: #050507;
-		color: #f5f2ec;
-		font-family: 'Inter', system-ui, sans-serif;
+		background: var(--bg);
+		color: var(--text-primary);
+		font-family: var(--font-body);
 		overflow: hidden;
 		position: relative;
 		transition: opacity 0.15s ease;
@@ -106,22 +125,28 @@
 		pointer-events: none;
 	}
 	.weather-pill {
-		background: rgba(255,255,255,0.06);
-		border: 1px solid rgba(255,255,255,0.08);
-		border-radius: 999px;
-		padding: 8px 16px;
-		font-size: 14px;
-		font-weight: 500;
-		font-family: 'JetBrains Mono', monospace;
-		letter-spacing: -0.02em;
+		background: var(--surface);
+		border: 1px solid var(--surface-border);
+		border-radius: var(--r-sm);
+		padding: 8px 14px;
+		font-family: var(--font-display);
+		font-size: 13px;
+		color: var(--text-secondary);
+		letter-spacing: 0.02em;
+		min-width: 90px;
 	}
-	.connection-dot {
-		width: 8px; height: 8px;
-		border-radius: 50%;
-		background: #444;
-		transition: background 0.3s;
+	.conn {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 	}
-	.connection-dot.connected { background: #00d992; box-shadow: 0 0 6px #00d99240; }
+	.conn-label {
+		font-family: var(--font-display);
+		font-size: 12px;
+		color: var(--text-tertiary);
+		letter-spacing: 0.08em;
+		text-transform: lowercase;
+	}
 
 	.view-container {
 		width: 100%;
@@ -131,16 +156,16 @@
 		justify-content: center;
 	}
 
-	.bottom-hint {
+	.hint {
 		position: absolute;
-		bottom: 20px;
+		bottom: 22px;
 		left: 50%;
 		transform: translateX(-50%);
-		font-size: 12px;
-		color: rgba(255,255,255,0.15);
-		font-family: 'JetBrains Mono', monospace;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
+		font-family: var(--font-display);
+		font-size: 11px;
+		color: var(--text-tertiary);
+		letter-spacing: 0.1em;
+		text-transform: lowercase;
 		pointer-events: none;
 	}
 </style>
