@@ -14,10 +14,23 @@
 	let transitioning = false;
 	let weatherLoading = true;
 	let notif = { visible: false, title: '', body: '', kind: 'info' };
+	let prevView = 'clock';
+	let viewKey = 0;
 
 	function showNotif(title, body, kind = 'info', ms = 4000) {
 		notif = { visible: true, title, body, kind };
 		setTimeout(() => { notif = { ...notif, visible: false }; }, ms);
+	}
+
+	function goTo(view) {
+		if (view === $currentView) return;
+		prevView = $currentView;
+		transitioning = true;
+		setTimeout(() => {
+			currentView.set(view);
+			viewKey++;
+			transitioning = false;
+		}, 180);
 	}
 
 	function connect() {
@@ -32,13 +45,11 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
-					transitioning = true;
-					setTimeout(() => { currentView.set(msg.view); transitioning = false; }, 150);
+					goTo(msg.view);
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
-					transitioning = true;
 					showNotif('Good morning', 'AP Gov deadline today', 'info');
-					setTimeout(() => { currentView.set('school'); transitioning = false; }, 150);
+					goTo('school');
 				}
 			} catch {}
 		};
@@ -104,8 +115,10 @@
 		</div>
 	</div>
 
-	<div class="view-container">
-		<svelte:component this={views[$currentView]} />
+	<div class="view-container" class:transitioning>
+		{#key viewKey}
+			<svelte:component this={views[$currentView]} />
+		{/key}
 	</div>
 
 	<div class="hint">swipe on your phone to switch views</div>
@@ -165,6 +178,13 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+	.view-container > :global(*) {
+		animation: view-in 0.6s var(--ease-enter);
+	}
+	@keyframes view-in {
+		from { opacity: 0; transform: translateY(18px) scale(0.985); }
+		to { opacity: 1; transform: translateY(0) scale(1); }
 	}
 
 	.hint {

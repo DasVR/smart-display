@@ -72,13 +72,17 @@
 			);
 			float f = fbm(uv + 1.9 * r);
 
+			// second flow layer: slower, larger-scale drift (adds depth)
+			vec2 q2 = vec2(fbm(uv * 0.5 + t * 0.05), fbm(uv * 0.5 + vec2(3.1, 7.7) - t * 0.04));
+			float f2 = fbm(uv * 0.5 + 1.4 * q2 + vec2(0.0, 0.0));
+
 			// bass ripple: radial wave from center, amplitude = bass
 			vec2 centered = uv - 0.5;
 			float dist = length(centered);
 			float ripple = sin(dist * 40.0 - t * 3.0) * exp(-dist * 4.0);
 			f += ripple * bass * 0.6;
 
-			return f;
+			return f * 0.7 + f2 * 0.3;
 		}
 
 		// ---------- Bayer 4x4 ordered dither (valid GLSL ES 1.0) ----------
@@ -268,7 +272,7 @@
 		height: 100vh;
 		pointer-events: none;
 		z-index: 0;
-		opacity: 0.05;
+		opacity: 0.18;
 		mix-blend-mode: screen;
 	}
 </style>
