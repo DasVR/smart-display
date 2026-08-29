@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	let time = new Date();
 	let colonVisible = true;
+	export let compact = false;
 	let mounted = false;
 
 	onMount(() => {
@@ -21,7 +22,7 @@
 	$: seconds = String(time.getSeconds()).padStart(2, '0');
 </script>
 
-<div class="clock-view" class:mounted>
+<div class="clock-view" class:mounted class:compact>
 	<div class="clock-face">
 		<div class="time-row">
 			<span class="digit">{dispH}</span>
@@ -42,6 +43,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		padding: 0;
 		position: relative;
 		opacity: 0;
 		transform: scale(0.98);
@@ -58,6 +60,13 @@
 	.time-row {
 		font-family: var(--font-display);
 		font-size: clamp(140px, 22vw, 340px);
+	}
+	.clock-view.compact .time-row {
+		font-size: clamp(60px, 10vw, 140px);
+	}
+	.clock-view.compact .date-row {
+		font-size: clamp(16px, 2vw, 24px);
+		margin-top: 6px;
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 1;
