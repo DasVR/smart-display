@@ -13,6 +13,27 @@ const server = createServer((req, res) => {
 		res.end();
 		return;
 	}
+	
+	// HA webhook endpoint
+	if (req.method === 'POST' && req.url === '/webhook/ha') {
+		let body = '';
+		req.on('data', chunk => body += chunk);
+		req.on('end', () => {
+			try {
+				const data = JSON.parse(body);
+				if (data.event === 'morning') {
+					broadcast({ type: 'trigger', event: 'morning', data: data.data || {} });
+					res.writeHead(200, { 'Content-Type': 'application/json' });
+					res.end(JSON.stringify({ ok: true }));
+					return;
+				}
+			} catch {}
+			res.writeHead(400, { 'Content-Type': 'application/json' });
+			res.end(JSON.stringify({ error: 'invalid payload' }));
+		});
+		return;
+	}
+	
 	handler(req, res);
 });
 
