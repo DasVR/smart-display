@@ -8,6 +8,7 @@
 	import MusicView from '$lib/components/MusicView.svelte';
 	import AmbientShader from '$lib/components/AmbientShader.svelte';
 	import GooeyNotification from '$lib/components/GooeyNotification.svelte';
+	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
 
 	let ws;
 	let reconnectTimer;
@@ -16,10 +17,16 @@
 	let notif = { visible: false, title: '', body: '', kind: 'info' };
 	let prevView = 'clock';
 	let viewKey = 0;
+	let booted = false;
 
 	function showNotif(title, body, kind = 'info', ms = 4000) {
 		notif = { visible: true, title, body, kind };
 		setTimeout(() => { notif = { ...notif, visible: false }; }, ms);
+	}
+
+	function demoIsland() {
+		// show the gooey Dynamic Island once on boot so the effect is visible
+		setTimeout(() => showNotif('system online', 'ambient display active', 'info', 5000), 800);
 	}
 
 	function goTo(view) {
@@ -58,6 +65,7 @@
 	onMount(() => {
 		connect();
 		fetchWeather();
+		demoIsland();
 		return () => { clearTimeout(reconnectTimer); ws?.close(); };
 	});
 
@@ -98,30 +106,33 @@
 	};
 </script>
 
-<div class="display-root" class:transitioning>
+<div class="display-shell">
 	<AmbientShader />
+	<div class="display-root" class:transitioning>
+		<div class="top-bar">
+			<div class="weather-pill">
+				{#if weatherLoading}
+					<span class="skeleton" style="width:56px;height:14px;display:inline-block"></span>
+				{:else}
+					{$weather.temp}F - {$weather.desc}
+				{/if}
+			</div>
+			<div class="conn">
+				<span class="status-dot" class:ok={$wsStatus === 'connected'}></span>
+				<span class="conn-label">{$wsStatus === 'connected' ? 'linked' : 'connecting'}</span>
+			</div>
+		</div>
+
+		<div class="view-container" class:transitioning>
+			{#key viewKey}
+				<svelte:component this={views[$currentView]} />
+			{/key}
+		</div>
+
+		<div class="hint">swipe on your phone to switch views</div>
+	</div>
+	<NoiseOverlay />
 	<GooeyNotification title={notif.title} body={notif.body} kind={notif.kind} visible={notif.visible} />
-	<div class="top-bar">
-		<div class="weather-pill">
-			{#if weatherLoading}
-				<span class="skeleton" style="width:56px;height:14px;display:inline-block"></span>
-			{:else}
-				{$weather.temp}F - {$weather.desc}
-			{/if}
-		</div>
-		<div class="conn">
-			<span class="status-dot" class:ok={$wsStatus === 'connected'}></span>
-			<span class="conn-label">{$wsStatus === 'connected' ? 'linked' : 'connecting'}</span>
-		</div>
-	</div>
-
-	<div class="view-container" class:transitioning>
-		{#key viewKey}
-			<svelte:component this={views[$currentView]} />
-		{/key}
-	</div>
-
-	<div class="hint">swipe on your phone to switch views</div>
 </div>
 
 <style>
@@ -133,9 +144,36 @@
 		font-family: var(--font-body);
 		overflow: hidden;
 		position: relative;
-		transition: opacity 0.15s ease;
+		transition: opacity 0.2s ease, filter 0.25s ease;
 	}
-	.display-root.transitioning { opacity: 0.3; }
+	.display-root.transitioning { opacity: 0.4; filter: blur(2px); }
+	.display-shell {
+		width: 100vw;
+		height: 100vh;
+		overflow: hidden;
+		position: relative;
+	}
+	.display-shell::after {
+		content: '';
+		position: fixed;
+		inset: 0;
+		pointer-events: none;
+		z-index: 30;
+		background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.5) 100%);
+	}
+	.display-root::after { display: none; }
+	.top-bar, .hint, .island-wrap {
+		/* keep top UI visible during view transitions */
+		transition: opacity 0.2s ease;
+	}
+
+	.display-root.transitioning .view-container > :global(*) {
+		animation: view-out 0.2s var(--ease-enter) forwards;
+	}
+	@keyframes view-out {
+		from { opacity: 1; transform: translateY(0) scale(1); }
+		to { opacity: 0; transform: translateY(-10px) scale(0.99); }
+	}
 
 	.top-bar {
 		position: absolute;

@@ -22,19 +22,20 @@
 <style>
 	.glass-panel {
 		position: relative;
-		background: rgba(20, 20, 30, 0.28);
-		backdrop-filter: blur(18px) saturate(1.4);
-		-webkit-backdrop-filter: blur(18px) saturate(1.4);
-		border: 1px solid rgba(255, 255, 255, 0.10);
+		background: rgba(20, 20, 30, 0.42);
+		backdrop-filter: blur(26px) saturate(1.55);
+		-webkit-backdrop-filter: blur(26px) saturate(1.55);
+		border: 1px solid rgba(255, 255, 255, 0.14);
 		border-radius: 20px;
 		padding: 20px 22px;
 		box-shadow:
-			0 8px 32px rgba(0, 0, 0, 0.35),
-			inset 0 1px 0 rgba(255, 255, 255, 0.08);
+			0 12px 42px rgba(0, 0, 0, 0.45),
+			inset 0 1px 0 rgba(255, 255, 255, 0.10);
 		overflow: hidden;
+		z-index: 10;
 	}
 
-	/* 1px edge highlight (the "thick glass" rim) */
+	/* animated dithered gradient border shimmer */
 	.glass-panel::before {
 		content: '';
 		position: absolute;
@@ -43,15 +44,23 @@
 		padding: 1px;
 		background: linear-gradient(
 			135deg,
-			rgba(255, 255, 255, 0.22),
-			rgba(255, 255, 255, 0.02) 40%,
-			rgba(255, 255, 255, 0.02) 60%,
-			rgba(255, 255, 255, 0.10)
+			rgba(255, 255, 255, 0.45),
+			rgba(169, 177, 240, 0.25) 35%,
+			rgba(255, 255, 255, 0.02) 50%,
+			rgba(169, 177, 240, 0.25) 65%,
+			rgba(255, 255, 255, 0.35)
 		);
+		background-size: 200% 200%;
+		animation: glass-shimmer 8s ease infinite;
 		-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
 		-webkit-mask-composite: xor;
 		mask-composite: exclude;
 		pointer-events: none;
+	}
+
+	@keyframes glass-shimmer {
+		0%, 100% { background-position: 0% 50%; }
+		50% { background-position: 100% 50%; }
 	}
 
 	/* cheap chromatic aberration: split a faint RGB copy at the top edge */
@@ -61,19 +70,19 @@
 		top: 0; left: 0; right: 0;
 		height: 1px;
 		background: linear-gradient(90deg,
-			rgba(255, 0, 60, 0.25),
-			rgba(0, 255, 200, 0.25),
-			rgba(60, 0, 255, 0.25));
-		opacity: 0.5;
+			rgba(255, 0, 60, 0.35),
+			rgba(0, 255, 200, 0.35),
+			rgba(60, 0, 255, 0.35));
+		opacity: 0.7;
 		pointer-events: none;
 	}
 
 	.glass-panel.accent {
-		border-color: rgba(169, 177, 240, 0.35);
+		border-color: rgba(169, 177, 240, 0.45);
 		box-shadow:
-			0 8px 32px rgba(0, 0, 0, 0.35),
-			0 0 24px rgba(169, 177, 240, 0.12),
-			inset 0 1px 0 rgba(255, 255, 255, 0.10);
+			0 14px 48px rgba(0, 0, 0, 0.45),
+			0 0 30px rgba(169, 177, 240, 0.15),
+			inset 0 1px 0 rgba(255, 255, 255, 0.12);
 	}
 
 	.glass-head {

@@ -44,7 +44,7 @@
 		position: fixed;
 		top: 0; left: 50%;
 		transform: translateX(-50%);
-		z-index: 200;
+		z-index: 50;
 		pointer-events: none;
 		opacity: 0;
 		transition: opacity 0.3s ease;
