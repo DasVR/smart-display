@@ -1,0 +1,26 @@
+[Unit]
+Description=Smart Display Kiosk (Cage + Chromium)
+After=network-online.target smart-display-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=das
+Group=das
+SupplementaryGroups=render video input
+Environment="WLR_LIBINPUT_NO_DEVICES=1"
+Environment="WLR_BACKENDS=drm,libinput"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="WAYLAND_DISPLAY=wayland-1"
+ExecStartPre=/usr/bin/mkdir -p /run/user/1000
+ExecStartPre=/usr/bin/chown das:das /run/user/1000
+ExecStartPre=/usr/bin/chmod 700 /run/user/1000
+ExecStart=/usr/bin/cage -s -- /usr/bin/chromium-browser --enable-features=UseOzonePlatform --ozone-platform=wayland --kiosk --app=http://localhost:3000 --force-device-scale-factor=2 --disable-features=TranslateUI --disable-infobars --disable-session-crashed-bubble --disable-restore-session-state --noerrdialogs --hide-scrollbars --autoplay-policy=no-user-gesture-required --disable-features=OverscrollHistoryNavigation
+ExecStartPost=/bin/sh -c 'sleep 5 && curl -s -o /dev/null http://localhost:3000 || true'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical.target

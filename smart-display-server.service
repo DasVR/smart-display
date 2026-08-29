@@ -1,0 +1,16 @@
+[Unit]
+Description=Smart Display Dashboard Server
+After=network-online.target
+
+[Service]
+Type=simple
+User=das
+WorkingDirectory=/home/das/projects/smart-display
+Environment="NODE_ENV=production"
+Environment="PORT=3000"
+ExecStart=/usr/bin/node src/ws-server.js
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
