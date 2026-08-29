@@ -1,105 +1,140 @@
 <script>
 	import { onMount } from 'svelte';
-	import { upcomingEvents } from '$lib/stores.js';
 	let mounted = false;
 	let loading = true;
+	let events = [];
+	let error = null;
+
 	onMount(() => {
 		mounted = true;
-		// placeholder until canvas/collegeboard APIs land
-		setTimeout(() => { loading = false; }, 700);
+		fetchEvents();
+		const t = setInterval(fetchEvents, 300000); // 5 min
+		return () => clearInterval(t);
 	});
 
-	// PLACEHOLDER data - flagged, not fabricated as real
-	const mockEvents = [
-		{ title: 'Calculus II HW #4', course: 'MAC 2312', due: 'Today 11:59PM', urgent: true },
-		{ title: 'Reading Ch. 7-8', course: 'ENC 1102', due: 'Tomorrow 8:00AM', urgent: false },
-		{ title: 'Lab Report Draft', course: 'CHM 2045', due: 'Fri 5:00PM', urgent: false },
-		{ title: 'Discussion Post', course: 'HUM 2020', due: 'Sun 11:59PM', urgent: false }
-	];
+	async function fetchEvents() {
+		try {
+			const r = await fetch('/api/calendar?days=3');
+			if (!r.ok) throw new Error('calendar failed');
+			const d = await r.json();
+			events = d.events || [];
+			error = null;
+		} catch (e) {
+			error = 'calendar feed offline';
+			events = [];
+		} finally {
+			loading = false;
+		}
+	}
+
+	function urgency(event) {
+		if (!event || !event.start) return false;
+		const now = new Date();
+		const start = new Date(event.start);
+		const hours = (start - now) / 1000 / 60 / 60;
+		return hours >= -2 && hours <= 24;
+	}
+
+	function dayLabel(iso) {
+		const d = new Date(iso);
+		const today = new Date();
+		const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+		if (d.toDateString() === today.toDateString()) return 'Today';
+		if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
+		return d.toLocaleDateString('en-US', { weekday: 'short' });
+	}
+
+	function timeLabel(iso) {
+		const d = new Date(iso);
+		return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+	}
 </script>
 
 <div class="view-shell school-view" class:mounted>
 	<div class="view-head">
 		<h2 class="view-title">School</h2>
-		<div class="view-meta">4 this week</div>
+		<div class="view-meta">{events.length} upcoming</div>
 	</div>
 
 	{#if loading}
 		<div class="list">
 			{#each [1,2,3,4] as i}
-				<div class="row skeleton" style="height:64px"></div>
+				<div class="row skeleton" style="height:92px"></div>
 			{/each}
+		</div>
+	{:else if error}
+		<div class="empty-state">
+			<div class="empty-title">{error}</div>
+			<div>calendar not connected yet</div>
+		</div>
+	{:else if events.length === 0}
+		<div class="empty-state">
+			<div class="empty-title">no upcoming events</div>
+			<div>add assignments to google calendar</div>
 		</div>
 	{:else}
 		<div class="list">
-			{#each mockEvents as e}
-				<div class="row">
+			{#each events as e}
+				<div class="row" class:urgent={urgency(e)}>
 					<div class="row-left">
 						<div class="row-title">{e.title}</div>
-						<div class="row-course">{e.course}</div>
+						{#if e.location}<div class="row-course">{e.location}</div>{/if}
 					</div>
 					<div class="row-right">
-						<span class="due" class:urgent={e.urgent}>{e.due}</span>
-						{#if e.urgent}<span class="urgent-tag">due</span>{/if}
+						<span class="due">{dayLabel(e.start)} {timeLabel(e.start)}</span>
+						{#if urgency(e)}<span class="urgent-tag">soon</span>{/if}
 					</div>
 				</div>
 			{/each}
 		</div>
-		<div class="api-note">canvas + collegeboard APIs coming</div>
 	{/if}
 </div>
 
 <style>
-	.school-view { gap: 20px; }
+	.school-view { gap: 24px; }
 
 	.list {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: 16px;
 	}
 	.row {
 		background: var(--surface);
 		border: 1px solid var(--surface-border);
 		border-radius: var(--r-md);
-		padding: 20px 24px;
+		padding: 28px 30px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		transition: background 0.2s, border-color 0.2s;
+		transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
 	}
 	.row:hover {
 		background: var(--surface-hover);
 		border-color: var(--surface-border-strong);
 	}
-	.row-title { font-size: 18px; font-weight: 500; color: var(--text-primary); }
-	.row-course { font-family: var(--font-display); font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
-	.row-right { text-align: right; }
+	.row.urgent {
+		border-color: rgba(252,165,165,0.3);
+		background: rgba(252,165,165,0.06);
+	}
+	.row-title { font-size: 28px; font-weight: 600; color: var(--text-primary); }
+	.row-course { font-family: var(--font-display); font-size: 15px; color: var(--text-tertiary); margin-top: 6px; }
+	.row-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 	.due {
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: 18px;
 		color: var(--text-secondary);
 	}
-	.due.urgent { color: var(--warn); }
 	.urgent-tag {
-		display: inline-block;
-		margin-top: 6px;
 		font-family: var(--font-display);
-		font-size: 10px;
-		font-weight: 600;
+		font-size: 13px;
+		font-weight: 700;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		padding: 3px 8px;
+		padding: 5px 12px;
 		border-radius: var(--r-sm);
-		background: rgba(252,165,165,0.12);
+		background: rgba(252,165,165,0.16);
 		color: var(--warn);
-		border: 1px solid rgba(252,165,165,0.2);
-	}
-	.api-note {
-		font-family: var(--font-display);
-		font-size: 11px;
-		color: var(--text-tertiary);
-		text-align: center;
-		margin-top: auto;
-		letter-spacing: 0.08em;
+		border: 1px solid rgba(252,165,165,0.3);
+		box-shadow: 0 0 12px rgba(252,165,165,0.15);
 	}
 </style>

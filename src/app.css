@@ -5,9 +5,9 @@
    ============================================ */
 :root {
   /* canvas / surfaces */
-  --bg: #08080d;               /* near-black, violet-tinted, not pure #000 */
-  --surface: rgba(255,255,255,0.03);
-  --surface-hover: rgba(255,255,255,0.06);
+  --bg: #08080d;
+  --surface: rgba(255,255,255,0.04);
+  --surface-hover: rgba(255,255,255,0.08);
   --surface-border: rgba(255,255,255,0.07);
   --surface-border-strong: rgba(255,255,255,0.14);
 
@@ -23,19 +23,19 @@
   --accent-border: rgba(169,177,240,0.35);
 
   /* functional / semantic only */
-  --ok: #34d399;               /* up / success */
-  --warn: #fca5a5;             /* urgent / danger (functional, not decorative) */
+  --ok: #34d399;
+  --warn: #fca5a5;
 
-  /* radius scale (one system, hierarchy via variation) */
-  --r-sm: 10px;
-  --r-md: 16px;
-  --r-lg: 22px;
+  /* radius */
+  --r-sm: 14px;
+  --r-md: 20px;
+  --r-lg: 26px;
 
   /* type */
   --font-display: 'JetBrains Mono', monospace;
   --font-body: 'Inter', system-ui, sans-serif;
 
-  /* spring / motion */
+  /* motion */
   --ease-standard: cubic-bezier(0.22,1,0.36,1);
   --ease-enter: cubic-bezier(0.16,1,0.3,1);
 }
@@ -74,8 +74,8 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 84px 64px 48px;
-  gap: 28px;
+  padding: 110px 80px 64px;
+  gap: 38px;
   opacity: 0;
   transform: translateY(14px);
   transition:
@@ -94,7 +94,7 @@ body {
 }
 .view-title {
   font-family: var(--font-display);
-  font-size: clamp(26px, 3vw, 38px);
+  font-size: clamp(52px, 5.8vw, 86px);
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0;
@@ -102,7 +102,7 @@ body {
 }
 .view-meta {
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 20px;
   color: var(--text-tertiary);
   letter-spacing: 0.05em;
 }
@@ -112,28 +112,28 @@ body {
   background: var(--surface);
   border: 1px solid var(--surface-border);
   border-radius: var(--r-lg);
-  padding: 24px;
+  padding: 32px;
 }
 .panel-title {
   font-family: var(--font-display);
-  font-size: 11px;
+  font-size: 16px;
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-tertiary);
-  margin: 0 0 14px;
+  margin: 0 0 20px;
 }
 
 /* status dot - semantic only (server / connection state) */
 .status-dot {
-  width: 7px;
-  height: 7px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--text-tertiary);
 }
 .status-dot.ok {
   background: var(--ok);
-  box-shadow: 0 0 8px rgba(52,211,153,0.45);
+  box-shadow: 0 0 14px rgba(52,211,153,0.6);
 }
 
 /* skeleton shimmer for loading states */
@@ -142,7 +142,7 @@ body {
   100% { background-position: 200% 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.09), rgba(255,255,255,0.05));
+  background: linear-gradient(90deg, rgba(255,255,255,0.05), rgba(255,255,255,0.14), rgba(255,255,255,0.05));
   background-size: 200% 100%;
   animation: shimmer 1.4s infinite;
   border-radius: var(--r-sm);
