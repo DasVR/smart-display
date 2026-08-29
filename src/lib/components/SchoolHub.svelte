@@ -73,12 +73,9 @@
 </script>
 
 <div class="school-hub">
-	<header class="hub-head">
-		<div class="titles">
-			<div class="eyebrow">School & Life</div>
-			<h2 class="hub-title">Assignments</h2>
-		</div>
-		<div class="head-meta">{events.length} in the next 3 days</div>
+	<header class="running">
+		<h2 class="hub-title">Assignments</h2>
+		<p class="head-meta">{events.length} in the next 3 days</p>
 	</header>
 
 	{#if loading}
@@ -124,44 +121,36 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
-		padding: var(--space-5) var(--space-5) var(--space-4);
+		gap: var(--space-5);
+		padding: var(--space-2) var(--space-2) 0 0;
 		min-height: 0;
 		min-width: 0;
 	}
-	.hub-head {
+	.running {
 		display: flex;
-		justify-content: space-between;
-		align-items: flex-end;
-		gap: var(--space-4);
-	}
-	.titles {
+		flex-direction: column;
+		gap: var(--space-1);
 		min-width: 0;
 	}
-	.eyebrow {
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-tertiary);
-	}
 	.hub-title {
-		margin: var(--space-1) 0 0;
-		font-size: clamp(1.8rem, 2.4vw, 2.6rem);
+		margin: 0;
+		font-size: clamp(1.15rem, 1.6vw, 1.45rem);
 		font-weight: 600;
 		font-style: normal;
-		letter-spacing: -0.03em;
+		letter-spacing: -0.02em;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.head-meta {
+		margin: 0;
 		font-size: 14px;
-		color: var(--text-secondary);
-		flex-shrink: 0;
+		color: var(--text-tertiary);
 	}
 	.archive {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5);
+		gap: var(--space-6);
 		overflow: auto;
 		min-height: 0;
 	}
@@ -177,7 +166,7 @@
 		font-weight: 600;
 		font-style: normal;
 		color: var(--brand);
-		padding-top: var(--space-2);
+		padding-top: var(--space-1);
 	}
 	.day-list {
 		list-style: none;
@@ -206,7 +195,7 @@
 		color: var(--text-tertiary);
 	}
 	.row-title {
-		font-size: clamp(1.05rem, 1.4vw, 1.35rem);
+		font-size: clamp(1.15rem, 1.7vw, 1.55rem);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -220,7 +209,7 @@
 		color: var(--text-tertiary);
 	}
 	.row.skeleton {
-		height: 56px;
+		height: 48px;
 		border-radius: var(--radius-sm);
 	}
 	.empty {
@@ -228,13 +217,14 @@
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		justify-content: center;
+		justify-content: flex-start;
+		padding-top: var(--space-4);
 		gap: var(--space-2);
 		color: var(--text-tertiary);
 		font-size: 16px;
 	}
 	.empty-title {
-		font-size: 28px;
+		font-size: clamp(1.6rem, 2.2vw, 2.1rem);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--text-secondary);
@@ -242,10 +232,6 @@
 	}
 
 	@media (max-width: 768px) {
-		.hub-head {
-			flex-direction: column;
-			align-items: flex-start;
-		}
 		.day {
 			grid-template-columns: minmax(0, 1fr);
 			gap: var(--space-2);

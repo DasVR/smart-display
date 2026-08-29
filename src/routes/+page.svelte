@@ -1,5 +1,5 @@
 <!--
-	Hallmark redesign scores
+	Hallmark design scores
 	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 4 · Restraint 4 · Variety 4
 -->
 <script>
@@ -7,7 +7,6 @@
 	import { onMount } from 'svelte';
 	import {
 		currentView,
-		wsStatus,
 		weather,
 		nowPlaying
 	} from '$lib/stores.js';
@@ -119,7 +118,6 @@
 			}
 		};
 		window.addEventListener('keydown', onKey);
-		setTimeout(() => showNotif('system online', 'ambient display active', 'info', 4200), 700);
 		return () => {
 			clearInterval(clock);
 			clearInterval(music);
@@ -129,6 +127,10 @@
 			ws?.close();
 		};
 	});
+
+	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long' }));
+	let month = $derived(time.toLocaleDateString('en-US', { month: 'long' }));
+	let dayNum = $derived(time.getDate());
 </script>
 
 <div class="display-shell">
@@ -136,10 +138,17 @@
 
 	<div class="display-root">
 		<header class="zone top">
-			<div class="mast-clock">
-				<HeroClock {time} />
-			</div>
-			<div class="mast-dock">
+			<HeroClock {time} />
+			<div class="mast-rail">
+				<p class="dateline">{weekday}, {month} {dayNum}</p>
+				<p class="wxline">
+					{#if weatherLoading}
+						<span class="skeleton inline"></span>
+					{:else}
+						<span class="num">{$weather.temp}°</span>
+						{$weather.desc}
+					{/if}
+				</p>
 				<DynamicIsland
 					nowPlaying={$nowPlaying}
 					notification={notif}
@@ -147,30 +156,19 @@
 					ollamaStatus={$ollamaStatus}
 				/>
 			</div>
-			<div class="mast-wx">
-				<div class="wx-label">Outside</div>
-				<div class="wx">
-					{#if weatherLoading}
-						<span class="skeleton inline"></span>
-					{:else}
-						<span class="wx-temp num">{$weather.temp}°</span>
-						<span class="wx-desc">{$weather.desc}</span>
-					{/if}
-				</div>
-			</div>
 		</header>
 
 		<main class="zone center">
-			<section class="command-panel paper" class:focus={leftFocus === 'school'}>
+			<section class="school-col" class:focus={leftFocus === 'school'}>
 				<SchoolHub />
 			</section>
-			<section class="command-panel paper" class:focus={leftFocus === 'dev'}>
+			<section class="host-slab slab" class:focus={leftFocus === 'dev'}>
 				<DevHub />
 			</section>
 		</main>
 
 		<footer class="zone bottom">
-			<div class="turntable glass-field" data-glass>
+			<div class="trough glass-field" data-glass>
 				<AmbientDeck />
 			</div>
 		</footer>
@@ -209,93 +207,86 @@
 		height: 15%;
 		min-height: 140px;
 		display: grid;
-		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 0.9fr);
-		align-items: center;
+		grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+		align-items: end;
 		gap: var(--space-5);
 		padding-top: var(--space-4);
 		overflow: visible;
 	}
-	.mast-clock,
-	.mast-dock,
-	.mast-wx {
+	.mast-rail {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		justify-content: flex-end;
+		gap: var(--space-1);
 		min-width: 0;
-	}
-	.mast-wx {
-		justify-self: end;
 		text-align: right;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		min-width: 0;
 	}
-	.wx-label {
-		font-size: 13px;
-		font-weight: 500;
-		color: var(--text-tertiary);
-	}
-	.wx {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 0;
-		margin-top: var(--space-1);
-		min-width: 0;
-	}
-	.wx-temp {
-		font-size: clamp(2rem, 3vw, 3rem);
-		font-weight: 650;
-		letter-spacing: -0.04em;
-		line-height: 1;
-		color: var(--foreground);
-		overflow-wrap: anywhere;
-	}
-	.wx-desc {
-		font-size: 18px;
+	.dateline,
+	.wxline {
+		margin: 0;
+		font-size: 16px;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
+	}
+	.wxline .num {
+		margin-right: 0.35em;
+		color: var(--foreground);
 	}
 	.center {
 		height: 55%;
 		min-height: 360px;
 		display: grid;
-		grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-		gap: var(--space-5);
-		padding-top: var(--space-2);
+		grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
+		gap: var(--space-6);
+		padding-top: var(--space-3);
 		padding-bottom: var(--space-2);
 	}
-	.command-panel {
+	.school-col {
+		position: relative;
+		overflow: hidden;
+		min-width: 0;
+		padding-left: var(--space-3);
+	}
+	.school-col.focus {
+		box-shadow: inset 3px 0 0 var(--brand);
+	}
+	.host-slab {
 		position: relative;
 		overflow: hidden;
 		min-width: 0;
 	}
-	.command-panel.focus {
+	.host-slab.focus {
 		border-color: var(--brand-border);
-		box-shadow: inset 3px 0 0 var(--brand);
 	}
 	.bottom {
 		height: 30%;
 		min-height: 180px;
+		display: flex;
+		align-items: flex-end;
 		padding-bottom: var(--space-4);
 	}
-	.turntable {
+	.trough {
 		width: 100%;
-		height: 100%;
+		height: 38%;
+		min-height: 72px;
 		min-width: 0;
 	}
 	.inline {
 		display: inline-block;
-		width: 120px;
-		height: 28px;
+		width: 96px;
+		height: 18px;
 	}
 
 	@media (max-aspect-ratio: 4/3) {
 		.top {
-			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			grid-template-columns: minmax(0, 1fr);
 			height: 18%;
 		}
-		.mast-dock {
-			grid-column: 1 / -1;
+		.mast-rail {
+			align-items: flex-start;
+			text-align: left;
 		}
 		.center {
 			grid-template-columns: minmax(0, 1fr);
@@ -322,13 +313,11 @@
 			height: auto;
 			min-height: 0;
 			padding-top: var(--space-3);
+			align-items: start;
 		}
-		.mast-wx {
-			justify-self: start;
+		.mast-rail {
+			align-items: flex-start;
 			text-align: left;
-		}
-		.wx {
-			justify-content: flex-start;
 		}
 		.center {
 			grid-template-columns: minmax(0, 1fr);

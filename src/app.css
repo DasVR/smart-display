@@ -136,10 +136,17 @@ h6 {
 	border-radius: var(--radius-lg);
 }
 
+.slab {
+	background: var(--card);
+	color: var(--card-foreground);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+}
+
 .glass-field {
 	background: color-mix(in srgb, var(--gray-05) 55%, transparent);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-lg);
+	border-radius: var(--radius-md);
 	backdrop-filter: blur(16px) saturate(1.2);
 	-webkit-backdrop-filter: blur(16px) saturate(1.2);
 }

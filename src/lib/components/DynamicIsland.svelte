@@ -38,9 +38,9 @@
 	}
 </script>
 
-<div class="island-anchor" data-mode={mode}>
-	<div class="dock" class:nowplaying={mode === 'nowplaying'} class:alert={mode === 'alert'}>
-		{#if mode === 'nowplaying'}
+<div class="island" data-mode={mode}>
+	{#if mode === 'nowplaying'}
+		<div class="slip">
 			<div class="copy">
 				<div class="kicker">{modeLabel(mode)}</div>
 				<div class="title">{nowPlaying?.title || 'Untitled'}</div>
@@ -51,44 +51,41 @@
 					<span style="height: {Math.max(12, h * 100)}%"></span>
 				{/each}
 			</div>
-		{:else if mode === 'alert'}
+		</div>
+	{:else if mode === 'alert'}
+		<div class="slip">
 			<div class="copy">
 				<div class="kicker">{modeLabel(mode)}</div>
 				<div class="title">{notification.title}</div>
 				<div class="sub">{notification.body}</div>
 			</div>
-		{:else}
-			<div class="status" class:hot={gpuLowPower}>{statusWord}</div>
-		{/if}
-	</div>
+		</div>
+	{:else}
+		<div class="word" class:hot={gpuLowPower}>{statusWord}</div>
+	{/if}
 </div>
 
 <style>
-	.island-anchor {
-		display: flex;
-		justify-content: center;
-		pointer-events: none;
+	.island {
 		min-width: 0;
+		max-width: 100%;
 	}
-	.dock {
+	.word {
+		font-size: 16px;
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+	.word.hot {
+		color: var(--warn);
+	}
+	.slip {
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
 		min-height: 44px;
-		padding: var(--space-2) var(--space-4);
-		border-radius: var(--radius-md);
-		background: var(--card);
-		border: 1px solid var(--border);
-		color: var(--card-foreground);
-		min-width: 0;
-		max-width: min(620px, 100%);
-		transition:
-			min-width 0.4s var(--ease-enter),
-			padding 0.4s var(--ease-enter);
-	}
-	.dock.nowplaying,
-	.dock.alert {
-		min-width: min(420px, 100%);
+		padding: var(--space-2) 0;
+		border-top: 1px solid var(--border);
+		max-width: min(420px, 100%);
 	}
 	.copy {
 		min-width: 0;
@@ -116,14 +113,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	.status {
-		font-size: 15px;
-		font-weight: 600;
-		color: var(--text-secondary);
-	}
-	.status.hot {
-		color: var(--warn);
-	}
 	.mini-vis {
 		display: flex;
 		align-items: flex-end;
@@ -131,7 +120,6 @@
 		height: 28px;
 		width: 72px;
 		flex-shrink: 0;
-		color: var(--brand);
 	}
 	.mini-vis span {
 		flex: 1;
@@ -142,11 +130,6 @@
 	}
 
 	@media (max-width: 414px) {
-		.dock.nowplaying,
-		.dock.alert {
-			min-width: 0;
-			width: 100%;
-		}
 		.mini-vis {
 			display: none;
 		}

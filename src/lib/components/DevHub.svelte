@@ -63,16 +63,10 @@
 </script>
 
 <div class="dev-hub">
-	<header class="hub-head">
-		<div class="titles">
-			<div class="eyebrow">Infrastructure</div>
-			<h2 class="hub-title">Dev Wall</h2>
-		</div>
-		<div class="head-meta">
-			<span>{containers} containers</span>
-			<span class="dot" class:ok={!error} aria-hidden="true"></span>
-		</div>
-	</header>
+	<div class="mark">
+		<span>Dev Wall</span>
+		<span>{containers} containers</span>
+	</div>
 
 	<MetricCard
 		label="CPU"
@@ -95,35 +89,29 @@
 		</div>
 	</div>
 
-	<div class="lower">
-		<section class="svc-block">
-			<h3 class="section-label">Services</h3>
-			{#if error}
-				<div class="muted">{error}</div>
-			{:else if services.length === 0}
-				<div class="muted">No services reported</div>
-			{:else}
-				<ul class="svc-list">
-					{#each services as s, i (s.name ?? i)}
-						<li>
-							<span class="svc-name">{s.name}</span>
-							<span class="state" class:ok={s.status}>{s.status ? 'up' : 'down'}</span>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</section>
+	<section class="svc-block">
+		<h3 class="section-label">Services</h3>
+		{#if error}
+			<div class="muted">{error}</div>
+		{:else if services.length === 0}
+			<div class="muted">No services reported</div>
+		{:else}
+			<ul class="svc-list">
+				{#each services as s, i (s.name ?? i)}
+					<li>
+						<span class="svc-name">{s.name}</span>
+						<span class="state" class:ok={s.status}>{s.status ? 'up' : 'down'}</span>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
 
-		<section class="git-block">
-			<h3 class="section-label">Cursor Git</h3>
-			<div class="git-branch">{git.branch || 'untracked'}</div>
-			<div class="git-msg">{git.message || 'waiting for repo'}</div>
-			<div class="git-meta">
-				<span class="num">{git.sha || '--'}</span>
-				<span class="state" class:ok={!git.dirty}>{git.dirty ? `${git.changed} dirty` : 'clean'}</span>
-			</div>
-		</section>
-	</div>
+	<p class="gitline">
+		<span class="num">{git.branch || 'untracked'}</span>
+		<span class="num">{git.sha || '--'}</span>
+		<span class="state" class:ok={!git.dirty}>{git.dirty ? `${git.changed} dirty` : 'clean'}</span>
+	</p>
 </div>
 
 <style>
@@ -131,56 +119,24 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
-		padding: var(--space-5) var(--space-5) var(--space-4);
+		gap: var(--space-3);
+		padding: var(--space-4);
 		min-height: 0;
 		min-width: 0;
 	}
-	.hub-head {
+	.mark {
 		display: flex;
 		justify-content: space-between;
-		align-items: flex-end;
-		gap: var(--space-4);
-	}
-	.titles {
-		min-width: 0;
-	}
-	.eyebrow,
-	.section-label {
+		gap: var(--space-3);
 		font-size: 13px;
-		font-weight: 500;
 		color: var(--text-tertiary);
 	}
 	.section-label {
 		margin: 0;
+		font-size: 13px;
+		font-weight: 500;
 		font-style: normal;
-	}
-	.hub-title {
-		margin: var(--space-1) 0 0;
-		font-size: clamp(1.8rem, 2.4vw, 2.6rem);
-		font-weight: 600;
-		font-style: normal;
-		letter-spacing: -0.03em;
-		color: var(--foreground);
-		overflow-wrap: anywhere;
-		min-width: 0;
-	}
-	.head-meta {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		color: var(--text-secondary);
-		font-size: 14px;
-		flex-shrink: 0;
-	}
-	.dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--warn);
-	}
-	.dot.ok {
-		background: var(--ok);
+		color: var(--text-tertiary);
 	}
 	.ledger {
 		display: flex;
@@ -189,43 +145,37 @@
 	}
 	.ledger-row {
 		display: grid;
-		grid-template-columns: 7rem minmax(0, 4.5rem) minmax(0, 1fr);
-		gap: var(--space-3);
+		grid-template-columns: 6.5rem minmax(0, 4rem) minmax(0, 1fr);
+		gap: var(--space-2);
 		align-items: baseline;
 		padding: var(--space-2) 0;
 		border-bottom: 1px solid var(--border);
 		min-width: 0;
 	}
 	.k {
-		font-size: 14px;
+		font-size: 13px;
 		color: var(--text-secondary);
 	}
 	.v {
-		font-size: 16px;
+		font-size: 15px;
 		font-weight: 600;
 		color: var(--foreground);
 	}
 	.h {
-		font-size: 13px;
+		font-size: 12px;
 		color: var(--text-tertiary);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
-	.lower {
+	.svc-block {
 		flex: 1;
 		min-height: 0;
-		display: grid;
-		grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
-		gap: var(--space-4);
-	}
-	.svc-block,
-	.git-block {
 		min-width: 0;
 		overflow: auto;
 	}
 	.svc-list {
 		list-style: none;
-		margin: var(--space-2) 0 0;
+		margin: var(--space-1) 0 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
@@ -240,7 +190,7 @@
 		min-height: 44px;
 	}
 	.svc-name {
-		font-size: 16px;
+		font-size: 15px;
 		font-weight: 500;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
@@ -255,43 +205,22 @@
 	.state.ok {
 		color: var(--ok);
 	}
-	.git-branch {
-		margin-top: var(--space-2);
-		font-family: var(--font-display);
-		font-size: 20px;
-		font-weight: 600;
-		font-style: normal;
-		color: var(--foreground);
-		overflow-wrap: anywhere;
-	}
-	.git-msg {
-		margin-top: var(--space-2);
-		font-size: 15px;
-		color: var(--text-secondary);
-		overflow-wrap: anywhere;
-	}
-	.git-meta {
-		margin-top: var(--space-3);
+	.gitline {
+		margin: 0;
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
+		flex-wrap: wrap;
+		gap: var(--space-3);
+		align-items: baseline;
+		font-size: 12px;
 		color: var(--text-tertiary);
-		font-size: 13px;
+		overflow-wrap: anywhere;
 	}
 	.muted {
-		margin-top: var(--space-3);
+		margin-top: var(--space-2);
 		color: var(--text-secondary);
 	}
 
 	@media (max-width: 768px) {
-		.hub-head {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-		.lower {
-			grid-template-columns: minmax(0, 1fr);
-		}
 		.ledger-row {
 			grid-template-columns: minmax(0, 1fr) auto;
 		}
