@@ -99,6 +99,35 @@ function getNowPlaying() {
 	}
 }
 
+
+function broadcast(data) {
+	const msg = JSON.stringify(data);
+	clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg); }
+
+// ---------- Ollama Inference Arbiter ----------
+// Polls /api/ps every 500ms. When models are loaded, broadcasts LOW_POWER
+// to freeze the WebGL fluid. When empty, broadcasts HIGH_PERFORMANCE.
+let ollamaPowerState = 'HIGH_PERFORMANCE';
+async function pollOllama() {
+	try {
+		const r = await fetch('http://localhost:11434/api/ps', { signal: AbortSignal.timeout(800) });
+		if (!r.ok) throw new Error('ollama unreachable');
+		const d = await r.json();
+		const hasModels = d.models && d.models.length > 0;
+		const newState = hasModels ? 'LOW_POWER' : 'HIGH_PERFORMANCE';
+		if (newState !== ollamaPowerState) {
+			ollamaPowerState = newState;
+			broadcast({ type: 'power', state: newState });
+		}
+	} catch {
+		if (ollamaPowerState !== 'HIGH_PERFORMANCE') {
+			ollamaPowerState = 'HIGH_PERFORMANCE';
+			broadcast({ type: 'power', state: 'HIGH_PERFORMANCE' });
+		}
+	}
+}
+setInterval(pollOllama, 500);
+
 const server = createServer(async (req, res) => {
 	res.setHeader('Access-Control-Allow-Origin', '*');
 	res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -158,9 +187,7 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const clients = new Set();
 let currentView = 'clock';
 
-function broadcast(data) {
-	const msg = JSON.stringify(data);
-	clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg); });
+);
 }
 
 wss.on('connection', (ws, req) => {
