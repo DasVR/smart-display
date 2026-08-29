@@ -1,0 +1,315 @@
+<!--
+  Template: Notification Reminder App
+  Copy and modify for any "remind me of X throughout the day" app.
+
+  Features included:
+  - User inputs reminder text + frequency + time window
+  - Generates randomly-jittered schedule within the window
+  - Fires browser notifications at scheduled times
+  - localStorage persistence + auto-resume on page reload
+  - Tab title flash as fallback if notifications blocked
+  - Daily auto-regeneration of schedule
+  - Dark theme, mobile-friendly, card-based UI
+
+  To customize:
+  - Change the page title and <h1>
+  - Adjust the frequency <option> values
+  - Modify the notification title/body format in sendNotification()
+  - Add sound by including an Audio() call in sendNotification()
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Remind Me</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #0a0a0f;
+    color: #e4e4e7;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .container { max-width: 500px; width: 100%; }
+  h1 {
+    font-size: 1.75rem; font-weight: 700; margin-bottom: 4px;
+    background: linear-gradient(135deg, #818cf8, #c084fc);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+  }
+  .subtitle { color: #71717a; font-size: 0.875rem; margin-bottom: 28px; }
+  .card {
+    background: #16161e; border: 1px solid #27272a; border-radius: 16px;
+    padding: 24px; margin-bottom: 16px;
+  }
+  label {
+    display: block; font-size: 0.8rem; font-weight: 600; color: #a1a1aa;
+    margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em;
+  }
+  textarea {
+    width: 100%; background: #0a0a0f; border: 1px solid #27272a; border-radius: 10px;
+    padding: 14px; color: #e4e4e7; font-size: 1rem; font-family: inherit;
+    resize: none; min-height: 70px; transition: border-color 0.2s;
+  }
+  textarea:focus { outline: none; border-color: #818cf8; }
+  textarea::placeholder { color: #52525b; }
+  .row { display: flex; gap: 12px; margin-top: 16px; }
+  .field { flex: 1; }
+  select {
+    width: 100%; background: #0a0a0f; border: 1px solid #27272a; border-radius: 10px;
+    padding: 12px; color: #e4e4e7; font-size: 0.95rem; font-family: inherit; cursor: pointer;
+  }
+  select:focus { outline: none; border-color: #818cf8; }
+  .btn {
+    width: 100%; padding: 14px; border: none; border-radius: 10px;
+    font-size: 1rem; font-weight: 600; font-family: inherit; cursor: pointer;
+    transition: all 0.2s; margin-top: 16px;
+  }
+  .btn-primary { background: linear-gradient(135deg, #6366f1, #a855f7); color: white; }
+  .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+  .btn-secondary { background: #27272a; color: #e4e4e7; }
+  .btn-secondary:hover { background: #3f3f46; }
+  .status {
+    text-align: center; padding: 12px; border-radius: 10px; font-size: 0.875rem;
+    margin-bottom: 16px; display: none;
+  }
+  .status.success { background: #052e16; color: #4ade80; display: block; }
+  .status.error { background: #450a0a; color: #f87171; display: block; }
+  .status.info { background: #1e1b4b; color: #a5b4fc; display: block; }
+  .schedule-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; background: #0a0a0f; border-radius: 8px; margin-bottom: 6px; font-size: 0.9rem;
+  }
+  .schedule-time { font-weight: 600; color: #c084fc; }
+  .schedule-done { color: #22c55e; font-size: 0.8rem; }
+  .schedule-pending { color: #71717a; font-size: 0.8rem; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600;
+  }
+  .badge.active { background: #052e16; color: #4ade80; }
+  .badge.inactive { background: #27272a; color: #71717a; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .badge.active .dot { background: #4ade80; animation: pulse 2s infinite; }
+  .badge.inactive .dot { background: #71717a; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+  .next-up { text-align: center; padding: 20px; margin-top: 16px; }
+  .next-up-label { font-size: 0.75rem; color: #71717a; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .next-up-time { font-size: 1.5rem; font-weight: 700; color: #c084fc; }
+  .next-up-text { font-size: 0.85rem; color: #a1a1aa; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header-row">
+    <h1>🔔 Remind Me</h1>
+    <span class="badge inactive" id="statusBadge"><span class="dot"></span><span id="badgeText">Off</span></span>
+  </div>
+  <p class="subtitle">Type something you wanna be reminded of. We'll ping you throughout the day.</p>
+  <div class="status" id="status"></div>
+  <div class="card">
+    <label>What do you want to remember?</label>
+    <textarea id="reminderText" placeholder="e.g. Drink water, stay hydrated king 💧" maxlength="200"></textarea>
+    <div class="row">
+      <div class="field"><label>Times per day</label>
+        <select id="frequency">
+          <option value="3">3 times</option>
+          <option value="5" selected>5 times</option>
+          <option value="8">8 times</option>
+          <option value="12">12 times</option>
+        </select>
+      </div>
+      <div class="field"><label>Start hour</label>
+        <select id="startHour">
+          <option value="7">7 AM</option><option value="8">8 AM</option>
+          <option value="9" selected>9 AM</option><option value="10">10 AM</option>
+          <option value="11">11 AM</option><option value="12">12 PM</option>
+        </select>
+      </div>
+      <div class="field"><label>End hour</label>
+        <select id="endHour">
+          <option value="8">8 PM</option><option value="9" selected>9 PM</option>
+          <option value="10">10 PM</option><option value="11">11 PM</option>
+          <option value="12">12 AM</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="startBtn" onclick="startReminders()">Start Reminders</button>
+    <button class="btn btn-secondary" id="stopBtn" onclick="stopReminders()" style="display:none;">Stop</button>
+  </div>
+  <div class="card" id="scheduleCard" style="display:none;">
+    <label>Today's Schedule</label>
+    <div id="scheduleList"></div>
+    <div class="next-up" id="nextUp">
+      <div class="next-up-label">Next Reminder</div>
+      <div class="next-up-time" id="nextUpTime">--</div>
+      <div class="next-up-text" id="nextUpText">--</div>
+    </div>
+  </div>
+</div>
+<script>
+let scheduledTimes = [], checkInterval = null, reminderText = '', active = false;
+
+function loadState() {
+  const s = JSON.parse(localStorage.getItem('remindme') || '{}');
+  if (s.text) document.getElementById('reminderText').value = s.text;
+  if (s.freq) document.getElementById('frequency').value = s.freq;
+  if (s.start) document.getElementById('startHour').value = s.start;
+  if (s.end) document.getElementById('endHour').value = s.end;
+}
+function saveState() {
+  localStorage.setItem('remindme', JSON.stringify({
+    text: document.getElementById('reminderText').value,
+    freq: parseInt(document.getElementById('frequency').value),
+    start: parseInt(document.getElementById('startHour').value),
+    end: parseInt(document.getElementById('endHour').value),
+  }));
+}
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg; el.className = 'status ' + type;
+  if (type === 'success') setTimeout(() => el.className = 'status', 4000);
+}
+function formatTime(d) { return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+
+function generateSchedule() {
+  const freq = parseInt(document.getElementById('frequency').value);
+  const startH = parseInt(document.getElementById('startHour').value);
+  let endH = parseInt(document.getElementById('endHour').value);
+  if (endH === 12) endH = 24;
+  const now = new Date();
+  const startMin = startH * 60, endMin = endH * 60, window = endMin - startMin;
+  if (window <= 0) { showStatus('End time must be after start time', 'error'); return false; }
+  const interval = window / (freq + 1);
+  scheduledTimes = [];
+  for (let i = 1; i <= freq; i++) {
+    const base = startMin + interval * i;
+    const jitter = (Math.random() - 0.5) * interval * 0.5;
+    const finalMin = Math.round(base + jitter);
+    const t = new Date();
+    t.setHours(Math.floor(finalMin / 60), finalMin % 60, 0, 0);
+    scheduledTimes.push({ time: t, fired: t < now });
+  }
+  scheduledTimes.sort((a, b) => a.time - b.time);
+  return true;
+}
+
+function renderSchedule() {
+  const list = document.getElementById('scheduleList');
+  list.innerHTML = '';
+  const now = new Date(); let nextOne = null;
+  scheduledTimes.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'schedule-item';
+    const ts = formatTime(item.time);
+    let st = item.fired ? '<span class="schedule-done">✓ Done</span>'
+                        : '<span class="schedule-pending">Upcoming</span>';
+    if (!item.fired && !nextOne) nextOne = item;
+    div.innerHTML = `<span class="schedule-time">${ts}</span>${st}`;
+    list.appendChild(div);
+  });
+  if (nextOne) {
+    document.getElementById('nextUpTime').textContent = formatTime(nextOne.time);
+    const mins = Math.round((nextOne.time - now) / 60000);
+    document.getElementById('nextUpText').textContent =
+      mins < 1 ? 'in less than a minute' : mins < 60 ? `in ${mins} minutes` : `in ${Math.floor(mins/60)}h ${mins%60}m`;
+  } else {
+    document.getElementById('nextUpTime').textContent = 'All done! 🎉';
+    document.getElementById('nextUpText').textContent = 'See you tomorrow';
+  }
+}
+
+function sendNotification(text) {
+  if (Notification.permission === 'granted') {
+    const n = new Notification('🔔 Reminder', {
+      body: text,
+      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">🔔</text></svg>',
+      tag: 'remindme-' + Date.now(),
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+    setTimeout(() => n.close(), 10000);
+  }
+  const orig = document.title;
+  document.title = '🔔 ' + text.substring(0, 30);
+  setTimeout(() => document.title = orig, 10000);
+}
+
+function checkSchedule() {
+  if (!active) return;
+  const now = new Date(); let changed = false;
+  scheduledTimes.forEach(item => {
+    if (!item.fired && now >= item.time) { item.fired = true; sendNotification(reminderText); changed = true; }
+  });
+  if (scheduledTimes.every(i => i.fired)) {
+    const lastDay = localStorage.getItem('remindme_day');
+    const today = now.toDateString();
+    if (lastDay !== today) {
+      localStorage.setItem('remindme_day', today);
+      if (generateSchedule()) renderSchedule();
+    }
+  }
+  renderSchedule();
+}
+
+function setBadge(on) {
+  const b = document.getElementById('statusBadge'), t = document.getElementById('badgeText');
+  b.className = 'badge ' + (on ? 'active' : 'inactive');
+  t.textContent = on ? 'Active' : 'Off';
+}
+
+async function startReminders() {
+  reminderText = document.getElementById('reminderText').value.trim();
+  if (!reminderText) { showStatus('Type something to be reminded of first!', 'error'); return; }
+  if (Notification.permission === 'default') {
+    const p = await Notification.requestPermission();
+    if (p !== 'granted') showStatus('Notifications blocked — but tab title will still flash!', 'info');
+  }
+  saveState();
+  localStorage.setItem('remindme_day', new Date().toDateString());
+  if (!generateSchedule()) return;
+  active = true; setBadge(true);
+  document.getElementById('startBtn').style.display = 'none';
+  document.getElementById('stopBtn').style.display = 'block';
+  document.getElementById('scheduleCard').style.display = 'block';
+  renderSchedule();
+  if (checkInterval) clearInterval(checkInterval);
+  checkInterval = setInterval(checkSchedule, 30000);
+  checkSchedule();
+  showStatus(`Locked in! ${document.getElementById('frequency').value} reminders scheduled today. Keep this tab open!`, 'success');
+}
+
+function stopReminders() {
+  active = false;
+  if (checkInterval) { clearInterval(checkInterval); checkInterval = null; }
+  setBadge(false);
+  document.getElementById('startBtn').style.display = 'block';
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('scheduleCard').style.display = 'none';
+  showStatus('Reminders stopped', 'info');
+}
+
+window.addEventListener('load', () => {
+  loadState();
+  const s = JSON.parse(localStorage.getItem('remindme') || '{}');
+  if (s.text) {
+    reminderText = s.text;
+    if (generateSchedule()) {
+      active = true; setBadge(true);
+      document.getElementById('startBtn').style.display = 'none';
+      document.getElementById('stopBtn').style.display = 'block';
+      document.getElementById('scheduleCard').style.display = 'block';
+      renderSchedule();
+      checkInterval = setInterval(checkSchedule, 30000);
+      checkSchedule();
+    }
+  }
+});
+window.addEventListener('focus', () => { if (active) checkSchedule(); });
+</script>
+</body>
+</html>
