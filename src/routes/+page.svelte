@@ -6,6 +6,7 @@
 	import SchoolView from '$lib/components/SchoolView.svelte';
 	import DevView from '$lib/components/DevView.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
+	import AmbientShader from '$lib/components/AmbientShader.svelte';
 
 	let ws;
 	let reconnectTimer;
@@ -79,6 +80,7 @@
 </script>
 
 <div class="display-root" class:transitioning>
+	<AmbientShader />
 	<div class="top-bar">
 		<div class="weather-pill">
 			{#if weatherLoading}
