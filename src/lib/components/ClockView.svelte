@@ -58,7 +58,7 @@
 	}
 	.time-row {
 		font-family: var(--font-display);
-		font-size: clamp(96px, 18vw, 230px);
+		font-size: clamp(140px, 24vw, 320px);
 		font-weight: 700;
 		letter-spacing: -0.04em;
 		line-height: 1;
@@ -90,8 +90,8 @@
 		margin-top: 0.45em;
 	}
 	.date-row {
-		margin-top: 18px;
-		font-size: clamp(16px, 2.2vw, 26px);
+		margin-top: 26px;
+		font-size: clamp(24px, 3vw, 40px);
 		font-weight: 400;
 		color: var(--text-secondary);
 		letter-spacing: 0.12em;

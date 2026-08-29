@@ -177,12 +177,12 @@
 
 	.top-bar {
 		position: absolute;
-		top: 24px;
+		top: 32px;
 		left: 0; right: 0;
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 0 40px;
+		padding: 0 56px;
 		z-index: 100;
 		pointer-events: none;
 	}
@@ -190,12 +190,12 @@
 		background: var(--surface);
 		border: 1px solid var(--surface-border);
 		border-radius: var(--r-sm);
-		padding: 8px 14px;
+		padding: 14px 22px;
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: 20px;
 		color: var(--text-secondary);
 		letter-spacing: 0.02em;
-		min-width: 90px;
+		min-width: 130px;
 	}
 	.conn {
 		display: flex;
@@ -204,7 +204,7 @@
 	}
 	.conn-label {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: 18px;
 		color: var(--text-tertiary);
 		letter-spacing: 0.08em;
 		text-transform: lowercase;
@@ -227,11 +227,11 @@
 
 	.hint {
 		position: absolute;
-		bottom: 22px;
+		bottom: 30px;
 		left: 50%;
 		transform: translateX(-50%);
 		font-family: var(--font-display);
-		font-size: 11px;
+		font-size: 16px;
 		color: var(--text-tertiary);
 		letter-spacing: 0.1em;
 		text-transform: lowercase;

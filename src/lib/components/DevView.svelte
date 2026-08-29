@@ -89,7 +89,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		padding: 60px;
+		padding: 80px;
 		opacity: 0;
 		transform: translateY(14px);
 		transition: opacity 0.5s var(--ease-standard), transform 0.6s var(--ease-standard);
@@ -99,27 +99,27 @@
 	.grid {
 		display: grid;
 		grid-template-columns: 1.4fr 1fr;
-		gap: 28px;
+		gap: 36px;
 		width: 100%;
-		max-width: 1200px;
+		max-width: 1500px;
 	}
 
 	.svc-row {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 16px 2px;
+		padding: 22px 2px;
 		border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 	}
 	.svc-row:last-child { border-bottom: none; }
-	.svc-left { display: flex; align-items: center; gap: 14px; }
+	.svc-left { display: flex; align-items: center; gap: 18px; }
 	.status-pill {
 		font-family: var(--font-display);
-		font-size: 11px;
+		font-size: 15px;
 		font-weight: 700;
 		letter-spacing: 0.08em;
 		text-transform: uppercase;
-		padding: 5px 10px;
+		padding: 8px 14px;
 		border-radius: var(--r-sm);
 		background: rgba(255,255,255,0.07);
 		color: var(--text-tertiary);
@@ -131,13 +131,13 @@
 		border-color: rgba(52,211,153,0.28);
 		box-shadow: 0 0 12px rgba(52,211,153,0.18);
 	}
-	.svc-name { font-size: 20px; font-weight: 500; color: rgba(242, 240, 247, 0.92); }
-	.uptime { font-family: var(--font-display); font-size: 14px; color: rgba(242, 240, 247, 0.4); }
+	.svc-name { font-size: 30px; font-weight: 500; color: rgba(242, 240, 247, 0.92); }
+	.uptime { font-family: var(--font-display); font-size: 20px; color: rgba(242, 240, 247, 0.4); }
 
-	.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+	.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
 	.stat { text-align: center; }
-	.stat-val { font-family: var(--font-display); font-size: 42px; font-weight: 700; color: rgba(242, 240, 247, 0.96); line-height: 1; }
-	.stat-val .unit { font-size: 18px; color: rgba(242, 240, 247, 0.4); margin-left: 4px; }
-	.stat-lbl { font-family: var(--font-display); font-size: 13px; color: rgba(242, 240, 247, 0.4); margin-top: 8px; letter-spacing: 0.06em; text-transform: uppercase; }
-	.error { font-family: var(--font-display); font-size: 16px; color: var(--warn); text-align: center; padding: 20px; }
+	.stat-val { font-family: var(--font-display); font-size: 60px; font-weight: 700; color: rgba(242, 240, 247, 0.96); line-height: 1; }
+	.stat-val .unit { font-size: 26px; color: rgba(242, 240, 247, 0.4); margin-left: 4px; }
+	.stat-lbl { font-family: var(--font-display); font-size: 20px; color: rgba(242, 240, 247, 0.4); margin-top: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+	.error { font-family: var(--font-display); font-size: 24px; color: var(--warn); text-align: center; padding: 20px; }
 </style>

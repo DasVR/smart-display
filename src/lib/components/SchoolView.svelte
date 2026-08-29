@@ -91,18 +91,18 @@
 </div>
 
 <style>
-	.school-view { gap: 24px; }
+	.school-view { gap: 32px; }
 
 	.list {
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
+		gap: 22px;
 	}
 	.row {
 		background: var(--surface);
 		border: 1px solid var(--surface-border);
 		border-radius: var(--r-md);
-		padding: 28px 30px;
+		padding: 38px 40px;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -116,21 +116,21 @@
 		border-color: rgba(252,165,165,0.3);
 		background: rgba(252,165,165,0.06);
 	}
-	.row-title { font-size: 28px; font-weight: 600; color: var(--text-primary); }
-	.row-course { font-family: var(--font-display); font-size: 15px; color: var(--text-tertiary); margin-top: 6px; }
+	.row-title { font-size: 40px; font-weight: 600; color: var(--text-primary); }
+	.row-course { font-family: var(--font-display); font-size: 22px; color: var(--text-tertiary); margin-top: 10px; }
 	.row-right { text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 	.due {
 		font-family: var(--font-display);
-		font-size: 18px;
+		font-size: 26px;
 		color: var(--text-secondary);
 	}
 	.urgent-tag {
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: 18px;
 		font-weight: 700;
 		letter-spacing: 0.1em;
 		text-transform: uppercase;
-		padding: 5px 12px;
+		padding: 8px 16px;
 		border-radius: var(--r-sm);
 		background: rgba(252,165,165,0.16);
 		color: var(--warn);

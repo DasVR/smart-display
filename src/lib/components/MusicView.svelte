@@ -72,12 +72,12 @@
 	.music-view {
 		align-items: center;
 		justify-content: center;
-		gap: 34px;
+		gap: 44px;
 		text-align: center;
 	}
 
 	.album-art {
-		width: 320px; height: 320px;
+		width: 420px; height: 420px;
 		border-radius: var(--r-lg);
 		background: linear-gradient(135deg, #12121c, #0b0b12);
 		border: 1px solid var(--surface-border);
@@ -118,19 +118,19 @@
 		z-index: 2;
 	}
 
-	.track-title { font-size: 32px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; }
-	.track-artist { font-size: 18px; color: var(--text-secondary); margin-top: 8px; }
+	.track-title { font-size: 46px; font-weight: 600; color: var(--text-primary); letter-spacing: -0.01em; }
+	.track-artist { font-size: 26px; color: var(--text-secondary); margin-top: 12px; }
 
 	.times {
 		display: flex;
 		justify-content: space-between;
-		width: 380px;
+		width: 500px;
 		font-family: var(--font-display);
-		font-size: 14px;
+		font-size: 20px;
 		color: var(--text-tertiary);
 	}
 	.progress {
-		width: 380px; height: 6px;
+		width: 500px; height: 8px;
 		background: var(--surface);
 		border-radius: 999px;
 		overflow: hidden;
@@ -145,13 +145,13 @@
 	.controls {
 		display: flex;
 		align-items: center;
-		gap: 28px;
+		gap: 36px;
 	}
 	.controls button {
 		background: none; border: none;
 		color: var(--text-secondary);
 		font-family: var(--font-display);
-		font-size: 16px;
+		font-size: 22px;
 		letter-spacing: 0.04em;
 		cursor: pointer;
 		padding: 12px;
@@ -159,17 +159,17 @@
 	}
 	.controls button:hover { color: var(--accent); }
 	.controls button.play {
-		width: 78px; height: 78px;
+		width: 100px; height: 100px;
 		border-radius: 50%;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent-border);
 		color: var(--accent-strong);
-		font-size: 18px;
+		font-size: 26px;
 		display: flex; align-items: center; justify-content: center;
 	}
 	.controls button.play:hover { background: var(--accent); color: #08080d; }
 
-	.art-skeleton { width: 320px; height: 320px; border-radius: var(--r-lg); }
-	.title-skeleton { width: 260px; height: 32px; }
-	.bar-skeleton { width: 380px; height: 6px; border-radius: 999px; }
+	.art-skeleton { width: 420px; height: 420px; border-radius: var(--r-lg); }
+	.title-skeleton { width: 340px; height: 44px; }
+	.bar-skeleton { width: 500px; height: 8px; border-radius: 999px; }
 </style>
