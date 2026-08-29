@@ -6,6 +6,14 @@ export const ollamaStatus = writable('idle');
 
 let manualOverride = null;
 
+if (typeof window !== 'undefined') {
+	const params = new URLSearchParams(window.location.search);
+	if (params.get('lowpower') === '1' || params.get('yield') === '1') {
+		gpuLowPowerMode.set(true);
+		ollamaStatus.set('inferring');
+	}
+}
+
 const POLL_MS = 500;
 const OLLAMA_URLS = ['http://127.0.0.1:11434/api/ps', '/api/ollama/ps'];
 

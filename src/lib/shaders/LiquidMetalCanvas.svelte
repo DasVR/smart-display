@@ -415,10 +415,11 @@ void main() {
 		stopAudio = startAudioReactive();
 
 		window.addEventListener('resize', schedulePanels, { passive: true });
+		const root = document.querySelector('.display-root') || document.body;
 		mo = new MutationObserver(schedulePanels);
-		mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style'] });
+		mo.observe(root, { subtree: true, childList: true });
 		resizeObs = new ResizeObserver(schedulePanels);
-		resizeObs.observe(document.body);
+		resizeObs.observe(root);
 
 		if (ok && !isLowPower && !reduce.matches) loop();
 		else if (ok) drawFrame();
