@@ -2,31 +2,70 @@
 @import 'tailwindcss/utilities' layer(utilities);
 
 @theme {
-	--font-sans: 'Inter', system-ui, sans-serif;
-	--font-mono: 'JetBrains Mono', ui-monospace, monospace;
-	--color-accent: #a9b1f0;
+	--font-sans: var(--font-body);
+	--font-mono: var(--font-display);
+	--color-accent: var(--brand);
 }
 
 :root {
-	--bg: #05060c;
-	--surface: rgba(255, 255, 255, 0.04);
-	--surface-hover: rgba(255, 255, 255, 0.08);
-	--surface-border: rgba(255, 255, 255, 0.1);
-	--surface-border-strong: rgba(255, 255, 255, 0.18);
-	--text-primary: #f8fafc;
-	--text-secondary: rgba(226, 232, 240, 0.62);
-	--text-tertiary: rgba(148, 163, 184, 0.9);
-	--accent: #a9b1f0;
-	--accent-strong: #c9cdf7;
-	--accent-soft: rgba(169, 177, 240, 0.14);
-	--accent-border: rgba(169, 177, 240, 0.35);
-	--ok: #34d399;
-	--warn: #fca5a5;
-	--r-sm: 14px;
-	--r-md: 20px;
-	--r-lg: 26px;
-	--font-display: 'JetBrains Mono', monospace;
+	--gray-00: #111113;
+	--gray-05: #1a1a1d;
+	--gray-10: #2a2a2e;
+	--gray-40: #8a8a93;
+	--gray-70: #c8c8ce;
+	--gray-95: #f3f3f5;
+	--brand-50: #a9b1f0;
+	--brand-30: #6e76b8;
+	--ok-50: #5d9d7e;
+	--warn-50: #c9847a;
+
+	--background: var(--gray-00);
+	--foreground: var(--gray-95);
+	--card: var(--gray-05);
+	--card-foreground: var(--gray-95);
+	--muted: var(--gray-10);
+	--muted-foreground: var(--gray-40);
+	--brand: var(--brand-50);
+	--brand-strong: var(--gray-95);
+	--brand-soft: color-mix(in srgb, var(--brand-50) 16%, transparent);
+	--brand-border: color-mix(in srgb, var(--brand-50) 38%, transparent);
+	--ok: var(--ok-50);
+	--warn: var(--warn-50);
+	--danger: var(--warn-50);
+	--border: color-mix(in srgb, var(--gray-95) 10%, transparent);
+	--ring: var(--brand-50);
+	--chart: var(--brand-50);
+	--bg: var(--background);
+	--surface: var(--card);
+	--surface-hover: var(--muted);
+	--surface-border: var(--border);
+	--surface-border-strong: color-mix(in srgb, var(--gray-95) 20%, transparent);
+	--text-primary: var(--foreground);
+	--text-secondary: var(--gray-70);
+	--text-tertiary: var(--muted-foreground);
+	--accent: var(--brand);
+	--accent-strong: var(--brand-strong);
+	--accent-soft: var(--brand-soft);
+	--accent-border: var(--brand-border);
+
+	--radius: 8px;
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: var(--radius);
+	--radius-lg: calc(var(--radius) * 1.5);
+	--r-sm: var(--radius-sm);
+	--r-md: var(--radius-md);
+	--r-lg: var(--radius-lg);
+
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 24px;
+	--space-6: 32px;
+	--space-8: 48px;
+
 	--font-body: 'Inter', system-ui, sans-serif;
+	--font-display: 'JetBrains Mono', ui-monospace, monospace;
 	--ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
 	--ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -47,31 +86,51 @@ body {
 	padding: 0;
 	width: 100%;
 	height: 100%;
-	background: var(--bg);
-	color: var(--text-primary);
+	background: var(--background);
+	color: var(--foreground);
 	font-family: var(--font-body);
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
-	overflow: hidden;
+	overflow-x: clip;
+	overflow-y: hidden;
+}
+
+:focus-visible {
+	outline: 3px solid var(--ring);
+	outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-style: normal;
+}
+
+.num {
+	font-family: var(--font-display);
+	font-variant-numeric: tabular-nums;
+	font-style: normal;
 }
 
 .skeleton {
-	background: linear-gradient(
-		90deg,
-		rgba(255, 255, 255, 0.05),
-		rgba(255, 255, 255, 0.16),
-		rgba(255, 255, 255, 0.05)
-	);
-	background-size: 200% 100%;
-	animation: shimmer 1.4s infinite;
-	border-radius: var(--r-sm);
+	background: color-mix(in srgb, var(--foreground) 8%, transparent);
+	border-radius: var(--radius-sm);
 }
 
-@keyframes shimmer {
-	0% {
-		background-position: -200% 0;
-	}
-	100% {
-		background-position: 200% 0;
-	}
+.paper {
+	background: var(--card);
+	color: var(--card-foreground);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+}
+
+.glass-field {
+	background: color-mix(in srgb, var(--gray-05) 55%, transparent);
+	border: 1px solid var(--border);
+	border-radius: var(--radius-lg);
+	backdrop-filter: blur(16px) saturate(1.2);
+	-webkit-backdrop-filter: blur(16px) saturate(1.2);
 }

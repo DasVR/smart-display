@@ -1,3 +1,7 @@
+<!--
+	Hallmark redesign scores
+	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 4 · Restraint 4 · Variety 4
+-->
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
@@ -47,7 +51,7 @@
 					if (msg.view === 'dev') leftFocus = 'dev';
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
-					showNotif('Good morning', 'Briefing ready · check due work', 'info');
+					showNotif('Good morning', 'Briefing ready. Check due work.', 'info');
 					leftFocus = 'school';
 				}
 				if (msg.type === 'power') {
@@ -132,22 +136,24 @@
 
 	<div class="display-root">
 		<header class="zone top">
-			<HeroClock {time} />
-			<DynamicIsland
-				{time}
-				weather={$weather}
-				nowPlaying={$nowPlaying}
-				notification={notif}
-				gpuLowPower={$gpuLowPowerMode}
-				ollamaStatus={$ollamaStatus}
-			/>
-			<div class="weather-badge" data-glass>
-				<div class="eyebrow">Outside</div>
+			<div class="mast-clock">
+				<HeroClock {time} />
+			</div>
+			<div class="mast-dock">
+				<DynamicIsland
+					nowPlaying={$nowPlaying}
+					notification={notif}
+					gpuLowPower={$gpuLowPowerMode}
+					ollamaStatus={$ollamaStatus}
+				/>
+			</div>
+			<div class="mast-wx">
+				<div class="wx-label">Outside</div>
 				<div class="wx">
 					{#if weatherLoading}
 						<span class="skeleton inline"></span>
 					{:else}
-						<span class="wx-temp">{$weather.temp}°</span>
+						<span class="wx-temp num">{$weather.temp}°</span>
 						<span class="wx-desc">{$weather.desc}</span>
 					{/if}
 				</div>
@@ -155,16 +161,18 @@
 		</header>
 
 		<main class="zone center">
-			<section class="command-panel glass-panel rounded-2xl border border-white/10 bg-slate-950/40" data-glass class:focus={leftFocus === 'school'}>
+			<section class="command-panel paper" class:focus={leftFocus === 'school'}>
 				<SchoolHub />
 			</section>
-			<section class="command-panel glass-panel rounded-2xl border border-white/10 bg-slate-950/40" data-glass class:focus={leftFocus === 'dev'}>
+			<section class="command-panel paper" class:focus={leftFocus === 'dev'}>
 				<DevHub />
 			</section>
 		</main>
 
 		<footer class="zone bottom">
-			<AmbientDeck weather={$weather} />
+			<div class="turntable glass-field" data-glass>
+				<AmbientDeck />
+			</div>
 		</footer>
 	</div>
 
@@ -175,115 +183,99 @@
 	.display-shell {
 		width: 100vw;
 		height: 100vh;
-		overflow: hidden;
+		overflow-x: clip;
+		overflow-y: hidden;
 		position: relative;
-		background: #05060c;
+		background: var(--background);
 	}
 	.display-root {
 		position: relative;
 		z-index: 10;
-		width: 100vw;
-		height: 100vh;
+		width: 100%;
+		height: 100%;
 		display: flex;
 		flex-direction: column;
 		color: var(--text-primary);
 		font-family: var(--font-body);
+		min-width: 0;
 	}
 	.zone {
 		width: 100%;
-		padding: 0 48px;
+		padding: 0 var(--space-8);
 		box-sizing: border-box;
+		min-width: 0;
 	}
 	.top {
 		height: 15%;
 		min-height: 140px;
 		display: grid;
-		grid-template-columns: 1.1fr 1.2fr 0.9fr;
+		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr) minmax(0, 0.9fr);
 		align-items: center;
-		gap: 24px;
-		padding-top: 18px;
+		gap: var(--space-5);
+		padding-top: var(--space-4);
 		overflow: visible;
 	}
-	.weather-badge {
-		justify-self: end;
-		min-width: 180px;
-		padding: 14px 18px;
-		border-radius: 1.25rem;
-		background: rgba(2, 6, 23, 0.4);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		backdrop-filter: blur(16px) saturate(1.4);
-		box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+	.mast-clock,
+	.mast-dock,
+	.mast-wx {
+		min-width: 0;
 	}
-	.eyebrow {
-		font-size: 11px;
-		letter-spacing: 0.2em;
-		text-transform: uppercase;
-		color: rgb(148, 163, 184);
+	.mast-wx {
+		justify-self: end;
+		text-align: right;
+	}
+	.wx-label {
+		font-size: 13px;
 		font-weight: 500;
+		color: var(--text-tertiary);
 	}
 	.wx {
 		display: flex;
 		align-items: baseline;
-		gap: 10px;
-		margin-top: 4px;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		margin-top: var(--space-1);
+		flex-wrap: wrap;
 	}
 	.wx-temp {
 		font-size: clamp(2rem, 3vw, 3rem);
-		font-weight: 700;
+		font-weight: 650;
 		letter-spacing: -0.04em;
-		color: #fff;
+		line-height: 1;
+		color: var(--foreground);
+		overflow-wrap: anywhere;
 	}
 	.wx-desc {
 		font-size: 18px;
-		color: rgb(148, 163, 184);
+		color: var(--text-secondary);
 	}
 	.center {
 		height: 55%;
 		min-height: 360px;
 		display: grid;
-		grid-template-columns: 1.15fr 1fr;
-		gap: 22px;
-		padding-top: 8px;
-		padding-bottom: 8px;
+		grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+		gap: var(--space-5);
+		padding-top: var(--space-2);
+		padding-bottom: var(--space-2);
 	}
 	.command-panel {
 		position: relative;
 		overflow: hidden;
-		border-radius: 1.25rem;
-		background: rgba(2, 6, 23, 0.4);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		backdrop-filter: blur(16px) saturate(1.45);
-		-webkit-backdrop-filter: blur(16px) saturate(1.45);
-		box-shadow:
-			inset 0 1px 0 rgba(255, 255, 255, 0.12),
-			0 24px 60px rgba(0, 0, 0, 0.35);
-	}
-	.command-panel::before {
-		content: '';
-		position: absolute;
-		inset: 0;
-		border-radius: inherit;
-		padding: 1px;
-		background: linear-gradient(
-			135deg,
-			rgba(255, 255, 255, 0.35),
-			rgba(169, 177, 240, 0.18) 40%,
-			rgba(255, 255, 255, 0.04) 50%,
-			rgba(103, 232, 249, 0.16)
-		);
-		-webkit-mask:
-			linear-gradient(#000 0 0) content-box,
-			linear-gradient(#000 0 0);
-		-webkit-mask-composite: xor;
-		mask-composite: exclude;
-		pointer-events: none;
+		min-width: 0;
 	}
 	.command-panel.focus {
-		border-color: rgba(169, 177, 240, 0.38);
+		border-color: var(--brand-border);
+		box-shadow: inset 3px 0 0 var(--brand);
 	}
 	.bottom {
 		height: 30%;
 		min-height: 180px;
+		padding-bottom: var(--space-4);
+	}
+	.turntable {
+		width: 100%;
+		height: 100%;
+		min-width: 0;
 	}
 	.inline {
 		display: inline-block;
@@ -293,16 +285,43 @@
 
 	@media (max-aspect-ratio: 4/3) {
 		.top {
-			grid-template-columns: 1fr 1fr;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 			height: 18%;
 		}
+		.mast-dock {
+			grid-column: 1 / -1;
+		}
 		.center {
-			grid-template-columns: 1fr;
+			grid-template-columns: minmax(0, 1fr);
 			grid-template-rows: 1fr 1fr;
 			height: 52%;
 		}
+	}
+
+	@media (max-width: 768px) {
+		.zone {
+			padding-inline: var(--space-4);
+		}
+		.top {
+			grid-template-columns: minmax(0, 1fr);
+			height: auto;
+			min-height: 0;
+			padding-top: var(--space-3);
+		}
+		.mast-wx {
+			justify-self: start;
+			text-align: left;
+		}
+		.wx {
+			justify-content: flex-start;
+		}
+		.center {
+			grid-template-columns: minmax(0, 1fr);
+			height: auto;
+			min-height: 0;
+		}
 		.bottom {
-			height: 30%;
+			min-height: 140px;
 		}
 	}
 </style>

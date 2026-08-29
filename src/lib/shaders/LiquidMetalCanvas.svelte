@@ -259,7 +259,7 @@ void main() {
 
 	function collectPanels() {
 		if (typeof document === 'undefined') return;
-		const els = document.querySelectorAll('[data-glass], .glass-panel, .command-panel');
+		const els = document.querySelectorAll('[data-glass]');
 		const c = Math.min(els.length, 8);
 		panelCount = c;
 		panelData.fill(0);
@@ -446,6 +446,6 @@ void main() {
 		z-index: 0;
 		image-rendering: pixelated;
 		image-rendering: crisp-edges;
-		background: #08080d;
+		background: var(--background);
 	}
 </style>

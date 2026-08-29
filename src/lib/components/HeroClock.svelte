@@ -13,10 +13,10 @@
 
 <div class="hero-clock">
 	<div class="time">
-		<span>{dispH}</span>
+		<span class="num hour">{dispH}</span>
 		<span class="colon" class:on={colonOn}>:</span>
-		<span>{mm}</span>
-		<span class="seconds">{ss}</span>
+		<span class="num">{mm}</span>
+		<span class="seconds num">{ss}</span>
 		<span class="ampm">{ampm}</span>
 	</div>
 	<div class="date">{weekday}, {month} {day}</div>
@@ -26,46 +26,52 @@
 	.hero-clock {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
+		gap: var(--space-1);
+		min-width: 0;
 	}
 	.time {
 		display: flex;
 		align-items: baseline;
 		font-weight: 300;
-		font-size: clamp(3.4rem, 6.2vw, 6.2rem);
+		font-size: clamp(3.2rem, 6vw, 6.2rem);
 		letter-spacing: -0.05em;
 		line-height: 0.95;
-		color: #fff;
+		color: var(--foreground);
+		font-style: normal;
+		min-width: 0;
+	}
+	.hour,
+	.time {
+		overflow-wrap: anywhere;
 	}
 	.colon {
-		opacity: 0.25;
-		transition: opacity 0.25s;
+		opacity: 0.28;
+		transition: opacity 0.25s var(--ease-standard);
 		margin: 0 2px;
+		font-style: normal;
 	}
 	.colon.on {
 		opacity: 1;
-		color: var(--accent);
+		color: var(--brand);
 	}
 	.seconds {
 		margin-left: 10px;
 		font-size: 0.38em;
 		font-weight: 400;
-		letter-spacing: 0.04em;
-		color: rgb(148, 163, 184);
-		font-family: var(--font-display);
+		letter-spacing: 0.02em;
+		color: var(--text-tertiary);
 	}
 	.ampm {
 		margin-left: 8px;
 		font-size: 0.22em;
 		font-weight: 500;
-		letter-spacing: 0.16em;
-		color: rgb(100, 116, 139);
+		color: var(--text-tertiary);
 	}
 	.date {
 		font-size: clamp(1rem, 1.4vw, 1.35rem);
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-		color: rgb(148, 163, 184);
+		color: var(--text-secondary);
 		font-weight: 500;
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 </style>

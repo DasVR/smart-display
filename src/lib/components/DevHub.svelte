@@ -56,58 +56,63 @@
 		if (v >= 10) return Math.round(v).toString();
 		return Number(v || 0).toFixed(1);
 	}
+
+	let ramHint = $derived(
+		`${$telemetry?.stats?.ram_used ?? '--'} / ${$telemetry?.stats?.ram_total ?? '--'} GB`
+	);
 </script>
 
 <div class="dev-hub">
 	<header class="hub-head">
-		<div>
+		<div class="titles">
 			<div class="eyebrow">Infrastructure</div>
 			<h2 class="hub-title">Dev Wall</h2>
 		</div>
 		<div class="head-meta">
-			<span class="mono">{containers} containers</span>
-			<span class="dot" class:ok={!error}></span>
+			<span>{containers} containers</span>
+			<span class="dot" class:ok={!error} aria-hidden="true"></span>
 		</div>
 	</header>
 
-	<div class="metrics">
-		<MetricCard
-			label="CPU Load"
-			value={loading ? '—' : cpuPct}
-			unit="%"
-			hint="1m avg"
-			tone="cyan"
-			points={hist.cpu}
-		/>
-		<MetricCard
-			label="RAM"
-			value={loading ? '—' : ramPct}
-			unit="%"
-			hint={`${$telemetry?.stats?.ram_used ?? '—'} / ${$telemetry?.stats?.ram_total ?? '—'} GB`}
-			tone="violet"
-			points={hist.ram}
-		/>
-		<MetricCard
-			label="Tailscale"
-			value={loading ? '—' : fmtNet(netMbps)}
-			unit="Mb/s"
-			hint={`↓ ${fmtNet($telemetry?.stats?.net_rx)}  ↑ ${fmtNet($telemetry?.stats?.net_tx)}`}
-			tone="emerald"
-			points={hist.net}
-		/>
+	<MetricCard
+		label="CPU"
+		value={loading ? '--' : cpuPct}
+		unit="%"
+		hint="1m avg"
+		points={hist.cpu}
+	/>
+
+	<div class="ledger" role="table" aria-label="Host inventory">
+		<div class="ledger-row" role="row">
+			<span class="k" role="cell">Memory</span>
+			<span class="v num" role="cell">{loading ? '--' : ramPct}%</span>
+			<span class="h" role="cell">{ramHint}</span>
+		</div>
+		<div class="ledger-row" role="row">
+			<span class="k" role="cell">Tailscale</span>
+			<span class="v num" role="cell">{loading ? '--' : fmtNet(netMbps)}</span>
+			<span class="h" role="cell">Mb/s · in {fmtNet($telemetry?.stats?.net_rx)} · out {fmtNet($telemetry?.stats?.net_tx)}</span>
+		</div>
+		<div class="ledger-row" role="row">
+			<span class="k" role="cell">Boxes</span>
+			<span class="v num" role="cell">{loading ? '--' : containers}</span>
+			<span class="h" role="cell">containers</span>
+		</div>
 	</div>
 
 	<div class="lower">
 		<section class="svc-block">
-			<div class="section-label">Services</div>
+			<h3 class="section-label">Services</h3>
 			{#if error}
 				<div class="muted">{error}</div>
+			{:else if services.length === 0}
+				<div class="muted">No services reported</div>
 			{:else}
 				<ul class="svc-list">
 					{#each services as s, i (s.name ?? i)}
 						<li>
 							<span class="svc-name">{s.name}</span>
-							<span class="pill" class:ok={s.status}>{s.status ? 'UP' : 'DOWN'}</span>
+							<span class="state" class:ok={s.status}>{s.status ? 'up' : 'down'}</span>
 						</li>
 					{/each}
 				</ul>
@@ -115,12 +120,12 @@
 		</section>
 
 		<section class="git-block">
-			<div class="section-label">Cursor Git</div>
-			<div class="git-branch">{git.branch}</div>
+			<h3 class="section-label">Cursor Git</h3>
+			<div class="git-branch">{git.branch || 'untracked'}</div>
 			<div class="git-msg">{git.message || 'waiting for repo'}</div>
 			<div class="git-meta">
-				<span class="mono">{git.sha || '—'}</span>
-				<span class="pill" class:ok={!git.dirty}>{git.dirty ? `${git.changed} dirty` : 'clean'}</span>
+				<span class="num">{git.sha || '--'}</span>
+				<span class="state" class:ok={!git.dirty}>{git.dirty ? `${git.changed} dirty` : 'clean'}</span>
 			</div>
 		</section>
 	</div>
@@ -131,132 +136,172 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
-		padding: 22px 24px 18px;
+		gap: var(--space-4);
+		padding: var(--space-5) var(--space-5) var(--space-4);
 		min-height: 0;
+		min-width: 0;
 	}
 	.hub-head {
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-end;
-		gap: 16px;
+		gap: var(--space-4);
+	}
+	.titles {
+		min-width: 0;
 	}
 	.eyebrow,
 	.section-label {
-		font-size: 12px;
+		font-size: 13px;
 		font-weight: 500;
-		letter-spacing: 0.2em;
-		text-transform: uppercase;
-		color: rgb(148, 163, 184);
+		color: var(--text-tertiary);
+	}
+	.section-label {
+		margin: 0;
+		font-style: normal;
 	}
 	.hub-title {
-		margin: 4px 0 0;
+		margin: var(--space-1) 0 0;
 		font-size: clamp(1.8rem, 2.4vw, 2.6rem);
 		font-weight: 600;
+		font-style: normal;
 		letter-spacing: -0.03em;
-		color: #fff;
+		color: var(--foreground);
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 	.head-meta {
 		display: flex;
 		align-items: center;
-		gap: 10px;
-		color: rgb(148, 163, 184);
+		gap: var(--space-2);
+		color: var(--text-secondary);
 		font-size: 14px;
-	}
-	.mono {
-		font-family: var(--font-display);
-		letter-spacing: 0.04em;
+		flex-shrink: 0;
 	}
 	.dot {
 		width: 8px;
 		height: 8px;
 		border-radius: 50%;
-		background: rgb(252, 165, 165);
+		background: var(--warn);
 	}
 	.dot.ok {
-		background: rgb(52, 211, 153);
-		box-shadow: 0 0 10px rgba(52, 211, 153, 0.7);
+		background: var(--ok);
 	}
-	.metrics {
+	.ledger {
+		display: flex;
+		flex-direction: column;
+		border-top: 1px solid var(--border);
+	}
+	.ledger-row {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: 12px;
+		grid-template-columns: 7rem minmax(0, 4.5rem) minmax(0, 1fr);
+		gap: var(--space-3);
+		align-items: baseline;
+		padding: var(--space-2) 0;
+		border-bottom: 1px solid var(--border);
+		min-width: 0;
+	}
+	.k {
+		font-size: 14px;
+		color: var(--text-secondary);
+	}
+	.v {
+		font-size: 16px;
+		font-weight: 600;
+		color: var(--foreground);
+	}
+	.h {
+		font-size: 13px;
+		color: var(--text-tertiary);
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 	.lower {
 		flex: 1;
 		min-height: 0;
 		display: grid;
-		grid-template-columns: 1.2fr 0.8fr;
-		gap: 14px;
+		grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+		gap: var(--space-4);
 	}
 	.svc-block,
 	.git-block {
-		border-radius: 1rem;
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		background: rgba(2, 6, 23, 0.28);
-		padding: 14px 16px;
-		overflow: hidden;
+		min-width: 0;
+		overflow: auto;
 	}
 	.svc-list {
 		list-style: none;
-		margin: 10px 0 0;
+		margin: var(--space-2) 0 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
 	}
 	.svc-list li {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 10px;
+		gap: var(--space-3);
+		padding: var(--space-2) 0;
+		border-bottom: 1px solid var(--border);
+		min-height: 44px;
 	}
 	.svc-name {
-		font-size: 18px;
+		font-size: 16px;
 		font-weight: 500;
-		color: rgba(255, 255, 255, 0.92);
+		color: var(--foreground);
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
-	.pill {
+	.state {
 		font-family: var(--font-display);
-		font-size: 11px;
-		font-weight: 700;
-		letter-spacing: 0.12em;
-		padding: 4px 9px;
-		border-radius: 999px;
-		color: rgb(148, 163, 184);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		font-size: 12px;
+		color: var(--text-tertiary);
+		flex-shrink: 0;
 	}
-	.pill.ok {
-		color: rgb(52, 211, 153);
-		border-color: rgba(52, 211, 153, 0.35);
-		background: rgba(52, 211, 153, 0.12);
+	.state.ok {
+		color: var(--ok);
 	}
 	.git-branch {
-		margin-top: 8px;
+		margin-top: var(--space-2);
 		font-family: var(--font-display);
-		font-size: 22px;
+		font-size: 20px;
 		font-weight: 600;
-		color: #fff;
+		font-style: normal;
+		color: var(--foreground);
+		overflow-wrap: anywhere;
 	}
 	.git-msg {
-		margin-top: 6px;
+		margin-top: var(--space-2);
 		font-size: 15px;
-		color: rgb(148, 163, 184);
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		color: var(--text-secondary);
+		overflow-wrap: anywhere;
 	}
 	.git-meta {
-		margin-top: 12px;
+		margin-top: var(--space-3);
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 8px;
-		color: rgb(100, 116, 139);
+		gap: var(--space-2);
+		color: var(--text-tertiary);
 		font-size: 13px;
 	}
 	.muted {
-		margin-top: 12px;
-		color: rgb(148, 163, 184);
+		margin-top: var(--space-3);
+		color: var(--text-secondary);
+	}
+
+	@media (max-width: 768px) {
+		.hub-head {
+			flex-direction: column;
+			align-items: flex-start;
+		}
+		.lower {
+			grid-template-columns: minmax(0, 1fr);
+		}
+		.ledger-row {
+			grid-template-columns: minmax(0, 1fr) auto;
+		}
+		.h {
+			grid-column: 1 / -1;
+		}
 	}
 </style>

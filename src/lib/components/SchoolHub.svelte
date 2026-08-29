@@ -43,7 +43,7 @@
 		tomorrow.setDate(today.getDate() + 1);
 		if (d.toDateString() === today.toDateString()) return 'Today';
 		if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
-		return d.toLocaleDateString('en-US', { weekday: 'short' });
+		return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 	}
 
 	function timeLabel(iso) {
@@ -51,11 +51,30 @@
 		if (iso?.length <= 10) return 'all day';
 		return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
 	}
+
+	let groups = $derived.by(() => {
+		const out = [];
+		const seen = new Map();
+		for (const event of events) {
+			const key = event.start ? new Date(event.start).toDateString() : 'undated';
+			if (!seen.has(key)) {
+				const group = {
+					key,
+					label: event.start ? dayLabel(event.start) : 'Undated',
+					items: []
+				};
+				seen.set(key, group);
+				out.push(group);
+			}
+			seen.get(key).items.push(event);
+		}
+		return out;
+	});
 </script>
 
 <div class="school-hub">
 	<header class="hub-head">
-		<div>
+		<div class="titles">
 			<div class="eyebrow">School & Life</div>
 			<h2 class="hub-title">Assignments</h2>
 		</div>
@@ -63,8 +82,8 @@
 	</header>
 
 	{#if loading}
-		<div class="list">
-			{#each [1, 2, 3, 4] as i (i)}
+		<div class="archive" aria-busy="true">
+			{#each [1, 2, 3] as i (i)}
 				<div class="row skeleton"></div>
 			{/each}
 		</div>
@@ -79,19 +98,22 @@
 			<div>Canvas and Calendar will land here</div>
 		</div>
 	{:else}
-		<div class="list">
-			{#each events as e, i (e.id ?? i)}
-				<div class="row">
-					<div class="idx">{String(i + 1).padStart(2, '0')}</div>
-					<div class="body">
-						<div class="row-title">{e.title}</div>
-						<div class="row-sub">{e.location || 'Calendar'}</div>
-					</div>
-					<div class="when">
-						<span class="chip" data-urgency={urgency(e)}>{dayLabel(e.start)}</span>
-						<span class="time">{timeLabel(e.start)}</span>
-					</div>
-				</div>
+		<div class="archive">
+			{#each groups as group (group.key)}
+				<section class="day">
+					<h3 class="day-label">{group.label}</h3>
+					<ol class="day-list">
+						{#each group.items as e, i (e.id ?? `${group.key}-${i}`)}
+							<li class="entry" data-urgency={urgency(e)}>
+								<time class="when num">{timeLabel(e.start)}</time>
+								<div class="body">
+									<div class="row-title">{e.title}</div>
+									<div class="row-sub">{e.location || 'Calendar'}</div>
+								</div>
+							</li>
+						{/each}
+					</ol>
+				</section>
 			{/each}
 		</div>
 	{/if}
@@ -102,126 +124,134 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: 16px;
-		padding: 22px 26px 18px;
+		gap: var(--space-4);
+		padding: var(--space-5) var(--space-5) var(--space-4);
 		min-height: 0;
+		min-width: 0;
 	}
 	.hub-head {
 		display: flex;
 		justify-content: space-between;
 		align-items: flex-end;
-		gap: 16px;
+		gap: var(--space-4);
+	}
+	.titles {
+		min-width: 0;
 	}
 	.eyebrow {
-		font-size: 12px;
+		font-size: 13px;
 		font-weight: 500;
-		letter-spacing: 0.2em;
-		text-transform: uppercase;
-		color: rgb(148, 163, 184);
+		color: var(--text-tertiary);
 	}
 	.hub-title {
-		margin: 4px 0 0;
+		margin: var(--space-1) 0 0;
 		font-size: clamp(1.8rem, 2.4vw, 2.6rem);
 		font-weight: 600;
+		font-style: normal;
 		letter-spacing: -0.03em;
-		color: #fff;
+		color: var(--foreground);
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 	.head-meta {
 		font-size: 14px;
-		color: rgb(148, 163, 184);
-		font-family: var(--font-display);
+		color: var(--text-secondary);
+		flex-shrink: 0;
 	}
-	.list {
+	.archive {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
-		overflow: hidden;
+		gap: var(--space-5);
+		overflow: auto;
+		min-height: 0;
 	}
-	.row {
+	.day {
 		display: grid;
-		grid-template-columns: 48px 1fr auto;
-		align-items: center;
-		gap: 12px;
-		padding: 14px 16px;
-		border-radius: 16px;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.06);
-		min-height: 72px;
+		grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
+		gap: var(--space-4);
+		align-items: start;
 	}
-	.row.skeleton {
-		background: linear-gradient(90deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.04));
-		background-size: 200% 100%;
-		animation: shimmer 1.6s infinite;
+	.day-label {
+		margin: 0;
+		font-size: 15px;
+		font-weight: 600;
+		font-style: normal;
+		color: var(--brand);
+		padding-top: var(--space-2);
 	}
-	.idx {
-		font-family: var(--font-display);
-		font-size: 18px;
-		color: rgb(100, 116, 139);
+	.day-list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		border-top: 1px solid var(--border);
+	}
+	.entry {
+		display: grid;
+		grid-template-columns: 5.5rem minmax(0, 1fr);
+		gap: var(--space-3);
+		align-items: baseline;
+		padding: var(--space-3) 0;
+		border-bottom: 1px solid var(--border);
+	}
+	.entry[data-urgency='now'] .when {
+		color: var(--warn);
+	}
+	.entry[data-urgency='soon'] .when {
+		color: var(--brand);
+	}
+	.when {
+		font-size: 14px;
+		color: var(--text-tertiary);
 	}
 	.row-title {
-		font-size: clamp(1.15rem, 1.6vw, 1.55rem);
+		font-size: clamp(1.05rem, 1.4vw, 1.35rem);
 		font-weight: 600;
-		color: #fff;
+		font-style: normal;
+		color: var(--foreground);
 		letter-spacing: -0.02em;
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 	.row-sub {
 		margin-top: 2px;
 		font-size: 13px;
-		color: rgb(148, 163, 184);
-		font-family: var(--font-display);
+		color: var(--text-tertiary);
 	}
-	.when {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		gap: 6px;
-	}
-	.chip {
-		font-size: 11px;
-		font-weight: 700;
-		letter-spacing: 0.14em;
-		text-transform: uppercase;
-		padding: 4px 10px;
-		border-radius: 999px;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		color: rgb(203, 213, 225);
-	}
-	.chip[data-urgency='now'] {
-		color: rgb(252, 165, 165);
-		border-color: rgba(252, 165, 165, 0.4);
-		background: rgba(252, 165, 165, 0.12);
-	}
-	.chip[data-urgency='soon'] {
-		color: rgb(251, 191, 36);
-		border-color: rgba(251, 191, 36, 0.35);
-		background: rgba(251, 191, 36, 0.1);
-	}
-	.time {
-		font-family: var(--font-display);
-		font-size: 15px;
-		color: rgb(148, 163, 184);
+	.row.skeleton {
+		height: 56px;
+		border-radius: var(--radius-sm);
 	}
 	.empty {
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: center;
-		gap: 8px;
-		color: rgb(100, 116, 139);
+		gap: var(--space-2);
+		color: var(--text-tertiary);
 		font-size: 16px;
 	}
 	.empty-title {
 		font-size: 28px;
 		font-weight: 600;
-		color: rgb(203, 213, 225);
+		font-style: normal;
+		color: var(--text-secondary);
+		overflow-wrap: anywhere;
 	}
-	@keyframes shimmer {
-		0% {
-			background-position: 200% 0;
+
+	@media (max-width: 768px) {
+		.hub-head {
+			flex-direction: column;
+			align-items: flex-start;
 		}
-		100% {
-			background-position: -200% 0;
+		.day {
+			grid-template-columns: minmax(0, 1fr);
+			gap: var(--space-2);
+		}
+		.entry {
+			grid-template-columns: minmax(0, 1fr);
 		}
 	}
 </style>

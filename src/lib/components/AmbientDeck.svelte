@@ -3,7 +3,6 @@
 	import { wsStatus } from '$lib/stores.js';
 	import { gpuLowPowerMode, ollamaStatus } from '$lib/services/ollamaArbiter.js';
 
-	let { weather = { temp: '--', desc: '--' } } = $props();
 	let bars = $derived($spectrum || []);
 </script>
 
@@ -13,16 +12,15 @@
 			<div class="wave" style="--h: {0.12 + h * 0.88}"></div>
 		{/each}
 	</div>
-	<div class="pills">
-		<span class="pill" class:ok={$wsStatus === 'connected'}>
+	<ul class="status">
+		<li class:ok={$wsStatus === 'connected'}>
 			{$wsStatus === 'connected' ? 'link' : 'offline'}
-		</span>
-		<span class="pill" class:hot={$gpuLowPowerMode}>
-			{$gpuLowPowerMode ? 'gpu yield' : 'gpu live'}
-		</span>
-		<span class="pill">{$ollamaStatus === 'inferring' ? 'ollama' : 'idle'}</span>
-		<span class="pill dim">{weather.temp}° {weather.desc}</span>
-	</div>
+		</li>
+		<li class:hot={$gpuLowPowerMode}>
+			{$gpuLowPowerMode ? 'yield' : 'live'}
+		</li>
+		<li>{$ollamaStatus === 'inferring' ? 'ollama' : 'idle'}</li>
+	</ul>
 </div>
 
 <style>
@@ -33,9 +31,11 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: flex-end;
-		gap: 18px;
-		padding-bottom: 18px;
+		gap: var(--space-4);
+		padding: var(--space-4);
 		pointer-events: none;
+		box-sizing: border-box;
+		min-width: 0;
 	}
 	.wave-bars {
 		display: flex;
@@ -44,43 +44,31 @@
 		gap: 6px;
 		width: min(70vw, 1100px);
 		height: 42%;
-		opacity: 0.55;
+		opacity: 0.5;
 	}
 	.wave {
 		flex: 1;
-		max-width: 18px;
+		max-width: 14px;
+		min-width: 0;
 		height: calc(var(--h) * 100%);
-		border-radius: 999px;
-		background: linear-gradient(180deg, rgba(226, 232, 255, 0.55), rgba(129, 140, 248, 0.05));
-		box-shadow: 0 0 12px rgba(165, 180, 252, 0.12);
+		border-radius: var(--radius-sm);
+		background: color-mix(in srgb, var(--brand) 42%, transparent);
 	}
-	.pills {
+	.status {
 		display: flex;
-		gap: 8px;
+		gap: var(--space-5);
 		flex-wrap: wrap;
 		justify-content: center;
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		font-size: 13px;
+		color: var(--text-tertiary);
 	}
-	.pill {
-		font-family: var(--font-display);
-		font-size: 11px;
-		letter-spacing: 0.16em;
-		text-transform: uppercase;
-		padding: 6px 12px;
-		border-radius: 999px;
-		color: rgb(148, 163, 184);
-		border: 1px solid rgba(255, 255, 255, 0.08);
-		background: rgba(2, 6, 23, 0.35);
-		backdrop-filter: blur(12px);
+	.status li.ok {
+		color: var(--ok);
 	}
-	.pill.ok {
-		color: rgb(52, 211, 153);
-		border-color: rgba(52, 211, 153, 0.28);
-	}
-	.pill.hot {
-		color: rgb(251, 191, 36);
-		border-color: rgba(251, 191, 36, 0.35);
-	}
-	.pill.dim {
-		opacity: 0.7;
+	.status li.hot {
+		color: var(--warn);
 	}
 </style>
