@@ -162,7 +162,7 @@
 			<section class="school-col" class:focus={leftFocus === 'school'}>
 				<SchoolHub />
 			</section>
-			<section class="host-slab slab" class:focus={leftFocus === 'dev'}>
+			<section class="host-slab slab" class:focus={leftFocus === 'dev'} data-glass>
 				<DevHub />
 			</section>
 		</main>
