@@ -192,6 +192,14 @@ h6 {
 	background: color-mix(in srgb, var(--foreground) 8%, transparent);
 	border-radius: var(--radius-sm);
 }
+.skeleton.inline {
+	display: inline-block;
+	width: 96px;
+	height: 16px;
+}
+.skeleton.inline.short {
+	width: 64%;
+}
 
 .paper,
 .slab,

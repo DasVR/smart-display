@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 
 export const currentView = writable('clock');
+export const displayMode = writable('normal'); // normal | sleep | morning
 export const wsStatus = writable('connecting');
 export const nowPlaying = writable(null);
 export const weather = writable({ temp: '--', desc: '--' });

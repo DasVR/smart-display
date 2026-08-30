@@ -53,15 +53,35 @@ const server = createServer(async (req, res) => {
 		req.on('end', async () => {
 			try {
 				const data = JSON.parse(body);
-				if (data.event === 'morning') {
-					broadcast({ type: 'trigger', event: 'morning', data: data.data || {} });
-					json(res, { ok: true });
+				if (data.event === 'morning' || data.event === 'normal' || data.event === 'sleep') {
+					broadcast({ type: 'trigger', event: data.event, view: data.view || currentView, data: data.data || {} });
+					json(res, { ok: true, event: data.event });
 					return;
 				}
 				if (data.event === 'navigate' && data.view) {
 					currentView = data.view;
 					broadcast({ type: 'navigate', view: data.view, from: 'ha' });
 					await triggerHAView(data.view);
+					json(res, { ok: true });
+					return;
+				}
+				if (data.event === 'hdmi_off') {
+					import('node:child_process').then(({ execFile }) => {
+						execFile('/home/das/projects/smart-display/scripts/display-off.sh', (e) => {
+							if (e) console.error('hdmi_off failed', e.message);
+						});
+					});
+					broadcast({ type: 'trigger', event: 'hdmi_off' });
+					json(res, { ok: true });
+					return;
+				}
+				if (data.event === 'hdmi_on') {
+					import('node:child_process').then(({ execFile }) => {
+						execFile('/home/das/projects/smart-display/scripts/display-on.sh', (e) => {
+							if (e) console.error('hdmi_on failed', e.message);
+						});
+					});
+					broadcast({ type: 'trigger', event: 'hdmi_on' });
 					json(res, { ok: true });
 					return;
 				}

@@ -1,0 +1,60 @@
+# Home Assistant automations for smart display
+# Paste into HA UI (Settings → Automations & Scenes → YAML mode) or drop into /config/automations.yaml
+- id: smart_display_morning
+  alias: Smart Display — Morning Mode
+  description: Switch display to school view and show morning briefing at 6:30 AM
+  trigger:
+    - platform: time
+      at: "06:30:00"
+  action:
+    - service: rest_command.smart_display_morning
+
+- id: smart_display_sleep
+  alias: Smart Display — Sleep Mode
+  description: Dim/sleep overlay at 10:30 PM
+  trigger:
+    - platform: time
+      at: "22:30:00"
+  action:
+    - service: rest_command.smart_display_sleep
+
+- id: smart_display_hdmi_off
+  alias: Smart Display — HDMI Off
+  description: Turn off HDMI at midnight
+  trigger:
+    - platform: time
+      at: "00:00:00"
+  action:
+    - service: rest_command.smart_display_hdmi_off
+
+- id: smart_display_hdmi_on
+  alias: Smart Display — HDMI On
+  description: Turn HDMI back on at 6:00 AM
+  trigger:
+    - platform: time
+      at: "06:00:00"
+  action:
+    - service: rest_command.smart_display_hdmi_on
+
+# Required REST commands (add via configuration.yaml or UI):
+# rest_command:
+#   smart_display_morning:
+#     url: "http://172.22.0.1:3000/webhook/ha"
+#     method: POST
+#     payload: '{"event":"morning","view":"school"}'
+#     content_type: "application/json"
+#   smart_display_sleep:
+#     url: "http://172.22.0.1:3000/webhook/ha"
+#     method: POST
+#     payload: '{"event":"sleep"}'
+#     content_type: "application/json"
+#   smart_display_hdmi_off:
+#     url: "http://172.22.0.1:3000/webhook/ha"
+#     method: POST
+#     payload: '{"event":"hdmi_off"}'
+#     content_type: "application/json"
+#   smart_display_hdmi_on:
+#     url: "http://172.22.0.1:3000/webhook/ha"
+#     method: POST
+#     payload: '{"event":"hdmi_on"}'
+#     content_type: "application/json"

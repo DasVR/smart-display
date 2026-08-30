@@ -5,7 +5,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, weather, nowPlaying, wsStatus } from '$lib/stores.js';
+	import { currentView, displayMode, weather, nowPlaying, wsStatus } from '$lib/stores.js';
 	import { gpuLowPowerMode, ollamaStatus, startOllamaArbiter, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
@@ -22,6 +22,8 @@
 	let weatherLoading = $state(true);
 	let notif = $state({ visible: false, title: '', body: '', kind: 'info' });
 	let leftFocus = $state('school');
+	let mode = $state('normal');
+	let hdmiOff = $state(false);
 
 	function showNotif(title, body, kind = 'info', ms = 4500) {
 		notif = { visible: true, title, body, kind };
@@ -47,8 +49,27 @@
 					if (msg.view === 'dev') leftFocus = 'dev';
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
-					showNotif('Good morning', 'Briefing ready. Check due work.', 'info');
+					mode = 'morning';
+					displayMode.set('morning');
+					showNotif('Good morning', 'Briefing ready. Check due work.', 'info', 8000);
 					leftFocus = 'school';
+					currentView.set(msg.view || 'school');
+				}
+				if (msg.type === 'trigger' && msg.event === 'sleep') {
+					mode = 'sleep';
+					displayMode.set('sleep');
+					showNotif('Sleep mode', 'Dimming for the night. See you tomorrow.', 'info', 5000);
+				}
+				if (msg.type === 'trigger' && msg.event === 'normal') {
+					mode = 'normal';
+					displayMode.set('normal');
+					showNotif('Normal mode', 'Resuming full display.', 'info', 3000);
+				}
+				if (msg.type === 'trigger' && msg.event === 'hdmi_off') {
+					hdmiOff = true;
+				}
+				if (msg.type === 'trigger' && msg.event === 'hdmi_on') {
+					hdmiOff = false;
 				}
 				if (msg.type === 'power') {
 					window.dispatchEvent(new CustomEvent('power-state', { detail: msg.state }));
@@ -130,10 +151,10 @@
 	let dayNum = $derived(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDate());
 </script>
 
-<div class="display-shell">
-	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode} />
+<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
+	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode || mode === 'sleep'} />
 
-	<div class="display-root">
+	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'}>
 		<header class="zone top">
 			<div class="masthead">
 				<HeroClock {time} />
@@ -290,10 +311,24 @@
 		height: 6rem;
 		min-width: 0;
 	}
-	.inline {
-		display: inline-block;
-		width: 96px;
-		height: 16px;
+	.sleep .display-root {
+		opacity: 0.15;
+		filter: grayscale(0.85) blur(0.5px);
+		transition: opacity 1.2s ease, filter 1.2s ease;
+	}
+	.display-shell.hdmi-off .display-root {
+		opacity: 0;
+		transition: opacity 2.5s ease;
+	}
+	.display-shell.hdmi-off {
+		background: #000;
+	}
+	.morning .display-root {
+		animation: morningGlow 8s ease-in-out infinite alternate;
+	}
+	@keyframes morningGlow {
+		from { box-shadow: inset 0 0 0 transparent; }
+		to { box-shadow: inset 0 0 120px rgba(0, 217, 146, 0.08); }
 	}
 
 	@media (max-aspect-ratio: 4/3) {
