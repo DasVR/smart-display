@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { upcomingEvents } from '$lib/stores.js';
+	import DotMatrix from '$lib/components/DotMatrix.svelte';
 
 	let loading = $state(true);
 	let error = $state(null);
@@ -74,7 +75,7 @@
 
 <div class="school-hub">
 	<header class="running">
-		<h2 class="hub-title">Assignments</h2>
+		<h2 class="hub-title">┌ Assignments :: {events.length} ┐</h2>
 		<p class="head-meta">{events.length} in the next 3 days</p>
 	</header>
 
@@ -86,11 +87,13 @@
 		</div>
 	{:else if error}
 		<div class="empty">
+			<DotMatrix opacity={0.16} />
 			<div class="empty-title">{error}</div>
 			<div>Hermes calendar token not reachable</div>
 		</div>
 	{:else if events.length === 0}
 		<div class="empty">
+			<DotMatrix opacity={0.16} />
 			<div class="empty-title">Clear next 3 days</div>
 			<div>Canvas and Calendar will land here</div>
 		</div>
@@ -134,10 +137,11 @@
 	}
 	.hub-title {
 		margin: 0;
-		font-size: clamp(1.15rem, 1.6vw, 1.45rem);
-		font-weight: 600;
+		font-family: var(--font-display);
+		font-size: clamp(1.05rem, 1.5vw, 1.3rem);
+		font-weight: 500;
 		font-style: normal;
-		letter-spacing: -0.02em;
+		letter-spacing: 0;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -195,6 +199,7 @@
 		color: var(--text-tertiary);
 	}
 	.row-title {
+		font-family: var(--font-body);
 		font-size: clamp(1.15rem, 1.7vw, 1.55rem);
 		font-weight: 600;
 		font-style: normal;
@@ -213,6 +218,7 @@
 		border-radius: var(--radius-sm);
 	}
 	.empty {
+		position: relative;
 		flex: 1;
 		display: flex;
 		flex-direction: column;
@@ -223,7 +229,14 @@
 		color: var(--text-tertiary);
 		font-size: 16px;
 	}
+	.empty > :not(:first-child) {
+		position: relative;
+		z-index: 1;
+	}
 	.empty-title {
+		position: relative;
+		z-index: 1;
+		font-family: var(--font-body);
 		font-size: clamp(1.6rem, 2.2vw, 2.1rem);
 		font-weight: 600;
 		font-style: normal;

@@ -21,6 +21,7 @@
 <style>
 	.hero-clock {
 		min-width: 0;
+		font-family: var(--font-display);
 	}
 	.time {
 		display: flex;

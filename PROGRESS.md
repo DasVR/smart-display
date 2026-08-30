@@ -1,5 +1,13 @@
 # Smart Display Progress Log
 
+## 2026-08-30 — Cybernetic command center
+
+### Done
+- Snapped Bayer dither to a 4px virtual pixel grid in the liquid-metal shader so gradients read as chunky halftone instead of fine grain.
+- Replaced the Dev Wall git footer with an Active Agents + tool-execution monitor. Orbs, Reasoning, and ToolCall cards map live Ollama / git / telemetry signals (no invented traces).
+- Bracket meters for CPU, RAM, and Tailscale. ASCII corner marks, Braille spinners, and bitstreams on live tasks.
+- Unified clock, weather, and status pill into one top mast cluster. Glass tokens on the host slab and ambient trough only.
+
 ## 2026-08-29 — UI scale + live data pass
 
 ### Done
@@ -22,7 +30,5 @@
 
 ### Next up (while user is away)
 - Test calendar/nowplaying with real data.
-- More dithered gradient overlays per view.
-- Improve shader richness further (optional).
 - Wire HA companion app / automations for view switching.
 - Add Canvas API for assignments if credentials available.

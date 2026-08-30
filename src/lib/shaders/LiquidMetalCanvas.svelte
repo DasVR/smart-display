@@ -219,10 +219,12 @@ void main() {
 	float vig = 1.0 - length(centered) * 0.42;
 	color *= vig;
 
-	float levels = 28.0;
-	float dith = bayer8(gl_FragCoord.xy);
+	const float DITHER_CELL = 4.0;
+	vec2 ditherCoord = floor(gl_FragCoord.xy / DITHER_CELL);
+	float dith = bayer8(ditherCoord);
+	float levels = 16.0;
 	vec3 quantized = floor(color * levels + dith) / levels;
-	color = mix(color, quantized, 0.88);
+	color = mix(color, quantized, 0.94);
 
 	fragColor = vec4(color, 1.0);
 }`;
@@ -343,7 +345,7 @@ void main() {
 		};
 		gl = canvas.getContext('webgl2', glOpts);
 		if (!gl) {
-			console.warn('WebGL2 unavailable — liquid metal canvas disabled');
+			console.warn('WebGL2 unavailable, liquid metal canvas disabled');
 			return false;
 		}
 

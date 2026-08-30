@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 4 · Restraint 4 · Variety 4
+	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
 -->
 <script>
 	import '../app.css';
@@ -8,7 +8,8 @@
 	import {
 		currentView,
 		weather,
-		nowPlaying
+		nowPlaying,
+		wsStatus
 	} from '$lib/stores.js';
 	import { gpuLowPowerMode, ollamaStatus, startOllamaArbiter, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
@@ -18,6 +19,7 @@
 	import DevHub from '$lib/components/DevHub.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
+	import AsciiFrame from '$lib/components/AsciiFrame.svelte';
 
 	let ws;
 	let reconnectTimer;
@@ -128,8 +130,8 @@
 		};
 	});
 
-	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long' }));
-	let month = $derived(time.toLocaleDateString('en-US', { month: 'long' }));
+	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase());
+	let month = $derived(time.toLocaleDateString('en-US', { month: 'short' }).toUpperCase());
 	let dayNum = $derived(time.getDate());
 </script>
 
@@ -138,23 +140,25 @@
 
 	<div class="display-root">
 		<header class="zone top">
-			<HeroClock {time} />
-			<div class="mast-rail">
-				<p class="dateline">{weekday}, {month} {dayNum}</p>
-				<p class="wxline">
-					{#if weatherLoading}
-						<span class="skeleton inline"></span>
-					{:else}
-						<span class="num">{$weather.temp}°</span>
-						{$weather.desc}
-					{/if}
-				</p>
-				<DynamicIsland
-					nowPlaying={$nowPlaying}
-					notification={notif}
-					gpuLowPower={$gpuLowPowerMode}
-					ollamaStatus={$ollamaStatus}
-				/>
+			<div class="mast">
+				<HeroClock {time} />
+				<div class="status-cluster">
+					<p class="dateline">{weekday} {month} {dayNum}</p>
+					<p class="wxline">
+						{#if weatherLoading}
+							<span class="skeleton inline"></span>
+						{:else}
+							<span class="num">{$weather.temp}°</span>
+							{$weather.desc}
+						{/if}
+					</p>
+					<DynamicIsland
+						nowPlaying={$nowPlaying}
+						notification={notif}
+						gpuLowPower={$gpuLowPowerMode}
+						ollamaStatus={$ollamaStatus}
+					/>
+				</div>
 			</div>
 		</header>
 
@@ -162,8 +166,10 @@
 			<section class="school-col" class:focus={leftFocus === 'school'}>
 				<SchoolHub />
 			</section>
-			<section class="host-slab slab" class:focus={leftFocus === 'dev'}>
-				<DevHub />
+			<section class="host-slab slab" class:focus={leftFocus === 'dev'} data-glass>
+				<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[SYS_DOWN]'}>
+					<DevHub />
+				</AsciiFrame>
 			</section>
 		</main>
 
@@ -194,7 +200,7 @@
 		display: flex;
 		flex-direction: column;
 		color: var(--text-primary);
-		font-family: var(--font-body);
+		font-family: var(--font-display);
 		min-width: 0;
 	}
 	.zone {
@@ -206,21 +212,30 @@
 	.top {
 		height: 15%;
 		min-height: 140px;
-		display: grid;
-		grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
-		align-items: end;
-		gap: var(--space-5);
+		display: flex;
+		align-items: flex-end;
 		padding-top: var(--space-4);
 		overflow: visible;
 	}
-	.mast-rail {
+	.mast {
 		display: flex;
-		flex-direction: column;
 		align-items: flex-end;
-		justify-content: flex-end;
-		gap: var(--space-1);
+		gap: var(--space-5);
 		min-width: 0;
-		text-align: right;
+		width: 100%;
+		flex-wrap: wrap;
+	}
+	.status-cluster {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		padding: var(--space-2) var(--space-3);
+		min-width: 0;
+		min-height: 44px;
+		border: 1px solid var(--border);
+		border-top-color: var(--spec-top);
+		border-radius: var(--radius-md);
+		background: color-mix(in srgb, var(--abyss-2) 55%, transparent);
 	}
 	.dateline,
 	.wxline {
@@ -229,6 +244,7 @@
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
+		white-space: nowrap;
 	}
 	.wxline .num {
 		margin-right: 0.35em;
@@ -281,12 +297,7 @@
 
 	@media (max-aspect-ratio: 4/3) {
 		.top {
-			grid-template-columns: minmax(0, 1fr);
 			height: 18%;
-		}
-		.mast-rail {
-			align-items: flex-start;
-			text-align: left;
 		}
 		.center {
 			grid-template-columns: minmax(0, 1fr);
@@ -309,15 +320,14 @@
 			padding-inline: var(--space-4);
 		}
 		.top {
-			grid-template-columns: minmax(0, 1fr);
 			height: auto;
 			min-height: 0;
 			padding-top: var(--space-3);
 			align-items: start;
 		}
-		.mast-rail {
-			align-items: flex-start;
-			text-align: left;
+		.status-cluster {
+			flex-wrap: wrap;
+			width: 100%;
 		}
 		.center {
 			grid-template-columns: minmax(0, 1fr);

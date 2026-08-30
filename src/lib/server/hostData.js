@@ -151,13 +151,29 @@ export function getGitContext() {
 	const shortSha = run(`${opts} rev-parse --short HEAD 2>/dev/null`);
 	const dirtyRaw = run(`${opts} status --porcelain 2>/dev/null`);
 	const aheadBehind = run(`${opts} status -sb 2>/dev/null`);
+	const files = dirtyRaw
+		? dirtyRaw
+				.split('\n')
+				.filter(Boolean)
+				.slice(0, 8)
+				.map((line) => ({
+					code: line.slice(0, 2).trim(),
+					path: line.slice(3)
+				}))
+		: [];
+	const commitFilesRaw = run(`${opts} diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null`);
+	const commitFiles = commitFilesRaw
+		? commitFilesRaw.split('\n').filter(Boolean).slice(0, 8)
+		: [];
 	return {
 		branch: branch || 'unknown',
 		message: message || 'no commits',
 		sha: shortSha || '',
 		dirty: Boolean(dirtyRaw),
 		status: aheadBehind || '',
-		changed: dirtyRaw ? dirtyRaw.split('\n').filter(Boolean).length : 0
+		changed: dirtyRaw ? dirtyRaw.split('\n').filter(Boolean).length : 0,
+		files,
+		commitFiles
 	};
 }
 

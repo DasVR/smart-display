@@ -3,12 +3,16 @@
 
 @theme {
 	--font-sans: var(--font-body);
-	--font-mono: var(--font-display);
+	--font-mono: var(--font-code);
 	--color-accent: var(--brand);
 }
 
 :root {
-	--gray-00: #111113;
+	--abyss: #050507;
+	--abyss-1: #0a0a0c;
+	--abyss-2: #101014;
+	--abyss-3: #16161d;
+	--gray-00: var(--abyss);
 	--gray-05: #1a1a1d;
 	--gray-10: #2a2a2e;
 	--gray-40: #8a8a93;
@@ -18,10 +22,12 @@
 	--brand-30: #6e76b8;
 	--ok-50: #5d9d7e;
 	--warn-50: #c9847a;
+	--scan-50: #6ec8c4;
+	--solve-50: #c9a36a;
 
-	--background: var(--gray-00);
+	--background: var(--abyss);
 	--foreground: var(--gray-95);
-	--card: var(--gray-05);
+	--card: color-mix(in srgb, var(--abyss-3) 70%, transparent);
 	--card-foreground: var(--gray-95);
 	--muted: var(--gray-10);
 	--muted-foreground: var(--gray-40);
@@ -32,6 +38,8 @@
 	--ok: var(--ok-50);
 	--warn: var(--warn-50);
 	--danger: var(--warn-50);
+	--scan: var(--scan-50);
+	--solve: var(--solve-50);
 	--border: color-mix(in srgb, var(--gray-95) 10%, transparent);
 	--ring: var(--brand-50);
 	--chart: var(--brand-50);
@@ -48,26 +56,42 @@
 	--accent-soft: var(--brand-soft);
 	--accent-border: var(--brand-border);
 
+	--spec-top: color-mix(in srgb, var(--gray-95) 12%, transparent);
+	--inner-glow: inset 0 1px 0 color-mix(in srgb, var(--gray-95) 10%, transparent),
+		inset 0 -24px 40px color-mix(in srgb, var(--brand-50) 4%, transparent);
+	--glass-bg: color-mix(in srgb, var(--abyss-3) 70%, transparent);
+	--glass-blur: 16px;
+
 	--radius: 8px;
-	--radius-sm: calc(var(--radius) * 0.6);
-	--radius-md: var(--radius);
-	--radius-lg: calc(var(--radius) * 1.5);
+	--radius-sm: 4px;
+	--radius-md: 8px;
+	--radius-lg: 12px;
 	--r-sm: var(--radius-sm);
 	--r-md: var(--radius-md);
 	--r-lg: var(--radius-lg);
 
 	--space-1: 4px;
 	--space-2: 8px;
-	--space-3: 12px;
+	--space-3: 16px;
 	--space-4: 16px;
 	--space-5: 24px;
 	--space-6: 32px;
 	--space-8: 48px;
 
 	--font-body: 'Inter', system-ui, sans-serif;
-	--font-display: 'JetBrains Mono', ui-monospace, monospace;
+	--font-display: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+	--font-code: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+
+	--dur-fast: 150ms;
+	--dur-base: 220ms;
+	--dur-slow: 320ms;
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	--ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 	--ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
 	--ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+	--spring-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+	--spring-snappy: cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -88,7 +112,7 @@ body {
 	height: 100%;
 	background: var(--background);
 	color: var(--foreground);
-	font-family: var(--font-body);
+	font-family: var(--font-display);
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 	overflow-x: clip;
@@ -116,11 +140,13 @@ h4,
 h5,
 h6 {
 	font-style: normal;
+	font-family: var(--font-display);
 }
 
 .num {
-	font-family: var(--font-display);
+	font-family: var(--font-code);
 	font-variant-numeric: tabular-nums;
+	font-variant-ligatures: none;
 	font-style: normal;
 }
 
@@ -133,20 +159,41 @@ h6 {
 	background: var(--card);
 	color: var(--card-foreground);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-lg);
+	border-top-color: var(--spec-top);
+	border-radius: var(--radius-md);
+	box-shadow: var(--inner-glow);
+	backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
 }
 
 .slab {
-	background: var(--card);
+	background: var(--glass-bg);
 	color: var(--card-foreground);
 	border: 1px solid var(--border);
-	border-radius: var(--radius-sm);
+	border-top-color: var(--spec-top);
+	border-radius: var(--radius-md);
+	box-shadow: var(--inner-glow);
+	backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
 }
 
-.glass-field {
-	background: color-mix(in srgb, var(--gray-05) 55%, transparent);
+.glass-field,
+.glass-card {
+	background: var(--glass-bg);
 	border: 1px solid var(--border);
+	border-top-color: var(--spec-top);
 	border-radius: var(--radius-md);
-	backdrop-filter: blur(16px) saturate(1.2);
-	-webkit-backdrop-filter: blur(16px) saturate(1.2);
+	box-shadow: var(--inner-glow);
+	backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.2);
+}
+
+.ascii-mark {
+	font-family: var(--font-display);
+	font-style: normal;
+	color: var(--text-tertiary);
+}
+
+.human {
+	font-family: var(--font-body);
 }

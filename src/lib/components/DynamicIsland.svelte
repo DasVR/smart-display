@@ -1,6 +1,4 @@
 <script>
-	import { spectrum } from '$lib/services/audioReactive.js';
-
 	let {
 		nowPlaying = null,
 		notification = { visible: false, title: '', body: '', kind: 'info' },
@@ -14,12 +12,10 @@
 		return 'idle';
 	});
 
-	let bins = $derived(($spectrum || []).slice(0, 10));
-
 	let statusWord = $derived.by(() => {
-		if (gpuLowPower) return 'yield';
-		if (ollamaStatus === 'inferring') return 'busy';
-		return 'ready';
+		if (gpuLowPower) return 'YIELD';
+		if (ollamaStatus === 'inferring') return 'BUSY';
+		return 'SYS_OK';
 	});
 
 	function modeLabel(next) {
@@ -27,9 +23,9 @@
 			case 'idle':
 				return statusWord;
 			case 'nowplaying':
-				return 'playing';
+				return 'PLAY';
 			case 'alert':
-				return notification?.kind || 'notice';
+				return notification?.kind || 'NOTE';
 			default: {
 				const _exhaustive = next;
 				return _exhaustive;
@@ -42,26 +38,21 @@
 	{#if mode === 'nowplaying'}
 		<div class="slip">
 			<div class="copy">
-				<div class="kicker">{modeLabel(mode)}</div>
+				<div class="kicker">[{modeLabel(mode)}]</div>
 				<div class="title">{nowPlaying?.title || 'Untitled'}</div>
 				<div class="sub">{nowPlaying?.artist || ''}</div>
-			</div>
-			<div class="mini-vis" aria-hidden="true">
-				{#each bins as h, i (i)}
-					<span style="height: {Math.max(12, h * 100)}%"></span>
-				{/each}
 			</div>
 		</div>
 	{:else if mode === 'alert'}
 		<div class="slip">
 			<div class="copy">
-				<div class="kicker">{modeLabel(mode)}</div>
+				<div class="kicker">[{modeLabel(mode)}]</div>
 				<div class="title">{notification.title}</div>
 				<div class="sub">{notification.body}</div>
 			</div>
 		</div>
 	{:else}
-		<div class="word" class:hot={gpuLowPower}>{statusWord}</div>
+		<div class="word" class:hot={gpuLowPower}>[{statusWord}]</div>
 	{/if}
 </div>
 
@@ -71,9 +62,11 @@
 		max-width: 100%;
 	}
 	.word {
-		font-size: 16px;
+		font-family: var(--font-display);
+		font-size: 14px;
 		font-weight: 600;
-		color: var(--text-secondary);
+		color: var(--ok);
+		letter-spacing: 0.04em;
 	}
 	.word.hot {
 		color: var(--warn);
@@ -81,10 +74,9 @@
 	.slip {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
+		gap: var(--space-2);
 		min-height: 44px;
-		padding: var(--space-2) 0;
-		border-top: 1px solid var(--border);
+		min-width: 0;
 		max-width: min(420px, 100%);
 	}
 	.copy {
@@ -92,12 +84,14 @@
 		flex: 1;
 	}
 	.kicker {
+		font-family: var(--font-display);
 		font-size: 12px;
 		font-weight: 500;
 		color: var(--text-tertiary);
 	}
 	.title {
-		font-size: 18px;
+		font-family: var(--font-display);
+		font-size: 16px;
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -112,26 +106,5 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.mini-vis {
-		display: flex;
-		align-items: flex-end;
-		gap: 3px;
-		height: 28px;
-		width: 72px;
-		flex-shrink: 0;
-	}
-	.mini-vis span {
-		flex: 1;
-		min-width: 0;
-		border-radius: var(--radius-sm);
-		background: var(--brand);
-		opacity: 0.85;
-	}
-
-	@media (max-width: 414px) {
-		.mini-vis {
-			display: none;
-		}
 	}
 </style>
