@@ -161,8 +161,18 @@ wss.on('connection', (ws, req) => {
 				currentView = views[idx];
 				broadcast({ type: 'navigate', view: currentView, from: 'remote' });
 			}
-			if (msg.type === 'trigger' && msg.event === 'morning') {
-				broadcast({ type: 'trigger', event: 'morning', data: msg.data });
+			if (msg.type === 'trigger') {
+				broadcast({ type: 'trigger', event: msg.event, view: msg.view || currentView, data: msg.data || {} });
+				if (msg.event === 'hdmi_off') {
+					import('node:child_process').then(({ execFile }) => {
+						execFile('/home/das/projects/smart-display/scripts/display-off.sh', (e) => { if (e) console.error(e); });
+					});
+				}
+				if (msg.event === 'hdmi_on') {
+					import('node:child_process').then(({ execFile }) => {
+						execFile('/home/das/projects/smart-display/scripts/display-on.sh', (e) => { if (e) console.error(e); });
+					});
+				}
 			}
 		} catch {
 			/* ignore */
