@@ -87,13 +87,13 @@
 		</div>
 	{:else if error}
 		<div class="empty">
-			<DotMatrix opacity={0.16} />
+			<DotMatrix opacity={0.22} />
 			<div class="empty-title">{error}</div>
 			<div>Hermes calendar token not reachable</div>
 		</div>
 	{:else if events.length === 0}
 		<div class="empty">
-			<DotMatrix opacity={0.16} />
+			<DotMatrix opacity={0.22} />
 			<div class="empty-title">Clear next 3 days</div>
 			<div>Canvas and Calendar will land here</div>
 		</div>

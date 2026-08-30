@@ -219,7 +219,7 @@ void main() {
 	float vig = 1.0 - length(centered) * 0.42;
 	color *= vig;
 
-	const float DITHER_CELL = 4.0;
+	const float DITHER_CELL = 5.0;
 	vec2 ditherCoord = floor(gl_FragCoord.xy / DITHER_CELL);
 	float dith = bayer8(ditherCoord);
 	float levels = 16.0;

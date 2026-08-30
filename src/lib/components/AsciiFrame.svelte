@@ -1,5 +1,5 @@
 <script>
-	let { title = '', tag = '', children } = $props();
+	let { title = '', tag = '', ok = true, children } = $props();
 </script>
 
 <div class="ascii-frame">
@@ -10,7 +10,7 @@
 	{#if title || tag}
 		<div class="head">
 			{#if title}<span class="title">// {title}</span>{/if}
-			{#if tag}<span class="tag">{tag}</span>{/if}
+			{#if tag}<span class="tag" class:ok>{tag}</span>{/if}
 		</div>
 	{/if}
 	<div class="body">
@@ -61,6 +61,9 @@
 	}
 	.tag {
 		flex-shrink: 0;
+		color: var(--warn);
+	}
+	.tag.ok {
 		color: var(--ok);
 	}
 	.body {

@@ -12,7 +12,7 @@
 		{/each}
 	</div>
 	<p class="link" class:ok={$wsStatus === 'connected'}>
-		{$wsStatus === 'connected' ? '[SYS_OK]' : '[SYS_DOWN]'}
+		{$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'}
 	</p>
 </div>
 

@@ -167,7 +167,7 @@
 				<SchoolHub />
 			</section>
 			<section class="host-slab slab" class:focus={leftFocus === 'dev'} data-glass>
-				<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[SYS_DOWN]'}>
+				<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
 					<DevHub />
 				</AsciiFrame>
 			</section>

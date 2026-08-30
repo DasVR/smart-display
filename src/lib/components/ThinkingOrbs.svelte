@@ -3,8 +3,8 @@
 
 	const DOTS = Array.from({ length: 9 }, (_, i) => ({
 		i,
-		left: 8 + (i % 3) * 14,
-		top: 8 + Math.floor(i / 3) * 14
+		left: 6 + (i % 3) * 10,
+		top: 6 + Math.floor(i / 3) * 10
 	}));
 
 	let dim = $derived(phase === 'idle' || phase === 'done');
@@ -19,8 +19,8 @@
 <style>
 	.orbs {
 		position: relative;
-		width: 48px;
-		height: 48px;
+		width: 36px;
+		height: 36px;
 		flex-shrink: 0;
 		--orb-a: var(--text-tertiary);
 		--orb-b: var(--brand);
@@ -55,8 +55,8 @@
 	}
 	.p {
 		position: absolute;
-		width: 5px;
-		height: 5px;
+		width: 4px;
+		height: 4px;
 		border-radius: 1px;
 		background: var(--orb-a);
 		box-shadow: 0 0 6px color-mix(in srgb, var(--orb-a) 55%, transparent);

@@ -14,7 +14,7 @@
 		height: 100vh;
 		pointer-events: none;
 		z-index: 40;
-		opacity: 0.08;
+		opacity: 0.035;
 		mix-blend-mode: overlay;
 	}
 

@@ -84,7 +84,7 @@
 </script>
 
 <div class="dev-hub">
-	<DotMatrix opacity={0.14} />
+	<DotMatrix opacity={0.2} />
 
 	<div class="mark">
 		<span>// Dev Wall</span>
@@ -132,6 +132,7 @@
 		padding: var(--space-2) var(--space-3) var(--space-3);
 		min-height: 0;
 		min-width: 0;
+		overflow: auto;
 		z-index: 1;
 	}
 	.mark {
@@ -154,7 +155,7 @@
 		flex: 1;
 		min-height: 0;
 		min-width: 0;
-		overflow: auto;
+		overflow: visible;
 		z-index: 1;
 	}
 	.svc-block {

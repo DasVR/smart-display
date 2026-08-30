@@ -56,11 +56,11 @@
 	--accent-soft: var(--brand-soft);
 	--accent-border: var(--brand-border);
 
-	--spec-top: color-mix(in srgb, var(--gray-95) 12%, transparent);
-	--inner-glow: inset 0 1px 0 color-mix(in srgb, var(--gray-95) 10%, transparent),
-		inset 0 -24px 40px color-mix(in srgb, var(--brand-50) 4%, transparent);
-	--glass-bg: color-mix(in srgb, var(--abyss-3) 70%, transparent);
-	--glass-blur: 16px;
+	--spec-top: color-mix(in srgb, var(--gray-95) 18%, transparent);
+	--inner-glow: inset 0 1px 0 color-mix(in srgb, var(--gray-95) 16%, transparent),
+		inset 0 -28px 48px color-mix(in srgb, var(--brand-50) 7%, transparent);
+	--glass-bg: color-mix(in srgb, var(--abyss-3) 58%, transparent);
+	--glass-blur: 20px;
 
 	--radius: 8px;
 	--radius-sm: 4px;

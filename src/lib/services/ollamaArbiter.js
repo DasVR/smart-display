@@ -15,7 +15,7 @@ if (typeof window !== 'undefined') {
 }
 
 const POLL_MS = 500;
-const OLLAMA_URLS = ['http://127.0.0.1:11434/api/ps', '/api/ollama/ps'];
+const OLLAMA_URLS = ['/api/ollama/ps'];
 
 export const isInferring = derived(
 	ollamaStatus,

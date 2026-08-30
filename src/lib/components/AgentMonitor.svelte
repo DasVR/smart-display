@@ -7,8 +7,6 @@
 	import { runPid } from '$lib/agentFeed.js';
 
 	let { agents = [], reasoning = null, tools = [], seed = 0 } = $props();
-
-	let live = $derived(agents.some((a) => a.phase !== 'idle' && a.phase !== 'done'));
 </script>
 
 <section class="monitor" aria-label="Active agents and tool execution">
@@ -42,7 +40,7 @@
 			title={reasoning.title}
 			phase={reasoning.phase}
 			lines={reasoning.lines}
-			open={reasoning.open || live}
+			open={reasoning.open}
 		/>
 	{/if}
 
@@ -93,7 +91,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		min-height: 48px;
+		min-height: 40px;
 		min-width: 0;
 	}
 	.meta {

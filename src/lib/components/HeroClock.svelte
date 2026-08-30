@@ -31,6 +31,7 @@
 		letter-spacing: -0.055em;
 		line-height: 0.9;
 		color: var(--foreground);
+		font-family: var(--font-display);
 		font-style: normal;
 		min-width: 0;
 		overflow-wrap: anywhere;

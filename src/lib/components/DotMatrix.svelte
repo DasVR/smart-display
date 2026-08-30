@@ -6,7 +6,7 @@
 <svg class="dot-matrix" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="opacity: {opacity}">
 	<defs>
 		<pattern id={uid} width="8" height="8" patternUnits="userSpaceOnUse">
-			<circle cx="1" cy="1" r="0.7" fill="currentColor" />
+			<circle cx="1.2" cy="1.2" r="0.9" fill="currentColor" />
 		</pattern>
 	</defs>
 	<rect width="100%" height="100%" fill="url(#{uid})" />
