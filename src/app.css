@@ -79,6 +79,17 @@
 	--elevation-1: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
 	--elevation-2: 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent);
 	--elevation-3: 0 8px 24px color-mix(in srgb, var(--background) 80%, transparent);
+
+	/* Liquid-glass depth: bg-neutral-900/40, backdrop-blur-md, border-white/10 */
+	--glass-fill: rgb(23 23 23 / 0.4);
+	--glass-blur: 12px;
+	--glass-specular: rgb(255 255 255 / 0.1);
+	--glass-edge: rgb(255 255 255 / 0.06);
+	--glass-inset-hi: rgb(255 255 255 / 0.1);
+	--glass-inset-lo: rgb(0 0 0 / 0.22);
+	--glass-depth:
+		inset 0 1px 0 var(--glass-inset-hi),
+		inset 0 -1px 14px var(--glass-inset-lo);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -140,24 +151,38 @@ h6 {
 	border-radius: var(--radius-sm);
 }
 
-.paper {
-	background: var(--card);
+.paper,
+.slab,
+.glass-field {
+	isolation: isolate;
+	background: var(--glass-fill);
 	color: var(--card-foreground);
-	border: 1px solid var(--border);
+	border: 1px solid var(--glass-edge);
+	border-top-color: var(--glass-specular);
+	backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
+	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
+	box-shadow: var(--glass-depth);
+}
+
+.paper {
 	border-radius: var(--radius-lg);
 }
 
 .slab {
-	background: var(--card);
-	color: var(--card-foreground);
-	border: 1px solid var(--border);
 	border-radius: var(--radius-sm);
 }
 
 .glass-field {
-	background: color-mix(in srgb, var(--gray-05) 55%, transparent);
-	border: 1px solid var(--border);
 	border-radius: var(--radius-md);
-	backdrop-filter: blur(16px) saturate(1.2);
-	-webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+	.paper,
+	.slab,
+	.glass-field {
+		background: var(--card);
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+		box-shadow: inset 0 1px 0 var(--glass-inset-hi);
+	}
 }
