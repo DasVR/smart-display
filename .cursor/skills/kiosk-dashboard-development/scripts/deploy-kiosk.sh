@@ -23,13 +23,13 @@ fi
 echo "[2/5] installing deps (npm ci via lockfile)"
 "$NPM" ci --no-audit --no-fund
 
-echo "[2/4] building (adapter-node)"
+echo "[3/5] building (adapter-node)"
 "$NPM" run build
 
-echo "[3/4] restarting dashboard server"
+echo "[4/5] restarting dashboard server"
 sudo systemctl restart smart-display-server
 
-echo "[4/4] restarting kiosk (cage + chromium)"
+echo "[5/5] restarting kiosk (cage + chromium)"
 sudo systemctl restart smart-display-kiosk
 
 echo "=== deploy complete ==="
