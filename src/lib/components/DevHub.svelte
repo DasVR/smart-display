@@ -156,7 +156,6 @@
 		color: var(--text-tertiary);
 	}
 	.svc-block {
-		flex: 1;
 		min-height: 0;
 		min-width: 0;
 		overflow: auto;
@@ -195,7 +194,7 @@
 		color: var(--ok);
 	}
 	.gitline {
-		margin: 0;
+		margin: auto 0 0;
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-4);

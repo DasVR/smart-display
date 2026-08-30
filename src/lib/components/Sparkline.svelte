@@ -1,5 +1,5 @@
 <script>
-	let { points = [], height = 24 } = $props();
+	let { points = [], height = 16, fill = false } = $props();
 
 	const uid = `spark-${Math.random().toString(36).slice(2, 9)}`;
 	const W = 200;
@@ -52,20 +52,22 @@
 	preserveAspectRatio="none"
 	aria-hidden="true"
 >
-	<defs>
-		<linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
-			<stop offset="0%" stop-color="currentColor" stop-opacity="0.28" />
-			<stop offset="100%" stop-color="currentColor" stop-opacity="0" />
-		</linearGradient>
-	</defs>
-	<path d={paths.area} fill="url(#{uid})" />
+	{#if fill}
+		<defs>
+			<linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
+				<stop offset="0%" stop-color="currentColor" stop-opacity="0.28" />
+				<stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+			</linearGradient>
+		</defs>
+		<path d={paths.area} fill="url(#{uid})" />
+	{/if}
 	<path d={paths.line} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
 </svg>
 
 <style>
 	.sparkline {
 		width: 100%;
-		height: var(--spark-h, 24px);
+		height: var(--spark-h, 16px);
 		display: block;
 		overflow: visible;
 		color: var(--brand);

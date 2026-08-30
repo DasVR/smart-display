@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 5 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
+	Philosophy 5 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 5 · Variety 5
 -->
 <script>
 	import '../app.css';
@@ -138,21 +138,22 @@
 				<HeroClock {time} />
 				<div class="status-cluster">
 					<p class="dateline">{weekday}, {month} {dayNum}</p>
-					<p class="wxline">
-						{#if weatherLoading}
-							<span class="skeleton inline"></span>
-						{:else}
-							<span class="num">{$weather.temp}°</span>
-							{$weather.desc}
-						{/if}
-					</p>
-					<span class="cluster-rule" aria-hidden="true"></span>
-					<DynamicIsland
-						nowPlaying={$nowPlaying}
-						notification={notif}
-						gpuLowPower={$gpuLowPowerMode}
-						ollamaStatus={$ollamaStatus}
-					/>
+					<div class="cluster-end">
+						<p class="wxline">
+							{#if weatherLoading}
+								<span class="skeleton inline"></span>
+							{:else}
+								<span class="num">{$weather.temp}°</span>
+								{$weather.desc}
+							{/if}
+						</p>
+						<DynamicIsland
+							nowPlaying={$nowPlaying}
+							notification={notif}
+							gpuLowPower={$gpuLowPowerMode}
+							ollamaStatus={$ollamaStatus}
+						/>
+					</div>
 				</div>
 			</div>
 		</header>
@@ -222,9 +223,16 @@
 		align-items: center;
 		justify-content: flex-end;
 		flex-wrap: wrap;
-		gap: var(--space-4);
+		gap: var(--space-2);
 		min-width: 0;
 		padding-bottom: var(--space-2);
+	}
+	.cluster-end {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
+		min-width: 0;
 	}
 	.dateline,
 	.wxline {
@@ -238,12 +246,6 @@
 	.wxline .num {
 		margin-right: var(--space-2);
 		color: var(--foreground);
-	}
-	.cluster-rule {
-		width: 1px;
-		height: 16px;
-		background: var(--border);
-		flex-shrink: 0;
 	}
 	.center {
 		min-height: 0;

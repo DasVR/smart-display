@@ -3,9 +3,6 @@
 
 	let { events = [], caption = '', loading = false } = $props();
 
-	const DAY_START = 8;
-	const DAY_END = 21;
-	const HOURS = Array.from({ length: DAY_END - DAY_START }, (_, i) => DAY_START + i);
 	const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 	let now = $state(new Date());
@@ -28,8 +25,11 @@
 		return a.toDateString() === b.toDateString();
 	}
 
-	function isAllDay(event) {
-		return !event?.start || event.start.length <= 10;
+	function timeLabel(iso) {
+		if (!iso || iso.length <= 10) return 'all day';
+		return new Date(iso)
+			.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+			.toLowerCase();
 	}
 
 	let weekDays = $derived.by(() => {
@@ -37,105 +37,62 @@
 		return Array.from({ length: 7 }, (_, i) => {
 			const date = new Date(start);
 			date.setDate(start.getDate() + i);
-			const dayEvents = events.filter((event) => event.start && sameDay(new Date(event.start), date));
+			const items = events.filter((event) => event.start && sameDay(new Date(event.start), date));
 			return {
 				date,
 				key: date.toISOString(),
 				label: WEEKDAYS[i],
 				num: date.getDate(),
 				today: sameDay(date, now),
-				count: dayEvents.length
+				items
 			};
 		});
-	});
-
-	let todayEvents = $derived(
-		events.filter((event) => event.start && sameDay(new Date(event.start), now))
-	);
-
-	let allDayEvents = $derived(todayEvents.filter(isAllDay));
-	let timedEvents = $derived(todayEvents.filter((event) => !isAllDay(event)));
-
-	let nowPct = $derived.by(() => {
-		const hours = now.getHours() + now.getMinutes() / 60;
-		if (hours < DAY_START || hours > DAY_END) return null;
-		return ((hours - DAY_START) / (DAY_END - DAY_START)) * 100;
 	});
 
 	let weekLabel = $derived(
 		now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
 	);
 
-	function hourLabel(hour) {
-		const suffix = hour >= 12 ? 'p' : 'a';
-		const h = hour % 12 || 12;
-		return `${h}${suffix}`;
-	}
-
-	function eventGeometry(event) {
-		const start = new Date(event.start);
-		const end = event.end ? new Date(event.end) : new Date(start.getTime() + 36e5);
-		const startH = start.getHours() + start.getMinutes() / 60;
-		const endH = Math.max(startH + 0.5, end.getHours() + end.getMinutes() / 60);
-		const clampedStart = Math.min(Math.max(startH, DAY_START), DAY_END);
-		const clampedEnd = Math.min(Math.max(endH, clampedStart + 0.5), DAY_END);
-		const top = ((clampedStart - DAY_START) / (DAY_END - DAY_START)) * 100;
-		const height = ((clampedEnd - clampedStart) / (DAY_END - DAY_START)) * 100;
-		return `top: ${top}%; height: ${Math.max(height, 4)}%;`;
-	}
+	let colTemplate = $derived(
+		weekDays.map((day) => (day.today ? 'minmax(0, 1.85fr)' : 'minmax(0, 1fr)')).join(' ')
+	);
 </script>
 
-<section class="timetable" aria-label="Week overview for {weekLabel}">
-	<div class="week" role="list">
+<section class="timetable" aria-label="Week of {weekLabel}">
+	<div class="board" style="--week-cols: {colTemplate}" role="list">
 		{#each weekDays as day (day.key)}
-			<div
-				class="day"
+			<article
+				class="col"
 				class:today={day.today}
-				class:busy={day.count > 0}
+				class:empty={day.today && day.items.length === 0 && !loading}
 				role="listitem"
 				aria-current={day.today ? 'date' : undefined}
 			>
-				<span class="dow">{day.label}</span>
-				<span class="dom num">{day.num}</span>
-				<span class="dot" class:on={day.count > 0} aria-hidden="true"></span>
-			</div>
-		{/each}
-	</div>
-
-	<div class="allday">
-		{#if loading}
-			<span class="skeleton inline"></span>
-		{:else if allDayEvents.length}
-			{#each allDayEvents as event, i (event.id ?? `allday-${i}`)}
-				<span class="allday-item">{event.title}</span>
-			{/each}
-		{:else if caption}
-			<span class="caption">{caption}</span>
-		{:else}
-			<span class="caption">Today</span>
-		{/if}
-	</div>
-
-	<div class="hours" aria-hidden={timedEvents.length === 0}>
-		{#each HOURS as hour (hour)}
-			<div class="hour-row">
-				<span class="hour-label num">{hourLabel(hour)}</span>
-				<span class="hour-rule"></span>
-			</div>
-		{/each}
-
-		{#if nowPct !== null}
-			<div class="now" style="top: {nowPct}%" title="Now">
-				<span class="now-dot"></span>
-			</div>
-		{/if}
-
-		{#each timedEvents as event, i (event.id ?? `timed-${i}`)}
-			<article class="block" style={eventGeometry(event)}>
-				<p class="block-title">{event.title}</p>
-				{#if event.location}
-					<p class="block-sub">{event.location}</p>
-				{/if}
+				<header class="col-head">
+					<span class="dow">{day.label}</span>
+					<span class="dom num">{day.num}</span>
+					{#if day.items.length > 0}
+						<span class="count num">{day.items.length}</span>
+					{/if}
+				</header>
+				<div class="col-body">
+					{#if loading && day.today}
+						<span class="skeleton inline"></span>
+						<span class="skeleton inline short"></span>
+					{:else if day.items.length > 0}
+						{#each day.items as event, i (event.id ?? `${day.key}-${i}`)}
+							<div class="evt">
+								<time class="when num">{timeLabel(event.start)}</time>
+								<p class="title">{event.title}</p>
+								{#if event.location}
+									<p class="sub">{event.location}</p>
+								{/if}
+							</div>
+						{/each}
+					{:else if day.today && caption}
+						<p class="caption">{caption}</p>
+					{/if}
+				</div>
 			</article>
 		{/each}
 	</div>
@@ -145,31 +102,45 @@
 	.timetable {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
 		min-height: 0;
 		min-width: 0;
 		flex: 1;
 		height: 100%;
 	}
-	.week {
+	.board {
+		flex: 1;
 		display: grid;
-		grid-template-columns: repeat(7, minmax(0, 1fr));
-		gap: var(--space-2);
-		flex-shrink: 0;
+		grid-template-columns: var(--week-cols, repeat(7, minmax(0, 1fr)));
+		min-height: 160px;
+		min-width: 0;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+		background: var(--card);
 	}
-	.day {
+	.col {
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		gap: var(--space-1);
-		padding: var(--space-2) 0;
-		border-radius: var(--radius-sm);
+		gap: var(--space-2);
 		min-width: 0;
+		min-height: 0;
+		padding: var(--space-2);
+		border-right: 1px solid var(--border);
 		color: var(--text-tertiary);
 	}
-	.day.today {
+	.col:last-child {
+		border-right: none;
+	}
+	.col.today {
 		background: var(--brand-soft);
 		color: var(--foreground);
+	}
+	.col-head {
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		flex-shrink: 0;
+		min-width: 0;
 	}
 	.dow {
 		font-size: 12px;
@@ -178,141 +149,136 @@
 		line-height: 1;
 	}
 	.dom {
-		font-size: 16px;
+		font-size: 20px;
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1;
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
-	.dot {
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: transparent;
+	.count {
+		margin-left: auto;
+		font-size: 12px;
+		color: var(--brand);
 	}
-	.dot.on {
-		background: var(--brand);
+	.col.today .count {
+		color: var(--foreground);
 	}
-	.day.today .dot.on {
-		background: var(--foreground);
-	}
-	.allday {
+	.col-body {
+		flex: 1;
 		display: flex;
-		align-items: center;
+		flex-direction: column;
+		justify-content: flex-start;
 		gap: var(--space-2);
-		min-height: 32px;
-		padding: 0 0 var(--space-2);
-		border-bottom: 1px solid var(--border);
-		flex-shrink: 0;
+		min-height: 0;
 		min-width: 0;
+		overflow: auto;
 	}
-	.caption,
-	.allday-item {
+	.col.empty .col-body {
+		justify-content: center;
+	}
+	.caption {
+		margin: 0;
 		font-size: 14px;
+		line-height: 1.4;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
-	.allday-item {
-		padding: var(--space-1) var(--space-2);
-		border-radius: var(--radius-sm);
-		background: var(--brand-soft);
-		color: var(--foreground);
+	.col.today .caption {
+		color: var(--text-secondary);
 	}
-	.inline {
+	.evt {
+		padding: var(--space-2) 0;
+		border-bottom: 1px solid var(--border);
+		min-width: 0;
+	}
+	.when {
 		display: block;
-		width: 160px;
-		height: 16px;
-	}
-	.hours {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		flex: 1;
-		min-height: 160px;
-		min-width: 0;
-		overflow: hidden;
-	}
-	.hour-row {
-		flex: 1;
-		display: grid;
-		grid-template-columns: 32px minmax(0, 1fr);
-		gap: var(--space-2);
-		align-items: start;
-		min-height: 8px;
-		min-width: 0;
-	}
-	.hour-label {
 		font-size: 12px;
-		line-height: 1;
 		color: var(--text-tertiary);
-		transform: translateY(-8px);
 	}
-	.hour-row:first-child .hour-label {
-		transform: none;
+	.col.today .when {
+		color: var(--brand);
 	}
-	.hour-rule {
-		border-top: 1px solid var(--border);
-		min-width: 0;
-	}
-	.now {
-		position: absolute;
-		left: 32px;
-		right: 0;
-		height: 2px;
-		background: var(--brand);
-		pointer-events: none;
-		z-index: 2;
-	}
-	.now-dot {
-		position: absolute;
-		left: -4px;
-		top: -3px;
-		width: 8px;
-		height: 8px;
-		border-radius: 50%;
-		background: var(--brand);
-	}
-	.block {
-		position: absolute;
-		left: 40px;
-		right: 0;
-		padding: var(--space-1) var(--space-2);
-		border-radius: var(--radius-sm);
-		background: var(--brand-soft);
-		border-left: 2px solid var(--brand);
-		overflow: hidden;
-		z-index: 1;
-		min-width: 0;
-	}
-	.block-title,
-	.block-sub {
+	.title,
+	.sub {
 		margin: 0;
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
-	.block-title {
+	.title {
 		font-size: 13px;
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
 	}
-	.block-sub {
+	.sub {
 		font-size: 12px;
-		color: var(--text-secondary);
+		color: var(--text-tertiary);
+	}
+	.inline {
+		display: block;
+		width: 100%;
+		height: 16px;
+	}
+	.inline.short {
+		width: 64%;
 	}
 
-	@media (max-width: 375px) {
-		.hour-row {
-			grid-template-columns: 24px minmax(0, 1fr);
-		}
-		.now,
-		.block {
-			left: 32px;
-		}
+	@media (max-width: 768px) {
 		.dom {
-			font-size: 14px;
+			font-size: 16px;
+		}
+		.evt .sub {
+			display: none;
+		}
+	}
+
+	@media (max-width: 414px) {
+		.board {
+			grid-template-columns: repeat(7, minmax(0, 1fr));
+			grid-template-rows: auto auto;
+			min-height: 0;
+		}
+		.col {
+			border-right: 1px solid var(--border);
+			border-bottom: none;
+			flex-direction: column;
+			align-items: center;
+			gap: var(--space-1);
+			min-height: 0;
+			padding: var(--space-2) var(--space-1);
+		}
+		.col:last-child {
+			border-right: none;
+		}
+		.col:not(.today) .col-body {
+			display: none;
+		}
+		.col.today {
+			grid-column: 1 / -1;
+			grid-row: 2;
+			border-right: none;
+			border-top: 1px solid var(--border);
+			align-items: flex-start;
+			min-height: 80px;
+			padding: var(--space-4);
+		}
+		.col.today .col-head {
+			display: none;
+		}
+		.col-head {
+			width: auto;
+			flex-direction: column;
+			align-items: center;
+			gap: var(--space-1);
+		}
+		.col-body {
+			flex: 1;
+		}
+		.caption {
+			margin: 0;
 		}
 	}
 </style>

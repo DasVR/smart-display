@@ -14,13 +14,13 @@
 </script>
 
 <article class="metric-card" class:hot>
-	<div class="metric-head">
-		<div class="metric-label">{label}</div>
-		<div class="metric-value num">
+	<div class="metric-line">
+		<span class="metric-label">{label}</span>
+		<Sparkline {points} height={16} fill={false} />
+		<span class="metric-value num">
 			{value}<span class="metric-unit">{unit}</span>
-		</div>
+		</span>
 	</div>
-	<Sparkline {points} height={24} />
 	{#if hint}
 		<div class="metric-hint">{hint}</div>
 	{/if}
@@ -30,7 +30,7 @@
 	.metric-card {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: var(--space-1);
 		padding: var(--space-2) var(--space-4);
 		min-height: 0;
 		min-width: 0;
@@ -43,12 +43,13 @@
 		padding-right: 0;
 		border-right: none;
 	}
-	.metric-head {
-		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
+	.metric-line {
+		display: grid;
+		grid-template-columns: auto minmax(40px, 1fr) auto;
+		align-items: center;
 		gap: var(--space-2);
 		min-width: 0;
+		min-height: 32px;
 	}
 	.metric-label {
 		font-size: 12px;
@@ -57,13 +58,14 @@
 		color: var(--text-tertiary);
 	}
 	.metric-value {
-		font-size: 24px;
+		font-size: 20px;
 		font-weight: 600;
 		letter-spacing: -0.04em;
 		line-height: 1;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
+		text-align: right;
 	}
 	.metric-card.hot .metric-value {
 		color: var(--warn);
@@ -80,6 +82,7 @@
 		color: var(--text-tertiary);
 		overflow-wrap: anywhere;
 		min-width: 0;
+		padding-left: 0;
 	}
 
 	@media (max-width: 414px) {
