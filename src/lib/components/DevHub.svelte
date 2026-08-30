@@ -81,6 +81,9 @@
 	let ramHint = $derived(
 		`${$telemetry?.stats?.ram_used ?? '--'} / ${$telemetry?.stats?.ram_total ?? '--'} GB`
 	);
+	let netHint = $derived(
+		`Tailscale ${fmtNet(netMbps)} Mb/s · in ${fmtNet($telemetry?.stats?.net_rx)} · out ${fmtNet($telemetry?.stats?.net_tx)}`
+	);
 </script>
 
 <div class="dev-hub">
@@ -93,11 +96,7 @@
 
 	<BracketMeter label="CPU" pct={loading ? 0 : cpuPct} hint="1m load" />
 	<BracketMeter label="RAM" pct={loading ? 0 : ramPct} hint={ramHint} />
-	<BracketMeter
-		label="NET"
-		pct={loading ? 0 : netPct}
-		hint="Tailscale {fmtNet(netMbps)} Mb/s · in {fmtNet($telemetry?.stats?.net_rx)} · out {fmtNet($telemetry?.stats?.net_tx)}"
-	/>
+	<BracketMeter label="NET" pct={loading ? 0 : netPct} hint={netHint} />
 
 	<div class="monitor-wrap">
 		<AgentMonitor {agents} {reasoning} {tools} seed={cpuPct + ramPct} />
@@ -142,6 +141,7 @@
 		font-family: var(--font-display);
 		font-size: 13px;
 		color: var(--text-tertiary);
+		flex-shrink: 0;
 		z-index: 1;
 	}
 	.section-label {
@@ -150,6 +150,7 @@
 		font-weight: 500;
 		font-style: normal;
 		color: var(--text-tertiary);
+		padding-bottom: var(--space-2);
 	}
 	.monitor-wrap {
 		flex: 1;
@@ -165,10 +166,11 @@
 	}
 	.svc-list {
 		list-style: none;
-		margin: var(--space-1) 0 0;
+		margin: 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
+		border-top: 1px solid var(--border);
 	}
 	.svc-list li {
 		display: flex;

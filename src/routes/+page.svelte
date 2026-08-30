@@ -1,16 +1,11 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
+	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 5
 -->
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import {
-		currentView,
-		weather,
-		nowPlaying,
-		wsStatus
-	} from '$lib/stores.js';
+	import { currentView, weather, nowPlaying, wsStatus } from '$lib/stores.js';
 	import { gpuLowPowerMode, ollamaStatus, startOllamaArbiter, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
@@ -140,24 +135,26 @@
 
 	<div class="display-root">
 		<header class="zone top">
-			<div class="mast">
+			<div class="masthead">
 				<HeroClock {time} />
 				<div class="status-cluster">
-					<p class="dateline">{weekday} {month} {dayNum}</p>
-					<p class="wxline">
-						{#if weatherLoading}
-							<span class="skeleton inline"></span>
-						{:else}
-							<span class="num">{$weather.temp}°</span>
-							{$weather.desc}
-						{/if}
-					</p>
-					<DynamicIsland
-						nowPlaying={$nowPlaying}
-						notification={notif}
-						gpuLowPower={$gpuLowPowerMode}
-						ollamaStatus={$ollamaStatus}
-					/>
+					<p class="dateline">{weekday}, {month} {dayNum}</p>
+					<div class="cluster-end">
+						<p class="wxline">
+							{#if weatherLoading}
+								<span class="skeleton inline"></span>
+							{:else}
+								<span class="num">{$weather.temp}°</span>
+								{$weather.desc}
+							{/if}
+						</p>
+						<DynamicIsland
+							nowPlaying={$nowPlaying}
+							notification={notif}
+							gpuLowPower={$gpuLowPowerMode}
+							ollamaStatus={$ollamaStatus}
+						/>
+					</div>
 				</div>
 			</div>
 		</header>
@@ -197,8 +194,8 @@
 		z-index: 10;
 		width: 100%;
 		height: 100%;
-		display: flex;
-		flex-direction: column;
+		display: grid;
+		grid-template-rows: auto minmax(0, 1fr) auto;
 		color: var(--text-primary);
 		font-family: var(--font-display);
 		min-width: 0;
@@ -210,32 +207,35 @@
 		min-width: 0;
 	}
 	.top {
-		height: 15%;
-		min-height: 140px;
-		display: flex;
-		align-items: flex-end;
+		height: auto;
+		min-height: 0;
 		padding-top: var(--space-4);
+		padding-bottom: var(--space-2);
 		overflow: visible;
 	}
-	.mast {
+	.masthead {
 		display: flex;
 		align-items: flex-end;
-		gap: var(--space-5);
-		min-width: 0;
+		justify-content: space-between;
+		gap: var(--space-4);
 		width: 100%;
-		flex-wrap: wrap;
+		min-width: 0;
 	}
 	.status-cluster {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-2) var(--space-3);
+		justify-content: flex-end;
+		flex-wrap: wrap;
+		gap: var(--space-2);
 		min-width: 0;
-		min-height: 44px;
-		border: 1px solid var(--border);
-		border-top-color: var(--spec-top);
-		border-radius: var(--radius-md);
-		background: color-mix(in srgb, var(--abyss-2) 55%, transparent);
+		padding-bottom: var(--space-2);
+	}
+	.cluster-end {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		flex-shrink: 0;
+		min-width: 0;
 	}
 	.dateline,
 	.wxline {
@@ -244,65 +244,69 @@
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
-		white-space: nowrap;
+		line-height: 1.2;
 	}
 	.wxline .num {
-		margin-right: 0.35em;
+		margin-right: var(--space-2);
 		color: var(--foreground);
 	}
 	.center {
-		height: 55%;
-		min-height: 360px;
+		min-height: 0;
 		display: grid;
 		grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
 		gap: var(--space-6);
-		padding-top: var(--space-3);
-		padding-bottom: var(--space-2);
+		padding-top: var(--space-4);
+		padding-bottom: var(--space-4);
 	}
 	.school-col {
 		position: relative;
+		display: flex;
+		flex-direction: column;
 		overflow: hidden;
 		min-width: 0;
-		padding-left: var(--space-3);
+		min-height: 0;
 	}
 	.school-col.focus {
-		box-shadow: inset 3px 0 0 var(--brand);
+		box-shadow: inset 2px 0 0 var(--brand);
 	}
 	.host-slab {
 		position: relative;
 		overflow: hidden;
 		min-width: 0;
+		min-height: 0;
 	}
 	.host-slab.focus {
 		border-color: var(--brand-border);
 	}
 	.bottom {
-		height: 30%;
-		min-height: 180px;
+		height: auto;
 		display: flex;
 		align-items: flex-end;
 		padding-bottom: var(--space-4);
 	}
 	.trough {
 		width: 100%;
-		height: 38%;
-		min-height: 72px;
+		height: 80px;
 		min-width: 0;
 	}
 	.inline {
 		display: inline-block;
 		width: 96px;
-		height: 18px;
+		height: 16px;
 	}
 
 	@media (max-aspect-ratio: 4/3) {
-		.top {
-			height: 18%;
+		.masthead {
+			flex-wrap: wrap;
+			align-items: flex-start;
+		}
+		.status-cluster {
+			justify-content: flex-start;
+			padding-bottom: 0;
 		}
 		.center {
 			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: 1fr 1fr;
-			height: 52%;
+			grid-template-rows: minmax(240px, 1fr) minmax(240px, 1fr);
 		}
 	}
 
@@ -315,27 +319,33 @@
 		.display-root {
 			height: auto;
 			min-height: 100vh;
+			grid-template-rows: auto auto auto;
 		}
 		.zone {
 			padding-inline: var(--space-4);
 		}
 		.top {
-			height: auto;
-			min-height: 0;
-			padding-top: var(--space-3);
-			align-items: start;
+			padding-top: var(--space-4);
+		}
+		.masthead {
+			flex-direction: column;
+			align-items: flex-start;
 		}
 		.status-cluster {
-			flex-wrap: wrap;
-			width: 100%;
+			justify-content: flex-start;
+			padding-bottom: 0;
 		}
 		.center {
 			grid-template-columns: minmax(0, 1fr);
 			height: auto;
 			min-height: 0;
 		}
+		.school-col,
+		.host-slab {
+			min-height: 320px;
+		}
 		.bottom {
-			min-height: 140px;
+			min-height: 0;
 		}
 	}
 </style>

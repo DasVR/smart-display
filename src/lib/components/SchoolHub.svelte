@@ -1,7 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { upcomingEvents } from '$lib/stores.js';
-	import DotMatrix from '$lib/components/DotMatrix.svelte';
+	import WeekTimetable from '$lib/components/WeekTimetable.svelte';
 
 	let loading = $state(true);
 	let error = $state(null);
@@ -15,14 +15,14 @@
 
 	async function fetchEvents() {
 		try {
-			const r = await fetch('/api/calendar?days=3');
+			const r = await fetch('/api/calendar?days=7');
 			if (!r.ok) throw new Error('calendar failed');
 			const d = await r.json();
 			events = d.events || [];
 			upcomingEvents.set(events);
 			error = null;
 		} catch {
-			error = 'calendar feed offline';
+			error = 'Calendar feed offline';
 			events = [];
 		} finally {
 			loading = false;
@@ -71,33 +71,30 @@
 		}
 		return out;
 	});
+
+	let timetableCaption = $derived.by(() => {
+		if (loading) return '';
+		if (error) return error;
+		if (events.length === 0) return 'No due work in the next 7 days';
+		return '';
+	});
 </script>
 
 <div class="school-hub">
 	<header class="running">
 		<h2 class="hub-title">┌ Assignments :: {events.length} ┐</h2>
-		<p class="head-meta">{events.length} in the next 3 days</p>
+		<p class="head-meta">
+			{#if loading}
+				Checking calendar
+			{:else if error}
+				{error}
+			{:else}
+				{events.length} upcoming
+			{/if}
+		</p>
 	</header>
 
-	{#if loading}
-		<div class="archive" aria-busy="true">
-			{#each [1, 2, 3] as i (i)}
-				<div class="row skeleton"></div>
-			{/each}
-		</div>
-	{:else if error}
-		<div class="empty">
-			<DotMatrix opacity={0.22} />
-			<div class="empty-title">{error}</div>
-			<div>Hermes calendar token not reachable</div>
-		</div>
-	{:else if events.length === 0}
-		<div class="empty">
-			<DotMatrix opacity={0.22} />
-			<div class="empty-title">Clear next 3 days</div>
-			<div>Canvas and Calendar will land here</div>
-		</div>
-	{:else}
+	{#if !loading && !error && events.length > 0}
 		<div class="archive">
 			{#each groups as group (group.key)}
 				<section class="day">
@@ -117,23 +114,29 @@
 			{/each}
 		</div>
 	{/if}
+
+	<WeekTimetable {events} caption={timetableCaption} {loading} />
 </div>
 
 <style>
 	.school-hub {
 		height: 100%;
+		width: 100%;
+		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-5);
+		gap: var(--space-4);
 		padding: var(--space-2) var(--space-2) 0 0;
 		min-height: 0;
 		min-width: 0;
 	}
 	.running {
 		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-4);
 		min-width: 0;
+		flex-shrink: 0;
 	}
 	.hub-title {
 		margin: 0;
@@ -150,13 +153,16 @@
 		margin: 0;
 		font-size: 14px;
 		color: var(--text-tertiary);
+		flex-shrink: 0;
 	}
 	.archive {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-6);
+		gap: var(--space-4);
 		overflow: auto;
 		min-height: 0;
+		flex: 0 1 auto;
+		max-height: 48%;
 	}
 	.day {
 		display: grid;
@@ -183,10 +189,11 @@
 	.entry {
 		display: grid;
 		grid-template-columns: 5.5rem minmax(0, 1fr);
-		gap: var(--space-3);
+		gap: var(--space-2);
 		align-items: baseline;
-		padding: var(--space-3) 0;
+		padding: var(--space-2) 0;
 		border-bottom: 1px solid var(--border);
+		min-height: 32px;
 	}
 	.entry[data-urgency='now'] .when {
 		color: var(--warn);
@@ -200,7 +207,7 @@
 	}
 	.row-title {
 		font-family: var(--font-body);
-		font-size: clamp(1.15rem, 1.7vw, 1.55rem);
+		font-size: clamp(1rem, 1.4vw, 1.25rem);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -209,39 +216,9 @@
 		min-width: 0;
 	}
 	.row-sub {
-		margin-top: 2px;
+		margin-top: 0;
 		font-size: 13px;
 		color: var(--text-tertiary);
-	}
-	.row.skeleton {
-		height: 48px;
-		border-radius: var(--radius-sm);
-	}
-	.empty {
-		position: relative;
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: flex-start;
-		padding-top: var(--space-4);
-		gap: var(--space-2);
-		color: var(--text-tertiary);
-		font-size: 16px;
-	}
-	.empty > :not(:first-child) {
-		position: relative;
-		z-index: 1;
-	}
-	.empty-title {
-		position: relative;
-		z-index: 1;
-		font-family: var(--font-body);
-		font-size: clamp(1.6rem, 2.2vw, 2.1rem);
-		font-weight: 600;
-		font-style: normal;
-		color: var(--text-secondary);
-		overflow-wrap: anywhere;
 	}
 
 	@media (max-width: 768px) {
@@ -251,6 +228,9 @@
 		}
 		.entry {
 			grid-template-columns: minmax(0, 1fr);
+		}
+		.archive {
+			max-height: none;
 		}
 	}
 </style>

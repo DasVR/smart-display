@@ -2,7 +2,8 @@
 	/**
 	 * Full-screen WebGL2 liquid-metal canvas.
 	 * Internal resolution is locked at 1280×720 and upscaled with
-	 * `image-rendering: pixelated` so Bayer dithering stays crisp at zero extra fill-rate.
+	 * `image-rendering: pixelated`. Field UVs and the Bayer matrix both
+	 * sample from a 4–8px snapped grid so dither reads as chunky cells.
 	 */
 	import { onMount } from 'svelte';
 	import { bassLevel as bassStore, startAudioReactive, setAudioPaused } from '$lib/services/audioReactive.js';
@@ -11,6 +12,15 @@
 
 	const INTERNAL_W = 1280;
 	const INTERNAL_H = 720;
+	/** Virtual pixel block for Bayer + field sampling. Override with ?pixel=4..8 */
+	const PIXEL_SIZE = 6;
+
+	function readPixelSize() {
+		if (typeof location === 'undefined') return PIXEL_SIZE;
+		const n = Number(new URLSearchParams(location.search).get('pixel'));
+		if (n >= 4 && n <= 8) return n;
+		return PIXEL_SIZE;
+	}
 
 	let canvas = $state(null);
 	let gl = null;
@@ -34,21 +44,19 @@
 	let uBassLoc;
 	let uPanelsLoc;
 	let uPanelCountLoc;
+	let uPixelSizeLoc;
 
 	const panelData = new Float32Array(8 * 4);
 	let panelCount = 0;
 
 	const VERT_SRC = `#version 300 es
 layout(location = 0) in vec2 a_position;
-out vec2 v_uv;
 void main() {
-	v_uv = a_position * 0.5 + 0.5;
 	gl_Position = vec4(a_position, 0.0, 1.0);
 }`;
 
 	const FRAG_SRC = `#version 300 es
 precision highp float;
-in vec2 v_uv;
 out vec4 fragColor;
 
 uniform float u_time;
@@ -56,6 +64,7 @@ uniform vec2 u_resolution;
 uniform float u_bass;
 uniform vec4 u_panels[8];
 uniform int u_panelCount;
+uniform float u_pixelSize;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -100,9 +109,9 @@ const float BAYER8[64] = float[](
 	63.0, 31.0, 55.0, 23.0, 61.0, 29.0, 53.0, 21.0
 );
 
-float bayer8(vec2 frag) {
-	int x = int(mod(frag.x, 8.0));
-	int y = int(mod(frag.y, 8.0));
+float bayer8(vec2 cell) {
+	int x = int(mod(cell.x, 8.0));
+	int y = int(mod(cell.y, 8.0));
 	return BAYER8[x + y * 8] / 64.0;
 }
 
@@ -172,7 +181,10 @@ vec3 metal(vec2 uv, float t, float bass) {
 }
 
 void main() {
-	vec2 uv = v_uv;
+	float cellSize = u_pixelSize >= 4.0 ? u_pixelSize : 6.0;
+	vec2 pixelCoord = floor(gl_FragCoord.xy / cellSize);
+	vec2 snappedFrag = (pixelCoord + 0.5) * cellSize;
+	vec2 uv = snappedFrag / u_resolution;
 	float t = u_time;
 	vec3 base = metal(uv, t, u_bass);
 
@@ -215,14 +227,12 @@ void main() {
 		color *= mix(1.0, 0.78, inside * 0.35);
 	}
 
-	vec2 centered = (gl_FragCoord.xy - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
+	vec2 centered = (snappedFrag - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
 	float vig = 1.0 - length(centered) * 0.42;
 	color *= vig;
 
-	const float DITHER_CELL = 5.0;
-	vec2 ditherCoord = floor(gl_FragCoord.xy / DITHER_CELL);
-	float dith = bayer8(ditherCoord);
-	float levels = 16.0;
+	float levels = 12.0;
+	float dith = bayer8(pixelCoord);
 	vec3 quantized = floor(color * levels + dith) / levels;
 	color = mix(color, quantized, 0.94);
 
@@ -298,6 +308,7 @@ void main() {
 		gl.uniform1f(uBassLoc, bass);
 		gl.uniform1i(uPanelCountLoc, panelCount);
 		gl.uniform4fv(uPanelsLoc, panelData);
+		gl.uniform1f(uPixelSizeLoc, readPixelSize());
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
 	}
 
@@ -368,6 +379,7 @@ void main() {
 		uBassLoc = gl.getUniformLocation(program, 'u_bass');
 		uPanelsLoc = gl.getUniformLocation(program, 'u_panels[0]');
 		uPanelCountLoc = gl.getUniformLocation(program, 'u_panelCount');
+		uPixelSizeLoc = gl.getUniformLocation(program, 'u_pixelSize');
 
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);

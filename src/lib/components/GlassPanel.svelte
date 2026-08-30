@@ -4,7 +4,7 @@
 	export let accent = false;
 </script>
 
-<div class="glass-panel paper" class:accent>
+<div class="glass-panel paper" class:accent data-glass>
 	<span class="c tl" aria-hidden="true">┌</span>
 	<span class="c tr" aria-hidden="true">┐</span>
 	<span class="c bl" aria-hidden="true">└</span>

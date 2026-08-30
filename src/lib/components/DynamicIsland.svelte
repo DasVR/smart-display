@@ -52,32 +52,64 @@
 			</div>
 		</div>
 	{:else}
-		<div class="word" class:hot={gpuLowPower}>[{statusWord}]</div>
+		<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'}>
+			<span class="dot" aria-hidden="true"></span>
+			<span class="word">[{statusWord}]</span>
+		</div>
 	{/if}
 </div>
 
 <style>
 	.island {
 		min-width: 0;
-		max-width: 100%;
+		flex-shrink: 0;
+	}
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		height: 32px;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--card);
+		color: var(--ok);
+	}
+	.dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--ok);
+		flex-shrink: 0;
+	}
+	.chip.busy .dot {
+		background: var(--brand);
+	}
+	.chip.hot {
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+	}
+	.chip.hot .dot {
+		background: var(--warn);
 	}
 	.word {
 		font-family: var(--font-display);
-		font-size: 14px;
+		font-size: 13px;
 		font-weight: 600;
-		color: var(--ok);
+		font-style: normal;
+		line-height: 1;
 		letter-spacing: 0.04em;
-	}
-	.word.hot {
-		color: var(--warn);
 	}
 	.slip {
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		min-height: 44px;
-		min-width: 0;
-		max-width: min(420px, 100%);
+		min-height: 32px;
+		max-width: min(280px, 100%);
+		padding: var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--card);
 	}
 	.copy {
 		min-width: 0;
@@ -91,7 +123,7 @@
 	}
 	.title {
 		font-family: var(--font-display);
-		font-size: 16px;
+		font-size: 14px;
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -101,10 +133,16 @@
 		text-overflow: ellipsis;
 	}
 	.sub {
-		font-size: 13px;
+		font-size: 12px;
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	@media (max-width: 414px) {
+		.slip {
+			max-width: 100%;
+		}
 	}
 </style>
