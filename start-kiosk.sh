@@ -33,6 +33,7 @@ CAGE_PID=$!
 
 # wait for cage to create the wayland socket
 for i in {1..30}; do
+  export WAYLAND_DISPLAY=$(ls -1 "$XDG_RUNTIME_DIR" | grep -E '^wayland-[0-9]+$' | head -1)
   if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
     sleep 1
     /usr/bin/wlr-randr --output HDMI-A-1 --mode 1920x1080 || true
