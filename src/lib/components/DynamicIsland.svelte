@@ -61,31 +61,62 @@
 			</div>
 		</div>
 	{:else}
-		<div class="word" class:hot={gpuLowPower}>{statusWord}</div>
+		<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'}>
+			<span class="dot" aria-hidden="true"></span>
+			<span class="word">{statusWord}</span>
+		</div>
 	{/if}
 </div>
 
 <style>
 	.island {
 		min-width: 0;
-		max-width: 100%;
+		flex-shrink: 0;
 	}
-	.word {
-		font-size: 16px;
-		font-weight: 600;
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
+		height: 32px;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--card);
 		color: var(--text-secondary);
 	}
-	.word.hot {
+	.dot {
+		width: 8px;
+		height: 8px;
+		border-radius: 50%;
+		background: var(--ok);
+		flex-shrink: 0;
+	}
+	.chip.busy .dot {
+		background: var(--brand);
+	}
+	.chip.hot {
 		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+	}
+	.chip.hot .dot {
+		background: var(--warn);
+	}
+	.word {
+		font-size: 13px;
+		font-weight: 600;
+		font-style: normal;
+		line-height: 1;
 	}
 	.slip {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		min-height: 44px;
-		padding: var(--space-2) 0;
-		border-top: 1px solid var(--border);
-		max-width: min(420px, 100%);
+		gap: var(--space-2);
+		min-height: 32px;
+		max-width: min(280px, 100%);
+		padding: var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		background: var(--card);
 	}
 	.copy {
 		min-width: 0;
@@ -97,7 +128,7 @@
 		color: var(--text-tertiary);
 	}
 	.title {
-		font-size: 18px;
+		font-size: 14px;
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -107,7 +138,7 @@
 		text-overflow: ellipsis;
 	}
 	.sub {
-		font-size: 13px;
+		font-size: 12px;
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
@@ -116,9 +147,9 @@
 	.mini-vis {
 		display: flex;
 		align-items: flex-end;
-		gap: 3px;
-		height: 28px;
-		width: 72px;
+		gap: 4px;
+		height: 24px;
+		width: 48px;
 		flex-shrink: 0;
 	}
 	.mini-vis span {
@@ -132,6 +163,9 @@
 	@media (max-width: 414px) {
 		.mini-vis {
 			display: none;
+		}
+		.slip {
+			max-width: 100%;
 		}
 	}
 </style>

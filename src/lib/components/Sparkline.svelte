@@ -1,5 +1,5 @@
 <script>
-	let { points = [] } = $props();
+	let { points = [], height = 24 } = $props();
 
 	const uid = `spark-${Math.random().toString(36).slice(2, 9)}`;
 	const W = 200;
@@ -45,7 +45,13 @@
 	let paths = $derived(smoothPath(points));
 </script>
 
-<svg class="sparkline" viewBox="0 0 {W} {H}" preserveAspectRatio="none" aria-hidden="true">
+<svg
+	class="sparkline"
+	style="--spark-h: {height}px"
+	viewBox="0 0 {W} {H}"
+	preserveAspectRatio="none"
+	aria-hidden="true"
+>
 	<defs>
 		<linearGradient id={uid} x1="0" y1="0" x2="0" y2="1">
 			<stop offset="0%" stop-color="currentColor" stop-opacity="0.28" />
@@ -53,13 +59,13 @@
 		</linearGradient>
 	</defs>
 	<path d={paths.area} fill="url(#{uid})" />
-	<path d={paths.line} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+	<path d={paths.line} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
 </svg>
 
 <style>
 	.sparkline {
 		width: 100%;
-		height: 56px;
+		height: var(--spark-h, 24px);
 		display: block;
 		overflow: visible;
 		color: var(--brand);

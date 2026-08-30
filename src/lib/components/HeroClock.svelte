@@ -45,13 +45,13 @@
 		color: var(--brand);
 	}
 	.seconds {
-		margin-left: 10px;
+		margin-left: var(--space-2);
 		font-size: 0.34em;
 		font-weight: 400;
 		color: var(--text-tertiary);
 	}
 	.ampm {
-		margin-left: 8px;
+		margin-left: var(--space-2);
 		font-size: 0.2em;
 		font-weight: 500;
 		color: var(--text-tertiary);
