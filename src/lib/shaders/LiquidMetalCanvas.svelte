@@ -12,8 +12,15 @@
 
 	const INTERNAL_W = 1280;
 	const INTERNAL_H = 720;
-	/** Virtual pixel block for Bayer + field sampling. Keep in the 4–8 range. */
+	/** Virtual pixel block for Bayer + field sampling. Override with ?pixel=4..8 */
 	const PIXEL_SIZE = 8;
+
+	function readPixelSize() {
+		if (typeof location === 'undefined') return PIXEL_SIZE;
+		const n = Number(new URLSearchParams(location.search).get('pixel'));
+		if (n >= 4 && n <= 8) return n;
+		return PIXEL_SIZE;
+	}
 
 	let canvas = $state(null);
 	let gl = null;
@@ -301,7 +308,7 @@ void main() {
 		gl.uniform1f(uBassLoc, bass);
 		gl.uniform1i(uPanelCountLoc, panelCount);
 		gl.uniform4fv(uPanelsLoc, panelData);
-		gl.uniform1f(uPixelSizeLoc, PIXEL_SIZE);
+		gl.uniform1f(uPixelSizeLoc, readPixelSize());
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
 	}
 
