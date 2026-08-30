@@ -116,7 +116,7 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		overflow: hidden;
-		background: var(--card);
+		background: var(--card-inner);
 	}
 	.col {
 		display: flex;

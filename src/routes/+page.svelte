@@ -160,7 +160,7 @@
 		</header>
 
 		<main class="zone center">
-			<section class="school-col" class:focus={leftFocus === 'school'}>
+			<section class="school-col slab" class:focus={leftFocus === 'school'} data-glass>
 				<SchoolHub />
 			</section>
 			<section class="host-slab slab" class:focus={leftFocus === 'dev'} data-glass>

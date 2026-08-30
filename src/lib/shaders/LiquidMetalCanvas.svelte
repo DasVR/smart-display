@@ -3,7 +3,8 @@
 	 * Full-screen WebGL2 liquid-metal canvas.
 	 * Internal resolution is locked at 1280×720 and upscaled with
 	 * `image-rendering: pixelated`. Field UVs and the Bayer matrix both
-	 * sample from a 4–8px snapped grid so dither reads as chunky cells.
+	 * sample from a 4–8px snapped grid. Dither is mixed at 0.20 so it
+	 * reads as a faint retro grain, not a high-contrast cell grid.
 	 */
 	import { onMount } from 'svelte';
 	import { bassLevel as bassStore, startAudioReactive, setAudioPaused } from '$lib/services/audioReactive.js';
@@ -232,9 +233,9 @@ void main() {
 	color *= vig;
 
 	float levels = 12.0;
-	float dith = bayer8(pixelCoord);
+	float dith = bayer8(pixelCoord) * 0.04;
 	vec3 quantized = floor(color * levels + dith) / levels;
-	color = mix(color, quantized, 0.94);
+	color = mix(color, quantized, 0.20);
 
 	fragColor = vec4(color, 1.0);
 }`;
