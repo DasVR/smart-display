@@ -68,16 +68,16 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-2);
-		height: 32px;
-		padding: 0 var(--space-2);
+		height: 2.75rem;
+		padding: 0 var(--space-8);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		background: var(--card);
 		color: var(--ok);
 	}
 	.dot {
-		width: 8px;
-		height: 8px;
+		width: 0.5rem;
+		height: 0.5rem;
 		border-radius: 50%;
 		background: var(--ok);
 		flex-shrink: 0;
@@ -94,7 +94,7 @@
 	}
 	.word {
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--text-lg);
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1;
@@ -104,9 +104,9 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		min-height: 32px;
-		max-width: min(280px, 100%);
-		padding: var(--space-2);
+		min-height: 2.75rem;
+		max-width: min(28rem, 100%);
+		padding: var(--space-4) var(--space-8);
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		background: var(--card);
@@ -117,13 +117,13 @@
 	}
 	.kicker {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-tertiary);
 	}
 	.title {
 		font-family: var(--font-display);
-		font-size: 14px;
+		font-size: var(--text-lg);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -133,7 +133,7 @@
 		text-overflow: ellipsis;
 	}
 	.sub {
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;

@@ -69,9 +69,9 @@
 		margin: 0;
 		display: flex;
 		justify-content: space-between;
-		gap: var(--space-2);
-		font-size: 13px;
-		font-weight: 500;
+		gap: var(--space-4);
+		font-size: var(--text-2xl);
+		font-weight: 700;
 		font-style: normal;
 		color: var(--text-tertiary);
 	}
@@ -90,8 +90,8 @@
 	.agents li {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
-		min-height: 40px;
+		gap: var(--space-4);
+		min-height: 2.75rem;
 		min-width: 0;
 	}
 	.meta {
@@ -103,7 +103,7 @@
 		align-items: center;
 		gap: var(--space-2);
 		font-family: var(--font-display);
-		font-size: 14px;
+		font-size: var(--text-xl);
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -112,7 +112,7 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-2);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 	.phase {

@@ -34,7 +34,7 @@
 		align-items: baseline;
 		cursor: pointer;
 		list-style: none;
-		min-height: 36px;
+		min-height: 2.75rem;
 		min-width: 0;
 	}
 	summary::-webkit-details-marker {
@@ -42,19 +42,19 @@
 	}
 	.kind {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--scan);
 	}
 	.label {
 		font-family: var(--font-code);
-		font-size: 13px;
+		font-size: var(--text-lg);
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.st {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 	.card[data-status='working'] .st {
@@ -67,7 +67,7 @@
 		margin: 0;
 		padding: var(--space-1) 0 var(--space-2);
 		font-family: var(--font-code);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		line-height: 1.45;
 		color: var(--text-secondary);
 		white-space: pre-wrap;
@@ -75,7 +75,7 @@
 	}
 	.empty {
 		margin: 0 0 var(--space-1);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 

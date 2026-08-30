@@ -34,8 +34,8 @@
 		grid-template-columns: 7rem minmax(48px, 1fr) 5.5rem;
 		align-items: center;
 		gap: var(--space-2);
-		min-height: 40px;
-		padding: var(--space-2) 0;
+		min-height: 2.75rem;
+		padding: var(--space-8) 0;
 		border-bottom: 1px solid var(--border);
 		min-width: 0;
 	}
@@ -49,14 +49,14 @@
 		min-width: 0;
 	}
 	.metric-label {
-		font-size: 13px;
+		font-size: var(--text-lg);
 		font-weight: 500;
 		font-style: normal;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 	}
 	.metric-hint {
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -69,7 +69,7 @@
 		min-width: 0;
 	}
 	.metric-value {
-		font-size: 16px;
+		font-size: var(--text-xl);
 		font-weight: 600;
 		letter-spacing: -0.02em;
 		line-height: 1;
@@ -82,7 +82,7 @@
 		color: var(--warn);
 	}
 	.metric-unit {
-		font-size: 12px;
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-tertiary);
 		flex-shrink: 0;

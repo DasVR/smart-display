@@ -23,7 +23,7 @@
 <style>
 	.glass-panel {
 		position: relative;
-		padding: var(--space-5);
+		padding: var(--space-8);
 		overflow: hidden;
 		z-index: 10;
 	}
@@ -33,15 +33,15 @@
 	.c {
 		position: absolute;
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--text-lg);
 		line-height: 1;
 		color: var(--text-tertiary);
 		z-index: 2;
 	}
-	.tl { top: 6px; left: 8px; }
-	.tr { top: 6px; right: 8px; }
-	.bl { bottom: 6px; left: 8px; }
-	.br { bottom: 6px; right: 8px; }
+	.tl { top: 0.25rem; left: 0.5rem; }
+	.tr { top: 0.25rem; right: 0.5rem; }
+	.bl { bottom: 0.25rem; left: 0.5rem; }
+	.br { bottom: 0.25rem; right: 0.5rem; }
 	.glass-head {
 		display: flex;
 		align-items: baseline;
@@ -51,14 +51,14 @@
 	}
 	.glass-title {
 		font-family: var(--font-display);
-		font-size: 13px;
-		font-weight: 600;
+		font-size: var(--text-2xl);
+		font-weight: 700;
 		font-style: normal;
 		color: var(--text-secondary);
 	}
 	.glass-meta {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 	.glass-body {
