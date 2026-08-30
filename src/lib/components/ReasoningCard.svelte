@@ -29,7 +29,7 @@
 		gap: var(--space-2);
 		cursor: pointer;
 		list-style: none;
-		min-height: 44px;
+		min-height: 2.75rem;
 		min-width: 0;
 	}
 	summary::-webkit-details-marker {
@@ -39,7 +39,7 @@
 	.kind,
 	.phase {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 	.kind {
@@ -47,7 +47,7 @@
 	}
 	.ttl {
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--text-lg);
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -56,7 +56,7 @@
 		margin: 0;
 		padding: var(--space-2) 0 0;
 		font-family: var(--font-code);
-		font-size: 13px;
+		font-size: var(--text-lg);
 		line-height: 1.45;
 		color: var(--text-secondary);
 		white-space: pre-wrap;
@@ -64,7 +64,7 @@
 	}
 	.empty {
 		margin: var(--space-1) 0 0;
-		font-size: 13px;
+		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 	}
 </style>

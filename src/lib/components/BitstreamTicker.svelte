@@ -17,7 +17,7 @@
 		overflow: hidden;
 		white-space: nowrap;
 		font-family: var(--font-code);
-		font-size: 11px;
+		font-size: var(--text-sm);
 		letter-spacing: 0.04em;
 		font-variant-ligatures: none;
 		color: var(--text-tertiary);

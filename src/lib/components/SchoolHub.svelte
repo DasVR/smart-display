@@ -125,8 +125,8 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
-		padding: var(--space-2) var(--space-2) 0 0;
+		gap: var(--space-8);
+		padding: var(--space-8);
 		min-height: 0;
 		min-width: 0;
 	}
@@ -141,8 +141,8 @@
 	.hub-title {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: clamp(1.05rem, 1.5vw, 1.3rem);
-		font-weight: 500;
+		font-size: var(--text-2xl);
+		font-weight: 700;
 		font-style: normal;
 		letter-spacing: 0;
 		color: var(--foreground);
@@ -151,7 +151,7 @@
 	}
 	.head-meta {
 		margin: 0;
-		font-size: 14px;
+		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 		flex-shrink: 0;
 	}
@@ -172,8 +172,8 @@
 	}
 	.day-label {
 		margin: 0;
-		font-size: 15px;
-		font-weight: 600;
+		font-size: var(--text-xl);
+		font-weight: 700;
 		font-style: normal;
 		color: var(--brand);
 		padding-top: var(--space-1);
@@ -193,7 +193,7 @@
 		align-items: baseline;
 		padding: var(--space-2) 0;
 		border-bottom: 1px solid var(--border);
-		min-height: 32px;
+		min-height: 2.75rem;
 	}
 	.entry[data-urgency='now'] .when {
 		color: var(--warn);
@@ -202,12 +202,12 @@
 		color: var(--brand);
 	}
 	.when {
-		font-size: 14px;
+		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 	}
 	.row-title {
 		font-family: var(--font-body);
-		font-size: clamp(1rem, 1.4vw, 1.25rem);
+		font-size: var(--text-xl);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -217,7 +217,7 @@
 	}
 	.row-sub {
 		margin-top: 0;
-		font-size: 13px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 

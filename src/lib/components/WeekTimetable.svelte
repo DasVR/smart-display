@@ -111,7 +111,7 @@
 		flex: 1;
 		display: grid;
 		grid-template-columns: var(--week-cols, repeat(7, minmax(0, 1fr)));
-		min-height: 160px;
+		min-height: 10rem;
 		min-width: 0;
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
@@ -124,7 +124,7 @@
 		gap: var(--space-2);
 		min-width: 0;
 		min-height: 0;
-		padding: var(--space-2);
+		padding: var(--space-8) var(--space-4);
 		border-right: 1px solid var(--border);
 		color: var(--text-tertiary);
 	}
@@ -143,13 +143,13 @@
 		min-width: 0;
 	}
 	.dow {
-		font-size: 12px;
+		font-size: var(--text-sm);
 		font-weight: 500;
 		font-style: normal;
 		line-height: 1;
 	}
 	.dom {
-		font-size: 20px;
+		font-size: var(--text-2xl);
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1;
@@ -158,7 +158,7 @@
 	}
 	.count {
 		margin-left: auto;
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--brand);
 	}
 	.col.today .count {
@@ -179,7 +179,7 @@
 	}
 	.caption {
 		margin: 0;
-		font-size: 14px;
+		font-size: var(--text-lg);
 		line-height: 1.4;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
@@ -195,7 +195,7 @@
 	}
 	.when {
 		display: block;
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 	.col.today .when {
@@ -208,13 +208,13 @@
 		min-width: 0;
 	}
 	.title {
-		font-size: 13px;
+		font-size: var(--text-lg);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
 	}
 	.sub {
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
 	.inline {
@@ -228,7 +228,7 @@
 
 	@media (max-width: 768px) {
 		.dom {
-			font-size: 16px;
+			font-size: var(--text-xl);
 		}
 		.evt .sub {
 			display: none;

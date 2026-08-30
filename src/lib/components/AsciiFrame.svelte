@@ -31,29 +31,30 @@
 	.c {
 		position: absolute;
 		font-family: var(--font-display);
-		font-size: 14px;
+		font-size: var(--text-lg);
 		line-height: 1;
 		color: var(--text-tertiary);
 		z-index: 2;
 		pointer-events: none;
 	}
-	.tl { top: 4px; left: 8px; }
-	.tr { top: 4px; right: 8px; }
-	.bl { bottom: 4px; left: 8px; }
-	.br { bottom: 4px; right: 8px; }
+	.tl { top: 0.25rem; left: 0.5rem; }
+	.tr { top: 0.25rem; right: 0.5rem; }
+	.bl { bottom: 0.25rem; left: 0.5rem; }
+	.br { bottom: 0.25rem; right: 0.5rem; }
 	.head {
 		display: flex;
 		justify-content: space-between;
 		align-items: baseline;
 		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3) 0;
+		padding: var(--space-8) var(--space-8) 0;
 		min-width: 0;
 		flex-shrink: 0;
 	}
 	.title,
 	.tag {
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--text-2xl);
+		font-weight: 700;
 		font-style: normal;
 		color: var(--text-tertiary);
 		overflow-wrap: anywhere;
