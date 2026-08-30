@@ -24,8 +24,8 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: flex-end;
-		gap: var(--space-2);
-		padding: var(--space-3) var(--space-4);
+		gap: var(--space-8);
+		padding: var(--space-8);
 		pointer-events: none;
 		box-sizing: border-box;
 		min-width: 0;
@@ -34,7 +34,7 @@
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		gap: 8px;
+		gap: var(--space-2);
 		width: min(56vw, 720px);
 		height: 58%;
 		opacity: 0.45;
@@ -50,7 +50,7 @@
 	.link {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 	}
 	.link.ok {

@@ -209,15 +209,15 @@
 	.top {
 		height: auto;
 		min-height: 0;
-		padding-top: var(--space-4);
-		padding-bottom: var(--space-2);
+		padding-top: var(--space-8);
+		padding-bottom: var(--space-4);
 		overflow: visible;
 	}
 	.masthead {
 		display: flex;
 		align-items: flex-end;
 		justify-content: space-between;
-		gap: var(--space-4);
+		gap: var(--space-8);
 		width: 100%;
 		min-width: 0;
 	}
@@ -226,21 +226,22 @@
 		align-items: center;
 		justify-content: flex-end;
 		flex-wrap: wrap;
-		gap: var(--space-2);
+		gap: var(--space-4);
 		min-width: 0;
 		padding-bottom: var(--space-2);
 	}
 	.cluster-end {
 		display: flex;
 		align-items: center;
-		gap: var(--space-2);
+		gap: var(--space-4);
 		flex-shrink: 0;
 		min-width: 0;
 	}
 	.dateline,
 	.wxline {
 		margin: 0;
-		font-size: 16px;
+		font-size: var(--text-3xl);
+		font-weight: 600;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -254,9 +255,9 @@
 		min-height: 0;
 		display: grid;
 		grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
-		gap: var(--space-6);
-		padding-top: var(--space-4);
-		padding-bottom: var(--space-4);
+		gap: var(--space-8);
+		padding-top: var(--space-8);
+		padding-bottom: var(--space-8);
 	}
 	.school-col {
 		position: relative;
@@ -282,11 +283,11 @@
 		height: auto;
 		display: flex;
 		align-items: flex-end;
-		padding-bottom: var(--space-4);
+		padding-bottom: var(--space-8);
 	}
 	.trough {
 		width: 100%;
-		height: 80px;
+		height: 6rem;
 		min-width: 0;
 	}
 	.inline {

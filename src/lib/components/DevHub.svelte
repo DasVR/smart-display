@@ -127,8 +127,8 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
-		padding: var(--space-2) var(--space-3) var(--space-3);
+		gap: var(--space-8);
+		padding: var(--space-8);
 		min-height: 0;
 		min-width: 0;
 		overflow: auto;
@@ -137,20 +137,20 @@
 	.mark {
 		display: flex;
 		justify-content: space-between;
-		gap: var(--space-3);
+		gap: var(--space-4);
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		flex-shrink: 0;
 		z-index: 1;
 	}
 	.section-label {
 		margin: 0;
-		font-size: 13px;
-		font-weight: 500;
+		font-size: var(--text-2xl);
+		font-weight: 700;
 		font-style: normal;
 		color: var(--text-tertiary);
-		padding-bottom: var(--space-2);
+		padding-bottom: var(--space-4);
 	}
 	.monitor-wrap {
 		flex: 1;
@@ -176,13 +176,13 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: var(--space-3);
-		padding: var(--space-1) 0;
+		gap: var(--space-4);
+		padding: var(--space-2) 0;
 		border-bottom: 1px solid var(--border);
-		min-height: 36px;
+		min-height: 2.75rem;
 	}
 	.svc-name {
-		font-size: 14px;
+		font-size: var(--text-xl);
 		font-weight: 500;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
@@ -190,7 +190,7 @@
 	}
 	.state {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		color: var(--warn);
 		flex-shrink: 0;
 	}

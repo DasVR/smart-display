@@ -3,8 +3,8 @@
 
 	const DOTS = Array.from({ length: 9 }, (_, i) => ({
 		i,
-		left: 6 + (i % 3) * 10,
-		top: 6 + Math.floor(i / 3) * 10
+		left: `${0.35 + (i % 3) * 0.7}rem`,
+		top: `${0.35 + Math.floor(i / 3) * 0.7}rem`
 	}));
 
 	let dim = $derived(phase === 'idle' || phase === 'done');
@@ -12,15 +12,15 @@
 
 <div class="orbs" data-phase={phase} class:dim aria-hidden="true">
 	{#each DOTS as d (d.i)}
-		<span class="p" style="--i: {d.i}; left: {d.left}px; top: {d.top}px"></span>
+		<span class="p" style="--i: {d.i}; left: {d.left}; top: {d.top}"></span>
 	{/each}
 </div>
 
 <style>
 	.orbs {
 		position: relative;
-		width: 36px;
-		height: 36px;
+		width: 2.5rem;
+		height: 2.5rem;
 		flex-shrink: 0;
 		--orb-a: var(--text-tertiary);
 		--orb-b: var(--brand);
@@ -55,8 +55,8 @@
 	}
 	.p {
 		position: absolute;
-		width: 4px;
-		height: 4px;
+		width: 0.4rem;
+		height: 0.4rem;
 		border-radius: 1px;
 		background: var(--orb-a);
 		box-shadow: 0 0 6px color-mix(in srgb, var(--orb-a) 55%, transparent);

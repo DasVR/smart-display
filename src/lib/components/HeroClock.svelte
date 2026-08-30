@@ -26,20 +26,21 @@
 	.time {
 		display: flex;
 		align-items: baseline;
-		font-weight: 300;
-		font-size: clamp(3.4rem, 7vw, 7rem);
-		letter-spacing: -0.055em;
-		line-height: 0.9;
+		font-weight: 800;
+		font-size: clamp(var(--text-7xl), 8vw, var(--text-8xl));
+		letter-spacing: -0.04em;
+		line-height: 0.88;
 		color: var(--foreground);
 		font-family: var(--font-display);
 		font-style: normal;
+		font-variant-numeric: tabular-nums;
 		min-width: 0;
 		overflow-wrap: anywhere;
 	}
 	.colon {
 		opacity: 0.28;
 		transition: opacity 0.25s var(--ease-standard);
-		margin: 0 2px;
+		margin: 0 0.125rem;
 		font-style: normal;
 	}
 	.colon.on {
@@ -54,8 +55,8 @@
 	}
 	.ampm {
 		margin-left: var(--space-2);
-		font-size: 0.2em;
-		font-weight: 500;
+		font-size: 0.28em;
+		font-weight: 700;
 		color: var(--text-tertiary);
 	}
 </style>

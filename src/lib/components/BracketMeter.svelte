@@ -25,11 +25,12 @@
 	.meter {
 		display: grid;
 		grid-template-columns: 3.5rem minmax(0, 1fr) 3.4rem;
-		gap: 4px var(--space-2);
+		gap: var(--space-2) var(--space-4);
 		align-items: center;
 		min-width: 0;
+		min-height: 2.75rem;
 		font-family: var(--font-code);
-		font-size: 14px;
+		font-size: var(--text-xl);
 		font-variant-ligatures: none;
 	}
 	.lab {
@@ -39,17 +40,17 @@
 	.bar {
 		display: flex;
 		align-items: center;
-		gap: 2px;
+		gap: 0.125rem;
 		min-width: 0;
-		height: 16px;
+		height: 1.25rem;
 	}
 	.br {
 		color: var(--text-tertiary);
-		font-size: 13px;
+		font-size: var(--text-lg);
 	}
 	.cell {
-		width: 8px;
-		height: 12px;
+		width: 0.5rem;
+		height: 0.875rem;
 		flex-shrink: 0;
 		border-radius: 1px;
 		box-sizing: border-box;
@@ -67,7 +68,7 @@
 	.hint {
 		grid-column: 2 / -1;
 		color: var(--text-tertiary);
-		font-size: 12px;
+		font-size: var(--text-sm);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
