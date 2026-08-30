@@ -17,7 +17,7 @@ export const telemetryHistory = writable({
 	net: []
 });
 export const gitContext = writable({
-	branch: '—',
+	branch: '--',
 	message: '',
 	sha: '',
 	dirty: false,

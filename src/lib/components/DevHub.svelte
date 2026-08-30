@@ -60,6 +60,9 @@
 	let ramHint = $derived(
 		`${$telemetry?.stats?.ram_used ?? '--'} / ${$telemetry?.stats?.ram_total ?? '--'} GB`
 	);
+	let netHint = $derived(
+		`in ${fmtNet($telemetry?.stats?.net_rx)} · out ${fmtNet($telemetry?.stats?.net_tx)}`
+	);
 </script>
 
 <div class="dev-hub">
@@ -68,25 +71,30 @@
 		<span>{containers} containers</span>
 	</div>
 
-	<MetricCard
-		label="CPU"
-		value={loading ? '--' : cpuPct}
-		unit="%"
-		hint="1m avg"
-		points={hist.cpu}
-	/>
-
-	<div class="ledger" role="table" aria-label="Host inventory">
-		<div class="ledger-row" role="row">
-			<span class="k" role="cell">Memory</span>
-			<span class="v num" role="cell">{loading ? '--' : ramPct}%</span>
-			<span class="h" role="cell">{ramHint}</span>
-		</div>
-		<div class="ledger-row" role="row">
-			<span class="k" role="cell">Tailscale</span>
-			<span class="v num" role="cell">{loading ? '--' : fmtNet(netMbps)}</span>
-			<span class="h" role="cell">Mb/s · in {fmtNet($telemetry?.stats?.net_rx)} · out {fmtNet($telemetry?.stats?.net_tx)}</span>
-		</div>
+	<div class="metrics-bar">
+		<MetricCard
+			label="CPU"
+			value={loading ? '--' : cpuPct}
+			unit="%"
+			hint="1m avg"
+			points={hist.cpu}
+			warnAt={80}
+		/>
+		<MetricCard
+			label="Memory"
+			value={loading ? '--' : ramPct}
+			unit="%"
+			hint={ramHint}
+			points={hist.ram}
+			warnAt={85}
+		/>
+		<MetricCard
+			label="Net"
+			value={loading ? '--' : fmtNet(netMbps)}
+			unit="Mb/s"
+			hint={netHint}
+			points={hist.net}
+		/>
 	</div>
 
 	<section class="svc-block">
@@ -119,7 +127,7 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
+		gap: var(--space-4);
 		padding: var(--space-4);
 		min-height: 0;
 		min-width: 0;
@@ -127,9 +135,17 @@
 	.mark {
 		display: flex;
 		justify-content: space-between;
-		gap: var(--space-3);
+		gap: var(--space-4);
 		font-size: 13px;
 		color: var(--text-tertiary);
+		flex-shrink: 0;
+	}
+	.metrics-bar {
+		display: flex;
+		flex-direction: column;
+		border-bottom: 1px solid var(--border);
+		flex-shrink: 0;
+		min-width: 0;
 	}
 	.section-label {
 		margin: 0;
@@ -137,57 +153,29 @@
 		font-weight: 500;
 		font-style: normal;
 		color: var(--text-tertiary);
-	}
-	.ledger {
-		display: flex;
-		flex-direction: column;
-		border-top: 1px solid var(--border);
-	}
-	.ledger-row {
-		display: grid;
-		grid-template-columns: 6.5rem minmax(0, 4rem) minmax(0, 1fr);
-		gap: var(--space-2);
-		align-items: baseline;
-		padding: var(--space-2) 0;
-		border-bottom: 1px solid var(--border);
-		min-width: 0;
-	}
-	.k {
-		font-size: 13px;
-		color: var(--text-secondary);
-	}
-	.v {
-		font-size: 15px;
-		font-weight: 600;
-		color: var(--foreground);
-	}
-	.h {
-		font-size: 12px;
-		color: var(--text-tertiary);
-		overflow-wrap: anywhere;
-		min-width: 0;
+		padding-bottom: var(--space-2);
 	}
 	.svc-block {
-		flex: 1;
 		min-height: 0;
 		min-width: 0;
 		overflow: auto;
 	}
 	.svc-list {
 		list-style: none;
-		margin: var(--space-1) 0 0;
+		margin: 0;
 		padding: 0;
 		display: flex;
 		flex-direction: column;
+		border-top: 1px solid var(--border);
 	}
 	.svc-list li {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: var(--space-3);
+		gap: var(--space-4);
 		padding: var(--space-2) 0;
 		border-bottom: 1px solid var(--border);
-		min-height: 44px;
+		min-height: 40px;
 	}
 	.svc-name {
 		font-size: 15px;
@@ -206,26 +194,18 @@
 		color: var(--ok);
 	}
 	.gitline {
-		margin: 0;
+		margin: auto 0 0;
 		display: flex;
 		flex-wrap: wrap;
-		gap: var(--space-3);
+		gap: var(--space-4);
 		align-items: baseline;
 		font-size: 12px;
 		color: var(--text-tertiary);
 		overflow-wrap: anywhere;
+		flex-shrink: 0;
 	}
 	.muted {
 		margin-top: var(--space-2);
 		color: var(--text-secondary);
-	}
-
-	@media (max-width: 768px) {
-		.ledger-row {
-			grid-template-columns: minmax(0, 1fr) auto;
-		}
-		.h {
-			grid-column: 1 / -1;
-		}
 	}
 </style>
