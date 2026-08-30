@@ -56,7 +56,7 @@ export async function getTelemetry() {
 
 	async function check(url, name, uptime = '99.9%') {
 		try {
-			const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(2000) });
+			const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(2500) });
 			return { name, status: r.ok, uptime };
 		} catch {
 			return { name, status: false, uptime: 'down' };
@@ -65,7 +65,9 @@ export async function getTelemetry() {
 
 	const services = await Promise.all([
 		check('https://dasdev.net', 'dasdev.net', '99.9%'),
-		check('http://localhost:8123', 'home assistant', '100%'),
+		check('https://godmode.dasdev.net', 'godmode', '100%'),
+		check('https://leadvine.dasdev.net', 'leadvine', '100%'),
+		check('https://hermes.dasdev.net', 'hermes', '100%'),
 		check('http://localhost:3000', 'display', '100%')
 	]);
 
@@ -90,27 +92,30 @@ export async function getTelemetry() {
 export async function getCalendar(days = 3) {
 	try {
 		const tokenPath = process.env.GOOGLE_TOKEN_PATH || '/home/das/.hermes/google_token.json';
-		const raw = readFileSync(tokenPath, 'utf8');
-		const token = JSON.parse(raw);
+		const rawToken = readFileSync(tokenPath, 'utf8');
+		const token = JSON.parse(rawToken);
 		const now = new Date();
 		const end = new Date();
 		end.setDate(now.getDate() + parseInt(days, 10));
 		const timeMin = now.toISOString();
 		const timeMax = end.toISOString();
-		const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=20`;
+		const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=50`;
 		const r = await fetch(url, {
 			headers: { Authorization: `Bearer ${token.access_token || token.token}` }
 		});
 		if (!r.ok) throw new Error(`calendar ${r.status}`);
 		const d = await r.json();
-		const events = (d.items || []).map((e) => ({
+		const rawEvents = (d.items || []).map((e) => ({
 			id: e.id,
 			title: e.summary || '(no title)',
 			start: e.start?.dateTime || e.start?.date,
 			end: e.end?.dateTime || e.end?.date,
-			location: e.location || ''
+			location: e.location || '',
+			description: e.description || '',
+			hw: /(^|\s)#hw(\s|$)/i.test(`${e.summary || ''} ${e.description || ''}`)
 		}));
-		return { events };
+		const events = rawEvents.filter((e) => e.hw);
+		return { events, total: rawEvents.length };
 	} catch (e) {
 		console.error('calendar error:', e.message);
 		return { events: [] };

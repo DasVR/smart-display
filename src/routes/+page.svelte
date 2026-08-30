@@ -63,7 +63,7 @@
 		weatherLoading = true;
 		try {
 			const r = await fetch(
-				'https://api.open-meteo.com/v1/forecast?latitude=27.9&longitude=-82.4&current_weather=true&temperature_unit=fahrenheit'
+				'https://api.open-meteo.com/v1/forecast?latitude=27.9&longitude=-82.8&current_weather=true&temperature_unit=fahrenheit&timezone=America/New_York'
 			);
 			const d = await r.json();
 			weather.set({
@@ -125,9 +125,9 @@
 		};
 	});
 
-	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase());
-	let month = $derived(time.toLocaleDateString('en-US', { month: 'short' }).toUpperCase());
-	let dayNum = $derived(time.getDate());
+	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' }));
+	let month = $derived(time.toLocaleDateString('en-US', { month: 'long', timeZone: 'America/New_York' }));
+	let dayNum = $derived(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDate());
 </script>
 
 <div class="display-shell">

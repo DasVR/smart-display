@@ -82,14 +82,14 @@
 
 <div class="school-hub">
 	<header class="running">
-		<h2 class="hub-title">┌ Assignments :: {events.length} ┐</h2>
+		<h2 class="hub-title">┌ Due Work :: {events.length} ┐</h2>
 		<p class="head-meta">
 			{#if loading}
 				Checking calendar
 			{:else if error}
 				{error}
 			{:else}
-				{events.length} upcoming
+				{events.length} tagged #hw
 			{/if}
 		</p>
 	</header>
