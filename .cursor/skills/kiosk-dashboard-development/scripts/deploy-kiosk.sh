@@ -10,7 +10,17 @@ NODE="/usr/bin/node"
 echo "=== smart-display deploy ==="
 cd "$PROJECT_DIR"
 
-echo "[1/4] installing deps (npm ci via lockfile)"
+echo "[1/5] syncing $PROJECT_DIR to origin/master"
+git fetch origin master
+git reset --hard origin/master
+HEAD_SHA="$(git rev-parse HEAD)"
+echo "HEAD $HEAD_SHA $(git log -1 --format=%s)"
+if [ -n "${GITHUB_SHA:-}" ] && [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
+	echo "ERROR: project dir $HEAD_SHA does not match workflow $GITHUB_SHA"
+	exit 1
+fi
+
+echo "[2/5] installing deps (npm ci via lockfile)"
 "$NPM" ci --no-audit --no-fund
 
 echo "[2/4] building (adapter-node)"
