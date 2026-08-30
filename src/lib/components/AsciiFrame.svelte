@@ -53,7 +53,7 @@
 	.title,
 	.tag {
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--type-floor);
 		font-style: normal;
 		color: var(--text-tertiary);
 		overflow-wrap: anywhere;

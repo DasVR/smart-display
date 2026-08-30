@@ -45,7 +45,7 @@
 	}
 	.br {
 		color: var(--text-tertiary);
-		font-size: 13px;
+		font-size: var(--type-floor);
 	}
 	.cell {
 		width: 8px;
@@ -67,7 +67,7 @@
 	.hint {
 		grid-column: 2 / -1;
 		color: var(--text-tertiary);
-		font-size: 12px;
+		font-size: var(--type-floor);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}

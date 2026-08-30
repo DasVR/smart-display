@@ -3,7 +3,11 @@
 
 	let { events = [], caption = '', loading = false } = $props();
 
-	const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+	const TZ = 'America/New_York';
+	const OPEN_BANNER = `  ___  ___ ___ _  _
+ / _ \\| _ \\ __| \\| |
+| (_) |  _/ _|| .\` |
+ \\___/|_| |___|_|\\_|`;
 
 	let now = $state(new Date());
 
@@ -14,63 +18,76 @@
 		return () => clearInterval(t);
 	});
 
-	function startOfWeek(date) {
-		const d = new Date(date);
-		d.setHours(0, 0, 0, 0);
-		d.setDate(d.getDate() - d.getDay());
-		return d;
+	function dateKey(date) {
+		return new Intl.DateTimeFormat('en-CA', {
+			timeZone: TZ,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit'
+		}).format(date);
 	}
 
-	function sameDay(a, b) {
-		return a.toDateString() === b.toDateString();
+	function wallToday() {
+		const parts = new Intl.DateTimeFormat('en-US', {
+			timeZone: TZ,
+			year: 'numeric',
+			month: 'numeric',
+			day: 'numeric'
+		}).formatToParts(now);
+		const pick = (type) => Number(parts.find((p) => p.type === type)?.value);
+		return new Date(pick('year'), pick('month') - 1, pick('day'));
+	}
+
+	function eventDayKey(iso) {
+		if (!iso) return '';
+		if (iso.length <= 10) return iso;
+		return dateKey(new Date(iso));
 	}
 
 	function timeLabel(iso) {
 		if (!iso || iso.length <= 10) return 'all day';
 		return new Date(iso)
-			.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+			.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: TZ })
 			.toLowerCase();
 	}
 
-	let weekDays = $derived.by(() => {
-		const start = startOfWeek(now);
-		return Array.from({ length: 7 }, (_, i) => {
+	function dayStamp(date) {
+		return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+	}
+
+	let columns = $derived.by(() => {
+		const start = wallToday();
+		return Array.from({ length: 3 }, (_, i) => {
 			const date = new Date(start);
 			date.setDate(start.getDate() + i);
-			const items = events.filter((event) => event.start && sameDay(new Date(event.start), date));
+			const key = dateKey(date);
+			const items = events.filter((event) => eventDayKey(event.start) === key);
+			const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : date.toLocaleDateString('en-US', { weekday: 'long' });
 			return {
 				date,
-				key: date.toISOString(),
-				label: WEEKDAYS[i],
-				num: date.getDate(),
-				today: sameDay(date, now),
+				key,
+				label,
+				stamp: dayStamp(date),
+				today: i === 0,
 				items
 			};
 		});
 	});
-
-	let weekLabel = $derived(
-		now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
-	);
-
-	let colTemplate = $derived(
-		weekDays.map((day) => (day.today ? 'minmax(0, 1.85fr)' : 'minmax(0, 1fr)')).join(' ')
-	);
 </script>
 
-<section class="timetable" aria-label="Week of {weekLabel}">
-	<div class="board" style="--week-cols: {colTemplate}" role="list">
-		{#each weekDays as day (day.key)}
+<section class="timetable" aria-label="Three-day schedule">
+	<div class="board" role="list">
+		{#each columns as day (day.key)}
 			<article
 				class="col"
 				class:today={day.today}
-				class:empty={day.today && day.items.length === 0 && !loading}
+				class:empty={day.items.length === 0 && !loading}
 				role="listitem"
 				aria-current={day.today ? 'date' : undefined}
 			>
 				<header class="col-head">
-					<span class="dow">{day.label}</span>
-					<span class="dom num">{day.num}</span>
+					<p class="label">{day.label}</p>
+					<p class="stamp">{day.stamp}</p>
 					{#if day.items.length > 0}
 						<span class="count num">{day.items.length}</span>
 					{/if}
@@ -89,8 +106,12 @@
 								{/if}
 							</div>
 						{/each}
-					{:else if day.today && caption}
-						<p class="caption">{caption}</p>
+					{:else}
+						<div class="ambient">
+							<pre class="banner" aria-hidden="true">{OPEN_BANNER}</pre>
+							<p class="open-word">Open</p>
+							<p class="hint">{caption && day.today ? caption : 'Nothing due'}</p>
+						</div>
 					{/if}
 				</div>
 			</article>
@@ -110,13 +131,12 @@
 	.board {
 		flex: 1;
 		display: grid;
-		grid-template-columns: var(--week-cols, repeat(7, minmax(0, 1fr)));
-		min-height: 160px;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-2);
+		min-height: 0;
 		min-width: 0;
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		overflow: hidden;
-		background: var(--card);
+		height: 100%;
+		background: transparent;
 	}
 	.col {
 		display: flex;
@@ -124,41 +144,48 @@
 		gap: var(--space-2);
 		min-width: 0;
 		min-height: 0;
-		padding: var(--space-2);
-		border-right: 1px solid var(--border);
+		height: 100%;
+		padding: var(--space-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
 		color: var(--text-tertiary);
-	}
-	.col:last-child {
-		border-right: none;
+		background: transparent;
 	}
 	.col.today {
-		background: var(--brand-soft);
+		border-color: color-mix(in srgb, var(--foreground) 22%, var(--border));
 		color: var(--foreground);
 	}
 	.col-head {
-		display: flex;
-		align-items: baseline;
-		gap: var(--space-2);
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: 2px var(--space-2);
 		flex-shrink: 0;
 		min-width: 0;
+		padding-bottom: var(--space-2);
+		border-bottom: 1px solid var(--border);
 	}
-	.dow {
-		font-size: 12px;
-		font-weight: 500;
+	.label {
+		margin: 0;
+		grid-column: 1;
+		font-family: var(--font-body);
+		font-size: 16px;
+		font-weight: 650;
 		font-style: normal;
-		line-height: 1;
-	}
-	.dom {
-		font-size: 20px;
-		font-weight: 600;
-		font-style: normal;
-		line-height: 1;
+		color: var(--foreground);
 		overflow-wrap: anywhere;
-		min-width: 0;
+	}
+	.stamp {
+		margin: 0;
+		grid-column: 1;
+		font-family: var(--font-body);
+		font-size: var(--type-floor);
+		color: var(--text-tertiary);
 	}
 	.count {
-		margin-left: auto;
-		font-size: 12px;
+		grid-column: 2;
+		grid-row: 1 / span 2;
+		align-self: center;
+		font-size: var(--type-floor);
 		color: var(--brand);
 	}
 	.col.today .count {
@@ -177,25 +204,52 @@
 	.col.empty .col-body {
 		justify-content: center;
 	}
-	.caption {
+	.ambient {
+		display: flex;
+		flex: 1;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		min-height: 0;
+		text-align: center;
+	}
+	.banner {
 		margin: 0;
-		font-size: 14px;
+		max-width: 100%;
+		overflow: hidden;
+		font-family: var(--font-code);
+		font-size: var(--type-floor);
+		line-height: 1.1;
+		color: var(--text-secondary);
+		white-space: pre;
+	}
+	.open-word {
+		margin: 0;
+		font-family: var(--font-display);
+		font-size: 28px;
+		font-weight: 400;
+		font-style: normal;
+		letter-spacing: -0.03em;
+		color: var(--foreground);
+	}
+	.hint {
+		margin: 0;
+		font-family: var(--font-body);
+		font-size: var(--type-floor);
 		line-height: 1.4;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
-		min-width: 0;
-	}
-	.col.today .caption {
-		color: var(--text-secondary);
 	}
 	.evt {
 		padding: var(--space-2) 0;
 		border-bottom: 1px solid var(--border);
 		min-width: 0;
+		min-height: 56px;
 	}
 	.when {
 		display: block;
-		font-size: 12px;
+		font-size: 15px;
 		color: var(--text-tertiary);
 	}
 	.col.today .when {
@@ -208,13 +262,14 @@
 		min-width: 0;
 	}
 	.title {
-		font-size: 13px;
+		font-size: 16px;
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
 	}
 	.sub {
-		font-size: 12px;
+		margin-top: 4px;
+		font-size: var(--type-floor);
 		color: var(--text-tertiary);
 	}
 	.inline {
@@ -226,59 +281,12 @@
 		width: 64%;
 	}
 
-	@media (max-width: 768px) {
-		.dom {
-			font-size: 16px;
-		}
-		.evt .sub {
-			display: none;
-		}
-	}
-
-	@media (max-width: 414px) {
+	@media (max-width: 900px) {
 		.board {
-			grid-template-columns: repeat(7, minmax(0, 1fr));
-			grid-template-rows: auto auto;
-			min-height: 0;
+			grid-template-columns: 1fr;
 		}
 		.col {
-			border-right: 1px solid var(--border);
-			border-bottom: none;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-1);
-			min-height: 0;
-			padding: var(--space-2) var(--space-1);
-		}
-		.col:last-child {
-			border-right: none;
-		}
-		.col:not(.today) .col-body {
-			display: none;
-		}
-		.col.today {
-			grid-column: 1 / -1;
-			grid-row: 2;
-			border-right: none;
-			border-top: 1px solid var(--border);
-			align-items: flex-start;
-			min-height: 80px;
-			padding: var(--space-4);
-		}
-		.col.today .col-head {
-			display: none;
-		}
-		.col-head {
-			width: auto;
-			flex-direction: column;
-			align-items: center;
-			gap: var(--space-1);
-		}
-		.col-body {
-			flex: 1;
-		}
-		.caption {
-			margin: 0;
+			min-height: 180px;
 		}
 	}
 </style>

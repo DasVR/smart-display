@@ -50,7 +50,7 @@
 	.link {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--type-floor);
 		color: var(--text-tertiary);
 	}
 	.link.ok {

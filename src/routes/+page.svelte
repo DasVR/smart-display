@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 5
+	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
 -->
 <script>
 	import '../app.css';
@@ -253,7 +253,7 @@
 	.center {
 		min-height: 0;
 		display: grid;
-		grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		gap: var(--space-6);
 		padding-top: var(--space-4);
 		padding-bottom: var(--space-4);
@@ -265,6 +265,11 @@
 		overflow: hidden;
 		min-width: 0;
 		min-height: 0;
+		height: 100%;
+	}
+	.school-col :global(.school-hub) {
+		flex: 1;
+		height: 100%;
 	}
 	.school-col.focus {
 		box-shadow: inset 2px 0 0 var(--brand);
@@ -274,6 +279,7 @@
 		overflow: hidden;
 		min-width: 0;
 		min-height: 0;
+		height: 100%;
 	}
 	.host-slab.focus {
 		border-color: var(--brand-border);

@@ -15,7 +15,7 @@
 
 	async function fetchEvents() {
 		try {
-			const r = await fetch('/api/calendar?days=7');
+			const r = await fetch('/api/calendar?days=3');
 			if (!r.ok) throw new Error('calendar failed');
 			const d = await r.json();
 			events = d.events || [];
@@ -29,91 +29,52 @@
 		}
 	}
 
-	function urgency(event) {
-		if (!event?.start) return 'later';
-		const hours = (new Date(event.start) - new Date()) / 36e5;
-		if (hours <= 6) return 'now';
-		if (hours <= 24) return 'soon';
-		return 'later';
-	}
-
-	function dayLabel(iso) {
-		const d = new Date(iso);
-		const today = new Date();
-		const tomorrow = new Date(today);
-		tomorrow.setDate(today.getDate() + 1);
-		if (d.toDateString() === today.toDateString()) return 'Today';
-		if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
-		return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-	}
-
 	function timeLabel(iso) {
-		const d = new Date(iso);
-		if (iso?.length <= 10) return 'all day';
-		return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+		if (!iso) return '';
+		if (iso.length <= 10) return 'all day';
+		return new Date(iso)
+			.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+			.toLowerCase();
 	}
 
-	let groups = $derived.by(() => {
-		const out = [];
-		const seen = new Map();
-		for (const event of events) {
-			const key = event.start ? new Date(event.start).toDateString() : 'undated';
-			if (!seen.has(key)) {
-				const group = {
-					key,
-					label: event.start ? dayLabel(event.start) : 'Undated',
-					items: []
-				};
-				seen.set(key, group);
-				out.push(group);
-			}
-			seen.get(key).items.push(event);
-		}
-		return out;
+	let nextUp = $derived.by(() => {
+		const now = Date.now();
+		return (
+			events.find((event) => {
+				if (!event?.start) return false;
+				if (event.start.length <= 10) return true;
+				return new Date(event.start).getTime() >= now;
+			}) ?? null
+		);
 	});
 
 	let timetableCaption = $derived.by(() => {
 		if (loading) return '';
 		if (error) return error;
-		if (events.length === 0) return 'No due work in the next 7 days';
+		if (events.length === 0) return 'No due work in the next 3 days';
 		return '';
 	});
 </script>
 
 <div class="school-hub">
 	<header class="running">
-		<h2 class="hub-title">┌ Due Work :: {events.length} ┐</h2>
+		<div class="titles">
+			<p class="kicker">Assignments</p>
+			<h2 class="hub-title">Due work</h2>
+		</div>
 		<p class="head-meta">
 			{#if loading}
 				Checking calendar
 			{:else if error}
 				{error}
+			{:else if nextUp}
+				Next: {timeLabel(nextUp.start)}
+				<span>{nextUp.title}</span>
 			{:else}
-				{events.length} tagged #hw
+				Next: open
 			{/if}
 		</p>
 	</header>
-
-	{#if !loading && !error && events.length > 0}
-		<div class="archive">
-			{#each groups as group (group.key)}
-				<section class="day">
-					<h3 class="day-label">{group.label}</h3>
-					<ol class="day-list">
-						{#each group.items as e, i (e.id ?? `${group.key}-${i}`)}
-							<li class="entry" data-urgency={urgency(e)}>
-								<time class="when num">{timeLabel(e.start)}</time>
-								<div class="body">
-									<div class="row-title">{e.title}</div>
-									<div class="row-sub">{e.location || 'Calendar'}</div>
-								</div>
-							</li>
-						{/each}
-					</ol>
-				</section>
-			{/each}
-		</div>
-	{/if}
 
 	<WeekTimetable {events} caption={timetableCaption} {loading} />
 </div>
@@ -125,112 +86,60 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
+		gap: var(--space-3);
 		padding: var(--space-2) var(--space-2) 0 0;
 		min-height: 0;
 		min-width: 0;
 	}
 	.running {
 		display: flex;
-		align-items: baseline;
+		align-items: flex-end;
 		justify-content: space-between;
-		gap: var(--space-4);
+		flex-wrap: wrap;
+		gap: var(--space-3);
 		min-width: 0;
 		flex-shrink: 0;
+	}
+	.titles {
+		min-width: 0;
+	}
+	.kicker {
+		margin: 0 0 4px;
+		font-family: var(--font-body);
+		font-size: var(--type-floor);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
 	}
 	.hub-title {
 		margin: 0;
 		font-family: var(--font-display);
-		font-size: clamp(1.05rem, 1.5vw, 1.3rem);
-		font-weight: 500;
+		font-size: clamp(28px, 2.4vw, 40px);
+		font-weight: 400;
 		font-style: normal;
-		letter-spacing: 0;
+		letter-spacing: -0.035em;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.head-meta {
 		margin: 0;
-		font-size: 14px;
-		color: var(--text-tertiary);
-		flex-shrink: 0;
-	}
-	.archive {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-		overflow: auto;
-		min-height: 0;
-		flex: 0 1 auto;
-		max-height: 48%;
-	}
-	.day {
-		display: grid;
-		grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
-		gap: var(--space-4);
-		align-items: start;
-	}
-	.day-label {
-		margin: 0;
+		max-width: 28ch;
 		font-size: 15px;
-		font-weight: 600;
-		font-style: normal;
-		color: var(--brand);
-		padding-top: var(--space-1);
-	}
-	.day-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		border-top: 1px solid var(--border);
-	}
-	.entry {
-		display: grid;
-		grid-template-columns: 5.5rem minmax(0, 1fr);
-		gap: var(--space-2);
-		align-items: baseline;
-		padding: var(--space-2) 0;
-		border-bottom: 1px solid var(--border);
-		min-height: 32px;
-	}
-	.entry[data-urgency='now'] .when {
-		color: var(--warn);
-	}
-	.entry[data-urgency='soon'] .when {
-		color: var(--brand);
-	}
-	.when {
-		font-size: 14px;
 		color: var(--text-tertiary);
+		text-align: right;
 	}
-	.row-title {
-		font-family: var(--font-body);
-		font-size: clamp(1rem, 1.4vw, 1.25rem);
-		font-weight: 600;
-		font-style: normal;
+	.head-meta span {
+		display: block;
 		color: var(--foreground);
-		letter-spacing: -0.02em;
+		font-weight: 550;
 		overflow-wrap: anywhere;
-		min-width: 0;
-	}
-	.row-sub {
-		margin-top: 0;
-		font-size: 13px;
-		color: var(--text-tertiary);
 	}
 
-	@media (max-width: 768px) {
-		.day {
-			grid-template-columns: minmax(0, 1fr);
-			gap: var(--space-2);
-		}
-		.entry {
-			grid-template-columns: minmax(0, 1fr);
-		}
-		.archive {
-			max-height: none;
+	@media (max-width: 720px) {
+		.head-meta {
+			text-align: left;
 		}
 	}
 </style>

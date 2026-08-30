@@ -78,6 +78,7 @@
 	--font-body: 'Inter', system-ui, sans-serif;
 	--font-display: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
 	--font-code: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+	--type-floor: 14px;
 
 	--dur-fast: 150ms;
 	--dur-base: 220ms;

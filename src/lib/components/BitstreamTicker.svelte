@@ -13,11 +13,11 @@
 <style>
 	.bits {
 		display: inline-block;
-		max-width: 11ch;
+		max-width: 16ch;
 		overflow: hidden;
 		white-space: nowrap;
 		font-family: var(--font-code);
-		font-size: 11px;
+		font-size: var(--type-floor);
 		letter-spacing: 0.04em;
 		font-variant-ligatures: none;
 		color: var(--text-tertiary);

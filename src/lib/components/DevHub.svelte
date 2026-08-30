@@ -139,27 +139,30 @@
 		justify-content: space-between;
 		gap: var(--space-3);
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--type-floor);
 		color: var(--text-tertiary);
 		flex-shrink: 0;
 		z-index: 1;
 	}
 	.section-label {
 		margin: 0;
-		font-size: 13px;
+		font-size: var(--type-floor);
 		font-weight: 500;
 		font-style: normal;
 		color: var(--text-tertiary);
 		padding-bottom: var(--space-2);
 	}
 	.monitor-wrap {
-		flex: 1;
+		flex: 1.2;
 		min-height: 0;
 		min-width: 0;
 		overflow: visible;
 		z-index: 1;
 	}
 	.svc-block {
+		display: flex;
+		flex-direction: column;
+		flex: 1;
 		min-height: 0;
 		min-width: 0;
 		z-index: 1;
@@ -170,35 +173,47 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		border-top: 1px solid var(--border);
+		flex: 1;
+		min-height: 0;
+		gap: var(--space-2);
 	}
 	.svc-list li {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		gap: var(--space-3);
-		padding: var(--space-1) 0;
-		border-bottom: 1px solid var(--border);
-		min-height: 36px;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		min-height: 72px;
+		flex: 1 1 0;
 	}
 	.svc-name {
-		font-size: 14px;
-		font-weight: 500;
+		font-size: 18px;
+		font-weight: 550;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.state {
-		font-family: var(--font-display);
-		font-size: 12px;
-		color: var(--warn);
 		flex-shrink: 0;
+		padding: 6px 12px;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		font-family: var(--font-display);
+		font-size: 16px;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		color: var(--warn);
+		background: var(--card);
 	}
 	.state.ok {
 		color: var(--ok);
+		border-color: color-mix(in srgb, var(--ok) 45%, var(--border));
 	}
 	.muted {
 		margin-top: var(--space-2);
+		font-size: var(--type-floor);
 		color: var(--text-secondary);
 	}
 </style>

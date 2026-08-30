@@ -94,7 +94,7 @@
 	}
 	.word {
 		font-family: var(--font-display);
-		font-size: 13px;
+		font-size: var(--type-floor);
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1;
@@ -117,7 +117,7 @@
 	}
 	.kicker {
 		font-family: var(--font-display);
-		font-size: 12px;
+		font-size: var(--type-floor);
 		font-weight: 500;
 		color: var(--text-tertiary);
 	}
@@ -133,7 +133,7 @@
 		text-overflow: ellipsis;
 	}
 	.sub {
-		font-size: 12px;
+		font-size: var(--type-floor);
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
