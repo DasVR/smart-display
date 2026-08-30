@@ -4,7 +4,7 @@
 	export let accent = false;
 </script>
 
-<div class="glass-panel paper" class:accent>
+<div class="glass-panel paper" class:accent data-glass>
 	{#if title}
 		<div class="glass-head">
 			<span class="glass-title">{title}</span>
