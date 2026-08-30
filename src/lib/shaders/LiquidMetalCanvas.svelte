@@ -13,7 +13,7 @@
 	const INTERNAL_W = 1280;
 	const INTERNAL_H = 720;
 	/** Virtual pixel block for Bayer + field sampling. Override with ?pixel=4..8 */
-	const PIXEL_SIZE = 8;
+	const PIXEL_SIZE = 6;
 
 	function readPixelSize() {
 		if (typeof location === 'undefined') return PIXEL_SIZE;
@@ -181,7 +181,7 @@ vec3 metal(vec2 uv, float t, float bass) {
 }
 
 void main() {
-	float cellSize = u_pixelSize >= 4.0 ? u_pixelSize : 8.0;
+	float cellSize = u_pixelSize >= 4.0 ? u_pixelSize : 6.0;
 	vec2 pixelCoord = floor(gl_FragCoord.xy / cellSize);
 	vec2 snappedFrag = (pixelCoord + 0.5) * cellSize;
 	vec2 uv = snappedFrag / u_resolution;
