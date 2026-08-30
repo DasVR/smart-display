@@ -6,7 +6,9 @@ import {
 	getCalendar,
 	getNowPlaying,
 	getGitContext,
-	getOllamaPs
+	getOllamaPs,
+	getHAStates,
+	triggerHAView
 } from './lib/server/hostData.js';
 
 const port = process.env.PORT || 3000;
@@ -48,11 +50,18 @@ const server = createServer(async (req, res) => {
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
 		req.on('data', (chunk) => (body += chunk));
-		req.on('end', () => {
+		req.on('end', async () => {
 			try {
 				const data = JSON.parse(body);
 				if (data.event === 'morning') {
 					broadcast({ type: 'trigger', event: 'morning', data: data.data || {} });
+					json(res, { ok: true });
+					return;
+				}
+				if (data.event === 'navigate' && data.view) {
+					currentView = data.view;
+					broadcast({ type: 'navigate', view: data.view, from: 'ha' });
+					await triggerHAView(data.view);
 					json(res, { ok: true });
 					return;
 				}
@@ -83,6 +92,11 @@ const server = createServer(async (req, res) => {
 
 	if (req.method === 'GET' && req.url === '/api/git') {
 		json(res, getGitContext());
+		return;
+	}
+
+	if (req.method === 'GET' && req.url === '/api/ha/states') {
+		json(res, await getHAStates());
 		return;
 	}
 

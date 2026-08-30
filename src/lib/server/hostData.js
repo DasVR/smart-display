@@ -45,6 +45,80 @@ function readNetThroughput() {
 	}
 }
 
+const HA_TOKEN_PATH = process.env.HA_TOKEN_PATH || '/home/das/projects/smart-display/.ha_token.json';
+let haAccessToken = null;
+let haTokenExpiry = 0;
+
+async function getHAToken() {
+	if (haAccessToken && Date.now() < haTokenExpiry - 60_000) return haAccessToken;
+	try {
+		const raw = readFileSync(HA_TOKEN_PATH, 'utf8');
+		const cfg = JSON.parse(raw);
+		const r = await fetch(`${cfg.base_url}/auth/token`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+			body: new URLSearchParams({
+				grant_type: 'refresh_token',
+				client_id: cfg.client_id,
+				refresh_token: cfg.refresh_token
+			})
+		});
+		if (!r.ok) throw new Error(`ha token ${r.status}`);
+		const d = await r.json();
+		haAccessToken = d.access_token;
+		haTokenExpiry = Date.now() + (d.expires_in * 1000);
+		return haAccessToken;
+	} catch (e) {
+		console.error('ha token error:', e.message);
+		return null;
+	}
+}
+
+export async function getHAStates() {
+	try {
+		const token = await getHAToken();
+		if (!token) return { entities: [], status: 'no-auth' };
+		const raw = readFileSync(HA_TOKEN_PATH, 'utf8');
+		const cfg = JSON.parse(raw);
+		const r = await fetch(`${cfg.base_url}/api/states`, {
+			headers: { Authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(3000)
+		});
+		if (!r.ok) throw new Error(`ha states ${r.status}`);
+		const states = await r.json();
+		const summary = {
+			temperature: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('temperature'))?.state,
+			humidity: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('humidity'))?.state,
+			online: states.length,
+			lightsOn: states.filter((s) => s.entity_id.startsWith('light.') && s.state === 'on').length,
+			doorsOpen: states.filter((s) => s.entity_id.startsWith('binary_sensor.') && s.attributes?.device_class === 'door' && s.state === 'on').length
+		};
+		return { entities: states.slice(0, 40), summary, status: 'ok' };
+	} catch (e) {
+		console.error('ha states error:', e.message);
+		return { entities: [], summary: {}, status: 'error', error: e.message };
+	}
+}
+
+export async function triggerHAView(view) {
+	try {
+		const token = await getHAToken();
+		if (!token) return { ok: false, error: 'no-auth' };
+		const raw = readFileSync(HA_TOKEN_PATH, 'utf8');
+		const cfg = JSON.parse(raw);
+		const r = await fetch(`${cfg.base_url}/api/events/smart_display_navigate`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ view }),
+			signal: AbortSignal.timeout(3000)
+		});
+		if (!r.ok) throw new Error(`ha event ${r.status}`);
+		return { ok: true };
+	} catch (e) {
+		return { ok: false, error: e.message };
+	}
+}
+
 export async function getTelemetry() {
 	const total = os.totalmem() / 1024 / 1024 / 1024;
 	const free = os.freemem() / 1024 / 1024 / 1024;
@@ -68,6 +142,7 @@ export async function getTelemetry() {
 		check('https://godmode.dasdev.net', 'godmode', '100%'),
 		check('https://leadvine.dasdev.net', 'leadvine', '100%'),
 		check('https://hermes.dasdev.net', 'hermes', '100%'),
+		check('http://127.0.0.1:8123/api/', 'home assistant', '100%'),
 		check('http://localhost:3000', 'display', '100%')
 	]);
 
