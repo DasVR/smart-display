@@ -1,11 +1,20 @@
 <script>
 	let { time = new Date() } = $props();
 
-	let colonOn = $derived(time.getSeconds() % 2 === 0);
-	let dispH = $derived(time.getHours() % 12 || 12);
-	let mm = $derived(String(time.getMinutes()).padStart(2, '0'));
-	let ss = $derived(String(time.getSeconds()).padStart(2, '0'));
-	let ampm = $derived(time.getHours() >= 12 ? 'PM' : 'AM');
+	function estParts(d) {
+		const s = new Date(d).toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
+		const [datePart, timePart] = s.split(', ');
+		const [h, m, sPart] = timePart.split(':');
+		const sec = sPart.split(' ')[0]; // handle any AM/PM if hour12 changes
+		return { h: parseInt(h, 10), m: parseInt(m, 10), sec: parseInt(sec, 10) };
+	}
+
+	let est = $derived(estParts(time));
+	let colonOn = $derived(est.sec % 2 === 0);
+	let dispH = $derived(est.h % 12 || 12);
+	let mm = $derived(String(est.m).padStart(2, '0'));
+	let ss = $derived(String(est.sec).padStart(2, '0'));
+	let ampm = $derived(est.h >= 12 ? 'PM' : 'AM');
 </script>
 
 <div class="hero-clock">
