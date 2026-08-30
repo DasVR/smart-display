@@ -11,88 +11,80 @@
 	} = $props();
 
 	let hot = $derived(typeof value === 'number' && warnAt !== null && value >= warnAt);
+	let display = $derived(typeof value === 'number' ? String(value) : value);
 </script>
 
 <article class="metric-card" class:hot>
-	<div class="metric-line">
+	<div class="metric-copy">
 		<span class="metric-label">{label}</span>
-		<Sparkline {points} height={16} fill={false} />
-		<span class="metric-value num">
-			{value}<span class="metric-unit">{unit}</span>
-		</span>
+		{#if hint}
+			<span class="metric-hint">{hint}</span>
+		{/if}
 	</div>
-	{#if hint}
-		<div class="metric-hint">{hint}</div>
-	{/if}
+	<Sparkline {points} height={16} fill={false} />
+	<div class="metric-readout">
+		<span class="metric-value num">{display}</span>
+		<span class="metric-unit">{unit}</span>
+	</div>
 </article>
 
 <style>
 	.metric-card {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		padding: var(--space-2) var(--space-4);
-		min-height: 0;
-		min-width: 0;
-		border-right: 1px solid var(--border);
-	}
-	.metric-card:first-child {
-		padding-left: 0;
-	}
-	.metric-card:last-child {
-		padding-right: 0;
-		border-right: none;
-	}
-	.metric-line {
 		display: grid;
-		grid-template-columns: auto minmax(40px, 1fr) auto;
+		grid-template-columns: 7rem minmax(48px, 1fr) 5.5rem;
 		align-items: center;
 		gap: var(--space-2);
+		min-height: 40px;
+		padding: var(--space-2) 0;
+		border-bottom: 1px solid var(--border);
 		min-width: 0;
-		min-height: 32px;
+	}
+	.metric-card:last-child {
+		border-bottom: none;
+	}
+	.metric-copy {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		min-width: 0;
 	}
 	.metric-label {
-		font-size: 12px;
+		font-size: 13px;
 		font-weight: 500;
 		font-style: normal;
-		color: var(--text-tertiary);
-	}
-	.metric-value {
-		font-size: 20px;
-		font-weight: 600;
-		letter-spacing: -0.04em;
-		line-height: 1;
-		color: var(--foreground);
+		color: var(--text-secondary);
 		overflow-wrap: anywhere;
-		min-width: 0;
-		text-align: right;
-	}
-	.metric-card.hot .metric-value {
-		color: var(--warn);
-	}
-	.metric-unit {
-		margin-left: var(--space-1);
-		font-size: 12px;
-		font-weight: 500;
-		letter-spacing: 0;
-		color: var(--text-tertiary);
 	}
 	.metric-hint {
 		font-size: 12px;
 		color: var(--text-tertiary);
 		overflow-wrap: anywhere;
 		min-width: 0;
-		padding-left: 0;
 	}
-
-	@media (max-width: 414px) {
-		.metric-card {
-			padding: var(--space-2) 0;
-			border-right: none;
-			border-bottom: 1px solid var(--border);
-		}
-		.metric-card:last-child {
-			border-bottom: none;
-		}
+	.metric-readout {
+		display: flex;
+		align-items: baseline;
+		justify-content: flex-end;
+		gap: var(--space-1);
+		min-width: 0;
+	}
+	.metric-value {
+		font-size: 16px;
+		font-weight: 600;
+		letter-spacing: -0.02em;
+		line-height: 1;
+		color: var(--foreground);
+		font-variant-numeric: tabular-nums;
+		text-align: right;
+		min-width: 3.5ch;
+	}
+	.metric-card.hot .metric-value {
+		color: var(--warn);
+	}
+	.metric-unit {
+		font-size: 12px;
+		font-weight: 500;
+		color: var(--text-tertiary);
+		flex-shrink: 0;
 	}
 </style>

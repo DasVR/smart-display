@@ -141,10 +141,9 @@
 		flex-shrink: 0;
 	}
 	.metrics-bar {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		display: flex;
+		flex-direction: column;
 		border-bottom: 1px solid var(--border);
-		padding-bottom: var(--space-2);
 		flex-shrink: 0;
 		min-width: 0;
 	}
@@ -154,6 +153,7 @@
 		font-weight: 500;
 		font-style: normal;
 		color: var(--text-tertiary);
+		padding-bottom: var(--space-2);
 	}
 	.svc-block {
 		min-height: 0;
@@ -207,11 +207,5 @@
 	.muted {
 		margin-top: var(--space-2);
 		color: var(--text-secondary);
-	}
-
-	@media (max-width: 414px) {
-		.metrics-bar {
-			grid-template-columns: minmax(0, 1fr);
-		}
 	}
 </style>
