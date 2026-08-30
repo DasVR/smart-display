@@ -1,6 +1,4 @@
 <script>
-	import { spectrum } from '$lib/services/audioReactive.js';
-
 	let {
 		nowPlaying = null,
 		notification = { visible: false, title: '', body: '', kind: 'info' },
@@ -14,12 +12,10 @@
 		return 'idle';
 	});
 
-	let bins = $derived(($spectrum || []).slice(0, 10));
-
 	let statusWord = $derived.by(() => {
-		if (gpuLowPower) return 'yield';
-		if (ollamaStatus === 'inferring') return 'busy';
-		return 'ready';
+		if (gpuLowPower) return 'YIELD';
+		if (ollamaStatus === 'inferring') return 'BUSY';
+		return 'SYS_OK';
 	});
 
 	function modeLabel(next) {
@@ -27,9 +23,9 @@
 			case 'idle':
 				return statusWord;
 			case 'nowplaying':
-				return 'playing';
+				return 'PLAY';
 			case 'alert':
-				return notification?.kind || 'notice';
+				return notification?.kind || 'NOTE';
 			default: {
 				const _exhaustive = next;
 				return _exhaustive;
@@ -42,20 +38,15 @@
 	{#if mode === 'nowplaying'}
 		<div class="slip">
 			<div class="copy">
-				<div class="kicker">{modeLabel(mode)}</div>
+				<div class="kicker">[{modeLabel(mode)}]</div>
 				<div class="title">{nowPlaying?.title || 'Untitled'}</div>
 				<div class="sub">{nowPlaying?.artist || ''}</div>
-			</div>
-			<div class="mini-vis" aria-hidden="true">
-				{#each bins as h, i (i)}
-					<span style="height: {Math.max(12, h * 100)}%"></span>
-				{/each}
 			</div>
 		</div>
 	{:else if mode === 'alert'}
 		<div class="slip">
 			<div class="copy">
-				<div class="kicker">{modeLabel(mode)}</div>
+				<div class="kicker">[{modeLabel(mode)}]</div>
 				<div class="title">{notification.title}</div>
 				<div class="sub">{notification.body}</div>
 			</div>
@@ -63,7 +54,7 @@
 	{:else}
 		<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'}>
 			<span class="dot" aria-hidden="true"></span>
-			<span class="word">{statusWord}</span>
+			<span class="word">[{statusWord}]</span>
 		</div>
 	{/if}
 </div>
@@ -82,7 +73,7 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		background: var(--card);
-		color: var(--text-secondary);
+		color: var(--ok);
 	}
 	.dot {
 		width: 8px;
@@ -102,10 +93,12 @@
 		background: var(--warn);
 	}
 	.word {
+		font-family: var(--font-display);
 		font-size: 13px;
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1;
+		letter-spacing: 0.04em;
 	}
 	.slip {
 		display: flex;
@@ -123,11 +116,13 @@
 		flex: 1;
 	}
 	.kicker {
+		font-family: var(--font-display);
 		font-size: 12px;
 		font-weight: 500;
 		color: var(--text-tertiary);
 	}
 	.title {
+		font-family: var(--font-display);
 		font-size: 14px;
 		font-weight: 600;
 		font-style: normal;
@@ -144,26 +139,8 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	.mini-vis {
-		display: flex;
-		align-items: flex-end;
-		gap: 4px;
-		height: 24px;
-		width: 48px;
-		flex-shrink: 0;
-	}
-	.mini-vis span {
-		flex: 1;
-		min-width: 0;
-		border-radius: var(--radius-sm);
-		background: var(--brand);
-		opacity: 0.85;
-	}
 
 	@media (max-width: 414px) {
-		.mini-vis {
-			display: none;
-		}
 		.slip {
 			max-width: 100%;
 		}

@@ -12,7 +12,7 @@
 		{/each}
 	</div>
 	<p class="link" class:ok={$wsStatus === 'connected'}>
-		{$wsStatus === 'connected' ? 'link' : 'offline'}
+		{$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'}
 	</p>
 </div>
 
@@ -34,14 +34,14 @@
 		display: flex;
 		align-items: flex-end;
 		justify-content: center;
-		gap: 5px;
+		gap: 8px;
 		width: min(56vw, 720px);
 		height: 58%;
 		opacity: 0.45;
 	}
 	.wave {
 		flex: 1;
-		max-width: 10px;
+		max-width: 8px;
 		min-width: 0;
 		height: calc(var(--h) * 100%);
 		border-radius: var(--radius-sm);
@@ -49,6 +49,7 @@
 	}
 	.link {
 		margin: 0;
+		font-family: var(--font-display);
 		font-size: 13px;
 		color: var(--text-tertiary);
 	}

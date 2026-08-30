@@ -82,7 +82,7 @@
 
 <div class="school-hub">
 	<header class="running">
-		<h2 class="hub-title">Assignments</h2>
+		<h2 class="hub-title">┌ Assignments :: {events.length} ┐</h2>
 		<p class="head-meta">
 			{#if loading}
 				Checking calendar
@@ -140,10 +140,11 @@
 	}
 	.hub-title {
 		margin: 0;
-		font-size: clamp(1.15rem, 1.6vw, 1.45rem);
-		font-weight: 600;
+		font-family: var(--font-display);
+		font-size: clamp(1.05rem, 1.5vw, 1.3rem);
+		font-weight: 500;
 		font-style: normal;
-		letter-spacing: -0.02em;
+		letter-spacing: 0;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -205,6 +206,7 @@
 		color: var(--text-tertiary);
 	}
 	.row-title {
+		font-family: var(--font-body);
 		font-size: clamp(1rem, 1.4vw, 1.25rem);
 		font-weight: 600;
 		font-style: normal;

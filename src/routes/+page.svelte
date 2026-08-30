@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 5 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 5 · Variety 5
+	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 5
 -->
 <script>
 	import '../app.css';
@@ -14,6 +14,7 @@
 	import DevHub from '$lib/components/DevHub.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
+	import AsciiFrame from '$lib/components/AsciiFrame.svelte';
 
 	let ws;
 	let reconnectTimer;
@@ -124,8 +125,8 @@
 		};
 	});
 
-	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long' }));
-	let month = $derived(time.toLocaleDateString('en-US', { month: 'long' }));
+	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase());
+	let month = $derived(time.toLocaleDateString('en-US', { month: 'short' }).toUpperCase());
 	let dayNum = $derived(time.getDate());
 </script>
 
@@ -163,7 +164,9 @@
 				<SchoolHub />
 			</section>
 			<section class="host-slab slab" class:focus={leftFocus === 'dev'} data-glass>
-				<DevHub />
+				<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
+					<DevHub />
+				</AsciiFrame>
 			</section>
 		</main>
 
@@ -194,7 +197,7 @@
 		display: grid;
 		grid-template-rows: auto minmax(0, 1fr) auto;
 		color: var(--text-primary);
-		font-family: var(--font-body);
+		font-family: var(--font-display);
 		min-width: 0;
 	}
 	.zone {

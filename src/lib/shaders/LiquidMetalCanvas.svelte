@@ -356,7 +356,7 @@ void main() {
 		};
 		gl = canvas.getContext('webgl2', glOpts);
 		if (!gl) {
-			console.warn('WebGL2 unavailable — liquid metal canvas disabled');
+			console.warn('WebGL2 unavailable, liquid metal canvas disabled');
 			return false;
 		}
 
