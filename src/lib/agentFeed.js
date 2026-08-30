@@ -73,7 +73,7 @@ export function buildAgents({ ollamaStatus, ollamaModels, git, telemetry }) {
 			pid: runPid(git?.branch || 'worktree'),
 			phase: git?.dirty ? 'executing' : 'done',
 			task: git?.dirty ? `${git.changed} dirty` : 'clean',
-			branch: git?.branch || 'untracked',
+			branch: git?.branch && git.branch !== '--' ? git.branch : null,
 			opacity: git?.dirty ? 1 : 0.4
 		}
 	];
