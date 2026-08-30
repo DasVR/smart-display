@@ -27,7 +27,8 @@
 
 	--background: var(--abyss);
 	--foreground: var(--gray-95);
-	--card: color-mix(in srgb, var(--abyss-3) 70%, transparent);
+	--card-inner: var(--abyss-1);
+	--card: var(--card-inner);
 	--card-foreground: var(--gray-95);
 	--muted: var(--gray-10);
 	--muted-foreground: var(--gray-40);
@@ -95,8 +96,8 @@
 	--elevation-2: 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent);
 	--elevation-3: 0 8px 24px color-mix(in srgb, var(--background) 80%, transparent);
 
-	--glass-fill: rgb(23 23 23 / 0.4);
-	--glass-blur: 12px;
+	--glass-fill: color-mix(in srgb, var(--abyss-1) 85%, transparent);
+	--glass-blur: 24px;
 	--glass-specular: rgb(255 255 255 / 0.1);
 	--glass-edge: rgb(255 255 255 / 0.06);
 	--glass-inset-hi: rgb(255 255 255 / 0.1);
@@ -174,6 +175,7 @@ h6 {
 .slab,
 .glass-field,
 .glass-card {
+	position: relative;
 	isolation: isolate;
 	background: var(--glass-fill);
 	color: var(--card-foreground);
@@ -182,6 +184,27 @@ h6 {
 	backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
 	-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
 	box-shadow: var(--glass-depth);
+}
+
+.paper::before,
+.slab::before,
+.glass-field::before,
+.glass-card::before {
+	content: '';
+	position: absolute;
+	inset: var(--space-2);
+	border-radius: var(--radius-sm);
+	background: var(--card-inner);
+	z-index: 0;
+	pointer-events: none;
+}
+
+.paper > *,
+.slab > *,
+.glass-field > *,
+.glass-card > * {
+	position: relative;
+	z-index: 1;
 }
 
 .paper {
@@ -202,7 +225,7 @@ h6 {
 	.slab,
 	.glass-field,
 	.glass-card {
-		background: var(--card);
+		background: var(--card-inner);
 		backdrop-filter: none;
 		-webkit-backdrop-filter: none;
 		box-shadow: inset 0 1px 0 var(--glass-inset-hi);
