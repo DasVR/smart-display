@@ -13,7 +13,7 @@
 	const INTERNAL_W = 1280;
 	const INTERNAL_H = 720;
 	/** Virtual pixel block for Bayer + field sampling. Keep in the 4–8 range. */
-	const PIXEL_SIZE = 6;
+	const PIXEL_SIZE = 8;
 
 	let canvas = $state(null);
 	let gl = null;
@@ -174,7 +174,7 @@ vec3 metal(vec2 uv, float t, float bass) {
 }
 
 void main() {
-	float cellSize = max(u_pixelSize, 1.0);
+	float cellSize = u_pixelSize >= 4.0 ? u_pixelSize : 8.0;
 	vec2 pixelCoord = floor(gl_FragCoord.xy / cellSize);
 	vec2 snappedFrag = (pixelCoord + 0.5) * cellSize;
 	vec2 uv = snappedFrag / u_resolution;
