@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 4 · Variety 4
+	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
 -->
 <script>
 	import '../app.css';
@@ -185,7 +185,7 @@
 					</div>
 				</div>
 			</div>
-			<nav class="view-strip" aria-label="Views">
+			<nav class="view-strip" aria-label="Views" data-glass>
 				{#each VIEWS as v}
 					<button
 						class="view-tab"
@@ -193,7 +193,7 @@
 						onclick={() => currentView.set(v)}
 						aria-current={$currentView === v ? 'true' : undefined}
 					>
-						{v}
+						<span class="view-tab-label">{v}</span>
 					</button>
 				{/each}
 			</nav>
@@ -201,22 +201,30 @@
 
 		<main class="zone center">
 			{#if $currentView === 'clock'}
-				<section class="view-pane clock-pane" data-glass>
-					<HeroClock {time} />
+				<section class="view-pane bezel clock-pane">
+					<div class="bezel-core clock-core">
+						<HeroClock {time} />
+					</div>
 				</section>
 			{:else if $currentView === 'school'}
-				<section class="view-pane" data-glass>
-					<SchoolHub />
+				<section class="view-pane bezel">
+					<div class="bezel-core">
+						<SchoolHub />
+					</div>
 				</section>
 			{:else if $currentView === 'dev'}
-				<section class="view-pane" data-glass>
-					<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
-						<DevHub />
-					</AsciiFrame>
+				<section class="view-pane bezel">
+					<div class="bezel-core">
+						<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
+							<DevHub />
+						</AsciiFrame>
+					</div>
 				</section>
 			{:else if $currentView === 'music'}
-				<section class="view-pane" data-glass>
-					<MusicView />
+				<section class="view-pane bezel">
+					<div class="bezel-core">
+						<MusicView />
+					</div>
 				</section>
 			{/if}
 		</main>
@@ -235,6 +243,7 @@
 	.display-shell {
 		width: 100vw;
 		height: 100vh;
+		min-height: 100dvh;
 		overflow-x: clip;
 		overflow-y: hidden;
 		position: relative;
@@ -304,49 +313,78 @@
 	}
 	.view-strip {
 		display: flex;
-		gap: var(--space-1);
-		margin-top: var(--space-4);
+		width: max-content;
+		max-width: 100%;
+		gap: 0.125rem;
+		margin-top: var(--space-6);
+		padding: 0.25rem;
 		min-width: 0;
+		border: 1px solid var(--hairline);
+		border-radius: 999px;
+		background: var(--shell-fill);
+		box-shadow: var(--inset-spec);
+		box-sizing: border-box;
 	}
 	.view-tab {
 		appearance: none;
-		border: 1px solid transparent;
+		border: 0;
 		background: transparent;
 		color: var(--text-tertiary);
-		font-family: var(--font-display);
+		font-family: var(--font-body);
 		font-size: var(--text-sm);
 		font-weight: 600;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
 		padding: var(--space-2) var(--space-4);
-		border-radius: var(--radius-sm);
+		border-radius: 999px;
 		cursor: pointer;
-		transition: color 0.15s, background 0.15s, border-color 0.15s;
+		transition:
+			color 500ms var(--ease-fluid),
+			background 500ms var(--ease-fluid),
+			transform 500ms var(--ease-fluid);
 	}
 	.view-tab:hover {
 		color: var(--text-secondary);
-		background: color-mix(in srgb, var(--foreground) 4%, transparent);
+	}
+	.view-tab:active {
+		transform: scale(0.98);
 	}
 	.view-tab.active {
 		color: var(--foreground);
-		background: var(--card-inner);
-		border-color: var(--surface-border-strong);
+		background: color-mix(in srgb, var(--abyss-2) 92%, var(--foreground));
+		box-shadow: var(--inset-spec);
+	}
+	.view-tab-label {
+		display: inline-block;
 	}
 	.center {
 		min-height: 0;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		padding-top: var(--space-8);
-		padding-bottom: var(--space-8);
+		padding-top: var(--space-6);
+		padding-bottom: var(--space-6);
 	}
 	.view-pane {
 		position: relative;
 		overflow: hidden;
 		min-width: 0;
 		min-height: 0;
-		border-radius: var(--radius-sm);
+		animation: paneIn 800ms var(--ease-fluid) both;
+	}
+	@keyframes paneIn {
+		from {
+			opacity: 0;
+			transform: translateY(1rem);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 	.clock-pane {
+		min-height: 0;
+	}
+	.clock-core {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -369,25 +407,26 @@
 		width: 100%;
 		height: 6rem;
 		min-width: 0;
+		border-radius: var(--radius-bezel);
 	}
 	.sleep .display-root {
 		opacity: 0.15;
-		filter: grayscale(0.85) blur(0.5px);
-		transition: opacity 1.2s ease, filter 1.2s ease;
+		filter: grayscale(0.85);
+		transition: opacity 1.2s var(--ease-fluid), filter 1.2s var(--ease-fluid);
 	}
 	.display-shell.hdmi-off .display-root {
 		opacity: 0;
-		transition: opacity 2.5s ease;
+		transition: opacity 2.5s var(--ease-fluid);
 	}
 	.display-shell.hdmi-off {
-		background: #000;
+		background: var(--background);
 	}
 	.display-root.morning {
-		animation: morningGlow 8s ease-in-out infinite alternate;
+		animation: morningGlow 8s var(--ease-fluid) infinite alternate;
 	}
 	@keyframes morningGlow {
 		from { box-shadow: inset 0 0 0 transparent; }
-		to { box-shadow: inset 0 0 120px rgba(0, 217, 146, 0.08); }
+		to { box-shadow: inset 0 0 120px color-mix(in srgb, var(--ok) 8%, transparent); }
 	}
 
 	@media (max-aspect-ratio: 4/3) {
@@ -404,12 +443,12 @@
 	@media (max-width: 768px) {
 		.display-shell {
 			height: auto;
-			min-height: 100vh;
+			min-height: 100dvh;
 			overflow-y: visible;
 		}
 		.display-root {
 			height: auto;
-			min-height: 100vh;
+			min-height: 100dvh;
 			grid-template-rows: auto auto auto;
 		}
 		.zone {
@@ -426,12 +465,20 @@
 			justify-content: flex-start;
 			padding-bottom: 0;
 		}
+		.view-strip {
+			width: 100%;
+			flex-wrap: wrap;
+			border-radius: var(--radius-bezel);
+		}
 		.center {
 			height: auto;
 			min-height: 0;
+			padding-top: var(--space-4);
+			padding-bottom: var(--space-4);
 		}
 		.view-pane {
 			min-height: 420px;
+			width: 100%;
 		}
 		.bottom {
 			min-height: 0;

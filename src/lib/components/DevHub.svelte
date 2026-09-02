@@ -111,7 +111,7 @@
 		{:else}
 			<ul class="svc-list">
 				{#each services as s, i (s.name ?? i)}
-					<li>
+					<li class="plate">
 						<span class="svc-name">{s.name}</span>
 						<span class="state" class:ok={s.status}>{s.status ? '[UP]' : '[DOWN]'}</span>
 					</li>
@@ -170,16 +170,19 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		border-top: 1px solid var(--border);
+		gap: var(--space-2);
 	}
 	.svc-list li {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		gap: var(--space-4);
-		padding: var(--space-2) 0;
-		border-bottom: 1px solid var(--border);
-		min-height: 2.75rem;
+		padding: 0 var(--space-4);
+		min-height: 4.5rem;
+		transition: transform 500ms var(--ease-fluid);
+	}
+	.svc-list li:active {
+		transform: scale(0.98);
 	}
 	.svc-name {
 		font-size: var(--text-xl);
@@ -189,10 +192,16 @@
 		min-width: 0;
 	}
 	.state {
-		font-family: var(--font-display);
-		font-size: var(--text-sm);
-		color: var(--warn);
 		flex-shrink: 0;
+		padding: 0.375rem 0.75rem;
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-sm);
+		font-family: var(--font-display);
+		font-size: var(--text-base);
+		font-weight: 700;
+		color: var(--warn);
+		background: var(--abyss-2);
+		box-shadow: var(--inset-spec);
 	}
 	.state.ok {
 		color: var(--ok);
