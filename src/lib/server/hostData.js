@@ -172,6 +172,7 @@ export async function getCalendar(days = 3) {
 		const now = new Date();
 		const end = new Date();
 		end.setDate(now.getDate() + parseInt(days, 10));
+		end.setHours(23, 59, 59, 999);
 		const timeMin = now.toISOString();
 		const timeMax = end.toISOString();
 		const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=50`;
