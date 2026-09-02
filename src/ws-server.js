@@ -107,6 +107,13 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && req.url?.startsWith('/api/weather/station')) {
+		const urlObj = new URL(req.url, `http://${req.headers.host}`);
+		saveStationData(Object.fromEntries(urlObj.searchParams.entries()));
+		json(res, { ok: true, ts: Date.now() });
+		return;
+	}
+
 	if (req.method === 'POST' && req.url === '/api/weather/station') {
 		let body = '';
 		req.on('data', (chunk) => (body += chunk));
