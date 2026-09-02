@@ -189,7 +189,11 @@ export async function getCalendar(days = 3) {
 			description: e.description || '',
 			hw: /(^|\s)#hw(\s|$)/i.test(`${e.summary || ''} ${e.description || ''}`)
 		}));
-		const events = rawEvents.filter((e) => e.hw);
+		const events = rawEvents.filter((e) => {
+			const text = `${e.title || ''} ${e.description || ''}`.toLowerCase();
+			const workKeywords = /\b(hw|homework|assignment|bookwork|worksheet|handout|project|presentation|powerpoint|quiz|test|exam|midterm|final|study|review|notes|replies|discussion|essay|paper|lab|report|due)\b/;
+			return workKeywords.test(text);
+		});
 		return { events, total: rawEvents.length };
 	} catch (e) {
 		console.error('calendar error:', e.message);
