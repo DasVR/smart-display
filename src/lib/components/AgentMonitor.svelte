@@ -94,7 +94,7 @@
 		min-height: 4.5rem;
 		min-width: 0;
 		padding: 0 var(--space-4);
-		transition: transform 500ms var(--ease-fluid);
+		transition: transform 280ms var(--spring-smooth);
 	}
 	.agents li:active {
 		transform: scale(0.98);
@@ -107,7 +107,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-family: var(--font-display);
+		font-family: var(--font-body);
 		font-size: var(--text-xl);
 		color: var(--foreground);
 		overflow-wrap: anywhere;
@@ -121,6 +121,7 @@
 		color: var(--text-tertiary);
 	}
 	.phase {
+		font-family: var(--font-code);
 		color: var(--brand);
 	}
 	.tools {

@@ -47,26 +47,25 @@
 		z-index: 50;
 		pointer-events: none;
 		opacity: 0;
-		transition: opacity 0.3s ease;
+		transition: opacity 280ms var(--spring-smooth);
 	}
 	.island-wrap.visible { opacity: 1; }
 
-	/* the gooey blob: filter applied to the pill so it stretches like water */
 	.island {
 		display: flex;
 		align-items: center;
-		gap: 12px;
-		padding: 12px 20px;
-		margin-top: 10px;
+		gap: var(--space-4);
+		padding: var(--space-4) var(--space-6);
+		margin-top: var(--space-2);
 		border-radius: 999px;
-		background: rgba(20, 20, 30, 0.75);
-		backdrop-filter: blur(20px) saturate(1.5);
-		-webkit-backdrop-filter: blur(20px) saturate(1.5);
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+		background: var(--glass-fill);
+		backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+		-webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.5);
+		border: 1px solid var(--glass-edge);
+		box-shadow: var(--elevation-3);
 		filter: url(#gooey);
 		transform: translateY(-120%);
-		transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+		transition: transform 600ms var(--spring-smooth);
 	}
 	.island-wrap.visible .island {
 		transform: translateY(0);
@@ -76,22 +75,28 @@
 		width: 10px; height: 10px;
 		border-radius: 50%;
 		background: var(--accent);
-		box-shadow: 0 0 12px rgba(169, 177, 240, 0.6);
+		box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 60%, transparent);
 		flex-shrink: 0;
 	}
-	.island.music .island-dot { background: #34d399; box-shadow: 0 0 12px rgba(52, 211, 153, 0.6); }
-	.island.alert .island-dot { background: #fca5a5; box-shadow: 0 0 12px rgba(252, 165, 165, 0.6); }
+	.island.music .island-dot {
+		background: var(--ok);
+		box-shadow: 0 0 12px color-mix(in srgb, var(--ok) 60%, transparent);
+	}
+	.island.alert .island-dot {
+		background: var(--warn);
+		box-shadow: 0 0 12px color-mix(in srgb, var(--warn) 60%, transparent);
+	}
 
 	.island-title {
-		font-family: var(--font-display);
-		font-size: 13px;
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
 		font-weight: 600;
-		color: rgba(242, 240, 247, 0.9);
+		color: var(--foreground);
 		white-space: nowrap;
 	}
 	.island-body {
-		font-size: 12px;
-		color: rgba(242, 240, 247, 0.55);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
 		white-space: nowrap;
 	}
 </style>

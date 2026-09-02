@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
+	Philosophy 4 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 4 · Variety 4
 -->
 <script>
 	import '../app.css';
@@ -300,8 +300,10 @@
 	.dateline,
 	.wxline {
 		margin: 0;
+		font-family: var(--font-body);
 		font-size: var(--text-3xl);
 		font-weight: 600;
+		letter-spacing: -0.025em;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -339,9 +341,9 @@
 		border-radius: 999px;
 		cursor: pointer;
 		transition:
-			color 500ms var(--ease-fluid),
-			background 500ms var(--ease-fluid),
-			transform 500ms var(--ease-fluid);
+			color 280ms var(--spring-smooth),
+			background 280ms var(--spring-smooth),
+			transform 280ms var(--spring-smooth);
 	}
 	.view-tab:hover {
 		color: var(--text-secondary);
@@ -369,16 +371,13 @@
 		overflow: hidden;
 		min-width: 0;
 		min-height: 0;
-		animation: paneIn 800ms var(--ease-fluid) both;
 	}
-	@keyframes paneIn {
-		from {
-			opacity: 0;
-			transform: translateY(1rem);
+	@media (prefers-reduced-motion: no-preference) {
+		.view-pane {
+			animation: pane-in var(--dur-pane) var(--spring-smooth) both;
 		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
+		.view-tab:hover:not(.active):not(:active) {
+			transform: translateY(-1px);
 		}
 	}
 	.clock-pane {
@@ -412,17 +411,17 @@
 	.sleep .display-root {
 		opacity: 0.15;
 		filter: grayscale(0.85);
-		transition: opacity 1.2s var(--ease-fluid), filter 1.2s var(--ease-fluid);
+		transition: opacity 1.2s var(--spring-smooth), filter 1.2s var(--spring-smooth);
 	}
 	.display-shell.hdmi-off .display-root {
 		opacity: 0;
-		transition: opacity 2.5s var(--ease-fluid);
+		transition: opacity 2.5s var(--spring-smooth);
 	}
 	.display-shell.hdmi-off {
 		background: var(--background);
 	}
 	.display-root.morning {
-		animation: morningGlow 8s var(--ease-fluid) infinite alternate;
+		animation: morningGlow 8s var(--spring-smooth) infinite alternate;
 	}
 	@keyframes morningGlow {
 		from { box-shadow: inset 0 0 0 transparent; }

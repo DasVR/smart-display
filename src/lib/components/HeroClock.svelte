@@ -48,12 +48,18 @@
 	}
 	.colon {
 		opacity: 0.28;
-		transition: opacity 0.25s var(--ease-standard);
+		transform: scale(0.92);
+		transform-origin: center 58%;
 		margin: 0 0.125rem;
 		font-style: normal;
+		transition:
+			opacity 420ms var(--spring-smooth),
+			transform 420ms var(--spring-snappy),
+			color 420ms var(--spring-smooth);
 	}
 	.colon.on {
 		opacity: 1;
+		transform: scale(1);
 		color: var(--brand);
 	}
 	.seconds {

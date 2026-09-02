@@ -140,6 +140,11 @@
 		background: color-mix(in srgb, var(--abyss-2) 80%, var(--brand));
 		color: var(--foreground);
 	}
+	@media (prefers-reduced-motion: no-preference) {
+		.col.today {
+			animation: today-arrive 800ms var(--spring-smooth) both;
+		}
+	}
 	.col-head {
 		display: flex;
 		align-items: baseline;

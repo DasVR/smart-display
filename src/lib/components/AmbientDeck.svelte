@@ -43,13 +43,20 @@
 		flex: 1;
 		max-width: 8px;
 		min-width: 0;
-		height: calc(var(--h) * 100%);
+		height: 100%;
+		transform: scaleY(var(--h));
+		transform-origin: center bottom;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--brand) 40%, transparent);
 	}
+	@media (prefers-reduced-motion: no-preference) {
+		.wave {
+			transition: transform 180ms var(--spring-smooth);
+		}
+	}
 	.link {
 		margin: 0;
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 	}

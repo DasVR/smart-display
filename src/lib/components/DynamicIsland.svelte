@@ -35,28 +35,30 @@
 </script>
 
 <div class="island" data-mode={mode}>
-	{#if mode === 'nowplaying'}
-		<div class="slip">
-			<div class="copy">
-				<div class="kicker">[{modeLabel(mode)}]</div>
-				<div class="title">{nowPlaying?.title || 'Untitled'}</div>
-				<div class="sub">{nowPlaying?.artist || ''}</div>
+	{#key mode}
+		{#if mode === 'nowplaying'}
+			<div class="slip">
+				<div class="copy">
+					<div class="kicker">[{modeLabel(mode)}]</div>
+					<div class="title">{nowPlaying?.title || 'Untitled'}</div>
+					<div class="sub">{nowPlaying?.artist || ''}</div>
+				</div>
 			</div>
-		</div>
-	{:else if mode === 'alert'}
-		<div class="slip">
-			<div class="copy">
-				<div class="kicker">[{modeLabel(mode)}]</div>
-				<div class="title">{notification.title}</div>
-				<div class="sub">{notification.body}</div>
+		{:else if mode === 'alert'}
+			<div class="slip">
+				<div class="copy">
+					<div class="kicker">[{modeLabel(mode)}]</div>
+					<div class="title">{notification.title}</div>
+					<div class="sub">{notification.body}</div>
+				</div>
 			</div>
-		</div>
-	{:else}
-		<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'}>
-			<span class="dot" aria-hidden="true"></span>
-			<span class="word">[{statusWord}]</span>
-		</div>
-	{/if}
+		{:else}
+			<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'}>
+				<span class="dot" aria-hidden="true"></span>
+				<span class="word">[{statusWord}]</span>
+			</div>
+		{/if}
+	{/key}
 </div>
 
 <style>
@@ -75,7 +77,10 @@
 		background: var(--shell-fill);
 		box-shadow: var(--inset-spec);
 		color: var(--ok);
-		transition: transform 500ms var(--ease-fluid);
+		transition:
+			transform 280ms var(--spring-smooth),
+			color 280ms var(--spring-smooth),
+			border-color 280ms var(--spring-smooth);
 	}
 	.chip:active {
 		transform: scale(0.98);
@@ -86,6 +91,7 @@
 		border-radius: 50%;
 		background: var(--ok);
 		flex-shrink: 0;
+		transform-origin: center;
 	}
 	.chip.busy .dot {
 		background: var(--brand);
@@ -98,12 +104,12 @@
 		background: var(--warn);
 	}
 	.word {
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		font-size: var(--text-lg);
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1;
-		letter-spacing: 0.04em;
+		letter-spacing: 0.03em;
 	}
 	.slip {
 		display: flex;
@@ -122,13 +128,13 @@
 		flex: 1;
 	}
 	.kicker {
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-tertiary);
 	}
 	.title {
-		font-family: var(--font-display);
+		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		font-weight: 600;
 		font-style: normal;
@@ -144,6 +150,15 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		.slip {
+			animation: island-in 480ms var(--spring-smooth) both;
+		}
+		.chip.hot .dot {
+			animation: yield-mark 1.8s var(--spring-smooth) infinite;
+		}
 	}
 
 	@media (max-width: 414px) {

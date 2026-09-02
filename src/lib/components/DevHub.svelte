@@ -179,12 +179,13 @@
 		gap: var(--space-4);
 		padding: 0 var(--space-4);
 		min-height: 4.5rem;
-		transition: transform 500ms var(--ease-fluid);
+		transition: transform 280ms var(--spring-smooth);
 	}
 	.svc-list li:active {
 		transform: scale(0.98);
 	}
 	.svc-name {
+		font-family: var(--font-body);
 		font-size: var(--text-xl);
 		font-weight: 500;
 		color: var(--foreground);

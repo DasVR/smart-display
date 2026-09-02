@@ -67,22 +67,22 @@
 
 	@media (prefers-reduced-motion: no-preference) {
 		.orbs[data-phase='searching'] .p {
-			animation: sweep var(--orb-dur) var(--ease-in-out) infinite;
+			animation: sweep var(--orb-dur) var(--spring-smooth) infinite;
 			animation-delay: calc(var(--i) * 40ms);
 		}
 		.orbs[data-phase='solving'] .p,
 		.orbs[data-phase='reasoning'] .p {
-			animation: pulse var(--orb-dur) var(--ease-in-out) infinite;
+			animation: pulse var(--orb-dur) var(--spring-smooth) infinite;
 			animation-delay: calc(var(--i) * 70ms);
 		}
 		.orbs[data-phase='working'] .p,
 		.orbs[data-phase='executing'] .p {
-			animation: field var(--orb-dur) var(--ease-in-out) infinite;
+			animation: field var(--orb-dur) var(--spring-smooth) infinite;
 			animation-delay: calc(var(--i) * 30ms);
 		}
 		.orbs[data-phase='idle'] .p,
 		.orbs[data-phase='done'] .p {
-			animation: breathe 3.2s var(--ease-in-out) infinite;
+			animation: breathe 3.2s var(--spring-smooth) infinite;
 			animation-delay: calc(var(--i) * 120ms);
 		}
 	}

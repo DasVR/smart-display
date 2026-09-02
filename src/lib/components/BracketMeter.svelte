@@ -56,10 +56,16 @@
 		box-sizing: border-box;
 		border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
 		background: transparent;
+		opacity: 0.4;
+		transition:
+			background-color 380ms var(--spring-smooth),
+			border-color 380ms var(--spring-smooth),
+			opacity 380ms var(--spring-smooth);
 	}
 	.cell.on {
 		background: currentColor;
 		border-color: currentColor;
+		opacity: 1;
 	}
 	.pct {
 		color: var(--foreground);

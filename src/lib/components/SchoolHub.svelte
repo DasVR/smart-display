@@ -150,7 +150,7 @@
 		font-family: var(--font-body);
 		font-size: var(--text-sm);
 		font-weight: 600;
-		letter-spacing: 0.08em;
+		letter-spacing: 0.06em;
 		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
@@ -160,13 +160,14 @@
 		font-size: clamp(1.75rem, 3vw, 2.75rem);
 		font-weight: 700;
 		font-style: normal;
-		letter-spacing: -0.04em;
+		letter-spacing: -0.05em;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.head-meta {
 		margin: 0;
+		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 		flex-shrink: 0;

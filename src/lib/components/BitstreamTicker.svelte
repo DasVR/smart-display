@@ -29,7 +29,7 @@
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.bits.run {
-			animation: tick var(--dur-slow) var(--ease-in-out) infinite;
+			animation: tick var(--dur-slow) var(--spring-smooth) infinite;
 		}
 	}
 	@keyframes tick {
