@@ -82,7 +82,10 @@
 
 <div class="school-hub">
 	<header class="running">
-		<h2 class="hub-title">┌ Due Work :: {events.length} ┐</h2>
+		<div class="titles">
+			<p class="kicker">Assignments</p>
+			<h2 class="hub-title">Due work</h2>
+		</div>
 		<p class="head-meta">
 			{#if loading}
 				Checking calendar
@@ -101,7 +104,7 @@
 					<h3 class="day-label">{group.label}</h3>
 					<ol class="day-list">
 						{#each group.items as e, i (e.id ?? `${group.key}-${i}`)}
-							<li class="entry" data-urgency={urgency(e)}>
+							<li class="entry plate" data-urgency={urgency(e)}>
 								<time class="when num">{timeLabel(e.start)}</time>
 								<div class="body">
 									<div class="row-title">{e.title}</div>
@@ -132,19 +135,32 @@
 	}
 	.running {
 		display: flex;
-		align-items: baseline;
+		align-items: flex-end;
 		justify-content: space-between;
+		flex-wrap: wrap;
 		gap: var(--space-4);
 		min-width: 0;
 		flex-shrink: 0;
 	}
+	.titles {
+		min-width: 0;
+	}
+	.kicker {
+		margin: 0 0 var(--space-1);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
 	.hub-title {
 		margin: 0;
-		font-family: var(--font-display);
-		font-size: var(--text-2xl);
+		font-family: var(--font-body);
+		font-size: clamp(1.75rem, 3vw, 2.75rem);
 		font-weight: 700;
 		font-style: normal;
-		letter-spacing: 0;
+		letter-spacing: -0.04em;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -184,16 +200,15 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		border-top: 1px solid var(--border);
+		gap: var(--space-2);
 	}
 	.entry {
 		display: grid;
 		grid-template-columns: 5.5rem minmax(0, 1fr);
 		gap: var(--space-2);
 		align-items: baseline;
-		padding: var(--space-2) 0;
-		border-bottom: 1px solid var(--border);
-		min-height: 2.75rem;
+		padding: var(--space-3) var(--space-4);
+		min-height: 4.5rem;
 	}
 	.entry[data-urgency='now'] .when {
 		color: var(--warn);

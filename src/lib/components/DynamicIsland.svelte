@@ -69,11 +69,16 @@
 		align-items: center;
 		gap: var(--space-2);
 		height: 2.75rem;
-		padding: 0 var(--space-8);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		background: var(--card);
+		padding: 0 var(--space-6);
+		border: 1px solid var(--hairline);
+		border-radius: 999px;
+		background: var(--shell-fill);
+		box-shadow: var(--inset-spec);
 		color: var(--ok);
+		transition: transform 500ms var(--ease-fluid);
+	}
+	.chip:active {
+		transform: scale(0.98);
 	}
 	.dot {
 		width: 0.5rem;
@@ -106,10 +111,11 @@
 		gap: var(--space-2);
 		min-height: 2.75rem;
 		max-width: min(28rem, 100%);
-		padding: var(--space-4) var(--space-8);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-sm);
-		background: var(--card);
+		padding: var(--space-4) var(--space-6);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-bezel-inner);
+		background: var(--shell-fill);
+		box-shadow: var(--inset-spec);
 	}
 	.copy {
 		min-width: 0;
