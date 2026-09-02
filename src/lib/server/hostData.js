@@ -175,7 +175,7 @@ export async function getCalendar(days = 3) {
 		end.setHours(23, 59, 59, 999);
 		const timeMin = now.toISOString();
 		const timeMax = end.toISOString();
-		const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=50`;
+		const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&singleEvents=true&orderBy=startTime&maxResults=250`;
 		const r = await fetch(url, {
 			headers: { Authorization: `Bearer ${token.access_token || token.token}` }
 		});
