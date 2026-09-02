@@ -166,7 +166,7 @@
 			<div class="masthead">
 				<HeroClock {time} />
 				<div class="status-cluster">
-					<p class="dateline">{weekday}, {month} {dayNum}</p>
+					<p class="dateline">{weekday}, {month}&nbsp;{dayNum}</p>
 					<div class="cluster-end">
 						<p class="wxline">
 							{#if weatherLoading}
@@ -477,6 +477,13 @@
 		}
 		.view-pane {
 			min-height: 420px;
+			width: 100%;
+		}
+		.clock-pane :global(.time) {
+			font-size: clamp(2.75rem, 16vw, 5rem);
+		}
+		.cluster-end {
+			flex-wrap: wrap;
 			width: 100%;
 		}
 		.bottom {

@@ -171,6 +171,7 @@
 		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 		flex-shrink: 0;
+		white-space: nowrap;
 	}
 	.archive {
 		display: flex;

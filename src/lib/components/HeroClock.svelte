@@ -44,11 +44,11 @@
 		font-style: normal;
 		font-variant-numeric: tabular-nums;
 		min-width: 0;
-		overflow-wrap: anywhere;
+		white-space: nowrap;
 	}
 	.colon {
 		opacity: 0.28;
-		transform: scale(0.92);
+		transform: scale(1);
 		transform-origin: center 58%;
 		margin: 0 0.125rem;
 		font-style: normal;
@@ -59,7 +59,7 @@
 	}
 	.colon.on {
 		opacity: 1;
-		transform: scale(1);
+		transform: scale(1.04);
 		color: var(--brand);
 	}
 	.seconds {

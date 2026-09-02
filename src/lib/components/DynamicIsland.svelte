@@ -165,5 +165,12 @@
 		.slip {
 			max-width: 100%;
 		}
+		.chip {
+			height: 2.25rem;
+			padding: 0 var(--space-4);
+		}
+		.word {
+			font-size: var(--text-sm);
+		}
 	}
 </style>
