@@ -21,13 +21,15 @@ export WLR_LIBINPUT_NO_DEVICES=1
   --autoplay-policy=no-user-gesture-required \
   --incognito \
   --disk-cache-dir=/dev/null \
-  --user-data-dir=/tmp/chromium-kiosk-cache \\
+  --user-data-dir=/tmp/chromium-kiosk-cache \
   --disk-cache-size=1 \
   --media-cache-size=1 \
-  --aggressive-cache-discard \\
+  --aggressive-cache-discard \
   --no-first-run \
   --no-default-browser-check \
-  --disable-background-networking &
+  --disable-background-networking \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins=http://localhost:9222 &
 
 CAGE_PID=$!
 
