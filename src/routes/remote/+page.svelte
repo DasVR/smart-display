@@ -6,12 +6,11 @@
 	const views = ['clock', 'school', 'dev', 'music'];
 
 	let ws = $state(null);
-	let status = $state('connecting'); // connecting | connected | disconnected | error
+	let status = $state('connecting');
 	let lastAction = $state('');
 	let host = $state('');
 
 	function pickHost() {
-		// Try current location first, then tailscale fallback
 		const h = location.host;
 		if (h) return h;
 		return '100.104.181.43:3000';
@@ -40,7 +39,7 @@
 			status = 'disconnected';
 			setTimeout(connect, 1500);
 		};
-		ws.onerror = (e) => {
+		ws.onerror = () => {
 			status = 'error';
 			lastAction = 'ws error';
 		};
@@ -48,7 +47,7 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'init' || msg.type === 'navigate') {
-					current.set(msg.view || msg.currentView || 'clock');
+					current.set(msg.view || 'clock');
 				}
 				if (msg.type === 'pong') {
 					status = 'connected';
@@ -112,7 +111,13 @@
 
 <svelte:window onkeydown={keydown} />
 
-<div class="remote" ontouchstart={touchStart} ontouchend={touchEnd}>
+<div
+	class="remote"
+	role="application"
+	aria-label="Smart display remote"
+	ontouchstart={touchStart}
+	ontouchend={touchEnd}
+>
 	<div class="top">
 		<div class="status" class:connected={status === 'connected'} class:error={status === 'error'}>
 			<span class="dot"></span>
@@ -130,12 +135,15 @@
 		<button class="arrow" aria-label="next" onclick={next}>›</button>
 	</div>
 
-	<div class="pills">
+	<div class="pills" role="tablist" aria-label="Views">
 		{#each views as v}
 			<button
 				class="pill"
 				class:active={v === $current}
 				onclick={() => go(v)}
+				role="tab"
+				aria-selected={v === $current}
+				aria-label={`show ${v}`}
 			>
 				{v}
 			</button>

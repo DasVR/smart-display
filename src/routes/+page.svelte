@@ -1,17 +1,19 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 5
+	Philosophy 4 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 4 · Variety 4
 -->
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { currentView, displayMode, weather, nowPlaying, wsStatus } from '$lib/stores.js';
-	import { gpuLowPowerMode, ollamaStatus, startOllamaArbiter, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
+	import { gpuLowPowerMode, ollamaStatus, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
+	import ClockView from '$lib/components/ClockView.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
 	import DevHub from '$lib/components/DevHub.svelte';
+	import MusicView from '$lib/components/MusicView.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
 	import AsciiFrame from '$lib/components/AsciiFrame.svelte';
@@ -21,9 +23,10 @@
 	let time = $state(new Date());
 	let weatherLoading = $state(true);
 	let notif = $state({ visible: false, title: '', body: '', kind: 'info' });
-	let leftFocus = $state('school');
 	let mode = $state('normal');
 	let hdmiOff = $state(false);
+
+	const VIEWS = ['clock', 'school', 'dev', 'music'];
 
 	function showNotif(title, body, kind = 'info', ms = 4500) {
 		notif = { visible: true, title, body, kind };
@@ -45,14 +48,11 @@
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
 					currentView.set(msg.view);
-					if (msg.view === 'school') leftFocus = 'school';
-					if (msg.view === 'dev') leftFocus = 'dev';
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
 					mode = 'morning';
 					displayMode.set('morning');
 					showNotif('Good morning', 'Briefing ready. Check due work.', 'info', 8000);
-					leftFocus = 'school';
 					currentView.set(msg.view || 'school');
 				}
 				if (msg.type === 'trigger' && msg.event === 'sleep') {
@@ -121,6 +121,21 @@
 		return 'Fair';
 	}
 
+	function handleKey(e) {
+		if (e.altKey && (e.key === 'y' || e.key === 'Y')) {
+			toggleGpuLowPower();
+			return;
+		}
+		let idx = VIEWS.indexOf($currentView);
+		if (idx === -1) idx = 0;
+		if (e.key === 'ArrowRight') {
+			currentView.set(VIEWS[(idx + 1) % VIEWS.length]);
+		}
+		if (e.key === 'ArrowLeft') {
+			currentView.set(VIEWS[(idx - 1 + VIEWS.length) % VIEWS.length]);
+		}
+	}
+
 	onMount(() => {
 		connect();
 		fetchWeather();
@@ -129,19 +144,12 @@
 			time = new Date();
 		}, 1000);
 		const music = setInterval(fetchNowPlaying, 4000);
-		const stopArbiter = startOllamaArbiter();
-		const onKey = (e) => {
-			if (e.altKey && (e.key === 'y' || e.key === 'Y')) {
-				toggleGpuLowPower();
-			}
-		};
-		window.addEventListener('keydown', onKey);
+		window.addEventListener('keydown', handleKey);
 		return () => {
 			clearInterval(clock);
 			clearInterval(music);
 			clearTimeout(reconnectTimer);
-			stopArbiter?.();
-			window.removeEventListener('keydown', onKey);
+			window.removeEventListener('keydown', handleKey);
 			ws?.close();
 		};
 	});
@@ -178,17 +186,40 @@
 					</div>
 				</div>
 			</div>
+			<nav class="view-strip" aria-label="Views">
+				{#each VIEWS as v}
+					<button
+						class="view-tab"
+						class:active={$currentView === v}
+						onclick={() => currentView.set(v)}
+						aria-current={$currentView === v ? 'true' : undefined}
+					>
+						{v}
+					</button>
+				{/each}
+			</nav>
 		</header>
 
 		<main class="zone center">
-			<section class="school-col slab" class:focus={leftFocus === 'school'} data-glass>
-				<SchoolHub />
-			</section>
-			<section class="host-slab slab" class:focus={leftFocus === 'dev'} data-glass>
-				<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
-					<DevHub />
-				</AsciiFrame>
-			</section>
+			{#if $currentView === 'clock'}
+				<section class="view-pane" data-glass>
+					<ClockView />
+				</section>
+			{:else if $currentView === 'school'}
+				<section class="view-pane" data-glass>
+					<SchoolHub />
+				</section>
+			{:else if $currentView === 'dev'}
+				<section class="view-pane" data-glass>
+					<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
+						<DevHub />
+					</AsciiFrame>
+				</section>
+			{:else if $currentView === 'music'}
+				<section class="view-pane" data-glass>
+					<MusicView />
+				</section>
+			{/if}
 		</main>
 
 		<footer class="zone bottom">
@@ -272,33 +303,49 @@
 		margin-right: var(--space-2);
 		color: var(--foreground);
 	}
+	.view-strip {
+		display: flex;
+		gap: var(--space-1);
+		margin-top: var(--space-4);
+		min-width: 0;
+	}
+	.view-tab {
+		appearance: none;
+		border: 1px solid transparent;
+		background: transparent;
+		color: var(--text-tertiary);
+		font-family: var(--font-display);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: color 0.15s, background 0.15s, border-color 0.15s;
+	}
+	.view-tab:hover {
+		color: var(--text-secondary);
+		background: color-mix(in srgb, var(--foreground) 4%, transparent);
+	}
+	.view-tab.active {
+		color: var(--foreground);
+		background: var(--card-inner);
+		border-color: var(--surface-border-strong);
+	}
 	.center {
 		min-height: 0;
 		display: grid;
-		grid-template-columns: minmax(0, 1.35fr) minmax(0, 0.85fr);
-		gap: var(--space-8);
+		grid-template-columns: minmax(0, 1fr);
 		padding-top: var(--space-8);
 		padding-bottom: var(--space-8);
 	}
-	.school-col {
-		position: relative;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-		min-width: 0;
-		min-height: 0;
-	}
-	.school-col.focus {
-		box-shadow: inset 2px 0 0 var(--brand);
-	}
-	.host-slab {
+	.view-pane {
 		position: relative;
 		overflow: hidden;
 		min-width: 0;
 		min-height: 0;
-	}
-	.host-slab.focus {
-		border-color: var(--brand-border);
+		border-radius: var(--radius-sm);
 	}
 	.bottom {
 		height: auto;
@@ -323,7 +370,7 @@
 	.display-shell.hdmi-off {
 		background: #000;
 	}
-	.morning .display-root {
+	.display-root.morning {
 		animation: morningGlow 8s ease-in-out infinite alternate;
 	}
 	@keyframes morningGlow {
@@ -339,10 +386,6 @@
 		.status-cluster {
 			justify-content: flex-start;
 			padding-bottom: 0;
-		}
-		.center {
-			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: minmax(240px, 1fr) minmax(240px, 1fr);
 		}
 	}
 
@@ -372,13 +415,11 @@
 			padding-bottom: 0;
 		}
 		.center {
-			grid-template-columns: minmax(0, 1fr);
 			height: auto;
 			min-height: 0;
 		}
-		.school-col,
-		.host-slab {
-			min-height: 320px;
+		.view-pane {
+			min-height: 420px;
 		}
 		.bottom {
 			min-height: 0;
