@@ -17,33 +17,23 @@
 
 	const TILE_SIZE = 256;
 	const ZOOM = 7;
-	// Radius in pixels to composite around center
-	const RADIUS = 180;
-	// Offset from center to prefer right side for condition panel
-	const CENTER_OFFSET_X = 60;
+	const RADIUS = 170;
 
-	function latLonToTile(lat, lon, z) {
-		const n = Math.pow(2, z);
-		const x = Math.floor(((lon + 180) / 360) * n);
-		const latRad = (lat * Math.PI) / 180;
-		const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
-		return { x, y, n };
+	function projectMercator(lat, lon) {
+		const siny = Math.sin((lat * Math.PI) / 180);
+		return {
+			x: 128 + (lon / 180) * 128,
+			y: 128 - (Math.log((1 + siny) / (1 - siny)) / (2 * Math.PI)) * 128
+		};
 	}
 
-	function tileToLatLon(x, y, z) {
-		const n = Math.pow(2, z);
-		const lon = (x / n) * 360 - 180;
-		const latRad = Math.atan(Math.sinh(Math.PI * (1 - (2 * y) / n)));
-		const lat = (latRad * 180) / Math.PI;
-		return { lat, lon };
-	}
-
-	function project(lat, lon, centerTile, offsetX, offsetY) {
-		const nw = tileToLatLon(centerTile.x, centerTile.y, ZOOM);
-		const se = tileToLatLon(centerTile.x + 1, centerTile.y + 1, ZOOM);
-		const x = offsetX + ((lon - nw.lon) / (se.lon - nw.lon)) * TILE_SIZE;
-		const y = offsetY + ((nw.lat - lat) / (nw.lat - se.lat)) * TILE_SIZE;
-		return { x, y };
+	function worldToPixel(lat, lon, centerWorld, centerPixel) {
+		const p = projectMercator(lat, lon);
+		const scale = Math.pow(2, ZOOM) * TILE_SIZE / 256;
+		return {
+			x: centerPixel.x + (p.x - centerWorld.x) * scale,
+			y: centerPixel.y + (p.y - centerWorld.y) * scale
+		};
 	}
 
 	async function loadTile(url) {
@@ -67,53 +57,72 @@
 		if (!ctx || !canvas || !frames.length || !data?.rad?.host) return;
 		const frame = frames[frameIndex];
 		const host = data.rad.host;
-		const center = latLonToTile(data.rad.lat, data.rad.lon, ZOOM);
-		const centerPixel = project(data.rad.lat, data.rad.lon, center, width / 2 + CENTER_OFFSET_X, height / 2);
+		const centerWorld = projectMercator(data.rad.lat, data.rad.lon);
+		const centerPixel = { x: width * 0.45, y: height / 2 };
 
+		ctx.save();
 		ctx.clearRect(0, 0, width, height);
 
-		// draw base map tiles (optional dark fill if tiles fail)
-		ctx.fillStyle = 'rgba(5,5,7,0.9)';
+		// Background
+		ctx.fillStyle = 'rgba(5,5,7,0.95)';
 		ctx.fillRect(0, 0, width, height);
 
-		// Determine tile range needed for the circular viewport
-		const startX = Math.floor((centerPixel.x - RADIUS) / TILE_SIZE) - 1;
-		const endX = Math.ceil((centerPixel.x + RADIUS) / TILE_SIZE) + 1;
-		const startY = Math.floor((centerPixel.y - RADIUS) / TILE_SIZE) - 1;
-		const endY = Math.ceil((centerPixel.y + RADIUS) / TILE_SIZE) + 1;
+		// Clip to circle
+		ctx.beginPath();
+		ctx.arc(centerPixel.x, centerPixel.y, RADIUS, 0, Math.PI * 2);
+		ctx.clip();
 
-		const promises = [];
-		for (let ty = startY; ty <= endY; ty++) {
-			for (let tx = startX; tx <= endX; tx++) {
-				const url = `${host}${frame.urlTemplate}/256/${ZOOM}/${tx}/${ty}/2/1_1.png`;
-				promises.push(
-					loadTile(url).then((img) => {
-						if (!img) return;
-						const tilePixel = project(tileToLatLon(tx, ty, ZOOM).lat, tileToLatLon(tx, ty, ZOOM).lon, center, width / 2 + CENTER_OFFSET_X, height / 2);
-						ctx.globalAlpha = 0.85;
-						ctx.drawImage(img, tilePixel.x, tilePixel.y, TILE_SIZE, TILE_SIZE);
-					})
-				);
+		// Determine needed tile indices
+		const scale = Math.pow(2, ZOOM) * TILE_SIZE / 256;
+		const tilePromises = [];
+		const tileList = [];
+		const n = Math.pow(2, ZOOM);
+
+		// approximate lat/lon bounds of circle
+		const kmPerDegLat = 111;
+		const kmPerDegLon = 111 * Math.cos((data.rad.lat * Math.PI) / 180);
+		const deltaLat = (RADIUS / scale) * (256 / TILE_SIZE) * (180 / (Math.PI * 128)) / kmPerDegLat * 150;
+		const deltaLon = (RADIUS / scale) * (256 / TILE_SIZE) * (180 / (Math.PI * 128)) / kmPerDegLon * 150;
+
+		const minLat = data.rad.lat - deltaLat;
+		const maxLat = data.rad.lat + deltaLat;
+		const minLon = data.rad.lon - deltaLon;
+		const maxLon = data.rad.lon + deltaLon;
+
+		const nw = worldToPixel(maxLat, minLon, centerWorld, centerPixel);
+		const se = worldToPixel(minLat, maxLon, centerWorld, centerPixel);
+
+		const startTileX = Math.floor(nw.x / TILE_SIZE);
+		const endTileX = Math.ceil(se.x / TILE_SIZE);
+		const startTileY = Math.floor(nw.y / TILE_SIZE);
+		const endTileY = Math.ceil(se.y / TILE_SIZE);
+
+		for (let ty = startTileY; ty <= endTileY; ty++) {
+			for (let tx = startTileX; tx <= endTileX; tx++) {
+				const wrappedX = ((tx % n) + n) % n;
+				const wrappedY = Math.max(0, Math.min(n - 1, ty));
+				const url = `${host}${frame.urlTemplate}/${TILE_SIZE}/${ZOOM}/${wrappedX}/${wrappedY}/2/1_1.png`;
+				const tilePixel = { x: tx * TILE_SIZE, y: ty * TILE_SIZE };
+				tileList.push({ url, x: tilePixel.x, y: tilePixel.y });
+				tilePromises.push(loadTile(url));
 			}
 		}
 
-		Promise.all(promises).then(() => {
-			// circular mask + dither
-			const temp = document.createElement('canvas');
-			temp.width = width;
-			temp.height = height;
-			const tctx = temp.getContext('2d');
-			tctx.drawImage(canvas, 0, 0);
+		Promise.all(tilePromises).then((imgs) => {
+			for (let i = 0; i < imgs.length; i++) {
+				const img = imgs[i];
+				if (!img) continue;
+				const t = tileList[i];
+				ctx.globalAlpha = 0.9;
+				ctx.drawImage(img, t.x, t.y, TILE_SIZE, TILE_SIZE);
+			}
 
-			ctx.globalCompositeOperation = 'destination-in';
-			ctx.beginPath();
-			ctx.arc(centerPixel.x, centerPixel.y, RADIUS, 0, Math.PI * 2);
-			ctx.fill();
-			ctx.globalCompositeOperation = 'source-over';
+			// Restore before applying dither mask
+			ctx.restore();
 
 			applyDither(ctx, width, height, centerPixel.x, centerPixel.y, RADIUS);
 
-			// border ring
+			// ring
 			ctx.beginPath();
 			ctx.arc(centerPixel.x, centerPixel.y, RADIUS, 0, Math.PI * 2);
 			ctx.strokeStyle = 'rgba(255,255,255,0.12)';
@@ -137,16 +146,18 @@
 		];
 		const imgData = c.getImageData(0, 0, w, h);
 		const data = imgData.data;
-		for (let y = 0; y < h; y += 1) {
-			for (let x = 0; x < w; x += 1) {
+		for (let y = 0; y < h; y++) {
+			for (let x = 0; x < w; x++) {
 				const dx = x - cx;
 				const dy = y - cy;
 				if (dx * dx + dy * dy > r * r) continue;
 				const i = (y * w + x) * 4;
 				const threshold = ((bayer[y % 4][x % 4] + 0.5) / 16) * 255;
 				const luma = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-				const quant = luma < threshold ? 16 : 220;
-				const mix = 0.72;
+				const alpha = data[i + 3] / 255;
+				if (alpha < 0.05) continue;
+				const quant = luma < threshold ? 28 : 210;
+				const mix = 0.6;
 				data[i] = data[i] * (1 - mix) + quant * mix;
 				data[i + 1] = data[i + 1] * (1 - mix) + quant * mix;
 				data[i + 2] = data[i + 2] * (1 - mix) + quant * mix;
@@ -189,7 +200,9 @@
 			frames = data.rad.frames;
 			loading = false;
 			error = null;
-			drawFrame();
+			frameIndex = 0;
+			// wait for next paint so canvas size is settled
+			requestAnimationFrame(() => drawFrame());
 		}
 	});
 

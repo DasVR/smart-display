@@ -10,7 +10,7 @@
 	let mode = $derived.by(() => {
 		if (notification?.visible) return 'alert';
 		if (weatherData?.alerts?.length) return 'weather';
-		if (weatherData?.prediction?.rain60min >= 0.5) return 'weather';
+		if (weatherData?.prediction?.rain60min >= 0.35) return 'weather';
 		if (nowPlaying?.playing) return 'nowplaying';
 		return 'idle';
 	});

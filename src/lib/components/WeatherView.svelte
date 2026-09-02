@@ -76,7 +76,7 @@
 			<div class="chart" aria-hidden="true">
 				{#each precipHours as h}
 					<div class="bar-wrap">
-						<div class="bar" style="height: {h.prob}%"></div>
+						<div class="bar" class:warn={h.prob >= 60} class:med={h.prob >= 30 && h.prob < 60} style="height: {Math.max(8, Math.min(100, h.prob))}%"></div>
 						<span class="bar-label">{h.label}</span>
 					</div>
 				{/each}
@@ -243,12 +243,18 @@
 		color: var(--text-tertiary);
 		white-space: nowrap;
 	}
-	.empty {
-		font-size: var(--text-lg);
-		color: var(--text-tertiary);
+	.bar.warn {
+		background: linear-gradient(180deg, var(--warn) 0%, color-mix(in srgb, var(--warn) 30%, transparent) 100%);
+	}
+	.bar.med {
+		background: linear-gradient(180deg, var(--brand) 0%, color-mix(in srgb, var(--brand) 30%, transparent) 100%);
 	}
 	.alerts {
 		flex-shrink: 0;
+	}
+	.empty {
+		font-size: var(--text-lg);
+		color: var(--text-tertiary);
 	}
 	.alert-card {
 		padding: var(--space-4);
