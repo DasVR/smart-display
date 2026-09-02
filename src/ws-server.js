@@ -9,7 +9,8 @@ import {
 	getOllamaPs,
 	getHAStates,
 	triggerHAView,
-	getWeather
+	getWeather,
+	saveStationData
 } from './lib/server/hostData.js';
 
 const port = process.env.PORT || 3000;
@@ -103,6 +104,21 @@ const server = createServer(async (req, res) => {
 		const urlObj = new URL(req.url, `http://${req.headers.host}`);
 		const days = urlObj.searchParams.get('days') || '3';
 		json(res, await getCalendar(days));
+		return;
+	}
+
+	if (req.method === 'POST' && req.url === '/api/weather/station') {
+		let body = '';
+		req.on('data', (chunk) => (body += chunk));
+		req.on('end', () => {
+			try {
+				const data = JSON.parse(body);
+				saveStationData(data);
+				json(res, { ok: true, ts: Date.now() });
+			} catch (e) {
+				json(res, { ok: false, error: e.message }, 400);
+			}
+		});
 		return;
 	}
 

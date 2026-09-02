@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
+import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import os from 'node:os';
+import path from 'node:path';
 
 function run(cmd) {
 	try {
@@ -274,6 +276,117 @@ export async function getOllamaPs() {
 	}
 }
 
+const STATION_DIR = process.env.STATION_DIR || '/home/das/projects/smart-display/.station';
+const STATION_FILE = path.join(STATION_DIR, 'latest.json');
+const STATION_HISTORY = path.join(STATION_DIR, 'history.jsonl');
+let lastStation = null;
+let lastStationTime = 0;
+
+if (!existsSync(STATION_DIR)) mkdirSync(STATION_DIR, { recursive: true });
+
+function tryParseNum(v) {
+	if (v === undefined || v === null) return null;
+	const n = Number(v);
+	return Number.isNaN(n) ? null : n;
+}
+
+export function saveStationData(raw) {
+	try {
+		const data = {
+			tempf: tryParseNum(raw.tempf ?? raw.outTemp ?? raw.temperature ?? raw.temp),
+			humidity: tryParseNum(raw.humidity ?? raw.outHumidity ?? raw.humidityin),
+			winddir: tryParseNum(raw.winddir ?? raw.windDir),
+			windspeedmph: tryParseNum(raw.windspeedmph ?? raw.windSpeed ?? raw.windspeed),
+			windgustmph: tryParseNum(raw.windgustmph ?? raw.windGust ?? raw.windgust),
+			baromabsin: tryParseNum(raw.baromabsin ?? raw.barometer ?? raw.pressure),
+			rainin: tryParseNum(raw.rainin ?? raw.hourlyrainin ?? raw.dailyrainin ?? raw.rain),
+			dailyrainin: tryParseNum(raw.dailyrainin ?? raw.dailyrain),
+			uv: tryParseNum(raw.uv ?? raw.uvIndex),
+			solarradiation: tryParseNum(raw.solarradiation),
+			mac: raw.mac ?? raw.stationID ?? raw.stationType ?? null,
+			ts: Date.now()
+		};
+		writeFileSync(STATION_FILE, JSON.stringify(data));
+		writeFileSync(STATION_HISTORY, `${JSON.stringify(data)}\n`, { flag: 'a' });
+
+		// rotate history to last 7 days
+		try {
+			const lines = readFileSync(STATION_HISTORY, 'utf8').trim().split('\n').filter(Boolean);
+			const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+			const kept = lines.filter((line) => {
+				const obj = JSON.parse(line);
+				return (obj.ts || 0) > cutoff;
+			});
+			if (kept.length < lines.length) {
+				writeFileSync(STATION_HISTORY, kept.map((l) => `${l}\n`).join(''));
+			}
+		} catch {
+			/* ignore rotation errors */
+		}
+
+		lastStation = data;
+		lastStationTime = data.ts;
+		return data;
+	} catch (e) {
+		console.error('saveStationData error:', e.message);
+		throw e;
+	}
+}
+
+function loadStation() {
+	try {
+		if (lastStation && Date.now() - lastStationTime < 60000) return lastStation;
+		const raw = readFileSync(STATION_FILE, 'utf8');
+		const data = JSON.parse(raw);
+		lastStation = data;
+		lastStationTime = Date.now();
+		return data;
+	} catch {
+		return null;
+	}
+}
+
+function loadStationHistory(hours = 2) {
+	try {
+		const cutoff = Date.now() - hours * 60 * 60 * 1000;
+		const lines = readFileSync(STATION_HISTORY, 'utf8').trim().split('\n').filter(Boolean);
+		const out = [];
+		for (const line of lines.slice(-5000)) {
+			try {
+				const obj = JSON.parse(line);
+				if ((obj.ts || 0) > cutoff) out.push(obj);
+			} catch {
+				continue;
+			}
+		}
+		return out;
+	} catch {
+		return [];
+	}
+}
+
+function predictRainML(history, hourlyForecast) {
+// placeholder: rule-based with station-derived trend
+// when enough samples accumulate we can swap in sklearn regression
+const recent = history.filter((h) => Date.now() - (h.ts || 0) <= 30 * 60 * 1000);
+const rainingNow = recent.some((h) => (h.rainin || 0) > 0.001);
+const trendDry = !rainingNow && recent.length > 2;
+const trendWet = rainingNow;
+
+const base = hourlyForecast?.length ? hourlyForecast[0]?.precipitation_probability || 0 : 0;
+
+let rain30 = Math.min(1, Math.max(0, (base / 100) * 0.8 + (trendWet ? 0.2 : 0) - (trendDry ? 0.1 : 0)));
+let rain60 = Math.min(1, Math.max(0, rain30 + ((hourlyForecast?.[1]?.precipitation_probability || 0) / 100) * 0.15));
+let rain120 = Math.min(1, Math.max(0, rain60 + ((hourlyForecast?.[3]?.precipitation_probability || 0) / 100) * 0.1));
+
+return {
+	rain30min: Number(rain30.toFixed(2)),
+	rain60min: Number(rain60.toFixed(2)),
+	rain120min: Number(rain120.toFixed(2)),
+	source: 'station+rule'
+};
+}
+
 const WEATHER_LAT = 27.9097;
 const WEATHER_LON = -82.7873;
 const RAINVIEWER_CACHE_TTL = 300_000;
@@ -369,6 +482,10 @@ export async function getWeather(hours = 48) {
 			getNWSAlerts()
 		]);
 
+		const station = loadStation();
+		const stationHistory = loadStationHistory(2);
+		const stationFresh = station && (Date.now() - station.ts) < 10 * 60 * 1000;
+
 		const current = openMeteo?.current || {};
 		const hourlyRaw = openMeteo?.hourly || {};
 		const hourly = [];
@@ -388,7 +505,41 @@ export async function getWeather(hours = 48) {
 			});
 		}
 
-		const prediction = predictRain(hourly);
+		const prediction = stationFresh
+			? predictRainML(stationHistory, hourly)
+			: predictRain(hourly);
+
+		const currentOut = stationFresh
+			? {
+					temp: station.tempf ?? current.temperature_2m,
+					feelsLike: current.apparent_temperature,
+					humidity: station.humidity ?? current.relative_humidity_2m,
+					precipitation: current.precipitation,
+					rain: station.rainin ?? current.rain,
+					showers: current.showers,
+					weatherCode: current.weather_code,
+					desc: wmoLabel(current.weather_code),
+					cloudCover: current.cloud_cover,
+					windSpeed: station.windspeedmph ?? current.wind_speed_10m,
+					windDirection: station.winddir ?? current.wind_direction_10m,
+					pressure: station.baromabsin ?? current.pressure_msl,
+					uv: station.uv,
+					solar: station.solarradiation
+			  }
+			: {
+					temp: current.temperature_2m,
+					feelsLike: current.apparent_temperature,
+					humidity: current.relative_humidity_2m,
+					precipitation: current.precipitation,
+					rain: current.rain,
+					showers: current.showers,
+					weatherCode: current.weather_code,
+					desc: wmoLabel(current.weather_code),
+					cloudCover: current.cloud_cover,
+					windSpeed: current.wind_speed_10m,
+					windDirection: current.wind_direction_10m,
+					pressure: current.pressure_msl
+			  };
 
 		const radarFrames = [];
 		if (radarMeta?.radar?.past) {
@@ -405,25 +556,13 @@ export async function getWeather(hours = 48) {
 		const host = radarMeta?.host ?? 'https://tilecache.rainviewer.com';
 
 		return {
-			current: {
-				temp: current.temperature_2m,
-				feelsLike: current.apparent_temperature,
-				humidity: current.relative_humidity_2m,
-				precipitation: current.precipitation,
-				rain: current.rain,
-				showers: current.showers,
-				weatherCode: current.weather_code,
-				desc: wmoLabel(current.weather_code),
-				cloudCover: current.cloud_cover,
-				windSpeed: current.wind_speed_10m,
-				windDirection: current.wind_direction_10m,
-				pressure: current.pressure_msl
-			},
-				hourly,
-				rad: { host, frames: radarFrames, colorScheme, lat: WEATHER_LAT, lon: WEATHER_LON },
-				alerts,
-				prediction,
-				fetchedAt: new Date().toISOString()
+			current: currentOut,
+			hourly,
+			rad: { host, frames: radarFrames, colorScheme, lat: WEATHER_LAT, lon: WEATHER_LON },
+			alerts,
+			prediction,
+			station: stationFresh ? station : null,
+			fetchedAt: new Date().toISOString()
 		};
 	} catch (e) {
 		console.error('weather error:', e.message);

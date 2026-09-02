@@ -86,6 +86,30 @@
 		{/if}
 	</section>
 
+	{#if data?.station}
+		<section class="station">
+			<h3 class="section-title">Backyard Station</h3>
+			<div class="station-grid">
+				<div class="station-item">
+					<span class="station-label">Temp</span>
+					<span class="station-val num">{data.station.tempf}°</span>
+				</div>
+				<div class="station-item">
+					<span class="station-label">Humidity</span>
+					<span class="station-val num">{data.station.humidity}%</span>
+				</div>
+				<div class="station-item">
+					<span class="station-label">Wind</span>
+					<span class="station-val num">{data.station.windspeedmph} mph</span>
+				</div>
+				<div class="station-item">
+					<span class="station-label">Rain/hr</span>
+					<span class="station-val num">{data.station.rainin}″</span>
+				</div>
+			</div>
+		</section>
+	{/if}
+
 	{#if alerts.length > 0}
 		<section class="alerts">
 			<h3 class="section-title">NWS Alerts</h3>
@@ -262,6 +286,33 @@
 		background: color-mix(in srgb, var(--warn) 10%, transparent);
 		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
 		margin-bottom: var(--space-3);
+	}
+	.station {
+		flex-shrink: 0;
+	}
+	.station-grid {
+		display: grid;
+		grid-template-columns: repeat(4, minmax(0, 1fr));
+		gap: var(--space-3);
+	}
+	.station-item {
+		padding: var(--space-3);
+		border-radius: var(--radius-bezel-inner);
+		background: var(--shell-fill);
+		border: 1px solid var(--hairline);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+	.station-label {
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
+	}
+	.station-val {
+		font-family: var(--font-display);
+		font-size: var(--text-xl);
+		font-weight: 700;
+		color: var(--foreground);
 	}
 	.alert-title {
 		font-family: var(--font-display);
