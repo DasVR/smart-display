@@ -10,7 +10,6 @@
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
-	import ClockView from '$lib/components/ClockView.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
 	import DevHub from '$lib/components/DevHub.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
@@ -202,8 +201,8 @@
 
 		<main class="zone center">
 			{#if $currentView === 'clock'}
-				<section class="view-pane" data-glass>
-					<ClockView />
+				<section class="view-pane clock-pane" data-glass>
+					<HeroClock {time} />
 				</section>
 			{:else if $currentView === 'school'}
 				<section class="view-pane" data-glass>
@@ -346,6 +345,19 @@
 		min-width: 0;
 		min-height: 0;
 		border-radius: var(--radius-sm);
+	}
+	.clock-pane {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: var(--space-8);
+	}
+	.clock-pane :global(.time) {
+		font-size: clamp(80px, 12vw, 180px);
+	}
+	.clock-pane :global(.seconds),
+	.clock-pane :global(.ampm) {
+		font-size: 0.35em;
 	}
 	.bottom {
 		height: auto;

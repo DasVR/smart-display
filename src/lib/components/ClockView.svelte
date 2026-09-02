@@ -59,7 +59,7 @@
 	}
 	.time-row {
 		font-family: var(--font-display);
-		font-size: clamp(140px, 22vw, 340px);
+		font-size: clamp(80px, 14vw, 180px);
 	}
 	.clock-view.compact .time-row {
 		font-size: clamp(60px, 10vw, 140px);
