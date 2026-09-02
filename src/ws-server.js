@@ -8,7 +8,8 @@ import {
 	getGitContext,
 	getOllamaPs,
 	getHAStates,
-	triggerHAView
+	triggerHAView,
+	getWeather
 } from './lib/server/hostData.js';
 
 const port = process.env.PORT || 3000;
@@ -105,6 +106,13 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && req.url === '/api/weather') {
+		const urlObj = new URL(req.url, `http://${req.headers.host}`);
+		const hours = urlObj.searchParams.get('hours') || '48';
+		json(res, await getWeather(parseInt(hours, 10)));
+		return;
+	}
+
 	if (req.method === 'GET' && req.url === '/api/nowplaying') {
 		json(res, getNowPlaying());
 		return;
@@ -154,7 +162,7 @@ wss.on('connection', (ws, req) => {
 				broadcast({ type: 'navigate', view: msg.view, from: isRemote ? 'remote' : 'local' });
 			}
 			if (msg.type === 'swipe') {
-				const views = ['clock', 'school', 'dev', 'music'];
+			const views = ['clock', 'school', 'dev', 'music', 'weather'];
 				let idx = views.indexOf(currentView);
 				if (msg.dir === 'left') idx = (idx + 1) % views.length;
 				if (msg.dir === 'right') idx = (idx - 1 + views.length) % views.length;

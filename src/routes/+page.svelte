@@ -5,7 +5,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, nowPlaying, wsStatus } from '$lib/stores.js';
+	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus } from '$lib/stores.js';
 	import { gpuLowPowerMode, ollamaStatus, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
@@ -13,6 +13,8 @@
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
 	import DevHub from '$lib/components/DevHub.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
+	import WeatherView from '$lib/components/WeatherView.svelte';
+	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
 	import AsciiFrame from '$lib/components/AsciiFrame.svelte';
@@ -20,12 +22,13 @@
 	let ws;
 	let reconnectTimer;
 	let time = $state(new Date());
+	let weatherData = $state(null);
 	let weatherLoading = $state(true);
 	let notif = $state({ visible: false, title: '', body: '', kind: 'info' });
 	let mode = $state('normal');
 	let hdmiOff = $state(false);
 
-	const VIEWS = ['clock', 'school', 'dev', 'music'];
+	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
 
 	function showNotif(title, body, kind = 'info', ms = 4500) {
 		notif = { visible: true, title, body, kind };
@@ -82,19 +85,19 @@
 	async function fetchWeather() {
 		weatherLoading = true;
 		try {
-			const r = await fetch(
-				'https://api.open-meteo.com/v1/forecast?latitude=27.9&longitude=-82.8&current_weather=true&temperature_unit=fahrenheit&timezone=America/New_York'
-			);
-			const d = await r.json();
-			weather.set({
-				temp: Math.round(d.current_weather.temperature),
-				desc: weatherLabel(d.current_weather.weathercode)
-			});
+			const r = await fetch('/api/weather?hours=48');
+			weatherData = await r.json();
+			const cur = weatherData?.current || {};
+			weather.set({ temp: cur.temp ?? '--', desc: cur.desc ?? '--' });
+			weatherDetail.set(weatherData);
+			rainPrediction.set(weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0 });
 			weatherLoading = false;
-			setTimeout(fetchWeather, 600000);
+			if (weatherData?.alerts?.length) {
+				const top = weatherData.alerts[0];
+				showNotif(top.event, top.headline, 'warn', 12000);
+			}
 		} catch {
 			weatherLoading = false;
-			setTimeout(fetchWeather, 30000);
 		}
 	}
 
@@ -143,10 +146,12 @@
 			time = new Date();
 		}, 1000);
 		const music = setInterval(fetchNowPlaying, 4000);
+		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		return () => {
 			clearInterval(clock);
 			clearInterval(music);
+			clearInterval(wx);
 			clearTimeout(reconnectTimer);
 			window.removeEventListener('keydown', handleKey);
 			ws?.close();
@@ -181,6 +186,7 @@
 							notification={notif}
 							gpuLowPower={$gpuLowPowerMode}
 							ollamaStatus={$ollamaStatus}
+							weatherData={weatherData}
 						/>
 					</div>
 				</div>
@@ -224,6 +230,17 @@
 				<section class="view-pane bezel">
 					<div class="bezel-core">
 						<MusicView />
+					</div>
+				</section>
+			{:else if $currentView === 'weather'}
+				<section class="view-pane bezel">
+					<div class="bezel-core weather-core">
+						<div class="radar-trough">
+							<RadarCanvas data={weatherData} />
+						</div>
+						<div class="weather-trough">
+							<WeatherView data={weatherData} />
+						</div>
 					</div>
 				</section>
 			{/if}
@@ -396,6 +413,32 @@
 	.clock-pane :global(.seconds),
 	.clock-pane :global(.ampm) {
 		font-size: 0.35em;
+	}
+	.weather-core {
+		display: grid;
+		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+		gap: var(--space-5);
+		min-height: 0;
+	}
+	.radar-trough {
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+		border-radius: var(--radius-bezel-inner);
+	}
+	.weather-trough {
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+		border-radius: var(--radius-bezel-inner);
+		background: var(--shell-fill);
+		border: 1px solid var(--hairline);
+	}
+	@media (max-aspect-ratio: 4/3) {
+		.weather-core {
+			grid-template-columns: 1fr;
+			grid-template-rows: 1fr 1fr;
+		}
 	}
 	.bottom {
 		height: auto;

@@ -3,13 +3,26 @@
 		nowPlaying = null,
 		notification = { visible: false, title: '', body: '', kind: 'info' },
 		gpuLowPower = false,
-		ollamaStatus = 'idle'
+		ollamaStatus = 'idle',
+		weatherData = null
 	} = $props();
 
 	let mode = $derived.by(() => {
 		if (notification?.visible) return 'alert';
+		if (weatherData?.alerts?.length) return 'weather';
+		if (weatherData?.prediction?.rain60min >= 0.5) return 'weather';
 		if (nowPlaying?.playing) return 'nowplaying';
 		return 'idle';
+	});
+
+	let weatherWord = $derived.by(() => {
+		const alerts = weatherData?.alerts || [];
+		if (alerts.length) return 'ALERT';
+		const p = weatherData?.prediction || {};
+		if (p.rain30min >= 0.6) return 'RAIN 30m';
+		if (p.rain60min >= 0.6) return 'RAIN 1h';
+		if (p.rain120min >= 0.6) return 'RAIN 2h';
+		return 'CLEAR';
 	});
 
 	let statusWord = $derived.by(() => {
@@ -26,6 +39,8 @@
 				return 'PLAY';
 			case 'alert':
 				return notification?.kind || 'NOTE';
+			case 'weather':
+				return weatherWord;
 			default: {
 				const _exhaustive = next;
 				return _exhaustive;
@@ -52,9 +67,9 @@
 			</div>
 		</div>
 	{:else}
-		<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'}>
+		<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'} class:weather={mode === 'weather'}>
 			<span class="dot" aria-hidden="true"></span>
-			<span class="word">[{statusWord}]</span>
+			<span class="word">[{modeLabel(mode)}]</span>
 		</div>
 	{/if}
 </div>
@@ -94,8 +109,17 @@
 		color: var(--warn);
 		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
 	}
-	.chip.hot .dot {
+	.chip.weather {
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+	}
+	.chip.weather .dot {
 		background: var(--warn);
+		animation: pulse 1.4s ease-in-out infinite;
+	}
+	@keyframes pulse {
+		0%, 100% { opacity: 1; }
+		50% { opacity: 0.4; }
 	}
 	.word {
 		font-family: var(--font-display);

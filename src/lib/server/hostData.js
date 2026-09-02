@@ -273,3 +273,168 @@ export async function getOllamaPs() {
 		return { models: [] };
 	}
 }
+
+const WEATHER_LAT = 27.9097;
+const WEATHER_LON = -82.7873;
+const RAINVIEWER_CACHE_TTL = 300_000;
+let rainViewerCache = { ts: 0, data: null };
+
+async function getRainViewer() {
+	const now = Date.now();
+	if (now - rainViewerCache.ts < RAINVIEWER_CACHE_TTL && rainViewerCache.data) {
+		return rainViewerCache.data;
+	}
+	try {
+		const r = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
+			signal: AbortSignal.timeout(5000)
+		});
+		if (!r.ok) throw new Error(`rainviewer ${r.status}`);
+		const d = await r.json();
+		rainViewerCache = { ts: now, data: d };
+		return d;
+	} catch (e) {
+		console.error('rainviewer error:', e.message);
+		return null;
+	}
+}
+
+async function getNWSAlerts() {
+	try {
+		const r = await fetch(
+			`https://api.weather.gov/alerts/active?point=${WEATHER_LAT},${WEATHER_LON}`,
+			{ signal: AbortSignal.timeout(5000) }
+		);
+		if (!r.ok) throw new Error(`nws ${r.status}`);
+		const d = await r.json();
+		return (d.features || []).map((a) => ({
+			event: a.properties?.event || 'Alert',
+			severity: a.properties?.severity || 'Unknown',
+			headline: a.properties?.headline || '',
+			description: a.properties?.description || '',
+			onset: a.properties?.onset,
+			ends: a.properties?.ends
+		}));
+	} catch (e) {
+		console.error('nws alerts error:', e.message);
+		return [];
+	}
+}
+
+function wmoLabel(code) {
+	if (code <= 1) return 'Clear';
+	if (code <= 3) return 'Cloudy';
+	if (code <= 48) return 'Fog';
+	if (code <= 67) return 'Rain';
+	if (code <= 77) return 'Snow';
+	if (code <= 82) return 'Showers';
+	if (code <= 86) return 'Snow';
+	if (code <= 99) return 'Storm';
+	return 'Fair';
+}
+
+function predictRain(hourly) {
+	// rule-based predictor until ML model lands
+	if (!hourly?.length) return { rain30min: 0, rain60min: 0, rain120min: 0, source: 'rule' };
+	const now = new Date();
+	const precips = hourly.map((h) => ({
+		hours: (new Date(h.time) - now) / 36e5,
+		prob: h.precipitation_probability ?? 0,
+		intensity: h.precipitation ?? 0
+	}));
+	const rain30 = precips.filter((p) => p.hours >= 0 && p.hours <= 0.5);
+	const rain60 = precips.filter((p) => p.hours >= 0 && p.hours <= 1);
+	const rain120 = precips.filter((p) => p.hours >= 0 && p.hours <= 2);
+	const score = (arr) => {
+		if (!arr.length) return 0;
+		const maxProb = Math.max(...arr.map((p) => p.prob));
+		const avgInt = arr.reduce((s, p) => s + p.intensity, 0) / arr.length;
+		return Math.min(1, Math.max(0, (maxProb / 100) * 0.7 + Math.min(avgInt * 2, 0.3)));
+	};
+	return {
+		rain30min: Number(score(rain30).toFixed(2)),
+		rain60min: Number(score(rain60).toFixed(2)),
+		rain120min: Number(score(rain120).toFixed(2)),
+		source: 'rule'
+	};
+}
+
+export async function getWeather(hours = 48) {
+	try {
+		const [openMeteo, radarMeta, alerts] = await Promise.all([
+			fetch(
+				`https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,pressure_msl&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,rain,showers,weather_code,pressure_msl,cloud_cover,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America/New_York&forecast_days=${Math.ceil(hours / 24)}`,
+				{ signal: AbortSignal.timeout(8000) }
+			).then((r) => r.json()),
+			getRainViewer(),
+			getNWSAlerts()
+		]);
+
+		const current = openMeteo?.current || {};
+		const hourlyRaw = openMeteo?.hourly || {};
+		const hourly = [];
+		for (let i = 0; i < (hourlyRaw.time?.length || 0); i++) {
+			hourly.push({
+				time: hourlyRaw.time[i],
+				temp: hourlyRaw.temperature_2m?.[i],
+				humidity: hourlyRaw.relative_humidity_2m?.[i],
+				precipitation_probability: hourlyRaw.precipitation_probability?.[i],
+				precipitation: hourlyRaw.precipitation?.[i],
+				rain: hourlyRaw.rain?.[i],
+				showers: hourlyRaw.showers?.[i],
+				weather_code: hourlyRaw.weather_code?.[i],
+				pressure: hourlyRaw.pressure_msl?.[i],
+				cloud_cover: hourlyRaw.cloud_cover?.[i],
+				wind_speed: hourlyRaw.wind_speed_10m?.[i]
+			});
+		}
+
+		const prediction = predictRain(hourly);
+
+		const radarFrames = [];
+		if (radarMeta?.radar?.past) {
+			for (const frame of radarMeta.radar.past) {
+				radarFrames.push({ ts: frame.time * 1000, urlTemplate: frame.path, nowcast: false });
+			}
+		}
+		if (radarMeta?.radar?.nowcast) {
+			for (const frame of radarMeta.radar.nowcast) {
+				radarFrames.push({ ts: frame.time * 1000, urlTemplate: frame.path, nowcast: true });
+			}
+		}
+		const colorScheme = radarMeta?.radar?.colorScheme ?? 2;
+		const host = radarMeta?.host ?? 'https://tilecache.rainviewer.com';
+
+		return {
+			current: {
+				temp: current.temperature_2m,
+				feelsLike: current.apparent_temperature,
+				humidity: current.relative_humidity_2m,
+				precipitation: current.precipitation,
+				rain: current.rain,
+				showers: current.showers,
+				weatherCode: current.weather_code,
+				desc: wmoLabel(current.weather_code),
+				cloudCover: current.cloud_cover,
+				windSpeed: current.wind_speed_10m,
+				windDirection: current.wind_direction_10m,
+				pressure: current.pressure_msl
+			},
+				hourly,
+				rad: { host, frames: radarFrames, colorScheme, lat: WEATHER_LAT, lon: WEATHER_LON },
+				alerts,
+				prediction,
+				fetchedAt: new Date().toISOString()
+		};
+	} catch (e) {
+		console.error('weather error:', e.message);
+		return {
+			current: { temp: '--', desc: '--', humidity: '--', windSpeed: '--', pressure: '--' },
+				hourly: [],
+				rad: { host: '', frames: [], colorScheme: 2, lat: WEATHER_LAT, lon: WEATHER_LON },
+				alerts: [],
+				prediction: { rain30min: 0, rain60min: 0, rain120min: 0, source: 'rule' },
+				error: e.message
+		};
+	}
+}
+

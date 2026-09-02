@@ -5,6 +5,8 @@ export const displayMode = writable('normal'); // normal | sleep | morning
 export const wsStatus = writable('connecting');
 export const nowPlaying = writable(null);
 export const weather = writable({ temp: '--', desc: '--' });
+export const weatherDetail = writable(null);
+export const rainPrediction = writable({ rain30min: 0, rain60min: 0, rain120min: 0, source: 'rule' });
 export const goveeState = writable({ on: false, mode: 'idle', color: [0, 0, 0] });
 export const upcomingEvents = writable([]);
 export const recentCommits = writable([]);
@@ -31,7 +33,8 @@ export const viewNames = {
 	clock: 'Clock',
 	school: 'School',
 	dev: 'Dev',
-	music: 'Music'
+	music: 'Music',
+	weather: 'Weather'
 };
 
 const HISTORY_LEN = 40;

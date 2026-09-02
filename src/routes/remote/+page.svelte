@@ -3,7 +3,7 @@
 	import { writable } from 'svelte/store';
 
 	const current = writable('clock');
-	const views = ['clock', 'school', 'dev', 'music'];
+	const views = ['clock', 'school', 'dev', 'music', 'weather'];
 
 	let ws = $state(null);
 	let status = $state('connecting');
