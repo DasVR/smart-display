@@ -6,3 +6,4 @@ build/
 .ha_token.json
 *.log
 .DS_Store
+.station/
