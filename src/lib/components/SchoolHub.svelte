@@ -158,8 +158,9 @@
 		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		color: var(--text-tertiary);
-		flex-shrink: 0;
-		white-space: nowrap;
+		flex-shrink: 1;
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 	.archive {
 		display: flex;

@@ -5,11 +5,15 @@
 
 	const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-	let now = $state(new Date());
+	function wallNow() {
+		return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+	}
+
+	let now = $state(wallNow());
 
 	onMount(() => {
 		const t = setInterval(() => {
-			now = new Date();
+			now = wallNow();
 		}, 30000);
 		return () => clearInterval(t);
 	});

@@ -181,7 +181,7 @@
 						<p class="wxline">
 							{#if weatherLoading}
 								<span class="skeleton inline"></span>
-							{:else}
+							{:else if $weather.temp !== '--'}
 								<span class="num">{$weather.temp}°</span>
 								{$weather.desc}
 							{/if}
@@ -415,10 +415,10 @@
 	}
 	.clock-core {
 		display: flex;
-		align-items: flex-end;
-		justify-content: flex-start;
+		flex-direction: column;
+		justify-content: flex-end;
+		align-items: flex-start;
 		padding: var(--space-8);
-		padding-bottom: var(--space-8);
 	}
 	.clock-stage {
 		min-width: 0;
@@ -523,7 +523,7 @@
 			width: 100%;
 		}
 		.clock-core {
-			align-items: flex-start;
+			justify-content: flex-start;
 			padding: var(--space-6);
 		}
 		.clock-pane :global(.time) {
