@@ -87,7 +87,7 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		padding: var(--space-8);
+		padding: var(--space-2) 0 var(--space-4);
 		gap: var(--space-8);
 		min-width: 0;
 		min-height: 0;

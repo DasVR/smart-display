@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 5 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 5 · Variety 5
+	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 5 · Variety 5
 	Credits-roll HUD: shader is the sculpture, clock as corner type,
 	indexed views, glass only on the trough. Lusion About DNA, not pixels.
 -->
@@ -230,7 +230,7 @@
 					<DevHub />
 				</section>
 			{:else if $currentView === 'music'}
-				<section class="view-pane sheet">
+				<section class="view-pane music-pane">
 					<MusicView />
 				</section>
 			{/if}
@@ -429,13 +429,19 @@
 			transform: translateY(-1px);
 		}
 	}
-	.clock-pane {
+	.clock-pane,
+	.music-pane {
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		justify-content: flex-end;
 		align-items: flex-start;
+	}
+	.clock-pane {
 		pointer-events: none;
+	}
+	.music-pane {
+		pointer-events: auto;
 	}
 	.clock-credits {
 		min-width: 0;
@@ -552,7 +558,12 @@
 			min-height: 420px;
 			width: 100%;
 		}
-		.clock-pane {
+		.clock-pane,
+		.music-pane {
+			min-height: 14rem;
+		}
+		.clock-pane,
+		.music-pane {
 			justify-content: flex-start;
 		}
 		.clock-credits {
