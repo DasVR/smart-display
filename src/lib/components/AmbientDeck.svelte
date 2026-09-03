@@ -20,12 +20,11 @@
 	.ambient-deck {
 		width: 100%;
 		height: 100%;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-8);
-		padding: var(--space-8);
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: end;
+		gap: var(--space-4);
+		padding: var(--space-3) var(--space-6);
 		pointer-events: none;
 		box-sizing: border-box;
 		min-width: 0;
@@ -33,11 +32,11 @@
 	.wave-bars {
 		display: flex;
 		align-items: flex-end;
-		justify-content: center;
+		justify-content: flex-start;
 		gap: var(--space-2);
-		width: min(56vw, 720px);
-		height: 58%;
-		opacity: 0.45;
+		width: 100%;
+		height: 100%;
+		opacity: 0.72;
 	}
 	.wave {
 		flex: 1;
@@ -57,8 +56,9 @@
 	.link {
 		margin: 0;
 		font-family: var(--font-code);
-		font-size: var(--text-lg);
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
+		padding-bottom: var(--space-1);
 	}
 	.link.ok {
 		color: var(--ok);

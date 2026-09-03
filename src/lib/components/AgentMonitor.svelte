@@ -70,9 +70,11 @@
 		display: flex;
 		justify-content: space-between;
 		gap: var(--space-4);
-		font-size: var(--text-2xl);
-		font-weight: 700;
+		font-family: var(--font-body);
+		font-size: var(--text-lg);
+		font-weight: 600;
 		font-style: normal;
+		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
 	}
 	.pid {

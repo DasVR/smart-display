@@ -38,8 +38,8 @@
 
 <div class="music-view">
 	<div class="header">
-		<div class="big-label">MUSIC</div>
-		<div class="sub">{track?.playing ? 'now playing' : 'idle'}</div>
+		<h2 class="big-label">Music</h2>
+		<div class="sub">{track?.playing ? 'Now playing' : 'Idle'}</div>
 	</div>
 
 	{#if loading}
@@ -50,8 +50,8 @@
 		</div>
 	{:else if error || !track || !track.playing}
 		<div class="empty">
-			<div class="empty-title">no music playing</div>
-			<div>connect bluetooth or play on the server</div>
+			<p class="empty-title">Nothing playing</p>
+			<p class="empty-copy">Connect bluetooth or start a track on the server.</p>
 		</div>
 	{:else}
 		<div class="player-body">
@@ -104,12 +104,14 @@
 		min-width: 0;
 	}
 	.big-label {
+		margin: 0;
 		font-family: var(--font-body);
-		font-size: clamp(2.5rem, 5vw, 4.5rem);
+		font-size: clamp(2.25rem, 4.2vw, 3.75rem);
 		font-weight: 700;
 		font-style: normal;
 		color: var(--foreground);
-		letter-spacing: -0.05em;
+		letter-spacing: -0.055em;
+		text-wrap: balance;
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
@@ -135,7 +137,7 @@
 		width: clamp(260px, 36vh, 460px);
 		height: clamp(260px, 36vh, 460px);
 		border-radius: var(--radius-lg);
-		background: linear-gradient(135deg, var(--abyss-2), var(--abyss));
+		background: linear-gradient(160deg, var(--abyss-2) 0%, var(--abyss) 62%, color-mix(in srgb, var(--brand) 12%, var(--abyss)) 100%);
 		border: 1px solid var(--hairline);
 		display: flex;
 		align-items: center;
@@ -249,19 +251,29 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-4);
+		align-items: flex-start;
+		justify-content: flex-end;
+		gap: var(--space-2);
+		padding-bottom: var(--space-4);
 		color: var(--text-tertiary);
 		font-family: var(--font-body);
 		font-size: var(--text-xl);
-		text-align: center;
+		text-align: left;
+		max-width: var(--measure);
 	}
 	.empty-title {
-		font-size: var(--text-3xl);
-		color: var(--text-secondary);
+		margin: 0;
+		font-size: clamp(1.75rem, 3vw, 2.75rem);
+		color: var(--foreground);
 		font-weight: 600;
 		font-style: normal;
+		letter-spacing: -0.04em;
+	}
+	.empty-copy {
+		margin: 0;
+		color: var(--text-secondary);
+		line-height: 1.45;
+		text-wrap: pretty;
 	}
 
 	.art-skeleton { width: clamp(260px, 36vh, 460px); height: clamp(260px, 36vh, 460px); border-radius: var(--radius-lg); }

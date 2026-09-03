@@ -82,15 +82,14 @@
 
 <div class="school-hub">
 	<header class="running">
-		<div class="titles">
-			<p class="kicker">Assignments</p>
-			<h2 class="hub-title">Due work</h2>
-		</div>
+		<h2 class="hub-title">Due work</h2>
 		<p class="head-meta">
 			{#if loading}
 				Checking calendar
 			{:else if error}
 				{error}
+			{:else if events.length === 0}
+				Clear this week
 			{:else}
 				{events.length} tagged #hw
 			{/if}
@@ -142,25 +141,14 @@
 		min-width: 0;
 		flex-shrink: 0;
 	}
-	.titles {
-		min-width: 0;
-	}
-	.kicker {
-		margin: 0 0 var(--space-1);
-		font-family: var(--font-body);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
-		color: var(--text-tertiary);
-	}
 	.hub-title {
 		margin: 0;
 		font-family: var(--font-body);
-		font-size: clamp(1.75rem, 3vw, 2.75rem);
+		font-size: clamp(2.25rem, 4.2vw, 3.75rem);
 		font-weight: 700;
 		font-style: normal;
-		letter-spacing: -0.05em;
+		letter-spacing: -0.055em;
+		text-wrap: balance;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;

@@ -37,7 +37,7 @@
 		align-items: baseline;
 		font-weight: 800;
 		font-size: clamp(var(--text-7xl), 8vw, var(--text-8xl));
-		letter-spacing: -0.04em;
+		letter-spacing: -0.05em;
 		line-height: 0.88;
 		color: var(--foreground);
 		font-family: var(--font-display);

@@ -103,7 +103,7 @@
 	</div>
 
 	<section class="svc-block">
-		<h3 class="section-label">:: Services</h3>
+		<h3 class="section-label">Services</h3>
 		{#if error}
 			<div class="muted">{error}</div>
 		{:else if services.length === 0}
@@ -146,11 +146,14 @@
 	}
 	.section-label {
 		margin: 0;
-		font-size: var(--text-2xl);
-		font-weight: 700;
+		font-family: var(--font-body);
+		font-size: var(--text-lg);
+		font-weight: 600;
 		font-style: normal;
+		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
 		padding-bottom: var(--space-4);
+		text-transform: none;
 	}
 	.monitor-wrap {
 		flex: 1;

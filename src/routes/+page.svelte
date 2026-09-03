@@ -1,6 +1,6 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 4 · Variety 4
+	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 4 · Variety 5
 -->
 <script>
 	import '../app.css';
@@ -156,7 +156,17 @@
 	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' }));
 	let month = $derived(time.toLocaleDateString('en-US', { month: 'long', timeZone: 'America/New_York' }));
 	let dayNum = $derived(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDate());
+
+	function viewLabel(name) {
+		return name.slice(0, 1).toUpperCase() + name.slice(1);
+	}
 </script>
+
+<svelte:head>
+	<title>Smart Display</title>
+</svelte:head>
+
+<a class="skip" href="#main-stage">Skip to view</a>
 
 <div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
 	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode || mode === 'sleep'} />
@@ -193,17 +203,20 @@
 						onclick={() => currentView.set(v)}
 						aria-current={$currentView === v ? 'true' : undefined}
 					>
-						<span class="view-tab-label">{v}</span>
+						<span class="view-tab-label">{viewLabel(v)}</span>
 					</button>
 				{/each}
 			</nav>
 		</header>
 
-		<main class="zone center">
+		<main id="main-stage" class="zone center">
 			{#if $currentView === 'clock'}
 				<section class="view-pane bezel clock-pane">
 					<div class="bezel-core clock-core">
-						<HeroClock {time} />
+						<div class="clock-stage">
+							<HeroClock {time} />
+							<p class="clock-kicker">{weekday}</p>
+						</div>
 					</div>
 				</section>
 			{:else if $currentView === 'school'}
@@ -240,9 +253,26 @@
 </div>
 
 <style>
+	.skip {
+		position: absolute;
+		left: var(--space-4);
+		top: var(--space-4);
+		z-index: 40;
+		transform: translateY(-160%);
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-md);
+		background: var(--foreground);
+		color: var(--abyss);
+		font-family: var(--font-body);
+		font-weight: 600;
+		text-decoration: none;
+	}
+	.skip:focus {
+		transform: none;
+	}
 	.display-shell {
 		width: 100vw;
-		height: 100vh;
+		height: 100dvh;
 		min-height: 100dvh;
 		overflow-x: clip;
 		overflow-y: hidden;
@@ -257,7 +287,7 @@
 		display: grid;
 		grid-template-rows: auto minmax(0, 1fr) auto;
 		color: var(--text-primary);
-		font-family: var(--font-display);
+		font-family: var(--font-body);
 		min-width: 0;
 	}
 	.zone {
@@ -333,12 +363,12 @@
 		background: transparent;
 		color: var(--text-tertiary);
 		font-family: var(--font-body);
-		font-size: var(--text-sm);
+		font-size: var(--text-base);
 		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
+		letter-spacing: -0.01em;
+		text-transform: none;
 		padding: var(--space-2) var(--space-4);
-		border-radius: 999px;
+		border-radius: var(--radius-lg);
 		cursor: pointer;
 		transition:
 			color 280ms var(--spring-smooth),
@@ -385,12 +415,25 @@
 	}
 	.clock-core {
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		align-items: flex-end;
+		justify-content: flex-start;
 		padding: var(--space-8);
+		padding-bottom: var(--space-8);
+	}
+	.clock-stage {
+		min-width: 0;
+	}
+	.clock-kicker {
+		margin: var(--space-4) 0 0;
+		font-family: var(--font-body);
+		font-size: var(--text-2xl);
+		font-weight: 500;
+		letter-spacing: -0.03em;
+		color: var(--text-tertiary);
 	}
 	.clock-pane :global(.time) {
 		font-size: clamp(80px, 12vw, 180px);
+		letter-spacing: -0.06em;
 	}
 	.clock-pane :global(.seconds),
 	.clock-pane :global(.ampm) {
@@ -478,6 +521,10 @@
 		.view-pane {
 			min-height: 420px;
 			width: 100%;
+		}
+		.clock-core {
+			align-items: flex-start;
+			padding: var(--space-6);
 		}
 		.clock-pane :global(.time) {
 			font-size: clamp(2.75rem, 16vw, 5rem);

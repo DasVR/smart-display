@@ -273,7 +273,9 @@
 			padding: var(--space-4);
 		}
 		.col.today .col-head {
-			display: none;
+			flex-direction: row;
+			align-items: baseline;
+			gap: var(--space-2);
 		}
 		.col-head {
 			width: auto;
