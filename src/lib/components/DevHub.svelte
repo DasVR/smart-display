@@ -1,6 +1,5 @@
 <script>
 	import { onMount } from 'svelte';
-	import DotMatrix from '$lib/components/DotMatrix.svelte';
 	import BracketMeter from '$lib/components/BracketMeter.svelte';
 	import AgentMonitor from '$lib/components/AgentMonitor.svelte';
 	import { telemetry, gitContext, pushTelemetrySample } from '$lib/stores.js';
@@ -87,8 +86,6 @@
 </script>
 
 <div class="dev-hub">
-	<DotMatrix opacity={0.2} />
-
 	<div class="mark">
 		<span>// Dev Wall</span>
 		<span>{containers} ctr</span>
@@ -111,7 +108,7 @@
 		{:else}
 			<ul class="svc-list">
 				{#each services as s, i (s.name ?? i)}
-					<li class="plate">
+					<li>
 						<span class="svc-name">{s.name}</span>
 						<span class="state" class:ok={s.status}>{s.status ? '[UP]' : '[DOWN]'}</span>
 					</li>
@@ -138,7 +135,7 @@
 		display: flex;
 		justify-content: space-between;
 		gap: var(--space-4);
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		flex-shrink: 0;
@@ -173,15 +170,18 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: 0;
 	}
 	.svc-list li {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
 		gap: var(--space-4);
-		padding: 0 var(--space-4);
-		min-height: 4.5rem;
+		padding: var(--space-4) 0;
+		min-height: 2.75rem;
+		border-bottom: 1px solid var(--hairline);
+		background: none;
+		box-shadow: none;
 		transition: transform 280ms var(--spring-smooth);
 	}
 	.svc-list li:active {
@@ -197,15 +197,15 @@
 	}
 	.state {
 		flex-shrink: 0;
-		padding: 0.375rem 0.75rem;
-		border: 1px solid var(--hairline);
-		border-radius: var(--radius-sm);
-		font-family: var(--font-display);
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		font-family: var(--font-code);
 		font-size: var(--text-base);
-		font-weight: 700;
+		font-weight: 500;
 		color: var(--warn);
-		background: var(--abyss-2);
-		box-shadow: var(--inset-spec);
+		background: none;
+		box-shadow: none;
 	}
 	.state.ok {
 		color: var(--ok);

@@ -198,16 +198,16 @@
 	}
 	.progress {
 		width: min(540px, 70vw);
-		height: 10px;
-		background: var(--surface);
-		border-radius: 999px;
+		height: 2px;
+		background: var(--hairline);
+		border-radius: 0;
 		overflow: hidden;
 	}
 	.progress-fill {
 		width: 100%;
 		height: 100%;
 		background: var(--accent);
-		border-radius: 999px;
+		border-radius: 0;
 		transform: scaleX(var(--p, 0));
 		transform-origin: left center;
 	}
@@ -278,7 +278,7 @@
 
 	.art-skeleton { width: clamp(260px, 36vh, 460px); height: clamp(260px, 36vh, 460px); border-radius: var(--radius-lg); }
 	.title-skeleton { width: 340px; height: 44px; }
-	.bar-skeleton { width: min(540px, 70vw); height: 10px; border-radius: 999px; }
+	.bar-skeleton { width: min(540px, 70vw); height: 2px; border-radius: 0; }
 
 	@media (prefers-reduced-motion: no-preference) {
 		.album-art.playing .vinyl-groove {

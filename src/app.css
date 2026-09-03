@@ -93,7 +93,7 @@
 	--measure: 66ch;
 
 	--font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
-	--font-display: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+	--font-display: var(--font-body);
 	--font-code: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
 
 	--dur-fast: 150ms;
@@ -112,13 +112,13 @@
 
 	--elevation-1: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
 	--elevation-2: 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent);
-	--elevation-3: 0 10px 28px color-mix(in srgb, var(--abyss) 72%, #1a1a3a);
+	--elevation-3: 0 10px 28px color-mix(in srgb, var(--abyss) 72%, var(--abyss-3));
 
-	--glass-fill: color-mix(in srgb, var(--abyss-1) 85%, transparent);
+	--glass-fill: color-mix(in srgb, var(--abyss-1) 55%, transparent);
 	--glass-blur: 24px;
-	--glass-specular: rgb(255 255 255 / 0.1);
-	--glass-edge: rgb(255 255 255 / 0.06);
-	--glass-inset-hi: rgb(255 255 255 / 0.1);
+	--glass-specular: color-mix(in srgb, var(--foreground) 10%, transparent);
+	--glass-edge: color-mix(in srgb, var(--foreground) 6%, transparent);
+	--glass-inset-hi: color-mix(in srgb, var(--foreground) 10%, transparent);
 	--glass-inset-lo: color-mix(in srgb, var(--abyss) 55%, transparent);
 	--glass-depth:
 		inset 0 1px 0 var(--glass-inset-hi),
@@ -271,6 +271,18 @@ h6 {
 	}
 }
 
+.sheet {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	height: 100%;
+	border: 1px solid var(--hairline);
+	border-radius: var(--radius-md);
+	background: color-mix(in srgb, var(--abyss) 22%, transparent);
+	box-sizing: border-box;
+}
+
 .bezel {
 	display: flex;
 	flex-direction: column;
@@ -311,7 +323,7 @@ h6 {
 }
 
 .ascii-mark {
-	font-family: var(--font-display);
+	font-family: var(--font-code);
 	font-style: normal;
 	color: var(--text-tertiary);
 }

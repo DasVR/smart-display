@@ -103,7 +103,7 @@
 					<h3 class="day-label">{group.label}</h3>
 					<ol class="day-list">
 						{#each group.items as e, i (e.id ?? `${group.key}-${i}`)}
-							<li class="entry plate" data-urgency={urgency(e)}>
+							<li class="entry" data-urgency={urgency(e)}>
 								<time class="when num">{timeLabel(e.start)}</time>
 								<div class="body">
 									<div class="row-title">{e.title}</div>
@@ -192,15 +192,18 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: 0;
 	}
 	.entry {
 		display: grid;
 		grid-template-columns: 5.5rem minmax(0, 1fr);
 		gap: var(--space-2);
 		align-items: baseline;
-		padding: var(--space-3) var(--space-4);
-		min-height: 4.5rem;
+		padding: var(--space-4) 0;
+		min-height: 2.75rem;
+		border-bottom: 1px solid var(--hairline);
+		background: none;
+		box-shadow: none;
 	}
 	.entry[data-urgency='now'] .when {
 		color: var(--warn);

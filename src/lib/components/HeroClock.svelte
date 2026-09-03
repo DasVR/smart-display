@@ -1,11 +1,11 @@
 <script>
-	let { time = new Date() } = $props();
+	let { time = new Date(), size = 'masthead' } = $props();
 
 	function estParts(d) {
 		const s = new Date(d).toLocaleString('en-US', { timeZone: 'America/New_York', hour12: false });
-		const [datePart, timePart] = s.split(', ');
+		const [, timePart] = s.split(', ');
 		const [h, m, sPart] = timePart.split(':');
-		const sec = sPart.split(' ')[0]; // handle any AM/PM if hour12 changes
+		const sec = sPart.split(' ')[0];
 		return { h: parseInt(h, 10), m: parseInt(m, 10), sec: parseInt(sec, 10) };
 	}
 
@@ -17,12 +17,12 @@
 	let ampm = $derived(est.h >= 12 ? 'PM' : 'AM');
 </script>
 
-<div class="hero-clock">
+<div class="hero-clock" data-size={size}>
 	<div class="time">
-		<span class="num hour">{dispH}</span>
+		<span class="hour">{dispH}</span>
 		<span class="colon" class:on={colonOn}>:</span>
-		<span class="num">{mm}</span>
-		<span class="seconds num">{ss}</span>
+		<span class="minute">{mm}</span>
+		<span class="seconds">{ss}</span>
 		<span class="ampm">{ampm}</span>
 	</div>
 </div>
@@ -35,9 +35,9 @@
 	.time {
 		display: flex;
 		align-items: baseline;
-		font-weight: 800;
-		font-size: clamp(var(--text-7xl), 8vw, var(--text-8xl));
-		letter-spacing: -0.05em;
+		font-weight: 500;
+		font-size: clamp(2.25rem, 5.5vw, 4.25rem);
+		letter-spacing: -0.06em;
 		line-height: 0.88;
 		color: var(--foreground);
 		font-family: var(--font-display);
@@ -46,12 +46,19 @@
 		min-width: 0;
 		white-space: nowrap;
 	}
+	.hero-clock[data-size='poster'] .time {
+		font-size: clamp(4.5rem, 16vw, 11rem);
+		letter-spacing: -0.07em;
+		line-height: 0.82;
+		font-weight: 500;
+	}
 	.colon {
 		opacity: 0.28;
 		transform: scale(1);
 		transform-origin: center 58%;
-		margin: 0 0.125rem;
+		margin: 0 0.08em;
 		font-style: normal;
+		color: var(--text-secondary);
 		transition:
 			opacity 420ms var(--spring-smooth),
 			transform 420ms var(--spring-snappy),
@@ -64,14 +71,21 @@
 	}
 	.seconds {
 		margin-left: var(--space-2);
-		font-size: 0.34em;
-		font-weight: 400;
+		font-size: 0.28em;
+		font-weight: 500;
 		color: var(--text-tertiary);
+		font-variant-numeric: tabular-nums;
 	}
 	.ampm {
 		margin-left: var(--space-2);
-		font-size: 0.28em;
-		font-weight: 700;
+		font-size: 0.22em;
+		font-weight: 600;
 		color: var(--text-tertiary);
+	}
+
+	@media (max-width: 414px) {
+		.hero-clock[data-size='poster'] .time {
+			font-size: clamp(2.75rem, 18vw, 4.75rem);
+		}
 	}
 </style>

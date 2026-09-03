@@ -70,24 +70,23 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-2);
-		height: 2.75rem;
-		padding: 0 var(--space-6);
-		border: 1px solid var(--hairline);
-		border-radius: 999px;
-		background: var(--shell-fill);
-		box-shadow: var(--inset-spec);
+		min-height: 2.75rem;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
 		color: var(--ok);
 		transition:
 			transform 280ms var(--spring-smooth),
-			color 280ms var(--spring-smooth),
-			border-color 280ms var(--spring-smooth);
+			color 280ms var(--spring-smooth);
 	}
 	.chip:active {
 		transform: scale(0.98);
 	}
 	.dot {
-		width: 0.5rem;
-		height: 0.5rem;
+		width: 0.45rem;
+		height: 0.45rem;
 		border-radius: 50%;
 		background: var(--ok);
 		flex-shrink: 0;
@@ -98,18 +97,17 @@
 	}
 	.chip.hot {
 		color: var(--warn);
-		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
 	}
 	.chip.hot .dot {
 		background: var(--warn);
 	}
 	.word {
 		font-family: var(--font-code);
-		font-size: var(--text-lg);
-		font-weight: 600;
+		font-size: var(--text-base);
+		font-weight: 500;
 		font-style: normal;
 		line-height: 1;
-		letter-spacing: 0.03em;
+		letter-spacing: 0.04em;
 	}
 	.slip {
 		display: flex;
@@ -117,11 +115,11 @@
 		gap: var(--space-2);
 		min-height: 2.75rem;
 		max-width: min(28rem, 100%);
-		padding: var(--space-4) var(--space-6);
-		border: 1px solid var(--hairline);
-		border-radius: var(--radius-bezel-inner);
-		background: var(--shell-fill);
-		box-shadow: var(--inset-spec);
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
 	}
 	.copy {
 		min-width: 0;
@@ -164,10 +162,6 @@
 	@media (max-width: 414px) {
 		.slip {
 			max-width: 100%;
-		}
-		.chip {
-			height: 2.25rem;
-			padding: 0 var(--space-4);
 		}
 		.word {
 			font-size: var(--text-sm);

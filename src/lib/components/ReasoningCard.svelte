@@ -38,7 +38,7 @@
 	.mark,
 	.kind,
 	.phase {
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
@@ -46,7 +46,7 @@
 		color: var(--brand);
 	}
 	.ttl {
-		font-family: var(--font-display);
+		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		color: var(--foreground);
 		overflow-wrap: anywhere;

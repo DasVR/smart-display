@@ -17,7 +17,7 @@
 
 	<ul class="agents">
 		{#each agents as a (a.id)}
-			<li class="plate">
+			<li>
 				<ThinkingOrbs phase={a.phase} />
 				<div class="meta">
 					<div class="name">
@@ -87,15 +87,18 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: 0;
 	}
 	.agents li {
 		display: flex;
 		align-items: center;
 		gap: var(--space-4);
-		min-height: 4.5rem;
+		min-height: 2.75rem;
 		min-width: 0;
-		padding: 0 var(--space-4);
+		padding: var(--space-4) 0;
+		border-bottom: 1px solid var(--hairline);
+		background: none;
+		box-shadow: none;
 		transition: transform 280ms var(--spring-smooth);
 	}
 	.agents li:active {

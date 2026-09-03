@@ -1,6 +1,8 @@
 <!--
 	Hallmark design scores
-	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 4 · Variety 5
+	Philosophy 5 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 5 · Variety 5
+	Credits-roll HUD: shader is the sculpture, clock as corner type,
+	indexed views, glass only on the trough. Lusion About DNA, not pixels.
 -->
 <script>
 	import '../app.css';
@@ -15,7 +17,6 @@
 	import MusicView from '$lib/components/MusicView.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
-	import AsciiFrame from '$lib/components/AsciiFrame.svelte';
 
 	let ws;
 	let reconnectTimer;
@@ -173,8 +174,10 @@
 
 	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'}>
 		<header class="zone top">
-			<div class="masthead">
-				<HeroClock {time} />
+			<div class="masthead" class:credits-open={$currentView === 'clock'}>
+				{#if $currentView !== 'clock'}
+					<HeroClock {time} size="masthead" />
+				{/if}
 				<div class="status-cluster">
 					<p class="dateline">{weekday}, {month}&nbsp;{dayNum}</p>
 					<div class="cluster-end">
@@ -195,14 +198,15 @@
 					</div>
 				</div>
 			</div>
-			<nav class="view-strip" aria-label="Views" data-glass>
-				{#each VIEWS as v}
+			<nav class="view-strip" aria-label="Views">
+				{#each VIEWS as v, i}
 					<button
 						class="view-tab"
 						class:active={$currentView === v}
 						onclick={() => currentView.set(v)}
-						aria-current={$currentView === v ? 'true' : undefined}
+						aria-current={$currentView === v ? 'page' : undefined}
 					>
+						<span class="idx">{String(i + 1).padStart(2, '0')}</span>
 						<span class="view-tab-label">{viewLabel(v)}</span>
 					</button>
 				{/each}
@@ -211,38 +215,33 @@
 
 		<main id="main-stage" class="zone center">
 			{#if $currentView === 'clock'}
-				<section class="view-pane bezel clock-pane">
-					<div class="bezel-core clock-core">
-						<div class="clock-stage">
-							<HeroClock {time} />
-							<p class="clock-kicker">{weekday}</p>
-						</div>
+				<section class="view-pane clock-pane">
+					<div class="clock-credits">
+						<p class="clock-kicker">{weekday}</p>
+						<HeroClock {time} size="poster" />
 					</div>
 				</section>
 			{:else if $currentView === 'school'}
-				<section class="view-pane bezel">
-					<div class="bezel-core">
-						<SchoolHub />
-					</div>
+				<section class="view-pane sheet">
+					<SchoolHub />
 				</section>
 			{:else if $currentView === 'dev'}
-				<section class="view-pane bezel">
-					<div class="bezel-core">
-						<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
-							<DevHub />
-						</AsciiFrame>
-					</div>
+				<section class="view-pane sheet">
+					<DevHub />
 				</section>
 			{:else if $currentView === 'music'}
-				<section class="view-pane bezel">
-					<div class="bezel-core">
-						<MusicView />
-					</div>
+				<section class="view-pane sheet">
+					<MusicView />
 				</section>
 			{/if}
 		</main>
 
 		<footer class="zone bottom">
+			<div class="equator" aria-hidden="true">
+				{#each Array(16) as _, i (i)}
+					<span>+</span>
+				{/each}
+			</div>
 			<div class="trough glass-field" data-glass>
 				<AmbientDeck />
 			</div>
@@ -311,6 +310,9 @@
 		width: 100%;
 		min-width: 0;
 	}
+	.masthead.credits-open {
+		justify-content: flex-end;
+	}
 	.status-cluster {
 		display: flex;
 		align-items: center;
@@ -345,34 +347,41 @@
 	}
 	.view-strip {
 		display: flex;
+		align-items: stretch;
 		width: max-content;
 		max-width: 100%;
-		gap: 0.125rem;
+		gap: var(--space-6);
 		margin-top: var(--space-6);
-		padding: 0.25rem;
+		padding: 0;
 		min-width: 0;
-		border: 1px solid var(--hairline);
-		border-radius: 999px;
-		background: var(--shell-fill);
-		box-shadow: var(--inset-spec);
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
 		box-sizing: border-box;
 	}
 	.view-tab {
 		appearance: none;
+		display: inline-flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		min-height: 2.75rem;
 		border: 0;
+		border-bottom: 1px solid transparent;
+		border-radius: 0;
 		background: transparent;
 		color: var(--text-tertiary);
 		font-family: var(--font-body);
 		font-size: var(--text-base);
-		font-weight: 600;
+		font-weight: 500;
 		letter-spacing: -0.01em;
 		text-transform: none;
-		padding: var(--space-2) var(--space-4);
-		border-radius: var(--radius-lg);
+		padding: var(--space-2) 0;
 		cursor: pointer;
+		white-space: nowrap;
 		transition:
 			color 280ms var(--spring-smooth),
-			background 280ms var(--spring-smooth),
+			border-color 280ms var(--spring-smooth),
 			transform 280ms var(--spring-smooth);
 	}
 	.view-tab:hover {
@@ -383,8 +392,18 @@
 	}
 	.view-tab.active {
 		color: var(--foreground);
-		background: color-mix(in srgb, var(--abyss-2) 92%, var(--foreground));
-		box-shadow: var(--inset-spec);
+		background: none;
+		box-shadow: none;
+		border-bottom-color: var(--brand);
+	}
+	.idx {
+		font-family: var(--font-code);
+		font-size: var(--text-sm);
+		font-variant-numeric: tabular-nums;
+		color: var(--text-tertiary);
+	}
+	.view-tab.active .idx {
+		color: var(--brand);
 	}
 	.view-tab-label {
 		display: inline-block;
@@ -412,44 +431,54 @@
 	}
 	.clock-pane {
 		min-height: 0;
-	}
-	.clock-core {
 		display: flex;
 		flex-direction: column;
 		justify-content: flex-end;
 		align-items: flex-start;
-		padding: var(--space-8);
+		pointer-events: none;
 	}
-	.clock-stage {
+	.clock-credits {
 		min-width: 0;
+		max-width: min(92%, 28rem);
+		padding: 0 0 var(--space-2);
 	}
 	.clock-kicker {
-		margin: var(--space-4) 0 0;
+		margin: 0 0 var(--space-2);
 		font-family: var(--font-body);
-		font-size: var(--text-2xl);
+		font-size: var(--text-xl);
 		font-weight: 500;
-		letter-spacing: -0.03em;
+		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
-	}
-	.clock-pane :global(.time) {
-		font-size: clamp(80px, 12vw, 180px);
-		letter-spacing: -0.06em;
-	}
-	.clock-pane :global(.seconds),
-	.clock-pane :global(.ampm) {
-		font-size: 0.35em;
 	}
 	.bottom {
 		height: auto;
 		display: flex;
-		align-items: flex-end;
+		flex-direction: column;
+		align-items: stretch;
+		gap: var(--space-3);
 		padding-bottom: var(--space-8);
+	}
+	.equator {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		padding: 0 var(--space-1);
+		font-family: var(--font-code);
+		font-size: var(--text-sm);
+		line-height: 1;
+		color: color-mix(in srgb, var(--foreground) 22%, transparent);
+		pointer-events: none;
+		user-select: none;
 	}
 	.trough {
 		width: 100%;
 		height: 6rem;
 		min-width: 0;
-		border-radius: var(--radius-bezel);
+		border-radius: var(--radius-md);
+	}
+	.trough.glass-field::before {
+		display: none;
 	}
 	.sleep .display-root {
 		opacity: 0.15;
@@ -510,7 +539,8 @@
 		.view-strip {
 			width: 100%;
 			flex-wrap: wrap;
-			border-radius: var(--radius-bezel);
+			gap: var(--space-4);
+			border-radius: 0;
 		}
 		.center {
 			height: auto;
@@ -522,12 +552,11 @@
 			min-height: 420px;
 			width: 100%;
 		}
-		.clock-core {
+		.clock-pane {
 			justify-content: flex-start;
-			padding: var(--space-6);
 		}
-		.clock-pane :global(.time) {
-			font-size: clamp(2.75rem, 16vw, 5rem);
+		.clock-credits {
+			max-width: 100%;
 		}
 		.cluster-end {
 			flex-wrap: wrap;
