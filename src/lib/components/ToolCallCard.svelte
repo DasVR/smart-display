@@ -41,7 +41,7 @@
 		display: none;
 	}
 	.kind {
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		font-size: var(--text-sm);
 		color: var(--scan);
 	}
@@ -53,7 +53,7 @@
 		min-width: 0;
 	}
 	.st {
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}

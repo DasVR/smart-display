@@ -20,12 +20,11 @@
 	.ambient-deck {
 		width: 100%;
 		height: 100%;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-8);
-		padding: var(--space-8);
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		align-items: end;
+		gap: var(--space-4);
+		padding: var(--space-3) var(--space-6);
 		pointer-events: none;
 		box-sizing: border-box;
 		min-width: 0;
@@ -33,25 +32,33 @@
 	.wave-bars {
 		display: flex;
 		align-items: flex-end;
-		justify-content: center;
+		justify-content: flex-start;
 		gap: var(--space-2);
-		width: min(56vw, 720px);
-		height: 58%;
-		opacity: 0.45;
+		width: 100%;
+		height: 100%;
+		opacity: 0.72;
 	}
 	.wave {
 		flex: 1;
 		max-width: 8px;
 		min-width: 0;
-		height: calc(var(--h) * 100%);
+		height: 100%;
+		transform: scaleY(var(--h));
+		transform-origin: center bottom;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--brand) 40%, transparent);
 	}
+	@media (prefers-reduced-motion: no-preference) {
+		.wave {
+			transition: transform 180ms var(--spring-smooth);
+		}
+	}
 	.link {
 		margin: 0;
-		font-family: var(--font-display);
-		font-size: var(--text-lg);
+		font-family: var(--font-code);
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
+		padding-bottom: var(--space-1);
 	}
 	.link.ok {
 		color: var(--ok);

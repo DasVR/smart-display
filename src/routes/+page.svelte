@@ -1,6 +1,8 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
+	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 5 · Variety 5
+	Credits-roll HUD on current master IA: shader is the sculpture,
+	indexed views including Weather, glass only on the trough.
 -->
 <script>
 	import '../app.css';
@@ -17,7 +19,6 @@
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
-	import AsciiFrame from '$lib/components/AsciiFrame.svelte';
 
 	let ws;
 	let reconnectTimer;
@@ -111,18 +112,6 @@
 		}
 	}
 
-	function weatherLabel(code) {
-		if (code <= 1) return 'Clear';
-		if (code <= 3) return 'Cloudy';
-		if (code <= 48) return 'Fog';
-		if (code <= 67) return 'Rain';
-		if (code <= 77) return 'Snow';
-		if (code <= 82) return 'Showers';
-		if (code <= 86) return 'Snow';
-		if (code <= 99) return 'Storm';
-		return 'Fair';
-	}
-
 	function handleKey(e) {
 		if (e.altKey && (e.key === 'y' || e.key === 'Y')) {
 			toggleGpuLowPower();
@@ -161,22 +150,34 @@
 	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' }));
 	let month = $derived(time.toLocaleDateString('en-US', { month: 'long', timeZone: 'America/New_York' }));
 	let dayNum = $derived(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDate());
+
+	function viewLabel(name) {
+		return name.slice(0, 1).toUpperCase() + name.slice(1);
+	}
 </script>
+
+<svelte:head>
+	<title>Smart Display</title>
+</svelte:head>
+
+<a class="skip" href="#main-stage">Skip to view</a>
 
 <div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
 	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode || mode === 'sleep'} />
 
 	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'}>
 		<header class="zone top">
-			<div class="masthead">
-				<HeroClock {time} />
+			<div class="masthead" class:credits-open={$currentView === 'clock'}>
+				{#if $currentView !== 'clock'}
+					<HeroClock {time} size="masthead" />
+				{/if}
 				<div class="status-cluster">
-					<p class="dateline">{weekday}, {month} {dayNum}</p>
+					<p class="dateline">{weekday}, {month}&nbsp;{dayNum}</p>
 					<div class="cluster-end">
 						<p class="wxline">
 							{#if weatherLoading}
 								<span class="skeleton inline"></span>
-							{:else}
+							{:else if $weather.temp !== '--'}
 								<span class="num">{$weather.temp}°</span>
 								{$weather.desc}
 							{/if}
@@ -191,50 +192,44 @@
 					</div>
 				</div>
 			</div>
-			<nav class="view-strip" aria-label="Views" data-glass>
-				{#each VIEWS as v}
+			<nav class="view-strip" aria-label="Views">
+				{#each VIEWS as v, i}
 					<button
 						class="view-tab"
 						class:active={$currentView === v}
 						onclick={() => currentView.set(v)}
-						aria-current={$currentView === v ? 'true' : undefined}
+						aria-current={$currentView === v ? 'page' : undefined}
 					>
-						<span class="view-tab-label">{v}</span>
+						<span class="idx">{String(i + 1).padStart(2, '0')}</span>
+						<span class="view-tab-label">{viewLabel(v)}</span>
 					</button>
 				{/each}
 			</nav>
 		</header>
 
-		<main class="zone center">
+		<main id="main-stage" class="zone center">
 			{#if $currentView === 'clock'}
-				<section class="view-pane bezel clock-pane">
-					<div class="bezel-core clock-core">
-						<HeroClock {time} />
+				<section class="view-pane clock-pane">
+					<div class="clock-credits">
+						<p class="clock-kicker">{weekday}</p>
+						<HeroClock {time} size="poster" />
 					</div>
 				</section>
 			{:else if $currentView === 'school'}
-				<section class="view-pane bezel">
-					<div class="bezel-core">
-						<SchoolHub />
-					</div>
+				<section class="view-pane sheet">
+					<SchoolHub />
 				</section>
 			{:else if $currentView === 'dev'}
-				<section class="view-pane bezel">
-					<div class="bezel-core">
-						<AsciiFrame tag={$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'} ok={$wsStatus === 'connected'}>
-							<DevHub />
-						</AsciiFrame>
-					</div>
+				<section class="view-pane sheet">
+					<DevHub />
 				</section>
 			{:else if $currentView === 'music'}
-				<section class="view-pane bezel">
-					<div class="bezel-core">
-						<MusicView />
-					</div>
+				<section class="view-pane music-pane">
+					<MusicView />
 				</section>
 			{:else if $currentView === 'weather'}
-				<section class="view-pane bezel">
-					<div class="bezel-core weather-core">
+				<section class="view-pane sheet weather-pane">
+					<div class="weather-core">
 						<div class="radar-trough">
 							<RadarCanvas data={weatherData} />
 						</div>
@@ -247,6 +242,11 @@
 		</main>
 
 		<footer class="zone bottom">
+			<div class="equator" aria-hidden="true">
+				{#each Array(16) as _, i (i)}
+					<span>+</span>
+				{/each}
+			</div>
 			<div class="trough glass-field" data-glass>
 				<AmbientDeck />
 			</div>
@@ -257,9 +257,26 @@
 </div>
 
 <style>
+	.skip {
+		position: absolute;
+		left: var(--space-4);
+		top: var(--space-4);
+		z-index: 40;
+		transform: translateY(-160%);
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-md);
+		background: var(--foreground);
+		color: var(--abyss);
+		font-family: var(--font-body);
+		font-weight: 600;
+		text-decoration: none;
+	}
+	.skip:focus {
+		transform: none;
+	}
 	.display-shell {
 		width: 100vw;
-		height: 100vh;
+		height: 100dvh;
 		min-height: 100dvh;
 		overflow-x: clip;
 		overflow-y: hidden;
@@ -274,7 +291,7 @@
 		display: grid;
 		grid-template-rows: auto minmax(0, 1fr) auto;
 		color: var(--text-primary);
-		font-family: var(--font-display);
+		font-family: var(--font-body);
 		min-width: 0;
 	}
 	.zone {
@@ -298,6 +315,9 @@
 		width: 100%;
 		min-width: 0;
 	}
+	.masthead.credits-open {
+		justify-content: flex-end;
+	}
 	.status-cluster {
 		display: flex;
 		align-items: center;
@@ -317,8 +337,10 @@
 	.dateline,
 	.wxline {
 		margin: 0;
+		font-family: var(--font-body);
 		font-size: var(--text-3xl);
 		font-weight: 600;
+		letter-spacing: -0.025em;
 		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -330,35 +352,42 @@
 	}
 	.view-strip {
 		display: flex;
+		align-items: stretch;
 		width: max-content;
 		max-width: 100%;
-		gap: 0.125rem;
+		gap: var(--space-6);
 		margin-top: var(--space-6);
-		padding: 0.25rem;
+		padding: 0;
 		min-width: 0;
-		border: 1px solid var(--hairline);
-		border-radius: 999px;
-		background: var(--shell-fill);
-		box-shadow: var(--inset-spec);
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
 		box-sizing: border-box;
 	}
 	.view-tab {
 		appearance: none;
+		display: inline-flex;
+		align-items: baseline;
+		gap: var(--space-2);
+		min-height: 2.75rem;
 		border: 0;
+		border-bottom: 1px solid transparent;
+		border-radius: 0;
 		background: transparent;
 		color: var(--text-tertiary);
 		font-family: var(--font-body);
 		font-size: var(--text-lg);
-		font-weight: 600;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		padding: var(--space-3) var(--space-5);
-		border-radius: 999px;
+		font-weight: 500;
+		letter-spacing: -0.01em;
+		text-transform: none;
+		padding: var(--space-2) 0;
 		cursor: pointer;
+		white-space: nowrap;
 		transition:
-			color 500ms var(--ease-fluid),
-			background 500ms var(--ease-fluid),
-			transform 500ms var(--ease-fluid);
+			color 280ms var(--spring-smooth),
+			border-color 280ms var(--spring-smooth),
+			transform 280ms var(--spring-smooth);
 	}
 	.view-tab:hover {
 		color: var(--text-secondary);
@@ -368,8 +397,18 @@
 	}
 	.view-tab.active {
 		color: var(--foreground);
-		background: color-mix(in srgb, var(--abyss-2) 92%, var(--foreground));
-		box-shadow: var(--inset-spec);
+		background: none;
+		box-shadow: none;
+		border-bottom-color: var(--brand);
+	}
+	.idx {
+		font-family: var(--font-code);
+		font-size: var(--text-sm);
+		font-variant-numeric: tabular-nums;
+		color: var(--text-tertiary);
+	}
+	.view-tab.active .idx {
+		color: var(--brand);
 	}
 	.view-tab-label {
 		display: inline-block;
@@ -386,86 +425,106 @@
 		overflow: hidden;
 		min-width: 0;
 		min-height: 0;
-		animation: paneIn 800ms var(--ease-fluid) both;
 	}
-	@keyframes paneIn {
-		from {
-			opacity: 0;
-			transform: translateY(1rem);
+	@media (prefers-reduced-motion: no-preference) {
+		.view-pane {
+			animation: pane-in var(--dur-pane) var(--spring-smooth) both;
 		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
+		.view-tab:hover:not(.active):not(:active) {
+			transform: translateY(-1px);
 		}
+	}
+	.clock-pane,
+	.music-pane {
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+		align-items: flex-start;
 	}
 	.clock-pane {
+		pointer-events: none;
+	}
+	.music-pane {
+		pointer-events: auto;
+	}
+	.clock-credits {
+		min-width: 0;
+		max-width: min(92%, 32rem);
+		padding: 0 0 var(--space-2);
+	}
+	.clock-kicker {
+		margin: 0 0 var(--space-2);
+		font-family: var(--font-body);
+		font-size: var(--text-xl);
+		font-weight: 500;
+		letter-spacing: -0.02em;
+		color: var(--text-tertiary);
+	}
+	.weather-pane {
 		min-height: 0;
-	}
-	.clock-core {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: var(--space-8);
-	}
-	.clock-pane :global(.time) {
-		font-size: clamp(120px, 18vw, 280px);
-	}
-	.clock-pane :global(.seconds),
-	.clock-pane :global(.ampm) {
-		font-size: 0.35em;
 	}
 	.weather-core {
 		display: grid;
 		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-		gap: var(--space-5);
+		gap: 0;
 		min-height: 0;
+		height: 100%;
 	}
-	.radar-trough {
-		min-width: 0;
-		min-height: 0;
-		overflow: hidden;
-		border-radius: var(--radius-bezel-inner);
-	}
+	.radar-trough,
 	.weather-trough {
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
-		border-radius: var(--radius-bezel-inner);
-		background: var(--shell-fill);
-		border: 1px solid var(--hairline);
 	}
-	@media (max-aspect-ratio: 4/3) {
-		.weather-core {
-			grid-template-columns: 1fr;
-			grid-template-rows: 1fr 1fr;
-		}
+	.weather-trough {
+		border-left: 1px solid var(--hairline);
+		padding-left: var(--space-5);
 	}
 	.bottom {
 		height: auto;
 		display: flex;
-		align-items: flex-end;
+		flex-direction: column;
+		align-items: stretch;
+		gap: var(--space-3);
 		padding-bottom: var(--space-8);
+	}
+	.equator {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		width: 100%;
+		padding: 0 var(--space-1);
+		font-family: var(--font-code);
+		font-size: var(--text-sm);
+		line-height: 1;
+		color: color-mix(in srgb, var(--foreground) 22%, transparent);
+		pointer-events: none;
+		user-select: none;
 	}
 	.trough {
 		width: 100%;
 		height: 6rem;
 		min-width: 0;
-		border-radius: var(--radius-bezel);
+		border-radius: var(--radius-md);
+	}
+	.trough.glass-field::before {
+		display: none;
 	}
 	.sleep .display-root {
 		opacity: 0.15;
 		filter: grayscale(0.85);
-		transition: opacity 1.2s var(--ease-fluid), filter 1.2s var(--ease-fluid);
+		transition: opacity 1.2s var(--spring-smooth), filter 1.2s var(--spring-smooth);
 	}
 	.display-shell.hdmi-off .display-root {
 		opacity: 0;
-		transition: opacity 2.5s var(--ease-fluid);
+		transition: opacity 2.5s var(--spring-smooth);
 	}
 	.display-shell.hdmi-off {
 		background: var(--background);
 	}
 	.display-root.morning {
-		animation: morningGlow 8s var(--ease-fluid) infinite alternate;
+		animation: morningGlow 8s var(--spring-smooth) infinite alternate;
 	}
 	@keyframes morningGlow {
 		from { box-shadow: inset 0 0 0 transparent; }
@@ -480,6 +539,16 @@
 		.status-cluster {
 			justify-content: flex-start;
 			padding-bottom: 0;
+		}
+		.weather-core {
+			grid-template-columns: minmax(0, 1fr);
+			grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+		}
+		.weather-trough {
+			border-left: 0;
+			border-top: 1px solid var(--hairline);
+			padding-left: 0;
+			padding-top: var(--space-4);
 		}
 	}
 
@@ -511,7 +580,8 @@
 		.view-strip {
 			width: 100%;
 			flex-wrap: wrap;
-			border-radius: var(--radius-bezel);
+			gap: var(--space-4);
+			border-radius: 0;
 		}
 		.center {
 			height: auto;
@@ -521,6 +591,18 @@
 		}
 		.view-pane {
 			min-height: 420px;
+			width: 100%;
+		}
+		.clock-pane,
+		.music-pane {
+			justify-content: flex-start;
+			min-height: 14rem;
+		}
+		.clock-credits {
+			max-width: 100%;
+		}
+		.cluster-end {
+			flex-wrap: wrap;
 			width: 100%;
 		}
 		.bottom {

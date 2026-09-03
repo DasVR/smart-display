@@ -70,9 +70,13 @@ export function buildAgents({ ollamaStatus, ollamaModels, git, telemetry }) {
 		{
 			id: 'git',
 			name: 'git',
-			pid: runPid(git?.branch || 'worktree'),
+			pid: runPid(git?.branch && git.branch !== '--' ? git.branch : 'worktree'),
 			phase: git?.dirty ? 'executing' : 'done',
-			task: git?.dirty ? `${git.changed} dirty · ${git.branch}` : `clean · ${git?.branch || 'untracked'}`,
+			task: git?.dirty
+				? `${git.changed} dirty · ${git.branch}`
+				: git?.branch && git.branch !== '--'
+					? `clean · ${git.branch}`
+					: 'no repo',
 			opacity: git?.dirty ? 1 : 0.4
 		}
 	];
@@ -94,7 +98,11 @@ export function buildReasoning({ ollamaStatus, ollamaModels, git }) {
 		title: 'last commit',
 		phase: git?.dirty ? 'solving' : 'done',
 		open: false,
-		lines: [git?.message, git?.branch && `branch ${git.branch}`, git?.sha]
+		lines: [
+			git?.message,
+			git?.branch && git.branch !== '--' && `branch ${git.branch}`,
+			git?.sha
+		]
 			.filter(Boolean)
 	};
 }

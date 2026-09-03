@@ -1,4 +1,5 @@
 <script>
+	import '../../app.css';
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
 
@@ -14,6 +15,10 @@
 		const h = location.host;
 		if (h) return h;
 		return '100.104.181.43:3000';
+	}
+
+	function viewLabel(name) {
+		return name.slice(0, 1).toUpperCase() + name.slice(1);
 	}
 
 	function connect() {
@@ -104,9 +109,9 @@
 </script>
 
 <svelte:head>
-	<title>Remote — Smart Display</title>
+	<title>Smart Display remote</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-	<meta name="theme-color" content="#050507">
+	<meta name="theme-color" content="#07070b">
 </svelte:head>
 
 <svelte:window onkeydown={keydown} />
@@ -123,54 +128,54 @@
 			<span class="dot"></span>
 			<span class="label">{status}</span>
 		</div>
-		<div class="host">{host || 'finding...'}</div>
+		<div class="host">{host || 'finding host'}</div>
 	</div>
 
 	<div class="hero">
 		<button class="arrow" aria-label="previous" onclick={prev}>‹</button>
 		<div class="current">
-			<div class="current-label">now showing</div>
-			<div class="current-name">{$current}</div>
+			<p class="current-label">Now showing</p>
+			<p class="current-name">{viewLabel($current)}</p>
 		</div>
 		<button class="arrow" aria-label="next" onclick={next}>›</button>
 	</div>
 
-	<div class="pills" role="tablist" aria-label="Views">
+	<div class="views" role="tablist" aria-label="Views">
 		{#each views as v}
 			<button
-				class="pill"
+				class="view-btn"
 				class:active={v === $current}
 				onclick={() => go(v)}
 				role="tab"
 				aria-selected={v === $current}
-				aria-label={`show ${v}`}
+				aria-label={`Show ${viewLabel(v)}`}
 			>
-				{v}
+				{viewLabel(v)}
 			</button>
 		{/each}
 	</div>
 
 	<div class="modes">
-		<button class="mode" onclick={() => send({ type: 'trigger', event: 'sleep' })}>sleep</button>
-		<button class="mode" onclick={() => send({ type: 'trigger', event: 'normal' })}>normal</button>
-		<button class="mode warn" onclick={() => send({ type: 'trigger', event: 'hdmi_off' })}>hdmi off</button>
-		<button class="mode" onclick={() => send({ type: 'trigger', event: 'hdmi_on' })}>hdmi on</button>
+		<button class="mode" onclick={() => send({ type: 'trigger', event: 'sleep' })}>Sleep</button>
+		<button class="mode" onclick={() => send({ type: 'trigger', event: 'normal' })}>Normal</button>
+		<button class="mode warn" onclick={() => send({ type: 'trigger', event: 'hdmi_off' })}>HDMI off</button>
+		<button class="mode" onclick={() => send({ type: 'trigger', event: 'hdmi_on' })}>HDMI on</button>
 	</div>
 
 	{#if lastAction}
-		<div class="last">{lastAction}</div>
+		<p class="last">{lastAction}</p>
 	{/if}
 
-	<div class="hint">swipe anywhere to switch</div>
+	<p class="hint">Swipe anywhere to switch</p>
 </div>
 
 <style>
 	:global(html, body) {
 		margin: 0;
 		padding: 0;
-		background: #050507;
-		color: #f5f2ec;
-		font-family: 'Inter', system-ui, -apple-system, sans-serif;
+		background: var(--background);
+		color: var(--foreground);
+		font-family: var(--font-body);
 		overflow: hidden;
 		-webkit-tap-highlight-color: transparent;
 	}
@@ -181,7 +186,7 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: space-between;
-		padding: 24px 20px max(24px, env(safe-area-inset-bottom));
+		padding: var(--space-6) var(--space-5) max(var(--space-6), env(safe-area-inset-bottom));
 		box-sizing: border-box;
 		user-select: none;
 		-webkit-user-select: none;
@@ -191,136 +196,153 @@
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
+		gap: var(--space-4);
 	}
 	.status {
-		display: flex;
+		display: inline-flex;
 		align-items: center;
-		gap: 8px;
-		font-size: 12px;
-		text-transform: uppercase;
-		letter-spacing: 0.12em;
-		color: rgba(255,255,255,0.35);
+		gap: var(--space-2);
+		height: 2.25rem;
+		padding: 0 var(--space-4);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-lg);
+		background: var(--shell-fill);
+		box-shadow: var(--inset-spec);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--text-tertiary);
 	}
-	.status.connected { color: #00d992; }
-	.status.error { color: #fe6f69; }
+	.status.connected { color: var(--ok); }
+	.status.error { color: var(--warn); }
 	.dot {
-		width: 8px;
-		height: 8px;
+		width: 0.5rem;
+		height: 0.5rem;
 		border-radius: 50%;
-		background: rgba(255,255,255,0.25);
+		background: var(--text-tertiary);
+		flex-shrink: 0;
 	}
-	.status.connected .dot { background: #00d992; box-shadow: 0 0 10px #00d992; }
-	.status.error .dot { background: #fe6f69; }
+	.status.connected .dot { background: var(--ok); }
+	.status.error .dot { background: var(--warn); }
 	.host {
-		font-size: 11px;
-		font-family: 'JetBrains Mono', monospace;
-		color: rgba(255,255,255,0.18);
+		font-size: var(--text-sm);
+		font-family: var(--font-code);
+		color: var(--text-tertiary);
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 
 	.hero {
 		display: flex;
 		align-items: center;
-		gap: 24px;
+		gap: var(--space-6);
 		width: 100%;
 		justify-content: center;
 	}
 	.arrow {
-		width: 88px;
-		height: 88px;
-		border-radius: 50%;
-		border: 1px solid rgba(255,255,255,0.12);
-		background: rgba(255,255,255,0.05);
-		color: rgba(255,255,255,0.7);
-		font-size: 42px;
+		width: 5.5rem;
+		height: 5.5rem;
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		box-shadow: var(--inset-spec);
+		color: var(--foreground);
+		font-size: 2.5rem;
 		line-height: 1;
 		display: flex;
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
 		touch-action: manipulation;
-		transition: transform 0.08s, background 0.15s;
+		transition: transform 220ms var(--spring-smooth), background 220ms var(--spring-smooth);
 	}
-	.arrow:active { transform: scale(0.92); background: rgba(255,255,255,0.14); }
+	.arrow:hover { color: var(--brand); }
+	.arrow:active { transform: scale(0.96); }
 	.current {
-		text-align: center;
-		min-width: 120px;
+		text-align: left;
+		min-width: 7.5rem;
 	}
 	.current-label {
-		font-size: 11px;
-		text-transform: uppercase;
-		letter-spacing: 0.15em;
-		color: rgba(255,255,255,0.25);
-		margin-bottom: 8px;
+		margin: 0 0 var(--space-1);
+		font-size: var(--text-sm);
+		font-weight: 500;
+		color: var(--text-tertiary);
 	}
 	.current-name {
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 28px;
-		font-weight: 500;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: #a9b1f0;
+		margin: 0;
+		font-family: var(--font-body);
+		font-size: 2rem;
+		font-weight: 700;
+		letter-spacing: -0.04em;
+		color: var(--foreground);
 	}
 
-	.pills {
-		display: flex;
-		gap: 10px;
-		flex-wrap: wrap;
-		justify-content: center;
+	.views {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-2);
+		width: 100%;
+		max-width: 22.5rem;
 	}
-	.pill {
-		padding: 12px 20px;
-		border-radius: 999px;
-		border: 1px solid rgba(255,255,255,0.08);
-		background: rgba(255,255,255,0.03);
-		color: rgba(255,255,255,0.45);
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 13px;
-		letter-spacing: 0.05em;
-		text-transform: uppercase;
+	.view-btn {
+		min-height: 3.5rem;
+		padding: 0 var(--space-4);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		box-shadow: var(--inset-spec);
+		color: var(--text-secondary);
+		font-family: var(--font-body);
+		font-size: var(--text-lg);
+		font-weight: 600;
+		letter-spacing: -0.02em;
 		cursor: pointer;
 		touch-action: manipulation;
-		transition: transform 0.08s, background 0.15s, border-color 0.15s;
+		transition:
+			transform 220ms var(--spring-smooth),
+			background 220ms var(--spring-smooth),
+			border-color 220ms var(--spring-smooth),
+			color 220ms var(--spring-smooth);
 	}
-	.pill:active { transform: scale(0.96); }
-	.pill.active {
-		background: rgba(169,177,240,0.16);
-		border-color: rgba(169,177,240,0.45);
-		color: rgba(242,240,247,0.95);
+	.view-btn:hover { color: var(--foreground); }
+	.view-btn:active { transform: scale(0.98); }
+	.view-btn.active {
+		background: color-mix(in srgb, var(--abyss-2) 88%, var(--foreground));
+		color: var(--foreground);
+		border-color: color-mix(in srgb, var(--foreground) 22%, transparent);
 	}
 
 	.modes {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
-		gap: 10px;
+		gap: var(--space-2);
 		width: 100%;
-		max-width: 360px;
+		max-width: 22.5rem;
 	}
 	.mode {
-		padding: 14px 0;
-		border-radius: 12px;
-		border: 1px solid rgba(255,255,255,0.08);
-		background: rgba(255,255,255,0.03);
-		color: rgba(255,255,255,0.55);
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 12px;
-		letter-spacing: 0.06em;
-		text-transform: uppercase;
+		padding: var(--space-4) 0;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--abyss-2);
+		color: var(--text-secondary);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 600;
 		cursor: pointer;
 		touch-action: manipulation;
-		transition: transform 0.08s, background 0.15s;
+		transition: transform 220ms var(--spring-smooth), background 220ms var(--spring-smooth);
 	}
-	.mode:active { transform: scale(0.96); background: rgba(255,255,255,0.1); }
-	.mode.warn { color: #fe6f69; border-color: rgba(254,111,105,0.2); }
+	.mode:active { transform: scale(0.98); }
+	.mode.warn { color: var(--warn); }
 
 	.last {
-		font-family: 'JetBrains Mono', monospace;
-		font-size: 11px;
-		color: rgba(255,255,255,0.2);
+		margin: 0;
+		font-family: var(--font-code);
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
 	}
 	.hint {
-		font-size: 11px;
-		color: rgba(255,255,255,0.18);
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
+		margin: 0;
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
 	}
 </style>

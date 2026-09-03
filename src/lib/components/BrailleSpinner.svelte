@@ -21,7 +21,7 @@
 	.spin {
 		display: inline-block;
 		width: 1.1em;
-		font-family: var(--font-display);
+		font-family: var(--font-code);
 		color: var(--text-tertiary);
 		text-align: center;
 	}

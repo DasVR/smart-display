@@ -8,16 +8,16 @@
 }
 
 :root {
-	--abyss: #050507;
-	--abyss-1: #0a0a0c;
-	--abyss-2: #101014;
-	--abyss-3: #16161d;
+	--abyss: #07070b;
+	--abyss-1: #0c0c12;
+	--abyss-2: #12121a;
+	--abyss-3: #181822;
 	--gray-00: var(--abyss);
-	--gray-05: #1a1a1d;
-	--gray-10: #2a2a2e;
-	--gray-40: #8a8a93;
-	--gray-70: #c8c8ce;
-	--gray-95: #f3f3f5;
+	--gray-05: #1c1c24;
+	--gray-10: #2a2a34;
+	--gray-40: #8a8a96;
+	--gray-70: #c6c6d0;
+	--gray-95: #f2f2f6;
 	--brand-50: #a9b1f0;
 	--brand-30: #6e76b8;
 	--ok-50: #5d9d7e;
@@ -65,9 +65,9 @@
 	--radius-bezel: 2rem;
 	--radius-bezel-inner: calc(2rem - 0.375rem);
 	--bezel-pad: 0.375rem;
-	--hairline: color-mix(in srgb, var(--foreground) 10%, transparent);
-	--shell-fill: color-mix(in srgb, var(--foreground) 4%, transparent);
-	--inset-spec: inset 0 1px 1px color-mix(in srgb, var(--foreground) 15%, transparent);
+	--hairline: color-mix(in srgb, var(--foreground) 14%, transparent);
+	--shell-fill: color-mix(in srgb, var(--foreground) 5%, transparent);
+	--inset-spec: inset 0 1px 1px color-mix(in srgb, var(--foreground) 16%, transparent);
 	--r-sm: var(--radius-sm);
 	--r-md: var(--radius-md);
 	--r-lg: var(--radius-lg);
@@ -93,12 +93,13 @@
 	--measure: 66ch;
 
 	--font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
-	--font-display: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+	--font-display: var(--font-body);
 	--font-code: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
 
 	--dur-fast: 150ms;
 	--dur-base: 220ms;
 	--dur-slow: 320ms;
+	--dur-pane: 680ms;
 	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 	--ease-in: cubic-bezier(0.7, 0, 0.84, 0);
 	--ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
@@ -111,14 +112,14 @@
 
 	--elevation-1: inset 0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent);
 	--elevation-2: 0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent);
-	--elevation-3: 0 8px 24px color-mix(in srgb, var(--background) 80%, transparent);
+	--elevation-3: 0 10px 28px color-mix(in srgb, var(--abyss) 72%, var(--abyss-3));
 
-	--glass-fill: color-mix(in srgb, var(--abyss-1) 85%, transparent);
+	--glass-fill: color-mix(in srgb, var(--abyss-1) 55%, transparent);
 	--glass-blur: 24px;
-	--glass-specular: rgb(255 255 255 / 0.1);
-	--glass-edge: rgb(255 255 255 / 0.06);
-	--glass-inset-hi: rgb(255 255 255 / 0.1);
-	--glass-inset-lo: rgb(0 0 0 / 0.22);
+	--glass-specular: color-mix(in srgb, var(--foreground) 10%, transparent);
+	--glass-edge: color-mix(in srgb, var(--foreground) 6%, transparent);
+	--glass-inset-hi: color-mix(in srgb, var(--foreground) 10%, transparent);
+	--glass-inset-lo: color-mix(in srgb, var(--abyss) 55%, transparent);
 	--glass-depth:
 		inset 0 1px 0 var(--glass-inset-hi),
 		inset 0 -1px 14px var(--glass-inset-lo);
@@ -150,7 +151,7 @@ body {
 	height: 100%;
 	background: var(--background);
 	color: var(--foreground);
-	font-family: var(--font-display);
+	font-family: var(--font-body);
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
 	overflow-x: clip;
@@ -185,7 +186,8 @@ h4,
 h5,
 h6 {
 	font-style: normal;
-	font-family: var(--font-display);
+	font-family: var(--font-body);
+	text-wrap: balance;
 }
 
 .num {
@@ -269,6 +271,18 @@ h6 {
 	}
 }
 
+.sheet {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+	min-height: 0;
+	height: 100%;
+	border: 1px solid var(--hairline);
+	border-radius: var(--radius-md);
+	background: color-mix(in srgb, var(--abyss) 22%, transparent);
+	box-sizing: border-box;
+}
+
 .bezel {
 	display: flex;
 	flex-direction: column;
@@ -297,17 +311,68 @@ h6 {
 
 .plate {
 	border: 1px solid var(--hairline);
-	border-radius: var(--radius-lg);
+	border-radius: var(--radius-md);
 	background: color-mix(in srgb, var(--abyss-2) 88%, transparent);
 	box-shadow: var(--inset-spec);
+	transition: border-color 220ms var(--spring-smooth);
+}
+@media (hover: hover) {
+	.plate:hover {
+		border-color: color-mix(in srgb, var(--foreground) 24%, transparent);
+	}
 }
 
 .ascii-mark {
-	font-family: var(--font-display);
+	font-family: var(--font-code);
 	font-style: normal;
 	color: var(--text-tertiary);
 }
 
 .human {
 	font-family: var(--font-body);
+}
+
+@keyframes pane-in {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes island-in {
+	from {
+		opacity: 0;
+		transform: translateY(-6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+@keyframes yield-mark {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 1;
+	}
+	50% {
+		transform: scale(1.35);
+		opacity: 0.55;
+	}
+}
+
+@keyframes today-arrive {
+	from {
+		opacity: 0.65;
+		transform: translateY(6px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
 }

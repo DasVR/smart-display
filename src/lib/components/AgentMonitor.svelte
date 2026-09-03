@@ -17,7 +17,7 @@
 
 	<ul class="agents">
 		{#each agents as a (a.id)}
-			<li class="plate">
+			<li>
 				<ThinkingOrbs phase={a.phase} />
 				<div class="meta">
 					<div class="name">
@@ -70,9 +70,11 @@
 		display: flex;
 		justify-content: space-between;
 		gap: var(--space-4);
-		font-size: var(--text-2xl);
-		font-weight: 700;
+		font-family: var(--font-body);
+		font-size: var(--text-lg);
+		font-weight: 600;
 		font-style: normal;
+		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
 	}
 	.pid {
@@ -85,16 +87,19 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: 0;
 	}
 	.agents li {
 		display: flex;
 		align-items: center;
 		gap: var(--space-4);
-		min-height: 4.5rem;
+		min-height: 2.75rem;
 		min-width: 0;
-		padding: 0 var(--space-4);
-		transition: transform 500ms var(--ease-fluid);
+		padding: var(--space-4) 0;
+		border-bottom: 1px solid var(--hairline);
+		background: none;
+		box-shadow: none;
+		transition: transform 280ms var(--spring-smooth);
 	}
 	.agents li:active {
 		transform: scale(0.98);
@@ -107,7 +112,7 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		font-family: var(--font-display);
+		font-family: var(--font-body);
 		font-size: var(--text-xl);
 		color: var(--foreground);
 		overflow-wrap: anywhere;
@@ -121,6 +126,7 @@
 		color: var(--text-tertiary);
 	}
 	.phase {
+		font-family: var(--font-code);
 		color: var(--brand);
 	}
 	.tools {

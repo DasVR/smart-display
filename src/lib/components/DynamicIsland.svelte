@@ -50,28 +50,35 @@
 </script>
 
 <div class="island" data-mode={mode}>
-	{#if mode === 'nowplaying'}
-		<div class="slip">
-			<div class="copy">
-				<div class="kicker">[{modeLabel(mode)}]</div>
-				<div class="title">{nowPlaying?.title || 'Untitled'}</div>
-				<div class="sub">{nowPlaying?.artist || ''}</div>
+	{#key mode}
+		{#if mode === 'nowplaying'}
+			<div class="slip">
+				<div class="copy">
+					<div class="kicker">[{modeLabel(mode)}]</div>
+					<div class="title">{nowPlaying?.title || 'Untitled'}</div>
+					<div class="sub">{nowPlaying?.artist || ''}</div>
+				</div>
 			</div>
-		</div>
-	{:else if mode === 'alert'}
-		<div class="slip">
-			<div class="copy">
-				<div class="kicker">[{modeLabel(mode)}]</div>
-				<div class="title">{notification.title}</div>
-				<div class="sub">{notification.body}</div>
+		{:else if mode === 'alert'}
+			<div class="slip">
+				<div class="copy">
+					<div class="kicker">[{modeLabel(mode)}]</div>
+					<div class="title">{notification.title}</div>
+					<div class="sub">{notification.body}</div>
+				</div>
 			</div>
-		</div>
-	{:else}
-		<div class="chip" class:hot={gpuLowPower} class:busy={ollamaStatus === 'inferring'} class:weather={mode === 'weather'}>
-			<span class="dot" aria-hidden="true"></span>
-			<span class="word">[{modeLabel(mode)}]</span>
-		</div>
-	{/if}
+		{:else}
+			<div
+				class="chip"
+				class:hot={gpuLowPower}
+				class:busy={ollamaStatus === 'inferring'}
+				class:weather={mode === 'weather'}
+			>
+				<span class="dot" aria-hidden="true"></span>
+				<span class="word">[{modeLabel(mode)}]</span>
+			</div>
+		{/if}
+	{/key}
 </div>
 
 <style>
@@ -82,49 +89,44 @@
 	.chip {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-3);
-		height: 3.5rem;
-		padding: 0 var(--space-8);
-		border: 1px solid var(--hairline);
-		border-radius: 999px;
-		background: var(--shell-fill);
-		box-shadow: var(--inset-spec);
+		gap: var(--space-2);
+		min-height: 2.75rem;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
 		color: var(--ok);
-		transition: transform 500ms var(--ease-fluid);
+		transition:
+			transform 280ms var(--spring-smooth),
+			color 280ms var(--spring-smooth);
 	}
 	.chip:active {
 		transform: scale(0.98);
 	}
 	.dot {
-		width: 0.75rem;
-		height: 0.75rem;
+		width: 0.45rem;
+		height: 0.45rem;
 		border-radius: 50%;
 		background: var(--ok);
 		flex-shrink: 0;
+		transform-origin: center;
 	}
 	.chip.busy .dot {
 		background: var(--brand);
 	}
-	.chip.hot {
-		color: var(--warn);
-		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-	}
+	.chip.hot,
 	.chip.weather {
 		color: var(--warn);
-		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
 	}
+	.chip.hot .dot,
 	.chip.weather .dot {
 		background: var(--warn);
-		animation: pulse 1.4s ease-in-out infinite;
-	}
-	@keyframes pulse {
-		0%, 100% { opacity: 1; }
-		50% { opacity: 0.4; }
 	}
 	.word {
-		font-family: var(--font-display);
-		font-size: var(--text-xl);
-		font-weight: 600;
+		font-family: var(--font-code);
+		font-size: var(--text-lg);
+		font-weight: 500;
 		font-style: normal;
 		line-height: 1;
 		letter-spacing: 0.04em;
@@ -133,27 +135,27 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
-		min-height: 3.5rem;
+		min-height: 2.75rem;
 		max-width: min(36rem, 100%);
-		padding: var(--space-4) var(--space-8);
-		border: 1px solid var(--hairline);
-		border-radius: var(--radius-bezel-inner);
-		background: var(--shell-fill);
-		box-shadow: var(--inset-spec);
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
 	}
 	.copy {
 		min-width: 0;
 		flex: 1;
 	}
 	.kicker {
-		font-family: var(--font-display);
-		font-size: var(--text-base);
+		font-family: var(--font-code);
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-tertiary);
 	}
 	.title {
-		font-family: var(--font-display);
-		font-size: var(--text-xl);
+		font-family: var(--font-body);
+		font-size: var(--text-lg);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -163,16 +165,29 @@
 		text-overflow: ellipsis;
 	}
 	.sub {
-		font-size: var(--text-base);
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 
+	@media (prefers-reduced-motion: no-preference) {
+		.slip {
+			animation: island-in 480ms var(--spring-smooth) both;
+		}
+		.chip.hot .dot,
+		.chip.weather .dot {
+			animation: yield-mark 1.8s var(--spring-smooth) infinite;
+		}
+	}
+
 	@media (max-width: 414px) {
 		.slip {
 			max-width: 100%;
+		}
+		.word {
+			font-size: var(--text-sm);
 		}
 	}
 </style>

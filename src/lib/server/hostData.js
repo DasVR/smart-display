@@ -282,7 +282,11 @@ const STATION_HISTORY = path.join(STATION_DIR, 'history.jsonl');
 let lastStation = null;
 let lastStationTime = 0;
 
-if (!existsSync(STATION_DIR)) mkdirSync(STATION_DIR, { recursive: true });
+try {
+	if (!existsSync(STATION_DIR)) mkdirSync(STATION_DIR, { recursive: true });
+} catch {
+	/* build hosts cannot write the kiosk station dir */
+}
 
 function tryParseNum(v) {
 	if (v === undefined || v === null) return null;

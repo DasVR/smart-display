@@ -82,15 +82,14 @@
 
 <div class="school-hub">
 	<header class="running">
-		<div class="titles">
-			<p class="kicker">Assignments</p>
-			<h2 class="hub-title">Due work</h2>
-		</div>
+		<h2 class="hub-title">Due work</h2>
 		<p class="head-meta">
 			{#if loading}
 				Checking calendar
 			{:else if error}
 				{error}
+			{:else if events.length === 0}
+				Clear this week
 			{:else}
 				{events.length} tagged #hw
 			{/if}
@@ -104,7 +103,7 @@
 					<h3 class="day-label">{group.label}</h3>
 					<ol class="day-list">
 						{#each group.items as e, i (e.id ?? `${group.key}-${i}`)}
-							<li class="entry plate" data-urgency={urgency(e)}>
+							<li class="entry" data-urgency={urgency(e)}>
 								<time class="when num">{timeLabel(e.start)}</time>
 								<div class="body">
 									<div class="row-title">{e.title}</div>
@@ -142,34 +141,27 @@
 		min-width: 0;
 		flex-shrink: 0;
 	}
-	.titles {
-		min-width: 0;
-	}
-	.kicker {
-		margin: 0 0 var(--space-1);
-		font-family: var(--font-body);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		letter-spacing: 0.08em;
-		text-transform: uppercase;
-		color: var(--text-tertiary);
-	}
 	.hub-title {
 		margin: 0;
 		font-family: var(--font-body);
-		font-size: clamp(1.75rem, 3vw, 2.75rem);
+		font-size: clamp(2.25rem, 4.2vw, 3.75rem);
 		font-weight: 700;
 		font-style: normal;
-		letter-spacing: -0.04em;
+		letter-spacing: -0.055em;
+		text-wrap: balance;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.head-meta {
 		margin: 0;
+		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		color: var(--text-tertiary);
-		flex-shrink: 0;
+		flex-shrink: 1;
+		overflow-wrap: anywhere;
+		min-width: 0;
+		max-width: 100%;
 	}
 	.archive {
 		display: flex;
@@ -200,15 +192,18 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-2);
+		gap: 0;
 	}
 	.entry {
 		display: grid;
 		grid-template-columns: 5.5rem minmax(0, 1fr);
 		gap: var(--space-2);
 		align-items: baseline;
-		padding: var(--space-3) var(--space-4);
-		min-height: 4.5rem;
+		padding: var(--space-4) 0;
+		min-height: 2.75rem;
+		border-bottom: 1px solid var(--hairline);
+		background: none;
+		box-shadow: none;
 	}
 	.entry[data-urgency='now'] .when {
 		color: var(--warn);
@@ -237,6 +232,11 @@
 	}
 
 	@media (max-width: 768px) {
+		.running {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: var(--space-2);
+		}
 		.day {
 			grid-template-columns: minmax(0, 1fr);
 			gap: var(--space-2);
