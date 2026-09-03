@@ -348,11 +348,11 @@
 		background: transparent;
 		color: var(--text-tertiary);
 		font-family: var(--font-body);
-		font-size: var(--text-sm);
+		font-size: var(--text-lg);
 		font-weight: 600;
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
-		padding: var(--space-2) var(--space-4);
+		padding: var(--space-3) var(--space-5);
 		border-radius: 999px;
 		cursor: pointer;
 		transition:
@@ -408,7 +408,7 @@
 		padding: var(--space-8);
 	}
 	.clock-pane :global(.time) {
-		font-size: clamp(80px, 12vw, 180px);
+		font-size: clamp(120px, 18vw, 280px);
 	}
 	.clock-pane :global(.seconds),
 	.clock-pane :global(.ampm) {
