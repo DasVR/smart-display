@@ -161,6 +161,7 @@
 		flex-shrink: 1;
 		overflow-wrap: anywhere;
 		min-width: 0;
+		max-width: 100%;
 	}
 	.archive {
 		display: flex;
@@ -228,6 +229,11 @@
 	}
 
 	@media (max-width: 768px) {
+		.running {
+			flex-direction: column;
+			align-items: flex-start;
+			gap: var(--space-2);
+		}
 		.day {
 			grid-template-columns: minmax(0, 1fr);
 			gap: var(--space-2);
