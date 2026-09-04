@@ -87,8 +87,8 @@
 
 <div class="dev-hub">
 	<div class="mark">
-		<span>// Dev Wall</span>
-		<span>{containers} ctr</span>
+		<h2 class="title">Dev Wall</h2>
+		<span class="ctr">{containers} containers</span>
 	</div>
 
 	<BracketMeter label="CPU" pct={loading ? 0 : cpuPct} hint="1m load" />
@@ -96,7 +96,7 @@
 	<BracketMeter label="NET" pct={loading ? 0 : netPct} hint={netHint} />
 
 	<div class="monitor-wrap">
-		<AgentMonitor {agents} {reasoning} {tools} seed={cpuPct + ramPct} />
+		<AgentMonitor {agents} {reasoning} {tools} />
 	</div>
 
 	<section class="svc-block">
@@ -110,7 +110,10 @@
 				{#each services as s, i (s.name ?? i)}
 					<li>
 						<span class="svc-name">{s.name}</span>
-						<span class="state" class:ok={s.status}>{s.status ? '[UP]' : '[DOWN]'}</span>
+						<span class="state" class:ok={s.status}>
+							<span class="state-dot" aria-hidden="true"></span>
+							{s.status ? 'Online' : 'Offline'}
+						</span>
 					</li>
 				{/each}
 			</ul>
@@ -133,13 +136,24 @@
 	}
 	.mark {
 		display: flex;
+		align-items: baseline;
 		justify-content: space-between;
 		gap: var(--space-4);
-		font-family: var(--font-code);
-		font-size: var(--text-sm);
-		color: var(--text-tertiary);
 		flex-shrink: 0;
 		z-index: 1;
+	}
+	.title {
+		margin: 0;
+		font-family: var(--font-body);
+		font-size: clamp(1.75rem, 3vw, 2.5rem);
+		font-weight: 700;
+		letter-spacing: -0.03em;
+		color: var(--foreground);
+	}
+	.ctr {
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
 	}
 	.section-label {
 		margin: 0;
@@ -196,16 +210,26 @@
 		min-width: 0;
 	}
 	.state {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-2);
 		flex-shrink: 0;
 		padding: 0;
 		border: 0;
 		border-radius: 0;
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-base);
 		font-weight: 500;
 		color: var(--warn);
 		background: none;
 		box-shadow: none;
+	}
+	.state-dot {
+		width: 0.4rem;
+		height: 0.4rem;
+		border-radius: 50%;
+		background: currentColor;
+		box-shadow: 0 0 8px color-mix(in srgb, currentColor 70%, transparent);
 	}
 	.state.ok {
 		color: var(--ok);

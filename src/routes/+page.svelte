@@ -193,14 +193,13 @@
 				</div>
 			</div>
 			<nav class="view-strip" aria-label="Views">
-				{#each VIEWS as v, i}
+				{#each VIEWS as v}
 					<button
 						class="view-tab"
 						class:active={$currentView === v}
 						onclick={() => currentView.set(v)}
 						aria-current={$currentView === v ? 'page' : undefined}
 					>
-						<span class="idx">{String(i + 1).padStart(2, '0')}</span>
 						<span class="view-tab-label">{viewLabel(v)}</span>
 					</button>
 				{/each}
@@ -216,11 +215,11 @@
 					</div>
 				</section>
 			{:else if $currentView === 'school'}
-				<section class="view-pane sheet">
+				<section class="view-pane sheet school-pane">
 					<SchoolHub />
 				</section>
 			{:else if $currentView === 'dev'}
-				<section class="view-pane sheet">
+				<section class="view-pane sheet dev-pane">
 					<DevHub />
 				</section>
 			{:else if $currentView === 'music'}
@@ -355,7 +354,7 @@
 		align-items: stretch;
 		width: max-content;
 		max-width: 100%;
-		gap: var(--space-6);
+		gap: var(--space-2);
 		margin-top: var(--space-6);
 		padding: 0;
 		min-width: 0;
@@ -368,12 +367,10 @@
 	.view-tab {
 		appearance: none;
 		display: inline-flex;
-		align-items: baseline;
-		gap: var(--space-2);
+		align-items: center;
 		min-height: 2.75rem;
-		border: 0;
-		border-bottom: 1px solid transparent;
-		border-radius: 0;
+		border: 1px solid transparent;
+		border-radius: 999px;
 		background: transparent;
 		color: var(--text-tertiary);
 		font-family: var(--font-body);
@@ -381,11 +378,12 @@
 		font-weight: 500;
 		letter-spacing: -0.01em;
 		text-transform: none;
-		padding: var(--space-2) 0;
+		padding: var(--space-2) var(--space-5);
 		cursor: pointer;
 		white-space: nowrap;
 		transition:
 			color 280ms var(--spring-smooth),
+			background 280ms var(--spring-smooth),
 			border-color 280ms var(--spring-smooth),
 			transform 280ms var(--spring-smooth);
 	}
@@ -397,18 +395,9 @@
 	}
 	.view-tab.active {
 		color: var(--foreground);
-		background: none;
-		box-shadow: none;
-		border-bottom-color: var(--brand);
-	}
-	.idx {
-		font-family: var(--font-code);
-		font-size: var(--text-sm);
-		font-variant-numeric: tabular-nums;
-		color: var(--text-tertiary);
-	}
-	.view-tab.active .idx {
-		color: var(--brand);
+		background: color-mix(in srgb, var(--brand) 14%, transparent);
+		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
+		box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 22%, transparent);
 	}
 	.view-tab-label {
 		display: inline-block;
@@ -461,8 +450,27 @@
 		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
 	}
+	.school-pane {
+		--sheet-glow: radial-gradient(
+			44rem 26rem at 8% -6%,
+			var(--glow-brand),
+			transparent 70%
+		);
+	}
+	.dev-pane {
+		--sheet-glow: radial-gradient(
+			44rem 26rem at 92% -6%,
+			var(--glow-solve),
+			transparent 70%
+		);
+	}
 	.weather-pane {
 		min-height: 0;
+		--sheet-glow: radial-gradient(
+			44rem 26rem at 50% -8%,
+			var(--glow-scan),
+			transparent 70%
+		);
 	}
 	.weather-core {
 		display: grid;

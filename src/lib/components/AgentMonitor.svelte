@@ -1,34 +1,23 @@
 <script>
 	import ThinkingOrbs from '$lib/components/ThinkingOrbs.svelte';
-	import BrailleSpinner from '$lib/components/BrailleSpinner.svelte';
-	import BitstreamTicker from '$lib/components/BitstreamTicker.svelte';
 	import ReasoningCard from '$lib/components/ReasoningCard.svelte';
 	import ToolCallCard from '$lib/components/ToolCallCard.svelte';
-	import { runPid } from '$lib/agentFeed.js';
 
-	let { agents = [], reasoning = null, tools = [], seed = 0 } = $props();
+	let { agents = [], reasoning = null, tools = [] } = $props();
 </script>
 
 <section class="monitor" aria-label="Active agents and tool execution">
-	<h3 class="section">
-		<span>Active Agents</span>
-		<span class="pid">[RUN_PID:{runPid('wall')}]</span>
-	</h3>
+	<h3 class="section">Active Agents</h3>
 
 	<ul class="agents">
 		{#each agents as a (a.id)}
 			<li>
 				<ThinkingOrbs phase={a.phase} />
 				<div class="meta">
-					<div class="name">
-						<BrailleSpinner active={a.phase !== 'idle' && a.phase !== 'done'} />
-						<span>{a.name}</span>
-						<BitstreamTicker seed={seed + Number(a.pid)} active={a.phase !== 'idle' && a.phase !== 'done'} />
-					</div>
+					<div class="name">{a.name}</div>
 					<div class="task">
 						<span class="phase">{a.phase}</span>
 						<span>{a.task}</span>
-						<span class="pid">::{a.pid}</span>
 					</div>
 				</div>
 			</li>
@@ -67,18 +56,11 @@
 	}
 	.section {
 		margin: 0;
-		display: flex;
-		justify-content: space-between;
-		gap: var(--space-4);
 		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		font-weight: 600;
 		font-style: normal;
 		letter-spacing: -0.02em;
-		color: var(--text-tertiary);
-	}
-	.pid {
-		font-family: var(--font-code);
 		color: var(--text-tertiary);
 	}
 	.agents {
@@ -109,11 +91,9 @@
 		flex: 1;
 	}
 	.name {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
 		font-family: var(--font-body);
 		font-size: var(--text-xl);
+		font-weight: 500;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
@@ -126,7 +106,6 @@
 		color: var(--text-tertiary);
 	}
 	.phase {
-		font-family: var(--font-code);
 		color: var(--brand);
 	}
 	.tools {

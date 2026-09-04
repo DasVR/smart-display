@@ -12,7 +12,8 @@
 		{/each}
 	</div>
 	<p class="link" class:ok={$wsStatus === 'connected'}>
-		{$wsStatus === 'connected' ? '[SYS_OK]' : '[LNK_DN]'}
+		<span class="link-dot" aria-hidden="true"></span>
+		{$wsStatus === 'connected' ? 'Connected' : 'Reconnecting'}
 	</p>
 </div>
 
@@ -54,13 +55,28 @@
 		}
 	}
 	.link {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 		margin: 0;
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-sm);
+		font-weight: 500;
 		color: var(--text-tertiary);
 		padding-bottom: var(--space-1);
 	}
+	.link-dot {
+		width: 0.4rem;
+		height: 0.4rem;
+		border-radius: 50%;
+		background: currentColor;
+		opacity: 0.5;
+	}
 	.link.ok {
 		color: var(--ok);
+	}
+	.link.ok .link-dot {
+		opacity: 1;
+		box-shadow: 0 0 8px color-mix(in srgb, var(--ok) 70%, transparent);
 	}
 </style>
