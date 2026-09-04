@@ -10,8 +10,8 @@
 	<h3 class="section">Active Agents</h3>
 
 	<ul class="agents">
-		{#each agents as a (a.id)}
-			<li>
+		{#each agents as a, i (a.id)}
+			<li style="--i: {i}">
 				<ThinkingOrbs phase={a.phase} />
 				<div class="meta">
 					<div class="name">{a.name}</div>
@@ -85,6 +85,12 @@
 	}
 	.agents li:active {
 		transform: scale(0.98);
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.agents li {
+			animation: today-arrive 560ms var(--spring-smooth) both;
+			animation-delay: calc(var(--i, 0) * 70ms);
+		}
 	}
 	.meta {
 		min-width: 0;

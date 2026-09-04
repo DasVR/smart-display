@@ -103,7 +103,7 @@
 					<h3 class="day-label">{group.label}</h3>
 					<ol class="day-list">
 						{#each group.items as e, i (e.id ?? `${group.key}-${i}`)}
-							<li class="entry" data-urgency={urgency(e)}>
+							<li class="entry" data-urgency={urgency(e)} style="--i: {i}">
 								<time class="when num">{timeLabel(e.start)}</time>
 								<div class="body">
 									<div class="row-title">{e.title}</div>
@@ -204,6 +204,12 @@
 		border-bottom: 1px solid var(--hairline);
 		background: none;
 		box-shadow: none;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.entry {
+			animation: today-arrive 560ms var(--spring-smooth) both;
+			animation-delay: calc(var(--i, 0) * 60ms);
+		}
 	}
 	.entry[data-urgency='now'] .when {
 		color: var(--warn);
