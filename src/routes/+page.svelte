@@ -1,8 +1,11 @@
 <!--
 	Hallmark design scores
-	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 5 · Variety 5
-	Credits-roll HUD on current master IA: shader is the sculpture,
-	indexed views including Weather, glass only on the trough.
+	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 4 · Restraint 4 · Variety 5
+	Moody-ambient IA: the liquid-metal field is cursor-reactive and carries the
+	dithered, molten identity; glass now refracts through every view sheet
+	(school/dev/weather), not just the trough, with a single sheened+liquid-
+	distorted hero surface active at a time. Nav uses one sliding indicator,
+	not a static per-tab pill.
 -->
 <script>
 	import '../app.css';
@@ -28,8 +31,20 @@
 	let notif = $state({ visible: false, title: '', body: '', kind: 'info' });
 	let mode = $state('normal');
 	let hdmiOff = $state(false);
+	let navEl = $state(null);
+	let tabRefs = $state([]);
+	let indicator = $state({ left: 0, width: 0, ready: false });
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
+
+	function updateIndicator() {
+		const idx = VIEWS.indexOf($currentView);
+		const btn = tabRefs[idx];
+		if (!btn || !navEl) return;
+		const navRect = navEl.getBoundingClientRect();
+		const btnRect = btn.getBoundingClientRect();
+		indicator = { left: btnRect.left - navRect.left, width: btnRect.width, ready: true };
+	}
 
 	function showNotif(title, body, kind = 'info', ms = 4500) {
 		notif = { visible: true, title, body, kind };
@@ -137,12 +152,15 @@
 		const music = setInterval(fetchNowPlaying, 4000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
+		window.addEventListener('resize', updateIndicator, { passive: true });
+		updateIndicator();
 		return () => {
 			clearInterval(clock);
 			clearInterval(music);
 			clearInterval(wx);
 			clearTimeout(reconnectTimer);
 			window.removeEventListener('keydown', handleKey);
+			window.removeEventListener('resize', updateIndicator);
 			ws?.close();
 		};
 	});
@@ -154,6 +172,11 @@
 	function viewLabel(name) {
 		return name.slice(0, 1).toUpperCase() + name.slice(1);
 	}
+
+	$effect(() => {
+		$currentView;
+		updateIndicator();
+	});
 </script>
 
 <svelte:head>
@@ -161,6 +184,15 @@
 </svelte:head>
 
 <a class="skip" href="#main-stage">Skip to view</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+	<defs>
+		<filter id="liquid-glass" x="-20%" y="-20%" width="140%" height="140%">
+			<feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" result="noise" />
+			<feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G" />
+		</filter>
+	</defs>
+</svg>
 
 <div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
 	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode || mode === 'sleep'} />
@@ -192,13 +224,20 @@
 					</div>
 				</div>
 			</div>
-			<nav class="view-strip" aria-label="Views">
-				{#each VIEWS as v}
+			<nav class="view-strip" aria-label="Views" bind:this={navEl}>
+				<span
+					class="tab-indicator"
+					class:ready={indicator.ready}
+					style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
+					aria-hidden="true"
+				></span>
+				{#each VIEWS as v, i}
 					<button
 						class="view-tab"
 						class:active={$currentView === v}
 						onclick={() => currentView.set(v)}
 						aria-current={$currentView === v ? 'page' : undefined}
+						bind:this={tabRefs[i]}
 					>
 						<span class="view-tab-label">{viewLabel(v)}</span>
 					</button>
@@ -215,11 +254,11 @@
 					</div>
 				</section>
 			{:else if $currentView === 'school'}
-				<section class="view-pane sheet school-pane">
+				<section class="view-pane sheet school-pane" data-glass>
 					<SchoolHub />
 				</section>
 			{:else if $currentView === 'dev'}
-				<section class="view-pane sheet dev-pane">
+				<section class="view-pane sheet dev-pane" data-glass>
 					<DevHub />
 				</section>
 			{:else if $currentView === 'music'}
@@ -227,7 +266,7 @@
 					<MusicView />
 				</section>
 			{:else if $currentView === 'weather'}
-				<section class="view-pane sheet weather-pane">
+				<section class="view-pane sheet weather-pane" data-glass>
 					<div class="weather-core">
 						<div class="radar-trough">
 							<RadarCanvas data={weatherData} />
@@ -350,6 +389,7 @@
 		color: var(--foreground);
 	}
 	.view-strip {
+		position: relative;
 		display: flex;
 		align-items: stretch;
 		width: max-content;
@@ -364,7 +404,35 @@
 		box-shadow: none;
 		box-sizing: border-box;
 	}
+	.tab-indicator {
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		left: var(--ind-left, 0);
+		width: var(--ind-width, 0);
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--brand) 14%, transparent);
+		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
+		box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 22%, transparent);
+		opacity: 0;
+		pointer-events: none;
+		z-index: 0;
+	}
+	.tab-indicator.ready {
+		opacity: 1;
+		transition:
+			left 520ms var(--spring-bouncy),
+			width 520ms var(--spring-bouncy),
+			opacity 240ms var(--spring-smooth);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.tab-indicator.ready {
+			transition: opacity 240ms var(--spring-smooth);
+		}
+	}
 	.view-tab {
+		position: relative;
+		z-index: 1;
 		appearance: none;
 		display: inline-flex;
 		align-items: center;
@@ -383,8 +451,6 @@
 		white-space: nowrap;
 		transition:
 			color 280ms var(--spring-smooth),
-			background 280ms var(--spring-smooth),
-			border-color 280ms var(--spring-smooth),
 			transform 280ms var(--spring-smooth);
 	}
 	.view-tab:hover {
@@ -395,9 +461,6 @@
 	}
 	.view-tab.active {
 		color: var(--foreground);
-		background: color-mix(in srgb, var(--brand) 14%, transparent);
-		border-color: color-mix(in srgb, var(--brand) 30%, transparent);
-		box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 22%, transparent);
 	}
 	.view-tab-label {
 		display: inline-block;

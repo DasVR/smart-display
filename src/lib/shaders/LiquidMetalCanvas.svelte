@@ -39,6 +39,7 @@
 	let panelTimer = 0;
 	let mo = null;
 	let resizeObs = null;
+	let pointerIdleTimer = 0;
 
 	let uTimeLoc;
 	let uResLoc;
@@ -46,6 +47,13 @@
 	let uPanelsLoc;
 	let uPanelCountLoc;
 	let uPixelSizeLoc;
+	let uMouseLoc;
+	let uMouseStrengthLoc;
+
+	const mouseTarget = { x: 0.5, y: 0.5 };
+	const mouseSmooth = { x: 0.5, y: 0.5 };
+	let mouseStrength = 0;
+	let pointerActive = false;
 
 	const panelData = new Float32Array(8 * 4);
 	let panelCount = 0;
@@ -66,6 +74,8 @@ uniform float u_bass;
 uniform vec4 u_panels[8];
 uniform int u_panelCount;
 uniform float u_pixelSize;
+uniform vec2 u_mouse;
+uniform float u_mouseStrength;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -140,6 +150,11 @@ float fluid(vec2 uv, float t, float bass) {
 	float dist = length(dlt);
 	float ripple = sin(dist * 34.0 - t * 2.2) * exp(-dist * 3.0);
 	f += ripple * bass * (0.35 + 0.9 * ambient);
+
+	vec2 dm = uv - u_mouse;
+	float distm = length(dm);
+	float rippleM = sin(distm * 46.0 - t * 3.4) * exp(-distm * 5.5);
+	f += rippleM * u_mouseStrength * 0.55;
 
 	return (f * 0.68 + f2 * 0.32) * (0.78 + 0.45 * ambient);
 }
@@ -232,10 +247,10 @@ void main() {
 	float vig = 1.0 - length(centered) * 0.42;
 	color *= vig;
 
-	float levels = 12.0;
-	float dith = bayer8(pixelCoord) * 0.04;
+	float levels = 9.0;
+	float dith = bayer8(pixelCoord) * 0.07;
 	vec3 quantized = floor(color * levels + dith) / levels;
-	color = mix(color, quantized, 0.20);
+	color = mix(color, quantized, 0.34);
 
 	fragColor = vec4(color, 1.0);
 }`;
@@ -295,6 +310,18 @@ void main() {
 		}, 80);
 	}
 
+	function handlePointerMove(e) {
+		const vw = window.innerWidth || 1;
+		const vh = window.innerHeight || 1;
+		mouseTarget.x = e.clientX / vw;
+		mouseTarget.y = 1 - e.clientY / vh;
+		pointerActive = true;
+		clearTimeout(pointerIdleTimer);
+		pointerIdleTimer = window.setTimeout(() => {
+			pointerActive = false;
+		}, 2200);
+	}
+
 	function elapsed() {
 		const now = performance.now();
 		const pausedSlice = frozen && pausedAt ? now - pausedAt : 0;
@@ -310,11 +337,20 @@ void main() {
 		gl.uniform1i(uPanelCountLoc, panelCount);
 		gl.uniform4fv(uPanelsLoc, panelData);
 		gl.uniform1f(uPixelSizeLoc, readPixelSize());
+		gl.uniform2f(uMouseLoc, mouseSmooth.x, mouseSmooth.y);
+		gl.uniform1f(uMouseStrengthLoc, mouseStrength);
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
+	}
+
+	function stepMouse() {
+		mouseSmooth.x += (mouseTarget.x - mouseSmooth.x) * 0.06;
+		mouseSmooth.y += (mouseTarget.y - mouseSmooth.y) * 0.06;
+		mouseStrength += ((pointerActive ? 1 : 0) - mouseStrength) * 0.03;
 	}
 
 	function loop() {
 		if (destroyed || frozen) return;
+		stepMouse();
 		drawFrame();
 		rafId = requestAnimationFrame(loop);
 	}
@@ -381,6 +417,8 @@ void main() {
 		uPanelsLoc = gl.getUniformLocation(program, 'u_panels[0]');
 		uPanelCountLoc = gl.getUniformLocation(program, 'u_panelCount');
 		uPixelSizeLoc = gl.getUniformLocation(program, 'u_pixelSize');
+		uMouseLoc = gl.getUniformLocation(program, 'u_mouse');
+		uMouseStrengthLoc = gl.getUniformLocation(program, 'u_mouseStrength');
 
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);
@@ -394,6 +432,8 @@ void main() {
 		if (rafId) cancelAnimationFrame(rafId);
 		rafId = 0;
 		if (panelTimer) clearTimeout(panelTimer);
+		clearTimeout(pointerIdleTimer);
+		window.removeEventListener('pointermove', handlePointerMove);
 		unsubBass?.();
 		stopAudio?.();
 		mo?.disconnect();
@@ -430,6 +470,7 @@ void main() {
 		stopAudio = startAudioReactive();
 
 		window.addEventListener('resize', schedulePanels, { passive: true });
+		window.addEventListener('pointermove', handlePointerMove, { passive: true });
 		const root = document.querySelector('.display-root') || document.body;
 		mo = new MutationObserver(schedulePanels);
 		mo.observe(root, { subtree: true, childList: true });
