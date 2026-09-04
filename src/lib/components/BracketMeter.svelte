@@ -1,21 +1,16 @@
 <script>
-	let { label = '', pct = 0, hint = '', width = 12 } = $props();
+	let { label = '', pct = 0, hint = '' } = $props();
 
-	let filled = $derived(Math.round((Math.max(0, Math.min(100, Number(pct) || 0)) / 100) * width));
-	let tone = $derived(pct >= 80 ? 'var(--warn)' : pct >= 50 ? 'var(--solve)' : 'var(--ok)');
-	let cells = $derived(Array.from({ length: width }, (_, i) => i < filled));
+	let clamped = $derived(Math.max(0, Math.min(100, Number(pct) || 0)));
+	let tone = $derived(clamped >= 80 ? 'var(--warn)' : clamped >= 50 ? 'var(--solve)' : 'var(--ok)');
 </script>
 
 <div class="meter">
 	<span class="lab">{label}</span>
-	<span class="bar num" style="color: {tone}">
-		<span class="br">[</span>
-		{#each cells as on, i (i)}
-			<span class="cell" class:on></span>
-		{/each}
-		<span class="br">]</span>
+	<span class="track" style="--fill: {clamped}%; --tone: {tone}">
+		<span class="fill"></span>
 	</span>
-	<span class="pct num">{Math.round(pct)}%</span>
+	<span class="pct num">{Math.round(clamped)}%</span>
 	{#if hint}
 		<span class="hint">{hint}</span>
 	{/if}
@@ -29,43 +24,29 @@
 		align-items: center;
 		min-width: 0;
 		min-height: 2.75rem;
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-xl);
-		font-variant-ligatures: none;
 	}
 	.lab {
 		color: var(--text-secondary);
-		font-style: normal;
+		font-weight: 500;
 	}
-	.bar {
-		display: flex;
-		align-items: center;
-		gap: 0.125rem;
+	.track {
+		position: relative;
 		min-width: 0;
-		height: 1.25rem;
+		height: 0.5rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--foreground) 8%, transparent);
+		overflow: hidden;
 	}
-	.br {
-		color: var(--text-tertiary);
-		font-size: var(--text-lg);
-	}
-	.cell {
-		width: 0.5rem;
-		height: 0.875rem;
-		flex-shrink: 0;
-		border-radius: 1px;
-		box-sizing: border-box;
-		border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
-		background: transparent;
-		opacity: 0.4;
-		transition:
-			background-color 380ms var(--spring-smooth),
-			border-color 380ms var(--spring-smooth),
-			opacity 380ms var(--spring-smooth);
-	}
-	.cell.on {
-		background: currentColor;
-		border-color: currentColor;
-		opacity: 1;
+	.fill {
+		display: block;
+		height: 100%;
+		width: var(--fill, 0%);
+		border-radius: 999px;
+		background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 55%, transparent), var(--tone));
+		box-shadow: 0 0 10px color-mix(in srgb, var(--tone) 65%, transparent);
+		transition: width 480ms var(--spring-smooth);
 	}
 	.pct {
 		color: var(--foreground);

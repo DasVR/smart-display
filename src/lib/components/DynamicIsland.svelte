@@ -17,18 +17,18 @@
 
 	let weatherWord = $derived.by(() => {
 		const alerts = weatherData?.alerts || [];
-		if (alerts.length) return 'ALERT';
+		if (alerts.length) return 'Weather alert';
 		const p = weatherData?.prediction || {};
-		if (p.rain30min >= 0.6) return 'RAIN 30m';
-		if (p.rain60min >= 0.6) return 'RAIN 1h';
-		if (p.rain120min >= 0.6) return 'RAIN 2h';
-		return 'CLEAR';
+		if (p.rain30min >= 0.6) return 'Rain in 30 min';
+		if (p.rain60min >= 0.6) return 'Rain in an hour';
+		if (p.rain120min >= 0.6) return 'Rain in 2 hours';
+		return 'Clear skies';
 	});
 
 	let statusWord = $derived.by(() => {
-		if (gpuLowPower) return 'YIELD';
-		if (ollamaStatus === 'inferring') return 'BUSY';
-		return 'SYS_OK';
+		if (gpuLowPower) return 'Power saving';
+		if (ollamaStatus === 'inferring') return 'Thinking';
+		return 'All good';
 	});
 
 	function modeLabel(next) {
@@ -36,9 +36,9 @@
 			case 'idle':
 				return statusWord;
 			case 'nowplaying':
-				return 'PLAY';
+				return 'Now playing';
 			case 'alert':
-				return notification?.kind || 'NOTE';
+				return notification?.kind === 'warn' ? 'Alert' : 'Notice';
 			case 'weather':
 				return weatherWord;
 			default: {
@@ -54,7 +54,7 @@
 		{#if mode === 'nowplaying'}
 			<div class="slip">
 				<div class="copy">
-					<div class="kicker">[{modeLabel(mode)}]</div>
+					<div class="kicker">{modeLabel(mode)}</div>
 					<div class="title">{nowPlaying?.title || 'Untitled'}</div>
 					<div class="sub">{nowPlaying?.artist || ''}</div>
 				</div>
@@ -62,7 +62,7 @@
 		{:else if mode === 'alert'}
 			<div class="slip">
 				<div class="copy">
-					<div class="kicker">[{modeLabel(mode)}]</div>
+					<div class="kicker">{modeLabel(mode)}</div>
 					<div class="title">{notification.title}</div>
 					<div class="sub">{notification.body}</div>
 				</div>
@@ -75,7 +75,7 @@
 				class:weather={mode === 'weather'}
 			>
 				<span class="dot" aria-hidden="true"></span>
-				<span class="word">[{modeLabel(mode)}]</span>
+				<span class="word">{modeLabel(mode)}</span>
 			</div>
 		{/if}
 	{/key}
@@ -105,15 +105,17 @@
 		transform: scale(0.98);
 	}
 	.dot {
-		width: 0.45rem;
-		height: 0.45rem;
+		width: 0.5rem;
+		height: 0.5rem;
 		border-radius: 50%;
 		background: var(--ok);
+		box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 70%, transparent);
 		flex-shrink: 0;
 		transform-origin: center;
 	}
 	.chip.busy .dot {
 		background: var(--brand);
+		box-shadow: 0 0 10px color-mix(in srgb, var(--brand) 70%, transparent);
 	}
 	.chip.hot,
 	.chip.weather {
@@ -122,14 +124,15 @@
 	.chip.hot .dot,
 	.chip.weather .dot {
 		background: var(--warn);
+		box-shadow: 0 0 10px color-mix(in srgb, var(--warn) 70%, transparent);
 	}
 	.word {
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		font-weight: 500;
 		font-style: normal;
 		line-height: 1;
-		letter-spacing: 0.04em;
+		letter-spacing: -0.01em;
 	}
 	.slip {
 		display: flex;
@@ -148,9 +151,10 @@
 		flex: 1;
 	}
 	.kicker {
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-sm);
-		font-weight: 500;
+		font-weight: 600;
+		letter-spacing: -0.01em;
 		color: var(--text-tertiary);
 	}
 	.title {

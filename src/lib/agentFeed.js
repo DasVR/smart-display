@@ -13,38 +13,6 @@ export function runPid(name = 'sys') {
 	return String(Math.abs(h) % 1000).padStart(3, '0');
 }
 
-export function meterBar(pct, width = 12) {
-	const n = Math.max(0, Math.min(100, Number(pct) || 0));
-	const filled = Math.round((n / 100) * width);
-	return `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`;
-}
-
-export function toBits(n, width = 8) {
-	const max = 2 ** width;
-	const v = Math.max(0, Math.floor(Number(n) || 0)) % max;
-	return v.toString(2).padStart(width, '0');
-}
-
-export function phaseHue(phase) {
-	switch (phase) {
-		case 'searching':
-			return 'var(--scan)';
-		case 'solving':
-		case 'reasoning':
-			return 'var(--solve)';
-		case 'working':
-		case 'executing':
-			return 'var(--ok)';
-		case 'idle':
-		case 'done':
-			return 'var(--text-tertiary)';
-		default: {
-			const _exhaustive = phase;
-			return _exhaustive || 'var(--text-tertiary)';
-		}
-	}
-}
-
 export function buildAgents({ ollamaStatus, ollamaModels, git, telemetry }) {
 	const model = ollamaModels?.[0]?.name || ollamaModels?.[0]?.model || 'local-llm';
 	const services = telemetry?.services ?? [];

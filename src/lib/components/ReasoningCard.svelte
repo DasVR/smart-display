@@ -4,7 +4,6 @@
 
 <details class="card" open={open}>
 	<summary>
-		<span class="mark">::</span>
 		<span class="kind">Reasoning</span>
 		<span class="phase">{phase}</span>
 		<span class="ttl">{title}</span>
@@ -35,11 +34,11 @@
 	summary::-webkit-details-marker {
 		display: none;
 	}
-	.mark,
 	.kind,
 	.phase {
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-sm);
+		font-weight: 600;
 		color: var(--text-tertiary);
 	}
 	.kind {
@@ -55,7 +54,7 @@
 	.body {
 		margin: 0;
 		padding: var(--space-2) 0 0;
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		line-height: 1.45;
 		color: var(--text-secondary);

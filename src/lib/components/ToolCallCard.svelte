@@ -10,7 +10,7 @@
 
 <details class="card" data-status={status}>
 	<summary>
-		<span class="kind">[{kind}]</span>
+		<span class="kind">{kind}</span>
 		<span class="label">{label}</span>
 		<span class="st">{status}</span>
 	</summary>
@@ -41,19 +41,24 @@
 		display: none;
 	}
 	.kind {
-		font-family: var(--font-code);
+		justify-self: start;
+		padding: 0.15em 0.6em;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--scan) 16%, transparent);
+		font-family: var(--font-body);
 		font-size: var(--text-sm);
+		font-weight: 600;
 		color: var(--scan);
 	}
 	.label {
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		color: var(--foreground);
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.st {
-		font-family: var(--font-code);
+		font-family: var(--font-body);
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
