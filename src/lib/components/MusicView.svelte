@@ -38,7 +38,6 @@
 
 <div class="music-view">
 	<div class="header">
-		<h2 class="big-label">Music</h2>
 		<div class="sub">{track?.playing ? 'Now playing' : 'Idle'}</div>
 	</div>
 
@@ -96,23 +95,11 @@
 
 	.header {
 		display: flex;
-		justify-content: space-between;
+		justify-content: flex-end;
 		align-items: flex-end;
 		gap: var(--space-4);
 		border-bottom: 1px solid var(--hairline);
 		padding-bottom: var(--space-6);
-		min-width: 0;
-	}
-	.big-label {
-		margin: 0;
-		font-family: var(--font-body);
-		font-size: clamp(2.25rem, 4.2vw, 3.75rem);
-		font-weight: 700;
-		font-style: normal;
-		color: var(--foreground);
-		letter-spacing: -0.055em;
-		text-wrap: balance;
-		overflow-wrap: anywhere;
 		min-width: 0;
 	}
 	.sub {

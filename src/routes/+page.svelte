@@ -168,6 +168,17 @@
 	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' }));
 	let month = $derived(time.toLocaleDateString('en-US', { month: 'long', timeZone: 'America/New_York' }));
 	let dayNum = $derived(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDate());
+	let clockLabel = $derived(
+		time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+	);
+
+	const VIEW_TITLES = {
+		school: 'Due Work',
+		dev: 'Dev Wall',
+		music: 'Music',
+		weather: 'Weather'
+	};
+	let viewTitle = $derived(VIEW_TITLES[$currentView] ?? '');
 
 	function viewLabel(name) {
 		return name.slice(0, 1).toUpperCase() + name.slice(1);
@@ -201,10 +212,15 @@
 		<header class="zone top">
 			<div class="masthead" class:credits-open={$currentView === 'clock'}>
 				{#if $currentView !== 'clock'}
-					<HeroClock {time} size="masthead" />
+					<h1 class="view-title">{viewTitle}</h1>
 				{/if}
 				<div class="status-cluster">
-					<p class="dateline">{weekday}, {month}&nbsp;{dayNum}</p>
+					<p class="dateline">
+						{weekday}, {month}&nbsp;{dayNum}
+						{#if $currentView !== 'clock'}
+							<span class="time num">{clockLabel}</span>
+						{/if}
+					</p>
 					<div class="cluster-end">
 						<p class="wxline">
 							{#if weatherLoading}
@@ -387,6 +403,24 @@
 	.wxline .num {
 		margin-right: var(--space-2);
 		color: var(--foreground);
+	}
+	.view-title {
+		margin: 0;
+		font-family: var(--font-body);
+		font-size: clamp(2.25rem, 4.4vw, 3.75rem);
+		font-weight: 700;
+		font-style: normal;
+		letter-spacing: -0.04em;
+		line-height: 1;
+		color: var(--foreground);
+		overflow-wrap: anywhere;
+		min-width: 0;
+	}
+	.dateline .time {
+		margin-left: var(--space-3);
+		padding-left: var(--space-3);
+		border-left: 1px solid var(--hairline);
+		color: var(--brand);
 	}
 	.view-strip {
 		position: relative;
