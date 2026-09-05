@@ -24,6 +24,7 @@
 	--warn-50: #c9847a;
 	--scan-50: #6ec8c4;
 	--solve-50: #c9a36a;
+	--radar-marker: color-mix(in srgb, var(--warn-50) 55%, white);
 
 	--background: var(--abyss);
 	--foreground: var(--gray-95);

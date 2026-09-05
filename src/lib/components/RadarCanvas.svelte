@@ -19,6 +19,39 @@
 	const ZOOM = 7;
 	const RADIUS = 170;
 
+	let theme = { bg: 'rgba(5,5,7,0.95)', ring: 'rgba(255,255,255,0.12)', marker: '#fe6f69' };
+
+	/** Resolves any CSS color (custom property, color-mix, etc.) to a canonical rgb()/rgba() string. */
+	function resolveColor(value) {
+		if (typeof document === 'undefined' || !value) return value;
+		const probe = document.createElement('span');
+		probe.style.display = 'none';
+		probe.style.color = value;
+		document.body.appendChild(probe);
+		const resolved = getComputedStyle(probe).color;
+		document.body.removeChild(probe);
+		return resolved;
+	}
+
+	function withAlpha(rgb, alpha) {
+		const m = rgb.match(/\d+(\.\d+)?/g);
+		if (!m || m.length < 3) return rgb;
+		return `rgba(${m[0]}, ${m[1]}, ${m[2]}, ${alpha})`;
+	}
+
+	function readTheme() {
+		if (typeof document === 'undefined') return;
+		const cs = getComputedStyle(document.documentElement);
+		const abyss = cs.getPropertyValue('--abyss').trim() || '#07070b';
+		const foreground = cs.getPropertyValue('--foreground').trim() || '#f2f2f6';
+		const marker = cs.getPropertyValue('--radar-marker').trim() || '#fe6f69';
+		theme = {
+			bg: withAlpha(resolveColor(abyss), 0.95),
+			ring: withAlpha(resolveColor(foreground), 0.12),
+			marker: resolveColor(marker)
+		};
+	}
+
 	function projectMercator(lat, lon) {
 		const siny = Math.sin((lat * Math.PI) / 180);
 		return {
@@ -64,7 +97,7 @@
 		ctx.clearRect(0, 0, width, height);
 
 		// Background
-		ctx.fillStyle = 'rgba(5,5,7,0.95)';
+		ctx.fillStyle = theme.bg;
 		ctx.fillRect(0, 0, width, height);
 
 		// Clip to circle
@@ -125,14 +158,14 @@
 			// ring
 			ctx.beginPath();
 			ctx.arc(centerPixel.x, centerPixel.y, RADIUS, 0, Math.PI * 2);
-			ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+			ctx.strokeStyle = theme.ring;
 			ctx.lineWidth = 1.5;
 			ctx.stroke();
 
 			// center dot
 			ctx.beginPath();
 			ctx.arc(centerPixel.x, centerPixel.y, 3, 0, Math.PI * 2);
-			ctx.fillStyle = '#fe6f69';
+			ctx.fillStyle = theme.marker;
 			ctx.fill();
 		});
 	}
@@ -207,6 +240,7 @@
 	});
 
 	onMount(() => {
+		readTheme();
 		resize();
 		window.addEventListener('resize', resize);
 		startAnimation();
