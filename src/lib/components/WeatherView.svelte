@@ -61,8 +61,8 @@
 	</header>
 
 	<section class="predictions">
-		{#each [{ label: '30 min', val: pred.rain30min }, { label: '60 min', val: pred.rain60min }, { label: '120 min', val: pred.rain120min }] as p}
-			<div class="pred-card {rainClass(p.val)}">
+		{#each [{ label: '30 min', val: pred.rain30min }, { label: '60 min', val: pred.rain60min }, { label: '120 min', val: pred.rain120min }] as p, i}
+			<div class="pred-card {rainClass(p.val)}" style="--i: {i}">
 				<span class="pred-label">{p.label}</span>
 				<span class="pred-val">{Math.round(p.val * 100)}%</span>
 				<span class="pred-word">{p.val >= 0.6 ? 'likely' : p.val >= 0.35 ? 'maybe' : 'clear'}</span>
@@ -74,8 +74,8 @@
 		<h3 class="section-title">12h Precipitation Probability</h3>
 		{#if precipHours.length > 0}
 			<div class="chart" aria-hidden="true">
-				{#each precipHours as h}
-					<div class="bar-wrap">
+				{#each precipHours as h, i}
+					<div class="bar-wrap" style="--i: {i}">
 						<div class="bar" class:warn={h.prob >= 60} class:med={h.prob >= 30 && h.prob < 60} style="height: {Math.max(8, Math.min(100, h.prob))}%"></div>
 						<span class="bar-label">{h.label}</span>
 					</div>
@@ -261,6 +261,29 @@
 		border-radius: var(--radius-sm);
 		background: linear-gradient(180deg, var(--brand) 0%, color-mix(in srgb, var(--brand) 30%, transparent) 100%);
 		transition: height 0.4s var(--ease-fluid);
+		transform-origin: bottom;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.pred-card {
+			animation: today-arrive 480ms var(--spring-smooth) both;
+			animation-delay: calc(var(--i, 0) * 90ms);
+		}
+		.bar-wrap {
+			animation: today-arrive 420ms var(--spring-smooth) both;
+			animation-delay: calc(var(--i, 0) * 35ms);
+		}
+		.bar {
+			animation: bar-grow 480ms var(--spring-bouncy) both;
+			animation-delay: calc(var(--i, 0) * 35ms + 120ms);
+		}
+	}
+	@keyframes bar-grow {
+		from {
+			transform: scaleY(0);
+		}
+		to {
+			transform: scaleY(1);
+		}
 	}
 	.bar-label {
 		font-size: var(--text-xs);
