@@ -82,7 +82,6 @@
 
 <div class="school-hub">
 	<header class="running">
-		<h2 class="hub-title">Due work</h2>
 		<p class="head-meta">
 			{#if loading}
 				Checking calendar
@@ -140,18 +139,6 @@
 		gap: var(--space-4);
 		min-width: 0;
 		flex-shrink: 0;
-	}
-	.hub-title {
-		margin: 0;
-		font-family: var(--font-body);
-		font-size: clamp(2.25rem, 4.2vw, 3.75rem);
-		font-weight: 700;
-		font-style: normal;
-		letter-spacing: -0.055em;
-		text-wrap: balance;
-		color: var(--foreground);
-		overflow-wrap: anywhere;
-		min-width: 0;
 	}
 	.head-meta {
 		margin: 0;

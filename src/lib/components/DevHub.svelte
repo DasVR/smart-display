@@ -87,7 +87,6 @@
 
 <div class="dev-hub">
 	<div class="mark">
-		<h2 class="title">Dev Wall</h2>
 		<span class="ctr">{containers} containers</span>
 	</div>
 
@@ -137,18 +136,10 @@
 	.mark {
 		display: flex;
 		align-items: baseline;
-		justify-content: space-between;
+		justify-content: flex-end;
 		gap: var(--space-4);
 		flex-shrink: 0;
 		z-index: 1;
-	}
-	.title {
-		margin: 0;
-		font-family: var(--font-body);
-		font-size: clamp(1.75rem, 3vw, 2.5rem);
-		font-weight: 700;
-		letter-spacing: -0.03em;
-		color: var(--foreground);
 	}
 	.ctr {
 		font-family: var(--font-body);
