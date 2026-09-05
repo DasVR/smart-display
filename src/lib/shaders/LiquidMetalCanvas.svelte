@@ -473,7 +473,12 @@ void main() {
 		window.addEventListener('pointermove', handlePointerMove, { passive: true });
 		const root = document.querySelector('.display-root') || document.body;
 		mo = new MutationObserver(schedulePanels);
-		mo.observe(root, { subtree: true, childList: true });
+		mo.observe(root, {
+			subtree: true,
+			childList: true,
+			attributes: true,
+			attributeFilter: ['style', 'class']
+		});
 		resizeObs = new ResizeObserver(schedulePanels);
 		resizeObs.observe(root);
 
