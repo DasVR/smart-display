@@ -1,4 +1,7 @@
 <script>
+	import { fly, fade } from 'svelte/transition';
+	import { cubicOut } from 'svelte/easing';
+
 	let {
 		nowPlaying = null,
 		notification = { visible: false, title: '', body: '', kind: 'info' },
@@ -6,6 +9,25 @@
 		ollamaStatus = 'idle',
 		weatherData = null
 	} = $props();
+
+	let reducedMotion = $state(false);
+	$effect(() => {
+		if (typeof window === 'undefined') return;
+		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+		reducedMotion = mq.matches;
+		const onChange = (e) => {
+			reducedMotion = e.matches;
+		};
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	});
+
+	function inFly() {
+		return reducedMotion ? { duration: 0 } : { y: -10, duration: 420, easing: cubicOut };
+	}
+	function outFade() {
+		return reducedMotion ? { duration: 0 } : { duration: 160 };
+	}
 
 	let mode = $derived.by(() => {
 		if (notification?.visible) return 'alert';
@@ -52,7 +74,7 @@
 <div class="island" data-mode={mode}>
 	{#key mode}
 		{#if mode === 'nowplaying'}
-			<div class="slip">
+			<div class="slip" in:fly={inFly()} out:fade={outFade()}>
 				<div class="copy">
 					<div class="kicker">{modeLabel(mode)}</div>
 					<div class="title">{nowPlaying?.title || 'Untitled'}</div>
@@ -60,7 +82,7 @@
 				</div>
 			</div>
 		{:else if mode === 'alert'}
-			<div class="slip">
+			<div class="slip" in:fly={inFly()} out:fade={outFade()}>
 				<div class="copy">
 					<div class="kicker">{modeLabel(mode)}</div>
 					<div class="title">{notification.title}</div>
@@ -73,6 +95,8 @@
 				class:hot={gpuLowPower}
 				class:busy={ollamaStatus === 'inferring'}
 				class:weather={mode === 'weather'}
+				in:fly={inFly()}
+				out:fade={outFade()}
 			>
 				<span class="dot" aria-hidden="true"></span>
 				<span class="word">{modeLabel(mode)}</span>
@@ -177,9 +201,6 @@
 	}
 
 	@media (prefers-reduced-motion: no-preference) {
-		.slip {
-			animation: island-in 480ms var(--spring-smooth) both;
-		}
 		.chip.hot .dot,
 		.chip.weather .dot {
 			animation: yield-mark 1.8s var(--spring-smooth) infinite;

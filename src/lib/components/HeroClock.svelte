@@ -75,12 +75,14 @@
 		font-weight: 500;
 		color: var(--text-tertiary);
 		font-variant-numeric: tabular-nums;
+		letter-spacing: normal;
 	}
 	.ampm {
 		margin-left: var(--space-2);
 		font-size: 0.22em;
 		font-weight: 600;
 		color: var(--text-tertiary);
+		letter-spacing: normal;
 	}
 
 	@media (max-width: 414px) {
