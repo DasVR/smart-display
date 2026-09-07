@@ -1,4 +1,6 @@
 <script>
+	import RollingDigit from './RollingDigit.svelte';
+
 	let { time = new Date(), size = 'masthead' } = $props();
 
 	function estParts(d) {
@@ -11,7 +13,7 @@
 
 	let est = $derived(estParts(time));
 	let colonOn = $derived(est.sec % 2 === 0);
-	let dispH = $derived(est.h % 12 || 12);
+	let hh = $derived(String(est.h % 12 || 12).padStart(2, '0'));
 	let mm = $derived(String(est.m).padStart(2, '0'));
 	let ss = $derived(String(est.sec).padStart(2, '0'));
 	let ampm = $derived(est.h >= 12 ? 'PM' : 'AM');
@@ -19,10 +21,10 @@
 
 <div class="hero-clock" data-size={size}>
 	<div class="time">
-		<span class="hour">{dispH}</span>
+		<span class="hour"><RollingDigit digit={+hh[0]} /><RollingDigit digit={+hh[1]} /></span>
 		<span class="colon" class:on={colonOn}>:</span>
-		<span class="minute">{mm}</span>
-		<span class="seconds">{ss}</span>
+		<span class="minute"><RollingDigit digit={+mm[0]} /><RollingDigit digit={+mm[1]} /></span>
+		<span class="seconds"><RollingDigit digit={+ss[0]} /><RollingDigit digit={+ss[1]} /></span>
 		<span class="ampm">{ampm}</span>
 	</div>
 </div>

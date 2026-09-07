@@ -34,6 +34,12 @@
 	let navEl = $state(null);
 	let tabRefs = $state([]);
 	let indicator = $state({ left: 0, width: 0, ready: false });
+	let indicatorMorphing = $state(false);
+	let indicatorMorphTimer = 0;
+	// Plain (non-reactive) shadow of the indicator's last position. updateIndicator
+	// both reads and writes this to detect movement; using $state for that read
+	// would make the enclosing $effect depend on its own write and loop forever.
+	let lastIndicatorPos = { left: 0, width: 0, set: false };
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
 
@@ -43,7 +49,21 @@
 		if (!btn || !navEl) return;
 		const navRect = navEl.getBoundingClientRect();
 		const btnRect = btn.getBoundingClientRect();
-		indicator = { left: btnRect.left - navRect.left, width: btnRect.width, ready: true };
+		const left = btnRect.left - navRect.left;
+		const width = btnRect.width;
+		const moved = lastIndicatorPos.set && (left !== lastIndicatorPos.left || width !== lastIndicatorPos.width);
+		lastIndicatorPos = { left, width, set: true };
+		indicator = { left, width, ready: true };
+		if (moved && typeof window !== 'undefined') {
+			const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			if (!reduced) {
+				indicatorMorphing = true;
+				clearTimeout(indicatorMorphTimer);
+				indicatorMorphTimer = setTimeout(() => {
+					indicatorMorphing = false;
+				}, 560);
+			}
+		}
 	}
 
 	function showNotif(title, body, kind = 'info', ms = 4500) {
@@ -202,6 +222,16 @@
 			<feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" result="noise" />
 			<feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G" />
 		</filter>
+		<filter id="nav-goo" x="-60%" y="-60%" width="220%" height="220%">
+			<feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+			<feColorMatrix
+				in="blur"
+				mode="matrix"
+				values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -10"
+				result="goo"
+			/>
+			<feBlend in="SourceGraphic" in2="goo" />
+		</filter>
 	</defs>
 </svg>
 
@@ -244,6 +274,7 @@
 				<span
 					class="tab-indicator"
 					class:ready={indicator.ready}
+					class:morphing={indicatorMorphing}
 					style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
 					aria-hidden="true"
 				></span>
@@ -458,6 +489,9 @@
 			left 520ms var(--spring-bouncy),
 			width 520ms var(--spring-bouncy),
 			opacity 240ms var(--spring-smooth);
+	}
+	.tab-indicator.morphing {
+		filter: url(#nav-goo);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.tab-indicator.ready {
