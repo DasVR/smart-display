@@ -5,9 +5,8 @@
 	let {
 		nowPlaying = null,
 		notification = { visible: false, title: '', body: '', kind: 'info' },
-		gpuLowPower = false,
-		ollamaStatus = 'idle',
-		weatherData = null
+		weatherData = null,
+		events = []
 	} = $props();
 
 	let reducedMotion = $state(false);
@@ -29,13 +28,19 @@
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
 	}
 
+	// Priority: a live system event (docker/network/etc) always wins, then a
+	// one-off notification banner (morning/sleep triggers), then weather,
+	// then now-playing. Nothing else -> the island renders nothing at all.
+	let activeEvent = $derived(events?.[0] ?? null);
 	let mode = $derived.by(() => {
+		if (activeEvent) return 'event';
 		if (notification?.visible) return 'alert';
 		if (weatherData?.alerts?.length) return 'weather';
 		if (weatherData?.prediction?.rain60min >= 0.35) return 'weather';
 		if (nowPlaying?.playing) return 'nowplaying';
 		return 'idle';
 	});
+	let isIdle = $derived(mode === 'idle');
 
 	let weatherWord = $derived.by(() => {
 		const alerts = weatherData?.alerts || [];
@@ -47,22 +52,23 @@
 		return 'Clear skies';
 	});
 
-	let statusWord = $derived.by(() => {
-		if (gpuLowPower) return 'Power saving';
-		if (ollamaStatus === 'inferring') return 'Thinking';
-		return 'All good';
-	});
-
 	function modeLabel(next) {
 		switch (next) {
-			case 'idle':
-				return statusWord;
+			case 'event': {
+				const sev = activeEvent?.severity;
+				if (sev === 'error') return 'Error';
+				if (sev === 'warn') return 'Warning';
+				if (sev === 'ok') return 'Recovered';
+				return 'Notice';
+			}
 			case 'nowplaying':
 				return 'Now playing';
 			case 'alert':
 				return notification?.kind === 'warn' ? 'Alert' : 'Notice';
 			case 'weather':
 				return weatherWord;
+			case 'idle':
+				return '';
 			default: {
 				const _exhaustive = next;
 				return _exhaustive;
@@ -71,10 +77,11 @@
 	}
 
 	// The pill is one persistent capsule that spring-morphs its own bounds
-	// (like iOS's Dynamic Island) rather than being swapped out per mode.
-	// A hidden "ghost" copy of the current content is measured to drive the
-	// capsule's target width/height, independent of whatever is mid-crossfade
-	// in the visible layer on top of it.
+	// (like iOS's Dynamic Island) rather than being swapped out per mode, and
+	// sits fully invisible/collapsed (0 width, lifted above its own top edge)
+	// until something actually needs to be shown. A hidden "ghost" copy of the
+	// current content drives the target width/height via ResizeObserver,
+	// independent of whatever is mid-crossfade in the visible layer on top.
 	let ghostEl = $state(null);
 	let pillSize = $state({ w: 0, h: 0 });
 	let ready = $state(false);
@@ -115,7 +122,15 @@
 </script>
 
 {#snippet islandContent(m)}
-	{#if m === 'nowplaying'}
+	{#if m === 'event'}
+		<div class="slip sev-{activeEvent?.severity ?? 'info'}">
+			<div class="copy">
+				<div class="kicker">{modeLabel(m)}</div>
+				<div class="title">{activeEvent?.title ?? ''}</div>
+				{#if activeEvent?.body}<div class="sub">{activeEvent.body}</div>{/if}
+			</div>
+		</div>
+	{:else if m === 'nowplaying'}
 		<div class="slip">
 			<div class="copy">
 				<div class="kicker">{modeLabel(m)}</div>
@@ -131,13 +146,8 @@
 				<div class="sub">{notification.body}</div>
 			</div>
 		</div>
-	{:else}
-		<div
-			class="chip"
-			class:hot={gpuLowPower}
-			class:busy={ollamaStatus === 'inferring'}
-			class:weather={m === 'weather'}
-		>
+	{:else if m === 'weather'}
+		<div class="chip weather">
 			<span class="dot" aria-hidden="true"></span>
 			<span class="word">{modeLabel(m)}</span>
 		</div>
@@ -163,6 +173,7 @@
 	<div
 		class="island-pill"
 		class:ready
+		class:active={!isIdle}
 		class:morphing
 		data-glass
 		style="--pill-w: {pillSize.w}px; --pill-h: {pillSize.h}px"
@@ -201,9 +212,13 @@
 		-webkit-backdrop-filter: blur(20px) saturate(1.3);
 		overflow: hidden;
 		opacity: 0;
+		transform: translateY(-70%);
+		pointer-events: none;
 	}
-	.island-pill.ready {
+	.island-pill.active {
 		opacity: 1;
+		transform: translateY(0);
+		pointer-events: auto;
 	}
 	.island-pill.morphing {
 		filter: url(#island-goo);
@@ -213,12 +228,16 @@
 			transition:
 				width 560ms var(--spring-bouncy),
 				height 560ms var(--spring-bouncy),
-				opacity 240ms var(--spring-smooth);
+				transform 560ms var(--spring-bouncy),
+				opacity 260ms var(--spring-smooth);
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.island-pill.ready {
 			transition: opacity 240ms var(--spring-smooth);
+		}
+		.island-pill {
+			transform: none;
 		}
 	}
 	.island-ghost {
@@ -246,27 +265,17 @@
 		padding: 0 var(--space-5);
 		color: var(--ok);
 	}
+	.chip.weather {
+		color: var(--warn);
+	}
 	.dot {
 		width: 0.5rem;
 		height: 0.5rem;
 		border-radius: 50%;
-		background: var(--ok);
-		box-shadow: 0 0 10px color-mix(in srgb, var(--ok) 70%, transparent);
+		background: currentColor;
+		box-shadow: 0 0 10px color-mix(in srgb, currentColor 70%, transparent);
 		flex-shrink: 0;
 		transform-origin: center;
-	}
-	.chip.busy .dot {
-		background: var(--brand);
-		box-shadow: 0 0 10px color-mix(in srgb, var(--brand) 70%, transparent);
-	}
-	.chip.hot,
-	.chip.weather {
-		color: var(--warn);
-	}
-	.chip.hot .dot,
-	.chip.weather .dot {
-		background: var(--warn);
-		box-shadow: 0 0 10px color-mix(in srgb, var(--warn) 70%, transparent);
 	}
 	.word {
 		font-family: var(--font-body);
@@ -285,6 +294,16 @@
 		max-width: min(36rem, 100%);
 		padding: var(--space-2) var(--space-5);
 		box-sizing: border-box;
+		border-left: 3px solid var(--brand);
+	}
+	.slip.sev-error {
+		border-left-color: var(--warn);
+	}
+	.slip.sev-warn {
+		border-left-color: var(--solve);
+	}
+	.slip.sev-ok {
+		border-left-color: var(--ok);
 	}
 	.copy {
 		min-width: 0;
@@ -296,6 +315,15 @@
 		font-weight: 600;
 		letter-spacing: -0.01em;
 		color: var(--text-tertiary);
+	}
+	.sev-error .kicker {
+		color: var(--warn);
+	}
+	.sev-warn .kicker {
+		color: var(--solve);
+	}
+	.sev-ok .kicker {
+		color: var(--ok);
 	}
 	.title {
 		font-family: var(--font-body);
@@ -320,7 +348,6 @@
 		.dot {
 			animation: dot-breathe 3.2s var(--spring-smooth) infinite;
 		}
-		.chip.hot .dot,
 		.chip.weather .dot {
 			animation: yield-mark 1.8s var(--spring-smooth) infinite;
 		}

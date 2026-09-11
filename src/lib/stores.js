@@ -29,6 +29,21 @@ export const gitContext = writable({
 	commitFiles: []
 });
 
+export const islandQueue = writable([]);
+
+let islandEventSeq = 0;
+
+/** Queues a transient system event for the Dynamic Island to surface. FIFO; each
+ *  auto-dismisses after `ttl` ms unless replaced sooner by the queue itself. */
+export function pushIslandEvent({ title, body = '', severity = 'info', ttl = 6000 }) {
+	const id = ++islandEventSeq;
+	islandQueue.update((q) => [...q, { id, title, body, severity }]);
+	setTimeout(() => {
+		islandQueue.update((q) => q.filter((e) => e.id !== id));
+	}, ttl);
+	return id;
+}
+
 export const viewNames = {
 	clock: 'Clock',
 	school: 'School',
