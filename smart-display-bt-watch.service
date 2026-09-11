@@ -1,0 +1,14 @@
+[Unit]
+Description=Smart Display: switch to Music view when a phone connects over Bluetooth
+After=bluetooth.service network-online.target smart-display-server.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+Environment="DASHBOARD_URL=http://localhost:3000"
+ExecStart=/usr/bin/python3 /home/das/projects/smart-display/scripts/bt-connect-watch.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

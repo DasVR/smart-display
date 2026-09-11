@@ -1,0 +1,13 @@
+[Unit]
+Description=Smart Display: Bluetooth auto-pair agent (Just Works, no PIN)
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/das/projects/smart-display/scripts/bt-auto-agent.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

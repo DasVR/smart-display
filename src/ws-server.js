@@ -129,6 +129,13 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'POST' && req.url === '/api/bt/connected') {
+		currentView = 'music';
+		broadcast({ type: 'navigate', view: 'music', from: 'bluetooth' });
+		json(res, { ok: true });
+		return;
+	}
+
 	if (req.method === 'GET' && req.url === '/api/weather') {
 		const urlObj = new URL(req.url, `http://${req.headers.host}`);
 		const hours = urlObj.searchParams.get('hours') || '48';
@@ -137,7 +144,7 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && req.url === '/api/nowplaying') {
-		json(res, getNowPlaying());
+		json(res, await getNowPlaying());
 		return;
 	}
 
