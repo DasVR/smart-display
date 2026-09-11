@@ -10,8 +10,9 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus } from '$lib/stores.js';
-	import { gpuLowPowerMode, ollamaStatus, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
+	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, pushIslandEvent } from '$lib/stores.js';
+	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
+	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
@@ -25,6 +26,7 @@
 
 	let ws;
 	let reconnectTimer;
+	let hadDroppedConnection = false;
 	let time = $state(new Date());
 	let weatherData = $state(null);
 	let weatherLoading = $state(true);
@@ -34,6 +36,12 @@
 	let navEl = $state(null);
 	let tabRefs = $state([]);
 	let indicator = $state({ left: 0, width: 0, ready: false });
+	let indicatorMorphing = $state(false);
+	let indicatorMorphTimer = 0;
+	// Plain (non-reactive) shadow of the indicator's last position. updateIndicator
+	// both reads and writes this to detect movement; using $state for that read
+	// would make the enclosing $effect depend on its own write and loop forever.
+	let lastIndicatorPos = { left: 0, width: 0, set: false };
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
 
@@ -43,7 +51,21 @@
 		if (!btn || !navEl) return;
 		const navRect = navEl.getBoundingClientRect();
 		const btnRect = btn.getBoundingClientRect();
-		indicator = { left: btnRect.left - navRect.left, width: btnRect.width, ready: true };
+		const left = btnRect.left - navRect.left;
+		const width = btnRect.width;
+		const moved = lastIndicatorPos.set && (left !== lastIndicatorPos.left || width !== lastIndicatorPos.width);
+		lastIndicatorPos = { left, width, set: true };
+		indicator = { left, width, ready: true };
+		if (moved && typeof window !== 'undefined') {
+			const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+			if (!reduced) {
+				indicatorMorphing = true;
+				clearTimeout(indicatorMorphTimer);
+				indicatorMorphTimer = setTimeout(() => {
+					indicatorMorphing = false;
+				}, 560);
+			}
+		}
 	}
 
 	function showNotif(title, body, kind = 'info', ms = 4500) {
@@ -56,8 +78,18 @@
 	function connect() {
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(`${proto}//${location.host}/ws`);
-		ws.onopen = () => wsStatus.set('connected');
+		ws.onopen = () => {
+			if (hadDroppedConnection) {
+				pushIslandEvent({ title: 'Network restored', body: 'Reconnected', severity: 'ok', ttl: 4000 });
+			}
+			hadDroppedConnection = false;
+			wsStatus.set('connected');
+		};
 		ws.onclose = () => {
+			if (!hadDroppedConnection) {
+				pushIslandEvent({ title: 'Network issue', body: 'Lost connection, retrying', severity: 'warn', ttl: 8000 });
+			}
+			hadDroppedConnection = true;
 			wsStatus.set('disconnected');
 			reconnectTimer = setTimeout(connect, 2000);
 		};
@@ -146,6 +178,7 @@
 		connect();
 		fetchWeather();
 		fetchNowPlaying();
+		const stopSystemWatch = startSystemWatch();
 		const clock = setInterval(() => {
 			time = new Date();
 		}, 1000);
@@ -159,6 +192,7 @@
 			clearInterval(music);
 			clearInterval(wx);
 			clearTimeout(reconnectTimer);
+			stopSystemWatch();
 			window.removeEventListener('keydown', handleKey);
 			window.removeEventListener('resize', updateIndicator);
 			ws?.close();
@@ -170,6 +204,12 @@
 	let dayNum = $derived(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDate());
 	let clockLabel = $derived(
 		time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
+	);
+	let islandActive = $derived(
+		$islandQueue.length > 0 ||
+			$nowPlaying?.playing ||
+			(weatherData?.alerts?.length ?? 0) > 0 ||
+			(weatherData?.prediction?.rain60min ?? 0) >= 0.35
 	);
 
 	const VIEW_TITLES = {
@@ -202,6 +242,16 @@
 			<feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" result="noise" />
 			<feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G" />
 		</filter>
+		<filter id="nav-goo" x="-60%" y="-60%" width="220%" height="220%">
+			<feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
+			<feColorMatrix
+				in="blur"
+				mode="matrix"
+				values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -10"
+				result="goo"
+			/>
+			<feBlend in="SourceGraphic" in2="goo" />
+		</filter>
 	</defs>
 </svg>
 
@@ -210,40 +260,11 @@
 
 	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'}>
 		<header class="zone top">
-			<div class="masthead" class:credits-open={$currentView === 'clock'}>
-				{#if $currentView !== 'clock'}
-					<h1 class="view-title">{viewTitle}</h1>
-				{/if}
-				<div class="status-cluster">
-					<p class="dateline">
-						{weekday}, {month}&nbsp;{dayNum}
-						{#if $currentView !== 'clock'}
-							<span class="time num">{clockLabel}</span>
-						{/if}
-					</p>
-					<div class="cluster-end">
-						<p class="wxline">
-							{#if weatherLoading}
-								<span class="skeleton inline"></span>
-							{:else if $weather.temp !== '--'}
-								<span class="num">{$weather.temp}°</span>
-								{$weather.desc}
-							{/if}
-						</p>
-						<DynamicIsland
-							nowPlaying={$nowPlaying}
-							notification={notif}
-							gpuLowPower={$gpuLowPowerMode}
-							ollamaStatus={$ollamaStatus}
-							weatherData={weatherData}
-						/>
-					</div>
-				</div>
-			</div>
 			<nav class="view-strip" aria-label="Views" bind:this={navEl}>
 				<span
 					class="tab-indicator"
 					class:ready={indicator.ready}
+					class:morphing={indicatorMorphing}
 					style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
 					aria-hidden="true"
 				></span>
@@ -259,6 +280,35 @@
 					</button>
 				{/each}
 			</nav>
+			<div class="masthead" class:credits-open={$currentView === 'clock'}>
+				{#if $currentView !== 'clock'}
+					<h1 class="view-title">{viewTitle}</h1>
+				{/if}
+				<div class="status-cluster">
+					<p class="dateline" class:receded={islandActive}>
+						{weekday}, {month}&nbsp;{dayNum}
+						{#if $currentView !== 'clock'}
+							<span class="time num">{clockLabel}</span>
+						{/if}
+					</p>
+					<div class="cluster-end">
+						<p class="wxline" class:receded={islandActive}>
+							{#if weatherLoading}
+								<span class="skeleton inline"></span>
+							{:else if $weather.temp !== '--'}
+								<span class="num">{$weather.temp}°</span>
+								{$weather.desc}
+							{/if}
+						</p>
+						<DynamicIsland
+							nowPlaying={$nowPlaying}
+							notification={notif}
+							weatherData={weatherData}
+							events={$islandQueue}
+						/>
+					</div>
+				</div>
+			</div>
 		</header>
 
 		<main id="main-stage" class="zone center">
@@ -368,6 +418,7 @@
 		gap: var(--space-8);
 		width: 100%;
 		min-width: 0;
+		margin-top: var(--space-6);
 	}
 	.masthead.credits-open {
 		justify-content: flex-end;
@@ -403,6 +454,26 @@
 	.wxline .num {
 		margin-right: var(--space-2);
 		color: var(--foreground);
+	}
+	.dateline,
+	.wxline {
+		transition:
+			opacity 320ms var(--spring-smooth),
+			transform 320ms var(--spring-smooth);
+	}
+	.dateline.receded {
+		opacity: 0.32;
+		transform: translateX(-4px);
+	}
+	.wxline.receded {
+		opacity: 0.32;
+		transform: translateX(4px);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.dateline,
+		.wxline {
+			transition: opacity 240ms var(--spring-smooth);
+		}
 	}
 	.view-title {
 		margin: 0;
@@ -458,6 +529,9 @@
 			left 520ms var(--spring-bouncy),
 			width 520ms var(--spring-bouncy),
 			opacity 240ms var(--spring-smooth);
+	}
+	.tab-indicator.morphing {
+		filter: url(#nav-goo);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.tab-indicator.ready {
