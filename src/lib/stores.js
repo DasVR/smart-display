@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store';
+import { playChime } from './services/chime.js';
 
 export const currentView = writable('clock');
 export const displayMode = writable('normal'); // normal | sleep | morning
@@ -34,10 +35,13 @@ export const islandQueue = writable([]);
 let islandEventSeq = 0;
 
 /** Queues a transient system event for the Dynamic Island to surface. FIFO; each
- *  auto-dismisses after `ttl` ms unless replaced sooner by the queue itself. */
-export function pushIslandEvent({ title, body = '', severity = 'info', ttl = 6000 }) {
+ *  auto-dismisses after `ttl` ms unless replaced sooner by the queue itself.
+ *  `source` names who raised it (Claude Code, Cursor, Hermes, etc.) and is
+ *  shown in place of the generic severity label when present. */
+export function pushIslandEvent({ title, body = '', severity = 'info', ttl = 6000, source = '' }) {
 	const id = ++islandEventSeq;
-	islandQueue.update((q) => [...q, { id, title, body, severity }]);
+	islandQueue.update((q) => [...q, { id, title, body, severity, source }]);
+	playChime(severity);
 	setTimeout(() => {
 		islandQueue.update((q) => q.filter((e) => e.id !== id));
 	}, ttl);

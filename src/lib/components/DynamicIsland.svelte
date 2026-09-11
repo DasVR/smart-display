@@ -125,7 +125,7 @@
 	{#if m === 'event'}
 		<div class="slip sev-{activeEvent?.severity ?? 'info'}">
 			<div class="copy">
-				<div class="kicker">{modeLabel(m)}</div>
+				<div class="kicker">{activeEvent?.source || modeLabel(m)}</div>
 				<div class="title">{activeEvent?.title ?? ''}</div>
 				{#if activeEvent?.body}<div class="sub">{activeEvent.body}</div>{/if}
 			</div>

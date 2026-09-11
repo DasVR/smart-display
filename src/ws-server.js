@@ -14,6 +14,7 @@ import {
 } from './lib/server/hostData.js';
 
 const port = process.env.PORT || 3000;
+const NOTIFY_SEVERITIES = new Set(['info', 'ok', 'warn', 'error']);
 
 function json(res, data, status = 200) {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -133,6 +134,34 @@ const server = createServer(async (req, res) => {
 		currentView = 'music';
 		broadcast({ type: 'navigate', view: 'music', from: 'bluetooth' });
 		json(res, { ok: true });
+		return;
+	}
+
+	if (req.method === 'POST' && req.url === '/api/notify') {
+		let body = '';
+		req.on('data', (chunk) => (body += chunk));
+		req.on('end', () => {
+			try {
+				const data = JSON.parse(body);
+				const title = String(data.title || '').slice(0, 120);
+				if (!title) {
+					json(res, { error: 'title required' }, 400);
+					return;
+				}
+				const severity = NOTIFY_SEVERITIES.has(data.severity) ? data.severity : 'info';
+				broadcast({
+					type: 'notify',
+					title,
+					body: String(data.body || '').slice(0, 240),
+					severity,
+					source: String(data.source || '').slice(0, 40),
+					ttl: Math.min(Math.max(Number(data.ttl) || 6000, 1000), 30000)
+				});
+				json(res, { ok: true });
+			} catch {
+				json(res, { error: 'invalid payload' }, 400);
+			}
+		});
 		return;
 	}
 
