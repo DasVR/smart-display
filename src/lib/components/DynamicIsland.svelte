@@ -22,7 +22,7 @@
 	});
 
 	function inFly() {
-		return reducedMotion ? { duration: 0 } : { y: -8, duration: 260, easing: cubicOut };
+		return reducedMotion ? { duration: 0 } : { x: 10, duration: 260, easing: cubicOut };
 	}
 	function outFade() {
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
@@ -175,7 +175,6 @@
 		class:ready
 		class:active={!isIdle}
 		class:morphing
-		data-glass
 		style="--pill-w: {pillSize.w}px; --pill-h: {pillSize.h}px"
 	>
 		<div class="island-ghost" bind:this={ghostEl} aria-hidden="true">
@@ -195,29 +194,29 @@
 	.island {
 		min-width: 0;
 		flex-shrink: 0;
+		margin-right: calc(-1 * var(--space-8));
+		display: flex;
+		justify-content: flex-end;
+		overflow: visible;
 	}
 	.island-pill {
 		position: relative;
 		isolation: isolate;
 		width: var(--pill-w, auto);
 		height: var(--pill-h, auto);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--abyss) 90%, transparent);
-		border: 1px solid var(--glass-edge);
-		border-top-color: var(--glass-specular);
+		border-radius: 999px 0 0 999px;
+		background: var(--abyss);
 		box-shadow:
-			var(--glass-depth),
-			0 6px 22px color-mix(in srgb, var(--abyss) 65%, transparent);
-		backdrop-filter: blur(20px) saturate(1.3);
-		-webkit-backdrop-filter: blur(20px) saturate(1.3);
+			-14px 0 40px color-mix(in srgb, var(--abyss) 75%, transparent),
+			0 10px 30px color-mix(in srgb, var(--abyss) 55%, transparent);
 		overflow: hidden;
 		opacity: 0;
-		transform: translateY(-70%);
+		transform: translateX(28%);
 		pointer-events: none;
 	}
 	.island-pill.active {
 		opacity: 1;
-		transform: translateY(0);
+		transform: translateX(0);
 		pointer-events: auto;
 	}
 	.island-pill.morphing {
@@ -294,7 +293,10 @@
 		max-width: min(36rem, 100%);
 		padding: var(--space-2) var(--space-5);
 		box-sizing: border-box;
-		border-left: 3px solid var(--brand);
+		border-left: 3px solid transparent;
+	}
+	.slip.sev-info {
+		border-left-color: var(--brand);
 	}
 	.slip.sev-error {
 		border-left-color: var(--warn);

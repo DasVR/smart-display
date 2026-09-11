@@ -457,17 +457,11 @@
 	}
 	.dateline,
 	.wxline {
-		transition:
-			opacity 320ms var(--spring-smooth),
-			transform 320ms var(--spring-smooth);
+		transition: opacity 320ms var(--spring-smooth);
 	}
-	.dateline.receded {
-		opacity: 0.32;
-		transform: translateX(-4px);
-	}
+	.dateline.receded,
 	.wxline.receded {
 		opacity: 0.32;
-		transform: translateX(4px);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.dateline,
