@@ -1,11 +1,17 @@
 <script>
 	import { spectrum } from '$lib/services/audioReactive.js';
 	import { wsStatus } from '$lib/stores.js';
+	import BoardWidgets from './BoardWidgets.svelte';
+
+	let { atm = null, prediction = null } = $props();
 
 	let bars = $derived($spectrum || []);
 </script>
 
 <div class="ambient-deck">
+	{#if atm}
+		<BoardWidgets {atm} {prediction} compact />
+	{/if}
 	<div class="wave-bars" aria-hidden="true">
 		{#each bars as h, i (i)}
 			<div class="wave" style="--h: {0.12 + h * 0.88}"></div>
@@ -22,7 +28,7 @@
 		width: 100%;
 		height: 100%;
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto;
+		grid-template-columns: auto minmax(0, 1fr) auto;
 		align-items: end;
 		gap: var(--space-4);
 		padding: var(--space-3) var(--space-6);

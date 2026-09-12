@@ -20,12 +20,16 @@
 </script>
 
 <div class="hero-clock" data-size={size}>
-	<div class="time">
-		<span class="hour"><RollingDigit digit={+hh[0]} /><RollingDigit digit={+hh[1]} /></span>
-		<span class="colon" class:on={colonOn}>:</span>
-		<span class="minute"><RollingDigit digit={+mm[0]} /><RollingDigit digit={+mm[1]} /></span>
-		<span class="seconds"><RollingDigit digit={+ss[0]} /><RollingDigit digit={+ss[1]} /></span>
-		<span class="ampm">{ampm}</span>
+	<div class="time" aria-label="{hh}:{mm} {ampm}">
+		<div class="pair">
+			<span class="hour"><RollingDigit digit={+hh[0]} /><RollingDigit digit={+hh[1]} /></span>
+			<span class="colon" class:on={colonOn}>:</span>
+			<span class="minute"><RollingDigit digit={+mm[0]} /><RollingDigit digit={+mm[1]} /></span>
+		</div>
+		<div class="trail">
+			<span class="seconds"><RollingDigit digit={+ss[0]} /><RollingDigit digit={+ss[1]} /></span>
+			<span class="ampm">{ampm}</span>
+		</div>
 	</div>
 </div>
 
@@ -36,11 +40,11 @@
 	}
 	.time {
 		display: flex;
-		align-items: baseline;
+		align-items: center;
 		font-weight: 500;
 		font-size: clamp(2.75rem, 6vw, 5rem);
-		letter-spacing: -0.06em;
-		line-height: 0.88;
+		letter-spacing: 0;
+		line-height: 1;
 		color: var(--foreground);
 		font-family: var(--font-display);
 		font-style: normal;
@@ -50,15 +54,34 @@
 	}
 	.hero-clock[data-size='poster'] .time {
 		font-size: clamp(5.5rem, 18vw, 12.75rem);
-		letter-spacing: -0.07em;
-		line-height: 0.82;
 		font-weight: 500;
 	}
+	.pair {
+		display: grid;
+		grid-template-columns: 2ch auto 2ch;
+		align-items: center;
+		column-gap: 0;
+	}
+	.hour,
+	.minute {
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		width: 2ch;
+		line-height: 1;
+		transform: translateY(0.08em);
+	}
 	.colon {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 0.42em;
+		height: 1em;
+		line-height: 1;
 		opacity: 0.28;
 		transform: scale(1);
-		transform-origin: center 58%;
-		margin: 0 0.08em;
+		transform-origin: center center;
+		margin: 0;
 		font-style: normal;
 		color: var(--text-secondary);
 		transition:
@@ -71,16 +94,24 @@
 		transform: scale(1.04);
 		color: var(--brand);
 	}
+	.trail {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		justify-content: center;
+		gap: 0.12em;
+		margin-left: 0.28em;
+		line-height: 1;
+	}
 	.seconds {
-		margin-left: var(--space-2);
 		font-size: 0.28em;
 		font-weight: 500;
 		color: var(--text-tertiary);
 		font-variant-numeric: tabular-nums;
 		letter-spacing: normal;
+		display: flex;
 	}
 	.ampm {
-		margin-left: var(--space-2);
 		font-size: 0.22em;
 		font-weight: 600;
 		color: var(--text-tertiary);
