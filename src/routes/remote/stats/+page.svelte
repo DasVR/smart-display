@@ -15,6 +15,13 @@
 		return Boolean(item?.status);
 	}
 
+	function serviceDetail(item) {
+		const detail = item?.uptime || '';
+		if (serviceOk(item)) return detail;
+		if (/%/.test(detail)) return 'down';
+		return detail;
+	}
+
 	function hdmiLabel(hdmi) {
 		if (hdmi === 'off') return 'Panel off';
 		if (hdmi === 'on') return 'Panel on';
@@ -189,7 +196,7 @@
 					<li class:ok={serviceOk(svc)} class:warn={!serviceOk(svc)}>
 						<span class="dot"></span>
 						<span class="svc-name">{svc.name}</span>
-						<span class="svc-detail">{svc.uptime || ''}</span>
+						<span class="svc-detail">{serviceDetail(svc)}</span>
 					</li>
 				{/each}
 			</ul>

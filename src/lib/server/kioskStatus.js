@@ -226,7 +226,7 @@ function localServices(airplay, bluetooth, speakers, pipewire) {
 		{
 			name: 'AirPlay',
 			status: airplay.ready,
-			uptime: airplay.ready ? airplay.name : airplay.hint
+			uptime: airplay.ready ? airplay.name : airplay.installed ? airplay.unit : 'not installed'
 		},
 		{
 			name: 'nqptp',
