@@ -13,6 +13,7 @@
 	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, pushIslandEvent } from '$lib/stores.js';
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
+	import { primeAudio } from '$lib/services/chime.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
@@ -98,6 +99,15 @@
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
 					currentView.set(msg.view);
+				}
+				if (msg.type === 'notify') {
+					pushIslandEvent({
+						title: msg.title || 'Notice',
+						body: msg.body || '',
+						severity: msg.severity || 'info',
+						ttl: msg.ttl || 6000,
+						source: msg.source || ''
+					});
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
 					mode = 'morning';
@@ -186,6 +196,10 @@
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });
+		// Browsers block audio until a real user gesture; a touch/click/key on
+		// the kiosk unlocks it so island-event chimes can play afterward.
+		window.addEventListener('pointerdown', primeAudio, { once: true });
+		window.addEventListener('keydown', primeAudio, { once: true });
 		updateIndicator();
 		return () => {
 			clearInterval(clock);
@@ -195,6 +209,8 @@
 			stopSystemWatch();
 			window.removeEventListener('keydown', handleKey);
 			window.removeEventListener('resize', updateIndicator);
+			window.removeEventListener('pointerdown', primeAudio);
+			window.removeEventListener('keydown', primeAudio);
 			ws?.close();
 		};
 	});
@@ -457,17 +473,11 @@
 	}
 	.dateline,
 	.wxline {
-		transition:
-			opacity 320ms var(--spring-smooth),
-			transform 320ms var(--spring-smooth);
+		transition: opacity 320ms var(--spring-smooth);
 	}
-	.dateline.receded {
-		opacity: 0.32;
-		transform: translateX(-4px);
-	}
+	.dateline.receded,
 	.wxline.receded {
 		opacity: 0.32;
-		transform: translateX(4px);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.dateline,

@@ -22,7 +22,7 @@
 	});
 
 	function inFly() {
-		return reducedMotion ? { duration: 0 } : { y: -8, duration: 260, easing: cubicOut };
+		return reducedMotion ? { duration: 0 } : { x: 10, duration: 260, easing: cubicOut };
 	}
 	function outFade() {
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
@@ -76,17 +76,17 @@
 		}
 	}
 
-	// The pill is one persistent capsule that spring-morphs its own bounds
-	// (like iOS's Dynamic Island) rather than being swapped out per mode, and
-	// sits fully invisible/collapsed (0 width, lifted above its own top edge)
-	// until something actually needs to be shown. A hidden "ghost" copy of the
-	// current content drives the target width/height via ResizeObserver,
-	// independent of whatever is mid-crossfade in the visible layer on top.
+	// The pill is one persistent capsule anchored to the right edge of the
+	// screen that spring-resizes its own bounds (like iOS's Dynamic Island)
+	// rather than being swapped out per mode. At idle it doesn't disappear —
+	// it rests as a small sliver flush against the edge, always part of the
+	// screen's chrome, and grows from that same anchor when something needs
+	// to be shown. A hidden "ghost" copy of the current content drives the
+	// target width/height via ResizeObserver, independent of whatever is
+	// mid-crossfade in the visible layer on top.
 	let ghostEl = $state(null);
 	let pillSize = $state({ w: 0, h: 0 });
 	let ready = $state(false);
-	let morphing = $state(false);
-	let morphTimer = 0;
 
 	function measure() {
 		if (!ghostEl) return;
@@ -96,17 +96,7 @@
 		const h = Math.round(r.height);
 		if (w === Math.round(pillSize.w) && h === Math.round(pillSize.h)) return;
 		pillSize = { w, h };
-		if (!ready) {
-			ready = true;
-			return;
-		}
-		if (!reducedMotion) {
-			morphing = true;
-			clearTimeout(morphTimer);
-			morphTimer = setTimeout(() => {
-				morphing = false;
-			}, 560);
-		}
+		if (!ready) ready = true;
 	}
 
 	$effect(() => {
@@ -114,10 +104,7 @@
 		const ro = new ResizeObserver(measure);
 		ro.observe(ghostEl);
 		measure();
-		return () => {
-			ro.disconnect();
-			clearTimeout(morphTimer);
-		};
+		return () => ro.disconnect();
 	});
 </script>
 
@@ -125,7 +112,7 @@
 	{#if m === 'event'}
 		<div class="slip sev-{activeEvent?.severity ?? 'info'}">
 			<div class="copy">
-				<div class="kicker">{modeLabel(m)}</div>
+				<div class="kicker">{activeEvent?.source || modeLabel(m)}</div>
 				<div class="title">{activeEvent?.title ?? ''}</div>
 				{#if activeEvent?.body}<div class="sub">{activeEvent.body}</div>{/if}
 			</div>
@@ -151,31 +138,16 @@
 			<span class="dot" aria-hidden="true"></span>
 			<span class="word">{modeLabel(m)}</span>
 		</div>
+	{:else}
+		<div class="nub" aria-hidden="true"></div>
 	{/if}
 {/snippet}
-
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-	<defs>
-		<filter id="island-goo" x="-60%" y="-60%" width="220%" height="220%">
-			<feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
-			<feColorMatrix
-				in="blur"
-				mode="matrix"
-				values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -10"
-				result="goo"
-			/>
-			<feBlend in="SourceGraphic" in2="goo" />
-		</filter>
-	</defs>
-</svg>
 
 <div class="island" data-mode={mode}>
 	<div
 		class="island-pill"
 		class:ready
 		class:active={!isIdle}
-		class:morphing
-		data-glass
 		style="--pill-w: {pillSize.w}px; --pill-h: {pillSize.h}px"
 	>
 		<div class="island-ghost" bind:this={ghostEl} aria-hidden="true">
@@ -192,53 +164,70 @@
 </div>
 
 <style>
+	/* Fixed footprint that never changes size, so the pill growing/shrinking
+	   inside it can never push OR cover the date/weather text — it reserves
+	   enough room for typical island content up front. The pill itself is
+	   absolutely positioned and anchored to this box's right edge, which
+	   bleeds past the header's padding to sit flush with the true screen
+	   edge. */
 	.island {
-		min-width: 0;
+		position: relative;
+		width: 16rem;
+		height: 2.25rem;
 		flex-shrink: 0;
+		margin-right: calc(-1 * var(--space-8));
+		overflow: visible;
+		pointer-events: none;
+	}
+	@media (max-width: 768px) {
+		.island {
+			width: 4rem;
+		}
 	}
 	.island-pill {
-		position: relative;
+		position: absolute;
+		top: 50%;
+		right: 0;
 		isolation: isolate;
-		width: var(--pill-w, auto);
-		height: var(--pill-h, auto);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--abyss) 90%, transparent);
-		border: 1px solid var(--glass-edge);
-		border-top-color: var(--glass-specular);
+		width: var(--pill-w, 0.5rem);
+		height: var(--pill-h, 2.25rem);
+		transform: translateY(-50%);
+		border-radius: 999px 0 0 999px;
+		background-color: var(--abyss);
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
+		background-blend-mode: overlay;
+		background-size: 140px 140px;
 		box-shadow:
-			var(--glass-depth),
-			0 6px 22px color-mix(in srgb, var(--abyss) 65%, transparent);
-		backdrop-filter: blur(20px) saturate(1.3);
-		-webkit-backdrop-filter: blur(20px) saturate(1.3);
+			-10px 0 30px color-mix(in srgb, var(--abyss) 65%, transparent),
+			0 6px 20px color-mix(in srgb, var(--abyss) 40%, transparent);
 		overflow: hidden;
-		opacity: 0;
-		transform: translateY(-70%);
+		opacity: 0.5;
 		pointer-events: none;
 	}
 	.island-pill.active {
 		opacity: 1;
-		transform: translateY(0);
 		pointer-events: auto;
-	}
-	.island-pill.morphing {
-		filter: url(#island-goo);
+		box-shadow:
+			-16px 0 42px color-mix(in srgb, var(--abyss) 78%, transparent),
+			0 10px 28px color-mix(in srgb, var(--abyss) 55%, transparent);
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.island-pill.ready {
 			transition:
-				width 560ms var(--spring-bouncy),
-				height 560ms var(--spring-bouncy),
-				transform 560ms var(--spring-bouncy),
-				opacity 260ms var(--spring-smooth);
+				width 480ms var(--spring-bouncy),
+				height 480ms var(--spring-bouncy),
+				opacity 260ms var(--spring-smooth),
+				box-shadow 260ms var(--spring-smooth);
 		}
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.island-pill.ready {
 			transition: opacity 240ms var(--spring-smooth);
 		}
-		.island-pill {
-			transform: none;
-		}
+	}
+	.nub {
+		width: 0.5rem;
+		height: 2.25rem;
 	}
 	.island-ghost {
 		position: absolute;
@@ -294,7 +283,10 @@
 		max-width: min(36rem, 100%);
 		padding: var(--space-2) var(--space-5);
 		box-sizing: border-box;
-		border-left: 3px solid var(--brand);
+		border-left: 3px solid transparent;
+	}
+	.slip.sev-info {
+		border-left-color: var(--brand);
 	}
 	.slip.sev-error {
 		border-left-color: var(--warn);

@@ -1,13 +1,34 @@
 <script>
 	import { onMount } from 'svelte';
-	let loading = true;
-	let track = null;
-	let error = null;
+	let loading = $state(true);
+	let track = $state(null);
+	let error = $state(null);
+	let artFailed = $state(false);
+	let lastArtUrl = null;
+
+	// Smoothly interpolated playback position so the progress bar and the
+	// lyrics highlight move continuously between the 3s polls, instead of
+	// jumping every time fetchNowPlaying() resolves.
+	let displayPosition = $state(0);
+	let lastFetchTime = 0;
+	let raf = 0;
+
+	function tick() {
+		if (track?.playing && track.length) {
+			const elapsed = (Date.now() - lastFetchTime) / 1000;
+			displayPosition = Math.min(track.position + elapsed, track.length);
+		}
+		raf = requestAnimationFrame(tick);
+	}
 
 	onMount(() => {
 		fetchNowPlaying();
 		const t = setInterval(fetchNowPlaying, 3000);
-		return () => clearInterval(t);
+		raf = requestAnimationFrame(tick);
+		return () => {
+			clearInterval(t);
+			cancelAnimationFrame(raf);
+		};
 	});
 
 	async function fetchNowPlaying() {
@@ -15,6 +36,12 @@
 			const r = await fetch('/api/nowplaying');
 			if (!r.ok) throw new Error('player failed');
 			track = await r.json();
+			lastFetchTime = Date.now();
+			displayPosition = track.position || 0;
+			if (track.art !== lastArtUrl) {
+				lastArtUrl = track.art;
+				artFailed = false;
+			}
 			error = null;
 		} catch (e) {
 			error = 'no active media player';
@@ -34,6 +61,27 @@
 	function send(action) {
 		fetch('/api/player/' + action, { method: 'POST' }).catch(() => {});
 	}
+
+	let synced = $derived((track?.lyrics?.length ?? 0) > 1 ? track.lyrics : null);
+	let plainLyrics = $derived(
+		!synced && track?.lyrics?.length === 1 ? track.lyrics[0].text : null
+	);
+	let activeLyricIndex = $derived.by(() => {
+		if (!synced) return -1;
+		let idx = -1;
+		for (let i = 0; i < synced.length; i++) {
+			if (synced[i].time <= displayPosition) idx = i;
+			else break;
+		}
+		return idx;
+	});
+
+	let lyricsEl = $state(null);
+	$effect(() => {
+		const idx = activeLyricIndex;
+		if (idx < 0 || !lyricsEl) return;
+		lyricsEl.children[idx]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+	});
 </script>
 
 <div class="music-view">
@@ -53,29 +101,54 @@
 			<p class="empty-copy">Connect bluetooth or start a track on the server.</p>
 		</div>
 	{:else}
-		<div class="player-body">
-			<div class="album-art" class:playing={track.playing}>
-				<div class="vinyl-groove"></div>
-				<div class="center-label"></div>
-			</div>
-			<div class="track-info">
-				<div class="track-title">{track.title}</div>
-				<div class="track-artist">{track.artist}{track.album ? ` · ${track.album}` : ''}</div>
+		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics)}>
+			<div class="player-main">
+				<div class="album-art" class:playing={track.playing}>
+					{#if track.art && !artFailed}
+						<img
+							class="art-image"
+							src={track.art}
+							alt=""
+							onerror={() => (artFailed = true)}
+						/>
+					{:else}
+						<div class="vinyl-groove"></div>
+						<div class="center-label"></div>
+					{/if}
+				</div>
+				<div class="track-info">
+					<div class="track-title">{track.title}</div>
+					<div class="track-artist">{track.artist}{track.album ? ` · ${track.album}` : ''}</div>
+				</div>
+
+				<div class="times">
+					<span>{fmtTime(displayPosition)}</span>
+					<span>{fmtTime(track.length)}</span>
+				</div>
+				<div class="progress" style="--p: {track.length ? displayPosition / track.length : 0}">
+					<div class="progress-fill"></div>
+				</div>
+
+				<div class="controls">
+					<button type="button" onclick={() => send('previous')}>prev</button>
+					<button type="button" class="play" onclick={() => send('play-pause')}>{track.playing ? 'pause' : 'play'}</button>
+					<button type="button" onclick={() => send('next')}>next</button>
+				</div>
 			</div>
 
-			<div class="times">
-				<span>{fmtTime(track.position)}</span>
-				<span>{fmtTime(track.length)}</span>
-			</div>
-			<div class="progress" style="--p: {track.length ? track.position / track.length : 0}">
-				<div class="progress-fill"></div>
-			</div>
-
-			<div class="controls">
-				<button type="button" onclick={() => send('previous')}>prev</button>
-				<button type="button" class="play" onclick={() => send('play-pause')}>{track.playing ? 'pause' : 'play'}</button>
-				<button type="button" onclick={() => send('next')}>next</button>
-			</div>
+			{#if synced}
+				<div class="lyrics-panel synced" bind:this={lyricsEl}>
+					{#each synced as line, i (i)}
+						<p class="lyric-line" class:active={i === activeLyricIndex} class:past={i < activeLyricIndex}>
+							{line.text || '♪'}
+						</p>
+					{/each}
+				</div>
+			{:else if plainLyrics}
+				<div class="lyrics-panel">
+					<p class="lyric-line plain-block">{plainLyrics}</p>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -119,10 +192,35 @@
 		min-width: 0;
 		min-height: 0;
 	}
+	.player-body.with-lyrics {
+		flex-direction: row;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-8);
+		overflow: hidden;
+	}
+	.player-main {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-4);
+		flex-shrink: 0;
+		min-width: 0;
+		min-height: 0;
+		max-height: 100%;
+		overflow-y: auto;
+		scrollbar-width: none;
+	}
+	.player-main::-webkit-scrollbar {
+		display: none;
+	}
 
 	.album-art {
 		width: clamp(260px, 36vh, 460px);
 		height: clamp(260px, 36vh, 460px);
+		flex-shrink: 0;
+		aspect-ratio: 1;
 		border-radius: var(--radius-lg);
 		background: linear-gradient(160deg, var(--abyss-2) 0%, var(--abyss) 62%, color-mix(in srgb, var(--brand) 12%, var(--abyss)) 100%);
 		border: 1px solid var(--hairline);
@@ -132,6 +230,11 @@
 		position: relative;
 		overflow: hidden;
 		box-shadow: var(--elevation-3);
+	}
+	.art-image {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
 	}
 	.vinyl-groove {
 		position: absolute;
@@ -183,6 +286,17 @@
 		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 	}
+	.with-lyrics .album-art {
+		width: clamp(160px, 22vh, 300px);
+		height: clamp(160px, 22vh, 300px);
+	}
+	.with-lyrics .track-title {
+		font-size: clamp(1.5rem, 2.4vw, 2.25rem);
+	}
+	.with-lyrics .times,
+	.with-lyrics .progress {
+		width: min(420px, 34vw);
+	}
 	.progress {
 		width: min(540px, 70vw);
 		height: 2px;
@@ -233,6 +347,59 @@
 		justify-content: center;
 	}
 	.controls button.play:hover { background: var(--accent); color: var(--abyss); }
+
+	.lyrics-panel {
+		flex: 1;
+		min-width: 0;
+		min-height: 0;
+		max-width: min(46rem, 44vw);
+		height: 100%;
+		overflow-y: auto;
+		scrollbar-width: none;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-4);
+		padding: var(--space-4);
+	}
+	.lyrics-panel::-webkit-scrollbar {
+		display: none;
+	}
+	.lyrics-panel.synced {
+		padding: 30vh var(--space-4);
+		mask-image: linear-gradient(to bottom, transparent, var(--foreground) 22%, var(--foreground) 78%, transparent);
+		-webkit-mask-image: linear-gradient(to bottom, transparent, var(--foreground) 22%, var(--foreground) 78%, transparent);
+	}
+	.lyric-line {
+		margin: 0;
+		font-family: var(--font-body);
+		font-size: var(--text-2xl);
+		font-weight: 600;
+		font-style: normal;
+		line-height: 1.35;
+		color: var(--text-tertiary);
+		opacity: 0.4;
+		transform-origin: left center;
+		transition:
+			color 320ms var(--spring-smooth),
+			opacity 320ms var(--spring-smooth),
+			transform 320ms var(--spring-smooth);
+	}
+	.lyric-line.past {
+		opacity: 0.25;
+	}
+	.lyric-line.active {
+		color: var(--foreground);
+		opacity: 1;
+		transform: scale(1.04);
+	}
+	.lyric-line.plain-block {
+		font-size: var(--text-lg);
+		font-weight: 400;
+		color: var(--text-secondary);
+		opacity: 1;
+		white-space: pre-line;
+		line-height: 1.6;
+	}
 
 	.empty {
 		flex: 1;
@@ -287,6 +454,23 @@
 		}
 		.header {
 			flex-wrap: wrap;
+		}
+		.player-body.with-lyrics {
+			flex-direction: column;
+			overflow: visible;
+		}
+		.with-lyrics .times,
+		.with-lyrics .progress {
+			width: min(540px, 70vw);
+		}
+		.lyrics-panel {
+			max-width: 100%;
+			max-height: 30vh;
+		}
+		.lyrics-panel.synced {
+			padding: var(--space-4);
+			mask-image: linear-gradient(to bottom, transparent, var(--foreground) 12%, var(--foreground) 88%, transparent);
+			-webkit-mask-image: linear-gradient(to bottom, transparent, var(--foreground) 12%, var(--foreground) 88%, transparent);
 		}
 	}
 </style>
