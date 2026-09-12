@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { ordinalSuffix, shortDateline } from '../src/lib/dateline.js';
 import {
 	applyServiceSnapshot,
-	compactSlots,
+	dockChips,
+	recoveredActivity,
 	serviceActivity,
 	serviceActivityId
 } from '../src/lib/islandLive.js';
@@ -32,20 +33,22 @@ describe('service snapshot', () => {
 		assert.deepEqual(snap.clear, []);
 	});
 
-	it('pings the island when a live service drops, and keeps a compact activity', () => {
+	it('records a downed service as a dock chip, not an island ping', () => {
 		const snap = applyServiceSnapshot([up('hermes')], [down('hermes')]);
 		assert.equal(snap.events[0].title, 'Service down');
 		assert.equal(snap.events[0].body, 'hermes');
 		assert.equal(snap.events[0].severity, 'error');
 		assert.deepEqual(snap.set, [serviceActivity('hermes')]);
+		assert.ok(snap.clear.includes(recoveredActivity('hermes').id));
 	});
 
-	it('pings recovered and clears the compact activity', () => {
+	it('flashes recovered on the dock and clears the down chip', () => {
 		const snap = applyServiceSnapshot([down('hermes')], [up('hermes')]);
 		assert.equal(snap.events[0].title, 'Service recovered');
 		assert.equal(snap.events[0].severity, 'ok');
-		assert.deepEqual(snap.clear, [serviceActivityId('hermes')]);
-		assert.deepEqual(snap.set, []);
+		assert.ok(snap.clear.includes(serviceActivityId('hermes')));
+		assert.deepEqual(snap.set, [recoveredActivity('hermes')]);
+		assert.equal(snap.set[0].ttl, 5000);
 	});
 
 	it('does not re-emit while a service stays down', () => {
@@ -56,44 +59,32 @@ describe('service snapshot', () => {
 	});
 });
 
-describe('compact slots', () => {
+describe('dock chips', () => {
 	it('idles when nothing is ongoing', () => {
-		assert.equal(compactSlots(null, []), null);
-		assert.equal(compactSlots({ playing: false }, []), null);
+		assert.deepEqual(dockChips([]), []);
+		assert.deepEqual(dockChips(null), []);
 	});
 
-	it('keeps music compact with an equalizer trailing side', () => {
-		const slots = compactSlots({ playing: true, title: 'Night Drive', artist: 'Demo FM' }, []);
-		assert.equal(slots.leading.kind, 'music');
-		assert.equal(slots.leading.title, 'Night Drive');
-		assert.equal(slots.trailing.kind, 'eq');
+	it('keeps a downed service on the trough', () => {
+		const chips = dockChips([serviceActivity('hermes')]);
+		assert.equal(chips.length, 1);
+		assert.equal(chips[0].title, 'hermes');
+		assert.equal(chips[0].body, 'Down');
 	});
 
-	it('keeps a downed service up as a compact Live Activity', () => {
-		const slots = compactSlots(null, [serviceActivity('hermes')]);
-		assert.equal(slots.leading.title, 'hermes');
-		assert.equal(slots.trailing.kind, 'status');
-		assert.equal(slots.trailing.title, 'Down');
-	});
-
-	it('puts music on the leading side and a service on the trailing side', () => {
-		const slots = compactSlots(
-			{ playing: true, title: 'Night Drive' },
-			[serviceActivity('hermes')]
+	it('collapses extra chips into N more', () => {
+		const chips = dockChips(
+			[
+				serviceActivity('hermes'),
+				serviceActivity('godmode'),
+				serviceActivity('leadvine'),
+				serviceActivity('dasdev.net'),
+				serviceActivity('display')
+			],
+			{ max: 4 }
 		);
-		assert.equal(slots.leading.kind, 'music');
-		assert.equal(slots.trailing.kind, 'service');
-		assert.equal(slots.trailing.title, 'hermes');
-	});
-
-	it('stacks extra downed services on the trailing side', () => {
-		const slots = compactSlots(null, [
-			serviceActivity('hermes'),
-			serviceActivity('godmode'),
-			serviceActivity('leadvine')
-		]);
-		assert.equal(slots.leading.title, 'hermes');
-		assert.equal(slots.trailing.kind, 'stack');
-		assert.equal(slots.trailing.title, '2 down');
+		assert.equal(chips.length, 4);
+		assert.equal(chips[3].kind, 'stack');
+		assert.equal(chips[3].title, '2 more');
 	});
 });

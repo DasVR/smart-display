@@ -1,17 +1,15 @@
 <script>
 	import { spectrum } from '$lib/services/audioReactive.js';
 	import { wsStatus } from '$lib/stores.js';
-	import BoardWidgets from './BoardWidgets.svelte';
-
-	let { atm = null, prediction = null } = $props();
+	import StatusDock from './StatusDock.svelte';
 
 	let bars = $derived($spectrum || []);
 </script>
 
 <div class="ambient-deck">
-	{#if atm}
-		<BoardWidgets {atm} {prediction} compact />
-	{/if}
+	<div class="dock-slot">
+		<StatusDock />
+	</div>
 	<div class="wave-bars" aria-hidden="true">
 		{#each bars as h, i (i)}
 			<div class="wave" style="--h: {0.12 + h * 0.88}"></div>
@@ -35,6 +33,10 @@
 		pointer-events: none;
 		box-sizing: border-box;
 		min-width: 0;
+	}
+	.dock-slot {
+		min-width: 0;
+		max-width: 42rem;
 	}
 	.wave-bars {
 		display: flex;

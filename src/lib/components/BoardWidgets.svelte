@@ -1,7 +1,7 @@
 <!--
 	Hallmark design scores
 	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4
-	Sun, wind, and next-rain chips for the clock face and trough.
+	Sun, wind, and next-rain chips for the clock face.
 -->
 <script>
 	import { fmtSunTime } from '$lib/atmosphere.js';

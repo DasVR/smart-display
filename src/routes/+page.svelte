@@ -10,7 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, pushIslandEvent, setIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
@@ -101,23 +101,12 @@
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(`${proto}//${location.host}/ws`);
 		ws.onopen = () => {
-			clearIslandActivity('network');
-			if (hadDroppedConnection) {
-				pushIslandEvent({ title: 'Network restored', body: 'Reconnected', severity: 'ok', ttl: 4000 });
-			}
+			if (hadDroppedConnection) playChime('ok');
 			hadDroppedConnection = false;
 			wsStatus.set('connected');
 		};
 		ws.onclose = () => {
-			setIslandActivity('network', {
-				kind: 'network',
-				title: 'Network',
-				body: 'Retrying',
-				severity: 'warn'
-			});
-			if (!hadDroppedConnection) {
-				pushIslandEvent({ title: 'Network issue', body: 'Lost connection, retrying', severity: 'warn', ttl: 8000 });
-			}
+			if (!hadDroppedConnection) playChime('warn');
 			hadDroppedConnection = true;
 			wsStatus.set('disconnected');
 			reconnectTimer = setTimeout(connect, 2000);
@@ -327,9 +316,13 @@
 				body: 'Down',
 				severity: 'error'
 			});
-			pushIslandEvent({ title: 'Service down', body: 'hermes', severity: 'error', ttl: 8000 });
 		} else if (islandPreview === 'recover') {
-			pushIslandEvent({ title: 'Service recovered', body: 'hermes', severity: 'ok', ttl: 5000 });
+			setIslandActivity('svc:hermes:ok', {
+				kind: 'recovered',
+				title: 'hermes',
+				body: 'Recovered',
+				severity: 'ok'
+			});
 		} else if (islandPreview === 'music') {
 			nowPlaying.set({ playing: true, title: 'Night Drive', artist: 'Demo FM', art: null });
 		}
@@ -418,7 +411,7 @@
 		if (!override || override.notify) return weatherData;
 		return { ...(weatherData || {}), ...override };
 	});
-	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || $islandActivities.length > 0);
+	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing);
 	let showChromeTicker = $derived(Boolean(tickerPulse) && $currentView !== 'weather');
 
 	$effect(() => {
@@ -478,7 +471,7 @@
 		windDir={atm.windRad}
 	/>
 
-	<DynamicIsland nowPlaying={$nowPlaying} events={$islandQueue} activities={$islandActivities} />
+	<DynamicIsland nowPlaying={$nowPlaying} events={$islandQueue} />
 
 	<div
 		class="display-root"
@@ -574,7 +567,7 @@
 				{/each}
 			</div>
 			<div class="trough glass-field" data-glass>
-				<AmbientDeck {atm} prediction={wxForIsland?.prediction || weatherData?.prediction} />
+				<AmbientDeck />
 			</div>
 		</footer>
 	</div>
