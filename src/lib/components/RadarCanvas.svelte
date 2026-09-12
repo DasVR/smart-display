@@ -182,10 +182,14 @@
 		zoomFactor = cityScale / introScale;
 		drawCurrent();
 		startAnim();
-		if (reducedMotion || hasIntroduced) {
+		if (reducedMotion) {
 			zoomedIn = true;
 			settled = true;
 			hasIntroduced = true;
+			return;
+		}
+		if (hasIntroduced) {
+			zoomedIn = true;
 			return;
 		}
 		zoomedIn = false;
