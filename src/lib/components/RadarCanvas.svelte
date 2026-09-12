@@ -1,8 +1,8 @@
 <!--
 	Hallmark design scores
 	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
-	City-scale Largo radar: ESRI z11 basemap, RainViewer z7 stretched to match,
-	one-shot intro zoom Tampa Bay → home. Tokens only. No other views touched.
+	Full-bleed rectangular Largo radar: ESRI z11, RainViewer z7 stretched,
+	Tampa Bay intro zoom, wind vane at home. Tokens only. No other views restyled.
 -->
 <script>
 	import { onMount, untrack } from 'svelte';
@@ -17,11 +17,12 @@
 		lonLatToFractionalTile,
 		radarTileUrl,
 		basemapTileUrl,
-		tilesCoveringRadius,
+		tilesCoveringRect,
 		lastPastFrameIndex,
 		scaleForGroundRadius,
 		radarDrawSize
 	} from '$lib/radarMap.js';
+	import { compassFromDeg, windTowardDeg } from '$lib/atmosphere.js';
 
 	let { data = null } = $props();
 
@@ -64,10 +65,16 @@
 	];
 
 	let ringLabels = $derived([
-		{ r: radius / 3, km: Math.round(CITY_GROUND_M / 3000) },
-		{ r: radius * (2 / 3), km: Math.round((CITY_GROUND_M * 2) / 3000) },
-		{ r: radius, km: Math.round(CITY_GROUND_M / 1000) }
+		{ r: radius * (5 / 14), km: 5 },
+		{ r: radius * (9 / 14), km: 9 },
+		{ r: radius, km: 14 }
 	]);
+
+	let windFrom = $derived(Number(data?.current?.windDirection));
+	let windSpeed = $derived(Number(data?.current?.windSpeed) || 0);
+	let windToward = $derived(Number.isFinite(windFrom) ? windTowardDeg(windFrom) : 0);
+	let windCompass = $derived(compassFromDeg(windFrom));
+	let showWind = $derived(Number.isFinite(windFrom) && windSpeed >= 0.4);
 
 	function makeBayerDataUrl() {
 		const c = document.createElement('canvas');
@@ -103,11 +110,15 @@
 	}
 
 	function layoutForSize(w, h) {
-		const nextRadius = Math.max(132, Math.min(w, h) * 0.46);
+		const nextHalfW = w * 0.5;
+		const nextHalfH = h * 0.5;
+		const shortHalf = Math.min(nextHalfW, nextHalfH);
 		return {
-			cx: w * 0.5,
-			cy: h * 0.5,
-			radius: nextRadius
+			cx: nextHalfW,
+			cy: nextHalfH,
+			halfW: nextHalfW,
+			halfH: nextHalfH,
+			radius: shortHalf
 		};
 	}
 
@@ -235,11 +246,18 @@
 		cityScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, CITY_GROUND_M);
 
 		const frac = lonLatToFractionalTile(lat, lon, BASE_ZOOM);
-		const worldRadius = lay.radius / introScale;
-		const esri = tilesCoveringRadius(frac.x, frac.y, worldRadius, BASE_ZOOM);
+		const worldHalfW = lay.halfW / introScale;
+		const worldHalfH = lay.halfH / introScale;
+		const esri = tilesCoveringRect(frac.x, frac.y, worldHalfW, worldHalfH, BASE_ZOOM);
 		const radarFrac = lonLatToFractionalTile(lat, lon, RADAR_ZOOM);
-		const radarWorld = worldRadius / 2 ** (BASE_ZOOM - RADAR_ZOOM);
-		const rain = tilesCoveringRadius(radarFrac.x, radarFrac.y, radarWorld, RADAR_ZOOM);
+		const kZoom = 2 ** (BASE_ZOOM - RADAR_ZOOM);
+		const rain = tilesCoveringRect(
+			radarFrac.x,
+			radarFrac.y,
+			worldHalfW / kZoom,
+			worldHalfH / kZoom,
+			RADAR_ZOOM
+		);
 
 		loading = true;
 		error = null;
@@ -327,9 +345,10 @@
 		cityScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, CITY_GROUND_M);
 		viewScale = introScale;
 		zoomFactor = cityScale / introScale;
-		const worldRadius = lay.radius / introScale;
+		const worldHalfW = lay.halfW / introScale;
+		const worldHalfH = lay.halfH / introScale;
 		const frac = lonLatToFractionalTile(lat, Number.isFinite(rad?.lon) ? rad.lon : LARGO_LON, BASE_ZOOM);
-		const cov = tilesCoveringRadius(frac.x, frac.y, worldRadius, BASE_ZOOM);
+		const cov = tilesCoveringRect(frac.x, frac.y, worldHalfW, worldHalfH, BASE_ZOOM);
 		const coverageChanged =
 			!composed ||
 			composed.x0 !== cov.x0 ||
@@ -394,7 +413,7 @@
 
 <div
 	class="radar"
-	style="--cx: {cx}px; --cy: {cy}px; --r: {radius}px; --zoom-in: {zoomFactor}"
+	style="--cx: {cx}px; --cy: {cy}px; --zoom-in: {zoomFactor}"
 >
 	<div class="map-clip">
 		<div class="map-zoom" class:city={zoomedIn}>
@@ -413,6 +432,15 @@
 				>
 			{/if}
 		{/each}
+		{#if showWind}
+			<g class="vane" transform="translate({cx} {cy}) rotate({windToward})">
+				<line class="vane-shaft" x1="0" y1="10" x2="0" y2={-Math.max(36, radius * 0.28)} />
+				<polygon
+					class="vane-head"
+					points="0,{-(Math.max(36, radius * 0.28) + 10)} -6,{-(Math.max(36, radius * 0.28) - 6)} 6,{-(Math.max(36, radius * 0.28) - 6)}"
+				/>
+			</g>
+		{/if}
 		<circle class="mark" cx={cx} cy={cy} r="3.5" />
 	</svg>
 	{#if loading}
@@ -425,6 +453,9 @@
 			<span class:future={frames[frameIndex]?.nowcast}
 				>{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'LARGO'}</span
 			>
+			{#if showWind}
+				<span class="wind-read">{windCompass} {Math.round(windSpeed)} mph</span>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -444,7 +475,7 @@
 	.map-clip {
 		position: absolute;
 		inset: 0;
-		clip-path: circle(var(--r) at var(--cx) var(--cy));
+		overflow: hidden;
 	}
 	.map-zoom {
 		position: absolute;
@@ -467,7 +498,6 @@
 		position: absolute;
 		inset: 0;
 		pointer-events: none;
-		clip-path: circle(var(--r) at var(--cx) var(--cy));
 		background-repeat: repeat;
 		background-size: 8px 8px;
 		image-rendering: pixelated;
@@ -497,6 +527,37 @@
 		fill: var(--radar-marker);
 		stroke: none;
 	}
+	.vane-shaft {
+		stroke: color-mix(in srgb, var(--scan) 80%, var(--foreground));
+		stroke-width: 2;
+		stroke-linecap: round;
+	}
+	.vane-head {
+		fill: var(--scan);
+	}
+	.legend {
+		position: absolute;
+		bottom: var(--space-3);
+		left: var(--space-3);
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-3);
+		padding: var(--space-1) var(--space-3);
+		border-radius: var(--radius-sm);
+		background: var(--shell-fill);
+		border: 1px solid var(--hairline);
+		font-family: var(--font-display);
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
+		pointer-events: none;
+	}
+	.legend span.future {
+		color: var(--brand);
+	}
+	.wind-read {
+		color: var(--scan);
+		font-style: normal;
+	}
 	.overlay {
 		position: absolute;
 		inset: 0;
@@ -510,22 +571,6 @@
 	}
 	.overlay.warn {
 		color: var(--warn);
-	}
-	.legend {
-		position: absolute;
-		bottom: var(--space-3);
-		left: var(--space-3);
-		padding: var(--space-1) var(--space-3);
-		border-radius: var(--radius-sm);
-		background: var(--shell-fill);
-		border: 1px solid var(--hairline);
-		font-family: var(--font-display);
-		font-size: var(--text-sm);
-		color: var(--text-tertiary);
-		pointer-events: none;
-	}
-	.legend span.future {
-		color: var(--brand);
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.map-zoom {
