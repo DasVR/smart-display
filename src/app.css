@@ -136,6 +136,17 @@
 	--glow-solve: color-mix(in srgb, var(--solve-50) 55%, transparent);
 }
 
+/* Without this, an explicit `width: 100%` plus any padding on the same
+   element adds the padding on top of that 100% (the browser default,
+   content-box) instead of eating into it - silently overflowing whatever
+   container clips it. Several components were patching this one at a
+   time; a global reset removes the whole bug class instead. */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,

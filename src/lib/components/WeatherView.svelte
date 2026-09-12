@@ -156,7 +156,7 @@
 		width: 100%;
 		min-height: 0;
 		min-width: 0;
-		padding: var(--space-7);
+		padding: var(--space-8);
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-6);
