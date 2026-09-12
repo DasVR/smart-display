@@ -114,7 +114,7 @@ cat > "$HOME/.config/shairport-sync.conf" <<CONF
 general = {
   name = "${AIRPLAY_NAME}";
   interpolation = "basic";
-  output_backend = "pa";
+  output_backend = "pulseaudio";
   mdns_backend = "avahi";
   ignore_volume_control = "no";
 };
@@ -125,7 +125,7 @@ sessioncontrol = {
   session_timeout = 120;
 };
 
-pa = {
+pulseaudio = {
   application_name = "Shairport Sync";
 };
 
