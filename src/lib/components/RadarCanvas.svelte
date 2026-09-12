@@ -43,6 +43,7 @@
 	let settled = $state(false);
 	let zoomedIn = $state(false);
 	let zoomFactor = $state(1);
+	let suppressTransition = $state(false);
 
 	let ctx = null;
 	let dpr = 1;
@@ -50,6 +51,7 @@
 	let settleTimer = 0;
 	let introKick = 0;
 	let zoomAssessTimer = 0;
+	let nativeSnapTimer = 0;
 	let gen = 0;
 	let composed = null;
 	let viewScale = 1;
@@ -156,6 +158,10 @@
 			cancelAnimationFrame(introKick);
 			introKick = 0;
 		}
+		if (nativeSnapTimer) {
+			clearTimeout(nativeSnapTimer);
+			nativeSnapTimer = 0;
+		}
 		stopZoomAssess();
 	}
 
@@ -188,12 +194,51 @@
 		return CITY_GROUND_M + (STORM_GROUND_M - CITY_GROUND_M) * t;
 	}
 
+	/** Re-renders the canvas at native resolution for the given target scale
+	 *  and drops the CSS zoom back to identity, with its transition
+	 *  suppressed for one frame so the swap from the (softer, CSS-scaled)
+	 *  transitional frame to the crisp native one is invisible. Without
+	 *  this, the canvas stays baked in at the wide intro scale forever and
+	 *  every tighter view is just that same raster stretched via CSS
+	 *  transform - soft, and zooming in never actually reveals more detail. */
+	function snapToNative(targetScale) {
+		if (!composed) return;
+		suppressTransition = true;
+		viewScale = targetScale;
+		zoomFactor = 1;
+		drawCurrent();
+		requestAnimationFrame(() => {
+			requestAnimationFrame(() => {
+				suppressTransition = false;
+			});
+		});
+	}
+
+	function scheduleNativeSnap(targetScale) {
+		if (nativeSnapTimer) {
+			clearTimeout(nativeSnapTimer);
+			nativeSnapTimer = 0;
+		}
+		if (reducedMotion) {
+			snapToNative(targetScale);
+			return;
+		}
+		nativeSnapTimer = setTimeout(() => {
+			nativeSnapTimer = 0;
+			snapToNative(targetScale);
+		}, introDurationMs());
+	}
+
 	/** Recomputes the reactive ground radius + CSS zoom factor for the given
-	 *  point on the adaptive slider (0 = tight city, 1 = wide storm view). */
+	 *  point on the adaptive slider (0 = tight city, 1 = wide storm view).
+	 *  The CSS transform only carries the view through the transition itself
+	 *  - once it's had time to finish, the canvas snaps to a native render
+	 *  at the target scale so the settled view is genuinely sharp. */
 	function applyAdaptiveZoom(t) {
 		adaptiveGroundM = groundMForT(t);
-		const scale = scaleForGroundRadius(radius, currentLat, BASE_ZOOM, adaptiveGroundM);
-		zoomFactor = scale / introScale;
+		const targetScale = scaleForGroundRadius(radius, currentLat, BASE_ZOOM, adaptiveGroundM);
+		zoomFactor = targetScale / viewScale;
+		scheduleNativeSnap(targetScale);
 	}
 
 	/** Builds a transparent-background canvas holding just the current
@@ -573,7 +618,7 @@
 	style="--cx: {cx}px; --cy: {cy}px; --zoom-in: {zoomFactor}"
 >
 	<div class="map-clip">
-		<div class="map-zoom" class:city={zoomedIn}>
+		<div class="map-zoom" class:city={zoomedIn} class:no-anim={suppressTransition}>
 			<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on Largo, Florida"></canvas>
 		</div>
 	</div>
@@ -643,6 +688,9 @@
 	}
 	.map-zoom.city {
 		transform: scale(var(--zoom-in));
+	}
+	.map-zoom.no-anim {
+		transition: none;
 	}
 	.map {
 		position: absolute;
