@@ -265,8 +265,8 @@
 	.island-pill {
 		position: relative;
 		isolation: isolate;
-		width: var(--pill-w, 5.25rem);
-		height: var(--pill-h, 0.65rem);
+		width: var(--pill-w, 7rem);
+		height: var(--pill-h, 0.9rem);
 		/* A small rounded pill at rest, like the real thing's idle capsule —
 		   but once it opens it settles into a modest, consistent corner
 		   radius instead of scaling up to a full stadium shape, so a wide or
@@ -281,7 +281,7 @@
 			0 14px 34px color-mix(in srgb, var(--abyss) 65%, transparent),
 			0 6px 18px color-mix(in srgb, var(--abyss) 40%, transparent);
 		overflow: hidden;
-		opacity: 0.5;
+		opacity: 0.72;
 		pointer-events: none;
 	}
 	.island-pill.active {
@@ -308,8 +308,8 @@
 		}
 	}
 	.nub {
-		width: 5.25rem;
-		height: 0.65rem;
+		width: 7rem;
+		height: 0.9rem;
 	}
 	.island-ghost {
 		position: absolute;
@@ -320,6 +320,7 @@
 		height: max-content;
 		visibility: hidden;
 		pointer-events: none;
+		white-space: nowrap;
 	}
 	.island-visible {
 		position: absolute;
@@ -402,21 +403,17 @@
 		color: var(--foreground);
 		letter-spacing: -0.03em;
 		line-height: 1.15;
-		overflow-wrap: anywhere;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
+		white-space: nowrap;
 		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 	.sub {
 		font-size: var(--text-lg);
 		color: var(--text-secondary);
 		line-height: 1.25;
-		overflow-wrap: anywhere;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
+		white-space: nowrap;
 		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	@media (max-width: 414px) {

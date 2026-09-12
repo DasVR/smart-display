@@ -327,6 +327,8 @@
 		<WeatherRail rail={weatherRail} onopen={() => currentView.set('weather')} />
 	{/if}
 
+	<DynamicIsland nowPlaying={$nowPlaying} notification={notif} events={$islandQueue} />
+
 	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'} class:has-rail={!!weatherRail}>
 		<header class="zone top">
 			<div class="top-row">
@@ -371,8 +373,6 @@
 				<h1 class="view-title">{viewTitle}</h1>
 			{/if}
 		</header>
-
-		<DynamicIsland nowPlaying={$nowPlaying} notification={notif} events={$islandQueue} />
 
 		<main id="main-stage" class="zone center">
 			{#if $currentView === 'clock'}
