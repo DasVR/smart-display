@@ -1,118 +1,144 @@
-# Bluetooth speaker + auto now-playing setup
+# Phone audio: Bluetooth, AirPlay, and speakers
 
-Lets a phone pair with the kiosk host over Bluetooth, stream audio to it
-like a normal speaker (through whatever's plugged into the headphone
-jack), and have the dashboard automatically jump to the Music view and
-show what's playing — title, artist, album art, and time-synced lyrics
-when available.
+Lets a phone play through this kiosk: Apple Music via AirPlay (the same
+speaker handoff you get on a TV), Bluetooth as a stereo speaker fallback,
+and a doctor script that says whether the speakers are actually the
+default output.
 
-This was originally written from a sandboxed dev container with no
-Bluetooth adapter and nothing to test against. It has since been run for
-real on the kiosk host (via the `bluetooth-setup` GitHub Actions workflow,
-on the self-hosted runner) and two real bugs turned up and were fixed:
-the audio-sink role config was in a `.lua` format WirePlumber 0.5 no
-longer reads at all (silently ignored, replaced with the current `.conf`
-format), and the host user wasn't in the `audio` group so PipeWire
-couldn't open any real sound card regardless of Bluetooth config (fixed
-by the script, but needs a fresh login/reboot to take effect — see
-below). Bluetooth pairing, the systemd services, and the class/timeout
-config are confirmed working on real hardware; actual phone-to-speaker
-audio still needs your own verification pass once the group change is
-live.
+Phone-to-speaker audio was never confirmed on the real box after the
+`audio` group fix. iPhone + Apple Music in particular often "does not
+allow" playback when Linux advertises a headset profile (HFP) instead of
+A2DP. This pass locks Bluetooth to A2DP sink only, loops the phone's
+stream onto the default speakers, auto-picks analog/USB/headphone over
+Dummy Output, and adds an AirPlay receiver named **Smart Display**.
+
+## What to use from the phone
+
+**Apple Music: AirPlay (preferred).** Open Apple Music, tap the AirPlay
+icon on Now Playing (or Control Center -> AirPlay), and choose
+`Smart Display`. That is the TV-style handoff. It is AirPlay, not Apple
+Continuity Handoff (Continuity is Apple-only and cannot run on Linux).
+
+**Bluetooth:** pair the kiosk from iOS Settings -> Bluetooth. It should
+show as a speaker, not a headset. Then play. If Apple Music still
+refuses the route, use AirPlay.
 
 ## How the pieces fit together
 
-1. **Pairing** — `scripts/bt-auto-agent.py` registers a `NoInputNoOutput`
-   BlueZ agent that accepts every pairing request without a PIN prompt
-   (there's no screen to show one on). Runs as
-   `smart-display-bt-agent.service`.
-2. **Audio** — PipeWire's `bluez5` module is configured for the
-   `a2dp_sink` role, which makes this box *receive* A2DP audio (i.e. act
-   as headphones/a speaker) rather than send it. Whatever the phone
-   plays should come out of this box's **default** audio sink.
-3. **Track metadata** — `mpris-proxy` (from the `bluez-tools` package)
-   bridges BlueZ's native `MediaPlayer1` D-Bus interface (populated via
-   AVRCP once a phone connects) to a standard MPRIS player. The
-   dashboard's `getNowPlaying()` already just runs `playerctl`, which
-   reads whatever MPRIS player is active — **no app code needed to
-   change for this to work**, once `mpris-proxy` is running.
-4. **Auto-switch to Music** — `scripts/bt-connect-watch.py` watches
-   BlueZ over D-Bus for a device's `Connected` property flipping to
-   `true`, then `POST`s `/api/bt/connected` with the device Alias when
-   BlueZ has one. The dashboard server (`ws-server.js`) turns that into a
-   `navigate` broadcast (Music view) plus a Dynamic Island event
-   (`Phone connected`, or `{Alias} connected`).
-5. **Lyrics + album art** — already handled server-side: whatever
-   `playerctl` reports (title, artist, `mpris:artUrl`) is looked up
-   against [lrclib.net](https://lrclib.net) (free, no account) for
-   time-synced lyrics. This works for anything MPRIS can see — Apple
-   Music, Spotify, or a phone streaming over Bluetooth — not just one
-   app.
+1. **Speakers** — `scripts/audio-pick-sink.mjs` reads `wpctl status`,
+   prefers analog / headphones / USB, skips Dummy Output, and falls back
+   to HDMI only when that is the only real sink. `wpctl set-default`
+   persists the choice in WirePlumber.
+2. **Bluetooth pairing** — `scripts/bt-auto-agent.py` accepts every
+   pairing request without a PIN (`smart-display-bt-agent.service`).
+3. **Bluetooth audio** — WirePlumber is A2DP sink only (`hfphsp-backend
+   = none`). Headset profiles are what make iPhone stereo fail. After
+   connect, `scripts/bt-audio-loopback.sh` plays the `bluez_input.*`
+   source on the default sink.
+4. **Track metadata (Bluetooth)** — `mpris-proxy` still bridges AVRCP to
+   MPRIS so `playerctl` / `/api/nowplaying` work.
+5. **AirPlay** — `shairport-sync` advertises `Smart Display` over mDNS
+   (Avahi). AirPlay 2 needs `nqptp`; the setup script builds that when
+   it can, and otherwise installs distro AirPlay 1 (still listed in
+   Apple Music). Playback goes through PipeWire Pulse, so it uses the
+   same default sink as Bluetooth.
+6. **Auto-switch to Music** — Bluetooth `POST /api/bt/connected` and
+   AirPlay `POST /api/airplay/connected` both jump the dashboard to Music
+   and raise the Dynamic Island.
+7. **AirPlay now-playing** — `scripts/airplay-metadata.py` reads the
+   shairport metadata pipe so title/artist/art show when MPRIS is empty.
 
 ## Setup
 
+On the kiosk host:
+
 ```bash
 cd /home/das/projects/smart-display
+./scripts/speaker-audio-setup.sh
+```
+
+That runs Bluetooth setup, AirPlay setup, sink picking, then
+`./scripts/audio-doctor.sh`.
+
+Or from GitHub Actions: run the `Bluetooth Audio Setup` workflow
+(`workflow_dispatch` on the self-hosted kiosk runner). It now calls the
+combined speaker script.
+
+**If it just added you to the `audio` group, reboot** (or fully log out
+and back in) before testing sound. PipeWire's already-running session
+will keep showing Dummy Output until then.
+
+Pieces on their own:
+
+```bash
 ./scripts/bluetooth-audio-setup.sh
+./scripts/airplay-setup.sh
+./scripts/audio-pick-sink.mjs          # also --dry-run or --beep
+./scripts/audio-doctor.sh              # also --fix and --beep
 ```
 
-This installs `bluez`, `bluez-tools`, and the D-Bus Python bindings, adds
-the current user to the `audio` group if it isn't already a member,
-configures BlueZ's device class + timeouts, writes the PipeWire
-`a2dp_sink` config, installs and enables the three systemd services
-above, and leaves the adapter powered on and discoverable.
+Set `SHAIRPORT_SKIP_AIRPLAY2=1` to skip the source build and use distro
+AirPlay 1 only.
 
-**If it just added you to the `audio` group, reboot (or fully log out and
-back in) before testing audio.** Group membership only applies to new
-sessions — PipeWire's already-running session won't pick it up on its
-own, and until it does, `wpctl status` will keep showing only a "Dummy
-Output" sink no matter how correct everything else is.
-
-## Verifying it actually works
-
-Pair your phone with the display from its Bluetooth settings. It should
-show up as a speaker and pair without asking for a code.
+## Verifying speakers are connected
 
 ```bash
-# is BlueZ + PipeWire seeing the connection?
-bluetoothctl info <phone's MAC>       # Connected: yes
-
-# is audio actually routed to the jack?
-wpctl status                          # find the analog output's ID
-wpctl set-default <ID>                # if it isn't already the default
-
-# is track metadata flowing?
-playerctl status                      # Playing
-playerctl metadata                    # title/artist/album from the phone
-
-# did the dashboard switch to Music on connect?
-curl -X POST http://localhost:3000/api/bt/connected   # trigger it manually to test
+./scripts/audio-doctor.sh
 ```
 
-If `playerctl metadata` is empty while a track is playing on the phone,
-check `mpris-proxy` first — it's the one bridge that has no fallback:
+You want:
+
+- `audio group: yes`
+- a real card in `/proc/asound/cards` / `aplay -l`
+- `speakers: connected via ... (analog|headphone|usb|hdmi)`
+- **not** Dummy Output as the default sink
+- AirPlay unit active; `shairport-sync -V` includes `AirPlay2` if the
+  TV-style path built cleanly
+- Avahi active (phones cannot see the speaker without mDNS)
+
+Play a confirmation sound on whatever was picked:
 
 ```bash
-systemctl --user status mpris-proxy   # or smart-display-mpris-proxy
+node ./scripts/audio-pick-sink.mjs --beep
 ```
 
-If the phone never pairs cleanly (asks for a code, times out, or shows
-up but won't connect for audio specifically), check:
+## Verifying Bluetooth
 
 ```bash
-sudo systemctl status smart-display-bt-agent
-sudo journalctl -u smart-display-bt-agent -f    # while attempting to pair
+bluetoothctl info <phone MAC>          # Connected: yes
+playerctl status                       # Playing
+playerctl metadata
+curl -X POST http://localhost:3000/api/bt/connected
 ```
+
+If the phone pairs but music is silent, check that a `bluez` source
+exists (`pactl list short sources`) and that the loopback script loaded
+(`pactl list short modules | grep loopback`). Re-run
+`./scripts/bt-audio-loopback.sh`.
+
+## Verifying AirPlay
+
+```bash
+systemctl --user status smart-display-airplay
+systemctl --user status smart-display-airplay-meta
+systemctl is-active avahi-daemon
+systemctl is-active nqptp              # AirPlay 2 only
+curl -X POST http://localhost:3000/api/airplay/connected
+```
+
+On the iPhone, the kiosk should appear as **Smart Display** in Apple
+Music's AirPlay list within a few seconds of the service starting.
 
 ## Known gaps
 
-- **Audio routing isn't auto-detected.** The setup script can't know
-  which PipeWire sink is your headphone jack — you set that once with
-  `wpctl set-default`.
-- **No volume/mute control from the dashboard.** The existing
-  prev/play-pause/next controls (`/api/player/*`) already work over
-  MPRIS once a phone is connected, since they go through `playerctl`
-  too — but there's no volume slider in the UI yet.
-- **Multiple phones**: BlueZ will happily pair several, but only one
-  A2DP audio connection is realistic at a time on typical hardware;
-  behavior with two phones connected simultaneously wasn't considered.
+- **This cloud environment has no Bluetooth adapter and no speakers.**
+  Doctor output and unit tests are the proof from here; the kiosk
+  workflow's diagnostics step is the proof on real hardware.
+- **Dummy Output after a group change** still needs a reboot.
+- **HDMI fallback** is used when analog/USB/headphone are missing, so
+  music might come out of the panel if that is the only real sink.
+- **No Continuity / iPhone-to-Mac Handoff.** AirPlay speaker handoff is
+  the Linux equivalent.
+- **No volume slider** on the dashboard yet. AirPlay volume from the
+  phone still reaches PipeWire.
+- **Multiple phones:** one A2DP stream at a time is realistic.

@@ -11,6 +11,8 @@ Requires: python3-dbus, python3-gi (see scripts/bluetooth-audio-setup.sh)
 """
 import json
 import os
+import subprocess
+import sys
 import urllib.request
 
 import dbus
@@ -18,6 +20,10 @@ import dbus.mainloop.glib
 from gi.repository import GLib
 
 DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000") + "/api/bt/connected"
+LOOPBACK = os.environ.get(
+	"BT_LOOPBACK_SCRIPT",
+	"/home/das/projects/smart-display/scripts/bt-audio-loopback.sh",
+)
 
 
 def device_label(bus, path):
@@ -34,6 +40,21 @@ def device_label(bus, path):
 	except Exception:
 		return ""
 	return ""
+
+
+def start_loopback():
+	try:
+		subprocess.Popen([LOOPBACK], stdout=sys.stdout, stderr=sys.stderr)
+	except Exception as e:
+		print(f"loopback start failed: {e}")
+	return False
+
+
+def stop_loopback():
+	try:
+		subprocess.Popen([LOOPBACK, "stop"], stdout=sys.stdout, stderr=sys.stderr)
+	except Exception as e:
+		print(f"loopback stop failed: {e}")
 
 
 def notify_connected(name=""):
@@ -55,11 +76,16 @@ def notify_connected(name=""):
 def on_properties_changed(interface, changed, invalidated, path=None, bus=None):
 	if interface != "org.bluez.Device1":
 		return
+	if "Connected" not in changed:
+		return
 	if changed.get("Connected"):
 		name = ""
 		if bus and path:
 			name = device_label(bus, path)
 		notify_connected(name)
+		GLib.timeout_add_seconds(1, start_loopback)
+	else:
+		stop_loopback()
 
 
 def main():
