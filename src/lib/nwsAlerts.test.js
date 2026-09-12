@@ -17,7 +17,7 @@ describe('nws alert routing', () => {
 		assert.equal(isExtremeAlert({ event: 'High Wind Warning', severity: 'Extreme' }), true);
 	});
 
-	it('keeps thunderstorm warnings and advisories on the island', () => {
+	it('pings the island for thunderstorm warnings and advisories', () => {
 		assert.equal(isExtremeAlert({ event: 'Severe Thunderstorm Warning', severity: 'Severe' }), false);
 		assert.equal(isExtremeAlert({ event: 'Flood Watch' }), false);
 		const nws = islandWeatherSlip({
@@ -54,7 +54,7 @@ describe('nws alert routing', () => {
 		);
 	});
 
-	it('builds an island slip for rain, not for extreme-only NWS', () => {
+	it('builds an island ping for rain, not for extreme-only NWS', () => {
 		const rain = islandWeatherSlip({
 			alerts: [{ event: 'Tornado Warning' }],
 			prediction: { approaching: true, etaMin: 12, rain60min: 0.7, source: 'nowcast+forecast' },

@@ -190,6 +190,46 @@
 		};
 	}
 
+	let lastIslandPing = '';
+	let lastTickerPing = '';
+	let tickerPulse = $state('');
+	let tickerPulseTimer = 0;
+
+	function maybePingWeather(data) {
+		if (!data) return;
+		const { extreme } = splitNwsAlerts(data.alerts);
+		const roll = tickerText(extreme);
+		if (roll) {
+			const key = `x:${extreme.map((a) => a.event).join('|')}`;
+			if (key !== lastTickerPing) {
+				lastTickerPing = key;
+				tickerPulse = roll;
+				clearTimeout(tickerPulseTimer);
+				tickerPulseTimer = setTimeout(() => {
+					tickerPulse = '';
+				}, 22000);
+			}
+		} else {
+			lastTickerPing = '';
+			tickerPulse = '';
+		}
+		const slip = islandWeatherSlip(data);
+		if (!slip.active) {
+			lastIslandPing = '';
+			return;
+		}
+		if (slip.chimeKey === lastIslandPing) return;
+		lastIslandPing = slip.chimeKey;
+		pushIslandEvent({
+			title: slip.title,
+			body: [slip.sub, slip.extra].filter(Boolean).join(' · '),
+			severity: slip.severity,
+			ttl: 12000,
+			source: slip.kicker,
+			kind: 'weather'
+		});
+	}
+
 	async function fetchWeather() {
 		weatherLoading = true;
 		try {
@@ -354,9 +394,14 @@
 		if (!override || override.notify) return weatherData;
 		return { ...(weatherData || {}), ...override };
 	});
-	let islandWeather = $derived(islandWeatherSlip(wxForIsland));
-	let extremeTicker = $derived(tickerText(splitNwsAlerts(wxForIsland?.alerts).extreme));
-	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || islandWeather.active);
+	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing);
+	let showChromeTicker = $derived(Boolean(tickerPulse) && $currentView !== 'weather');
+
+	$effect(() => {
+		wxForIsland;
+		if (typeof window === 'undefined') return;
+		maybePingWeather(wxForIsland);
+	});
 
 	$effect(() => {
 		const idx = VIEWS.indexOf($currentView);
@@ -409,12 +454,7 @@
 		windDir={atm.windRad}
 	/>
 
-	<DynamicIsland
-		nowPlaying={$nowPlaying}
-		weatherData={wxForIsland}
-		events={$islandQueue}
-		onweather={() => currentView.set('weather')}
-	/>
+	<DynamicIsland nowPlaying={$nowPlaying} events={$islandQueue} />
 
 	<div
 		class="display-root"
@@ -465,8 +505,8 @@
 					</p>
 				</div>
 			</div>
-			{#if extremeTicker}
-				<SevereTicker text={extremeTicker} />
+			{#if showChromeTicker}
+				<SevereTicker text={tickerPulse} />
 			{/if}
 			{#if $currentView !== 'clock'}
 				<h1 class="view-title">{viewTitle}</h1>
@@ -500,7 +540,7 @@
 						<RadarCanvas data={weatherData} />
 					</div>
 					<div class="weather-trough">
-						<WeatherView data={weatherData} />
+						<WeatherView data={wxForIsland || weatherData} />
 					</div>
 				</section>
 			{/if}

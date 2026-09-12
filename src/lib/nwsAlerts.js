@@ -1,5 +1,6 @@
-/** Route NWS products: ordinary watches stay on the island; tornado,
- *  hurricane, and Extreme-severity products take the rolling ticker. */
+/** Route NWS products: ordinary watches ping the island then live on the
+ *  weather page; tornado, hurricane, and Extreme-severity products pulse a
+ *  ticker, then stay on the weather page. */
 
 const EXTREME_RE =
 	/\b(tornado|hurricane|typhoon|tsunami|storm surge|tropical storm|tropical depression|tropical cyclone|extreme wind|particularly dangerous|flash flood emergency)\b/i;

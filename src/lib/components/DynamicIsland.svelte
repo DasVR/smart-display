@@ -2,13 +2,10 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { playChime } from '$lib/services/chime.js';
-	import { islandWeatherSlip } from '$lib/nwsAlerts.js';
 
 	let {
 		nowPlaying = null,
-		weatherData = null,
-		events = [],
-		onweather = null
+		events = []
 	} = $props();
 
 	let reducedMotion = $state(false);
@@ -30,13 +27,11 @@
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
 	}
 
-	// Queued notices pop through first, then radar / ordinary NWS, then
-	// now-playing. Extreme NWS never lands here; that copy rolls on the ticker.
+	// Queued notices pop through, then now-playing. Radar / NWS pings arrive
+	// as events with a TTL so they leave the island; the weather page keeps them.
 	let activeEvent = $derived(events?.[0] ?? null);
-	let weatherSlip = $derived(islandWeatherSlip(weatherData));
 	let mode = $derived.by(() => {
 		if (activeEvent) return 'event';
-		if (weatherSlip.active) return 'weather';
 		if (nowPlaying?.playing) return 'nowplaying';
 		return 'idle';
 	});
@@ -55,8 +50,6 @@
 			}
 			case 'nowplaying':
 				return 'Now playing';
-			case 'weather':
-				return weatherSlip.kicker || 'Weather';
 			case 'idle':
 				return '';
 			default: {
@@ -70,14 +63,13 @@
 		switch (m) {
 			case 'event': {
 				if (activeEvent?.kind === 'briefing') return 'bell';
+				if (activeEvent?.kind === 'weather') return 'weather';
 				const sev = activeEvent?.severity;
 				if (sev === 'error') return 'error';
 				if (sev === 'warn') return 'warn';
 				if (sev === 'ok') return 'ok';
 				return 'info';
 			}
-			case 'weather':
-				return 'weather';
 			default:
 				return null;
 		}
@@ -85,7 +77,6 @@
 
 	function sevFor(m) {
 		if (m === 'event') return activeEvent?.severity ?? 'info';
-		if (m === 'weather') return weatherSlip.severity || 'info';
 		if (m === 'nowplaying') return 'info';
 		return 'info';
 	}
@@ -95,7 +86,6 @@
 		let key = null;
 		if (mode === 'event') key = `event:${activeEvent?.id}`;
 		else if (mode === 'nowplaying') key = `nowplaying:${nowPlaying?.title}:${nowPlaying?.artist}`;
-		else if (mode === 'weather') key = `weather:${weatherSlip.chimeKey}`;
 		if (key && key !== lastChimeKey) {
 			playChime(mode === 'nowplaying' ? 'music' : sevFor(mode));
 		}
@@ -208,16 +198,6 @@
 				<div class="sub">{nowPlaying?.artist || ''}</div>
 			</div>
 		</div>
-	{:else if m === 'weather'}
-		<button type="button" class="slip sev-{sevFor(m)}" data-layout="expanded" onclick={() => onweather?.()}>
-			<span class="icon-badge"><span class="icon">{@render icon(iconFor(m))}</span></span>
-			<div class="copy">
-				<div class="kicker">{weatherSlip.kicker}</div>
-				<div class="title">{weatherSlip.title}</div>
-				{#if weatherSlip.sub}<div class="sub">{weatherSlip.sub}</div>{/if}
-				{#if weatherSlip.extra}<div class="extra">{weatherSlip.extra}</div>{/if}
-			</div>
-		</button>
 	{:else}
 		<div class="nub" aria-hidden="true"></div>
 	{/if}
@@ -323,21 +303,6 @@
 		box-sizing: border-box;
 		white-space: nowrap;
 	}
-	button.slip {
-		appearance: none;
-		border: 0;
-		background: transparent;
-		color: inherit;
-		font: inherit;
-		text-align: left;
-		cursor: pointer;
-	}
-	.slip[data-layout='expanded'] {
-		align-items: flex-start;
-		min-height: 7.25rem;
-		white-space: normal;
-		padding-block: var(--space-5);
-	}
 	.icon-badge {
 		display: flex;
 		align-items: center;
@@ -407,12 +372,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
-	.slip[data-layout='expanded'] .title {
-		white-space: normal;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-	}
 	.sub {
 		font-size: var(--text-lg);
 		color: var(--text-secondary);
@@ -420,17 +379,6 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-	}
-	.slip[data-layout='expanded'] .sub {
-		white-space: normal;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-	}
-	.extra {
-		margin-top: 0.15rem;
-		font-size: var(--text-base);
-		color: var(--text-tertiary);
 	}
 
 	@media (max-width: 414px) {
