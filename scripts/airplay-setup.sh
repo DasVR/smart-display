@@ -13,14 +13,18 @@ echo "=== smart-display AirPlay 2 setup ==="
 echo "[1/6] installing avahi, nqptp/shairport build deps, and mDNS tools"
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-	avahi-daemon avahi-utils \
+	avahi-daemon avahi-utils alsa-utils \
 	pulseaudio-utils \
 	build-essential git autoconf automake libtool pkg-config xmltoman \
 	libpopt-dev libconfig-dev libasound2-dev libpulse-dev \
 	libavahi-client-dev libssl-dev libsoxr-dev \
-	libplist-dev libsodium-dev libavcodec-dev libavformat-dev \
+	libplist-dev libplist-utils libsodium-dev libavcodec-dev libavformat-dev \
 	libavutil-dev libswresample-dev
 sudo apt-get install -y --no-install-recommends libpipewire-0.3-dev || true
+if ! command -v plistutil >/dev/null 2>&1; then
+	echo "ERROR: plistutil is missing (package libplist-utils). AirPlay 2 cannot build." >&2
+	exit 1
+fi
 
 sudo systemctl enable --now avahi-daemon
 
@@ -59,11 +63,24 @@ build_airplay2() {
 	(
 		cd "$BUILD_DIR/shairport-sync"
 		autoreconf -fi
-		flags=(--sysconfdir=/etc --with-alsa --with-pa --with-avahi --with-ssl=openssl --with-metadata --with-systemd --with-airplay-2)
+		# Current shairport-sync renamed --with-pa / --with-systemd.
+		flags=(
+			--sysconfdir=/etc
+			--with-alsa
+			--with-pulseaudio
+			--with-avahi
+			--with-ssl=openssl
+			--with-metadata
+			--with-metadata-pipe
+			--with-systemd-startup
+			--with-airplay-2
+		)
 		if pkg-config --exists soxr; then
 			flags+=(--with-soxr)
 		fi
-		if pkg-config --exists libpipewire-0.3; then
+		# Native PipeWire backend needs libpipewire 1.1.0. Older 1.0.x still
+		# plays through Pulse (pipewire-pulse) with --with-pulseaudio.
+		if pkg-config --exists 'libpipewire-0.3 >= 1.1.0'; then
 			flags+=(--with-pipewire)
 		fi
 		./configure "${flags[@]}"
