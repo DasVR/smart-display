@@ -49,16 +49,26 @@ export function parseNotifyPayload(data = {}) {
 	};
 }
 
-export function bluetoothConnectedNotify(name = '') {
+export function audioRouteConnectedNotify({ name = '', source = 'Bluetooth' } = {}) {
 	const trimmed = clip(name, 80).trim();
+	const src = clip(source, 40).trim() || 'Bluetooth';
+	const isAirplay = src.toLowerCase() === 'airplay';
 	return {
 		type: 'notify',
-		title: trimmed ? `${trimmed} connected` : 'Phone connected',
-		body: 'Music ready',
+		title: trimmed ? `${trimmed} connected` : isAirplay ? 'AirPlay connected' : 'Phone connected',
+		body: isAirplay ? 'Apple Music can play here' : 'Music ready',
 		severity: 'ok',
-		source: 'Bluetooth',
+		source: src,
 		ttl: DEFAULT_NOTIFY_TTL
 	};
+}
+
+export function bluetoothConnectedNotify(name = '') {
+	return audioRouteConnectedNotify({ name, source: 'Bluetooth' });
+}
+
+export function airplayConnectedNotify(name = '') {
+	return audioRouteConnectedNotify({ name, source: 'AirPlay' });
 }
 
 export function parseBtConnectedPayload(raw) {
@@ -73,6 +83,20 @@ export function parseBtConnectedPayload(raw) {
 		/* empty or non-JSON bodies still mean "a phone connected" */
 	}
 	return { name, notify: bluetoothConnectedNotify(name) };
+}
+
+export function parseAirplayConnectedPayload(raw) {
+	let name = '';
+	try {
+		const text = String(raw || '').trim();
+		if (text) {
+			const data = JSON.parse(text);
+			name = clip(data.name || data.alias || data.device || '', 80).trim();
+		}
+	} catch {
+		/* empty or non-JSON bodies still mean AirPlay started */
+	}
+	return { name, notify: airplayConnectedNotify(name) };
 }
 
 export function agentFinishedNotify() {

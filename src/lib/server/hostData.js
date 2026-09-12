@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fuseRainPrediction } from '../rainModel.js';
+import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 
 function run(cmd) {
 	try {
@@ -260,33 +261,43 @@ async function fetchLyrics(artist, title, durationSec) {
 	}
 }
 
+function readMprisNowPlaying() {
+	const status = run('playerctl status 2>/dev/null') || 'Not available';
+	if (!status.includes('Playing') && !status.includes('Paused')) {
+		return { playing: false };
+	}
+	const artist = run('playerctl metadata xesam:artist 2>/dev/null') || 'Unknown artist';
+	const title = run('playerctl metadata xesam:title 2>/dev/null') || 'Unknown title';
+	const album = run('playerctl metadata xesam:album 2>/dev/null') || '';
+	const art = run('playerctl metadata mpris:artUrl 2>/dev/null') || '';
+	const posStr = run('playerctl position 2>/dev/null') || '0';
+	const lenStr = run('playerctl metadata mpris:length 2>/dev/null') || '0';
+	const length = parseInt(lenStr, 10) / 1_000_000 || 0;
+	return {
+		playing: status.includes('Playing'),
+		artist,
+		title,
+		album,
+		art,
+		position: parseFloat(posStr),
+		length
+	};
+}
+
 export async function getNowPlaying() {
 	try {
-		const status = run('playerctl status 2>/dev/null') || 'Not available';
-		if (!status.includes('Playing') && !status.includes('Paused')) {
+		const merged = mergeNowPlaying(readMprisNowPlaying(), readAirplayNowPlaying());
+		if (!merged.playing && !merged.title) {
 			return { playing: false };
 		}
-		const artist = run('playerctl metadata xesam:artist 2>/dev/null') || 'Unknown artist';
-		const title = run('playerctl metadata xesam:title 2>/dev/null') || 'Unknown title';
-		const album = run('playerctl metadata xesam:album 2>/dev/null') || '';
-		const art = run('playerctl metadata mpris:artUrl 2>/dev/null') || '';
-		const posStr = run('playerctl position 2>/dev/null') || '0';
-		const lenStr = run('playerctl metadata mpris:length 2>/dev/null') || '0';
-		const length = parseInt(lenStr, 10) / 1_000_000 || 0;
 		const lyrics =
-			artist !== 'Unknown artist' && title !== 'Unknown title'
-				? await fetchLyrics(artist, title, length)
+			merged.artist &&
+			merged.title &&
+			merged.artist !== 'Unknown artist' &&
+			merged.title !== 'Unknown title'
+				? await fetchLyrics(merged.artist, merged.title, merged.length)
 				: null;
-		return {
-			playing: status.includes('Playing'),
-			artist,
-			title,
-			album,
-			art,
-			position: parseFloat(posStr),
-			length,
-			lyrics
-		};
+		return { ...merged, lyrics };
 	} catch {
 		return { playing: false };
 	}

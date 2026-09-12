@@ -1,11 +1,7 @@
 name: Bluetooth Audio Setup
 
-# Manual, one-off provisioning: installs bluez/mpris-proxy, sets the
-# Bluetooth device class to Audio/Speaker, enables the A2DP sink role,
-# and installs/starts the pairing-agent + connect-watch + mpris-proxy
-# services. Not tied to push-to-master (unlike deploy-kiosk.yml) since
-# it changes system-level Bluetooth/PipeWire config and should only run
-# when someone deliberately asks for it.
+# Manual, one-off provisioning: Bluetooth A2DP speaker, AirPlay receiver,
+# default sink pick, and a doctor report. Not tied to push-to-master.
 on:
   workflow_dispatch:
 
@@ -16,15 +12,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run bluetooth-audio-setup.sh
+      - name: Run speaker-audio-setup.sh
         run: |
           cd /home/das/projects/smart-display
-          chmod +x scripts/bluetooth-audio-setup.sh
-          ./scripts/bluetooth-audio-setup.sh
+          chmod +x scripts/speaker-audio-setup.sh
+          ./scripts/speaker-audio-setup.sh
 
-      - name: Diagnostics (adapter, services, audio sinks)
+      - name: Diagnostics (adapter, services, audio sinks, AirPlay)
         if: always()
         run: |
+          cd /home/das/projects/smart-display
+          chmod +x scripts/audio-doctor.sh scripts/audio-pick-sink.mjs
+          ./scripts/audio-doctor.sh || true
           echo "--- bluetoothctl show ---"
           bluetoothctl show || true
           echo "--- smart-display-bt-agent ---"
@@ -34,20 +33,30 @@ jobs:
           echo "--- mpris-proxy (user) ---"
           systemctl --user status mpris-proxy --no-pager 2>/dev/null \
             || systemctl --user status smart-display-mpris-proxy --no-pager || true
-          echo "--- wpctl status (find the analog/headphone-jack sink ID here) ---"
+          echo "--- AirPlay user units ---"
+          systemctl --user status smart-display-airplay --no-pager || true
+          systemctl --user status smart-display-airplay-meta --no-pager || true
+          echo "--- shairport-sync -V ---"
+          shairport-sync -V 2>/dev/null || true
+          echo "--- avahi / nqptp ---"
+          systemctl is-active avahi-daemon || true
+          systemctl is-active nqptp || true
+          echo "--- wpctl status ---"
           wpctl status || true
-          echo "--- bluetooth main.conf (confirm the Audio/Speaker class actually landed) ---"
+          echo "--- pactl sources (bluez_input should appear when a phone is connected) ---"
+          pactl list short sources || true
+          echo "--- bluetooth main.conf ---"
           cat /etc/bluetooth/main.conf || true
-          echo "--- ALSA cards (is there a real sound card at all?) ---"
+          echo "--- ALSA cards ---"
           cat /proc/asound/cards 2>/dev/null || echo "no /proc/asound/cards"
           aplay -l 2>&1 || true
           echo "--- PCI/USB audio hardware ---"
           lspci -nnk 2>/dev/null | grep -iA3 audio || echo "lspci not available or no PCI audio device"
           lsusb 2>/dev/null | grep -i audio || true
-          echo "--- can 'das' actually access the ALSA devices? (permissions/seat) ---"
+          echo "--- can 'das' actually access the ALSA devices? ---"
           groups das || true
           ls -la /dev/snd/ || true
-          loginctl user-status das --no-pager 2>&1 | head -20 || true
-          loginctl seat-status seat0 --no-pager 2>&1 | head -20 || echo "no seat0"
-          echo "--- wireplumber's own view of ALSA (any errors finding cards?) ---"
+          echo "--- wireplumber bluetooth conf ---"
+          cat /home/das/.config/wireplumber/wireplumber.conf.d/51-bluez-a2dp-sink.conf || true
+          echo "--- wireplumber journal ---"
           journalctl --user -u wireplumber -b --no-pager 2>&1 | tail -40 || true

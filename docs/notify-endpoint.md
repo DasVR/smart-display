@@ -62,8 +62,10 @@ itself (source `Ollama`).
 
 Bluetooth is the same idea on a different endpoint: `POST /api/bt/connected`
 still jumps to Music, and also raises `Phone connected` (or `{device}
-connected` when the watcher knows the Alias). Now-playing still takes the
-island once a track is actually playing, so those two do not fight.
+connected` when the watcher knows the Alias). AirPlay uses
+`POST /api/airplay/connected` and raises `AirPlay connected` (or
+`Apple Music connected` from the shairport hook). Now-playing still takes
+the island once a track is actually playing, so those do not fight.
 
 ## Wiring it up
 

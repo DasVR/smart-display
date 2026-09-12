@@ -1,4 +1,5 @@
 import { createServer } from 'http';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { handler } from '../build/handler.js';
@@ -17,9 +18,11 @@ import {
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
 import {
 	agentFinishedNotify,
+	parseAirplayConnectedPayload,
 	parseBtConnectedPayload,
 	parseNotifyPayload
 } from './lib/server/notifyPayload.js';
+import { airplayArtPath } from './lib/server/audioNowPlaying.js';
 import {
 	desiredHdmi,
 	isPhoneWakeWindow,
@@ -47,6 +50,18 @@ let lastPhoneSensor = null;
 function json(res, data, status = 200) {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
 	res.end(JSON.stringify(data));
+}
+
+function handleAudioConnected(req, res, parse, from) {
+	let raw = '';
+	req.on('data', (chunk) => (raw += chunk));
+	req.on('end', () => {
+		const { notify } = parse(raw);
+		currentView = 'music';
+		broadcast({ type: 'navigate', view: 'music', from });
+		broadcast(notify);
+		json(res, { ok: true });
+	});
 }
 
 let ollamaPowerState = 'HIGH_PERFORMANCE';
@@ -316,15 +331,12 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'POST' && req.url === '/api/bt/connected') {
-		let raw = '';
-		req.on('data', (chunk) => (raw += chunk));
-		req.on('end', () => {
-			const { notify } = parseBtConnectedPayload(raw);
-			currentView = 'music';
-			broadcast({ type: 'navigate', view: 'music', from: 'bluetooth' });
-			broadcast(notify);
-			json(res, { ok: true });
-		});
+		handleAudioConnected(req, res, parseBtConnectedPayload, 'bluetooth');
+		return;
+	}
+
+	if (req.method === 'POST' && req.url === '/api/airplay/connected') {
+		handleAudioConnected(req, res, parseAirplayConnectedPayload, 'airplay');
 		return;
 	}
 
@@ -356,6 +368,17 @@ const server = createServer(async (req, res) => {
 
 	if (req.method === 'GET' && req.url === '/api/nowplaying') {
 		json(res, await getNowPlaying());
+		return;
+	}
+
+	if (req.method === 'GET' && req.url?.startsWith('/api/nowplaying/art')) {
+		const file = airplayArtPath();
+		if (!existsSync(file)) {
+			json(res, { error: 'no art' }, 404);
+			return;
+		}
+		res.writeHead(200, { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' });
+		res.end(readFileSync(file));
 		return;
 	}
 

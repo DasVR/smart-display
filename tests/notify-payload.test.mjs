@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
 	DEFAULT_NOTIFY_TTL,
 	agentFinishedNotify,
+	parseAirplayConnectedPayload,
 	parseBtConnectedPayload,
 	parseNotifyPayload
 } from '../src/lib/server/notifyPayload.js';
@@ -54,6 +55,13 @@ test('bluetooth payload uses the device name when present', () => {
 	assert.equal(parseBtConnectedPayload('{"name":"Pixel 9"}').notify.title, 'Pixel 9 connected');
 	assert.equal(parseBtConnectedPayload('{"alias":"Avi\'s iPhone"}').notify.source, 'Bluetooth');
 	assert.equal(parseBtConnectedPayload('not-json').notify.title, 'Phone connected');
+});
+
+test('airplay payload names Apple Music and keeps the AirPlay source', () => {
+	assert.equal(parseAirplayConnectedPayload('').notify.title, 'AirPlay connected');
+	assert.equal(parseAirplayConnectedPayload('').notify.body, 'Apple Music can play here');
+	assert.equal(parseAirplayConnectedPayload('{"name":"Apple Music"}').notify.title, 'Apple Music connected');
+	assert.equal(parseAirplayConnectedPayload('{"name":"Apple Music"}').notify.source, 'AirPlay');
 });
 
 test('agentFinishedNotify is the Ollama idle island event', () => {

@@ -1,0 +1,12 @@
+[Unit]
+Description=Smart Display: AirPlay now-playing metadata
+After=smart-display-airplay.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/das/projects/smart-display/scripts/airplay-metadata.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
