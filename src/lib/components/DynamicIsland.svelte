@@ -37,6 +37,7 @@
 		if (activeEvent) return 'event';
 		if (notification?.visible) return 'alert';
 		if (weatherData?.alerts?.length) return 'weather';
+		if (weatherData?.prediction?.approaching) return 'weather';
 		if (weatherData?.prediction?.rain60min >= 0.35) return 'weather';
 		if (nowPlaying?.playing) return 'nowplaying';
 		return 'idle';
@@ -47,6 +48,10 @@
 		const alerts = weatherData?.alerts || [];
 		if (alerts.length) return 'Weather alert';
 		const p = weatherData?.prediction || {};
+		if (p.etaMin != null && p.etaMin <= 120 && (p.approaching || p.rain60min >= 0.2)) {
+			if (p.etaMin <= 5) return 'Rain arriving';
+			return `Rain in ${p.etaMin} min`;
+		}
 		if (p.rain30min >= 0.6) return 'Rain in 30 min';
 		if (p.rain60min >= 0.6) return 'Rain in an hour';
 		if (p.rain120min >= 0.6) return 'Rain in 2 hours';

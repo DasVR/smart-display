@@ -9,7 +9,7 @@
 	import { onMount } from 'svelte';
 	import { bassLevel as bassStore, startAudioReactive, setAudioPaused } from '$lib/services/audioReactive.js';
 
-	let { isLowPower = false } = $props();
+	let { isLowPower = false, sun = 1, twilight = 0, rain = 0, wind = 0, cloud = 0, windDir = 0 } = $props();
 
 	const INTERNAL_W = 1280;
 	const INTERNAL_H = 720;
@@ -49,6 +49,14 @@
 	let uPixelSizeLoc;
 	let uMouseLoc;
 	let uMouseStrengthLoc;
+	let uSunLoc;
+	let uTwilightLoc;
+	let uRainLoc;
+	let uWindLoc;
+	let uCloudLoc;
+	let uWindDirLoc;
+
+	const wxSmooth = { sun: 1, twilight: 0, rain: 0, wind: 0, cloud: 0, windDir: 0 };
 
 	const mouseTarget = { x: 0.5, y: 0.5 };
 	const mouseSmooth = { x: 0.5, y: 0.5 };
@@ -76,6 +84,12 @@ uniform int u_panelCount;
 uniform float u_pixelSize;
 uniform vec2 u_mouse;
 uniform float u_mouseStrength;
+uniform float u_sun;
+uniform float u_twilight;
+uniform float u_rain;
+uniform float u_wind;
+uniform float u_cloud;
+uniform float u_windDir;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -128,6 +142,8 @@ float bayer8(vec2 cell) {
 
 float fluid(vec2 uv, float t, float bass) {
 	float ambient = 1.0 - smoothstep(0.26, 0.40, uv.y);
+	vec2 drift = vec2(cos(u_windDir), -sin(u_windDir)) * u_wind * t * 0.035;
+	uv += drift;
 
 	vec2 q = vec2(
 		fbm(uv * 1.15 + t * 0.055),
@@ -155,6 +171,7 @@ float fluid(vec2 uv, float t, float bass) {
 	float distm = length(dm);
 	float rippleM = sin(distm * 46.0 - t * 3.4) * exp(-distm * 5.5);
 	f += rippleM * u_mouseStrength * 0.55;
+	f += u_rain * 0.10 * sin(uv.y * 26.0 - t * (1.35 + u_wind * 0.8));
 
 	return (f * 0.68 + f2 * 0.32) * (0.78 + 0.45 * ambient);
 }
@@ -177,15 +194,18 @@ vec3 metal(vec2 uv, float t, float bass) {
 	float spec = pow(max(dot(n, H), 0.0), 28.0);
 	float fres = pow(1.0 - abs(dot(n, V)), 3.2);
 
-	vec3 col1 = vec3(0.018, 0.020, 0.046);
-	vec3 col2 = vec3(0.22, 0.24, 0.38);
-	vec3 col3 = vec3(0.93, 0.94, 1.00);
-	vec3 colLav = vec3(0.66, 0.70, 0.94);
+	vec3 col1 = mix(vec3(0.008, 0.009, 0.024), vec3(0.018, 0.020, 0.046), clamp(u_sun, 0.0, 1.0));
+	vec3 col2 = mix(vec3(0.10, 0.12, 0.22), vec3(0.22, 0.24, 0.38), clamp(u_sun, 0.0, 1.0));
+	vec3 col3 = mix(vec3(0.55, 0.62, 0.85), vec3(0.93, 0.94, 1.00), clamp(u_sun, 0.0, 1.0));
+	vec3 colLav = mix(vec3(0.32, 0.38, 0.62), vec3(0.66, 0.70, 0.94), clamp(u_sun, 0.0, 1.0));
+	col3 = mix(col3, vec3(0.95, 0.78, 0.62), u_twilight * 0.55);
+	colLav = mix(colLav, vec3(0.78, 0.48, 0.36), u_twilight * 0.4);
+	col2 = mix(col2, vec3(0.14, 0.22, 0.32), u_rain * 0.5);
 
 	vec3 color = mix(col1, col2, clamp(f * 0.75 + 0.12, 0.0, 1.0));
 	color = mix(color, colLav, clamp(f * 0.22, 0.0, 0.35));
 	color += col2 * diff * 0.28;
-	color += col3 * spec * (0.85 + 0.7 * bass);
+	color += col3 * spec * (0.85 + 0.7 * bass) * mix(1.0, 0.55, u_cloud);
 	color += vec3(0.18, 0.20, 0.36) * fres * 0.55;
 
 	float ambient = 1.0 - smoothstep(0.26, 0.40, uv.y);
@@ -339,6 +359,12 @@ void main() {
 		gl.uniform1f(uPixelSizeLoc, readPixelSize());
 		gl.uniform2f(uMouseLoc, mouseSmooth.x, mouseSmooth.y);
 		gl.uniform1f(uMouseStrengthLoc, mouseStrength);
+		gl.uniform1f(uSunLoc, wxSmooth.sun);
+		gl.uniform1f(uTwilightLoc, wxSmooth.twilight);
+		gl.uniform1f(uRainLoc, wxSmooth.rain);
+		gl.uniform1f(uWindLoc, wxSmooth.wind);
+		gl.uniform1f(uCloudLoc, wxSmooth.cloud);
+		gl.uniform1f(uWindDirLoc, wxSmooth.windDir);
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
 	}
 
@@ -346,6 +372,12 @@ void main() {
 		mouseSmooth.x += (mouseTarget.x - mouseSmooth.x) * 0.06;
 		mouseSmooth.y += (mouseTarget.y - mouseSmooth.y) * 0.06;
 		mouseStrength += ((pointerActive ? 1 : 0) - mouseStrength) * 0.03;
+		wxSmooth.sun += (sun - wxSmooth.sun) * 0.04;
+		wxSmooth.twilight += (twilight - wxSmooth.twilight) * 0.04;
+		wxSmooth.rain += (rain - wxSmooth.rain) * 0.04;
+		wxSmooth.wind += (wind - wxSmooth.wind) * 0.04;
+		wxSmooth.cloud += (cloud - wxSmooth.cloud) * 0.04;
+		wxSmooth.windDir += (windDir - wxSmooth.windDir) * 0.04;
 	}
 
 	function loop() {
@@ -419,6 +451,12 @@ void main() {
 		uPixelSizeLoc = gl.getUniformLocation(program, 'u_pixelSize');
 		uMouseLoc = gl.getUniformLocation(program, 'u_mouse');
 		uMouseStrengthLoc = gl.getUniformLocation(program, 'u_mouseStrength');
+		uSunLoc = gl.getUniformLocation(program, 'u_sun');
+		uTwilightLoc = gl.getUniformLocation(program, 'u_twilight');
+		uRainLoc = gl.getUniformLocation(program, 'u_rain');
+		uWindLoc = gl.getUniformLocation(program, 'u_wind');
+		uCloudLoc = gl.getUniformLocation(program, 'u_cloud');
+		uWindDirLoc = gl.getUniformLocation(program, 'u_windDir');
 
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);
