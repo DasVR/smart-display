@@ -200,15 +200,31 @@
 
 	let lastIslandPing = '';
 	let lastTickerPing = '';
+	let lastExtremePing = '';
 	let tickerPulse = $state('');
 	let tickerPulseTimer = 0;
 
 	function maybePingWeather(data) {
 		if (!data) return;
 		const { extreme } = splitNwsAlerts(data.alerts);
+		const extremeKey = extreme.length ? extreme.map((a) => a.event).join('|') : '';
+		if (extremeKey && extremeKey !== lastExtremePing) {
+			lastExtremePing = extremeKey;
+			const top = extreme[0];
+			pushIslandEvent({
+				title: top.event || 'Severe weather',
+				body: String(top.headline || '').replace(/\s+/g, ' ').trim(),
+				severity: 'error',
+				ttl: 14000,
+				source: 'Extreme Alert',
+				kind: 'severe-weather'
+			});
+		} else if (!extremeKey) {
+			lastExtremePing = '';
+		}
 		const roll = tickerText(extreme);
 		if (roll) {
-			const key = `x:${extreme.map((a) => a.event).join('|')}`;
+			const key = `x:${extremeKey}`;
 			if (key !== lastTickerPing) {
 				lastTickerPing = key;
 				tickerPulse = roll;
