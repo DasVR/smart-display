@@ -1,4 +1,6 @@
 <script>
+	import { compassFromDeg, fmtSunTime } from '$lib/atmosphere.js';
+
 	let { data } = $props();
 
 	function fmtTime(iso) {
@@ -36,11 +38,23 @@
 	let alerts = $derived(data?.alerts || []);
 	let pred = $derived(data?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0 });
 	let current = $derived(data?.current || {});
+	let sun = $derived(data?.sun || {});
+	let windCompass = $derived(compassFromDeg(current.windDirection));
 
 	function rainClass(score) {
 		if (score >= 0.6) return 'high';
 		if (score >= 0.35) return 'med';
 		return 'low';
+	}
+
+	function predWord(p) {
+		if (pred.etaMin != null && pred.etaMin <= 120 && p.val >= 0.35) {
+			if (pred.etaMin <= 5) return 'arriving';
+			return `in ${pred.etaMin} min`;
+		}
+		if (p.val >= 0.6) return 'likely';
+		if (p.val >= 0.35) return 'maybe';
+		return 'clear';
 	}
 </script>
 
@@ -54,7 +68,19 @@
 			</div>
 		</div>
 		<div class="meta">
-			<div class="meta-row"><span class="label">Wind</span> {current.windSpeed ?? '--'} mph · {current.windDirection ?? '--'}°</div>
+			<div class="meta-row">
+				<span class="label">Wind</span>
+				{windCompass}
+				{current.windSpeed ?? '--'} mph
+				{#if Number.isFinite(Number(current.windDirection))}
+					<span class="from">from {Math.round(Number(current.windDirection))}°</span>
+				{/if}
+			</div>
+			<div class="meta-row"><span class="label">Gusts</span> {current.windGusts ?? '--'} mph</div>
+			<div class="meta-row">
+				<span class="label">Sun</span>
+				{fmtSunTime(sun.sunrise)} / {fmtSunTime(sun.sunset)}
+			</div>
 			<div class="meta-row"><span class="label">Pressure</span> {current.pressure ?? '--'} hPa</div>
 			<div class="meta-row"><span class="label">Clouds</span> {current.cloudCover ?? '--'}%</div>
 		</div>
@@ -65,7 +91,7 @@
 			<div class="pred-card {rainClass(p.val)}" style="--i: {i}">
 				<span class="pred-label">{p.label}</span>
 				<span class="pred-val">{Math.round(p.val * 100)}%</span>
-				<span class="pred-word">{p.val >= 0.6 ? 'likely' : p.val >= 0.35 ? 'maybe' : 'clear'}</span>
+				<span class="pred-word">{predWord(p)}</span>
 			</div>
 		{/each}
 	</section>
@@ -184,6 +210,10 @@
 	.meta-row .label {
 		color: var(--text-tertiary);
 		margin-right: var(--space-2);
+	}
+	.meta-row .from {
+		color: var(--text-tertiary);
+		margin-left: var(--space-1);
 	}
 	.predictions {
 		display: grid;

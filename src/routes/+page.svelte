@@ -14,6 +14,9 @@
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio } from '$lib/services/chime.js';
+	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
+	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
+	import { mergeRadarPrediction } from '$lib/rainModel.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
 	import WeatherRail from '$lib/components/WeatherRail.svelte';
@@ -176,10 +179,24 @@
 		try {
 			const r = await fetch('/api/weather?hours=48');
 			weatherData = await r.json();
+			try {
+				const samples = await sampleRadarNowcast(weatherData?.rad);
+				if (samples.length) {
+					weatherData = {
+						...weatherData,
+						radarNowcast: samples,
+						prediction: mergeRadarPrediction(weatherData.prediction, samples)
+					};
+				}
+			} catch {
+				/* nowcast sample is optional */
+			}
 			const cur = weatherData?.current || {};
 			weather.set({ temp: cur.temp ?? '--', desc: cur.desc ?? '--' });
 			weatherDetail.set(weatherData);
-			rainPrediction.set(weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0 });
+			rainPrediction.set(
+				weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0, source: 'forecast' }
+			);
 			weatherLoading = false;
 		} catch {
 			weatherLoading = false;
@@ -248,6 +265,8 @@
 	let clockLabel = $derived(
 		time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
 	);
+	let atm = $derived(atmosphereFromWeather(time.getTime(), weatherData));
+	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
 	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || notif.visible);
 
 	const VIEW_TITLES = {
@@ -321,7 +340,15 @@
 </svg>
 
 <div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:has-rail={!!weatherRail}>
-	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode || mode === 'sleep'} />
+	<LiquidMetalCanvas
+		isLowPower={$gpuLowPowerMode || mode === 'sleep'}
+		sun={atm.sun}
+		twilight={atm.twilight}
+		rain={atm.rain}
+		wind={atm.wind}
+		cloud={atm.cloud}
+		windDir={atm.windRad}
+	/>
 
 	{#if weatherRail}
 		<WeatherRail rail={weatherRail} onopen={() => currentView.set('weather')} />
@@ -329,7 +356,14 @@
 
 	<DynamicIsland nowPlaying={$nowPlaying} notification={notif} events={$islandQueue} />
 
-	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'} class:has-rail={!!weatherRail}>
+	<div
+		class="display-root"
+		class:morning={mode === 'morning'}
+		class:sleep={mode === 'sleep'}
+		class:has-rail={!!weatherRail}
+		class:wx-rain={atm.rain >= 0.35}
+		data-phase={atm.phase}
+	>
 		<header class="zone top">
 			<div class="top-row">
 				<nav class="view-strip" aria-label="Views" bind:this={navEl}>
@@ -365,6 +399,9 @@
 						{:else if $weather.temp !== '--'}
 							<span class="num">{$weather.temp}°</span>
 							{$weather.desc}
+							{#if atm.compass && atm.compass !== '--'}
+								<span class="wx-wind">{atm.compass} {Math.round(atm.windSpeed)} mph</span>
+							{/if}
 						{/if}
 					</p>
 				</div>
@@ -378,7 +415,7 @@
 			{#if $currentView === 'clock'}
 				<section class="view-pane clock-pane">
 					<div class="clock-credits">
-						<p class="clock-kicker">{weekday}</p>
+						<p class="clock-kicker">{clockKicker}</p>
 						<HeroClock {time} size="poster" />
 					</div>
 				</section>
@@ -396,13 +433,11 @@
 				</section>
 			{:else if $currentView === 'weather'}
 				<section class="view-pane sheet weather-pane" data-glass>
-					<div class="weather-core">
-						<div class="radar-trough">
-							<RadarCanvas data={weatherData} />
-						</div>
-						<div class="weather-trough">
-							<WeatherView data={weatherData} />
-						</div>
+					<div class="radar-bleed">
+						<RadarCanvas data={weatherData} />
+					</div>
+					<div class="weather-trough">
+						<WeatherView data={weatherData} />
 					</div>
 				</section>
 			{/if}
@@ -513,6 +548,14 @@
 	.wxline .num {
 		margin-right: var(--space-2);
 		color: var(--foreground);
+	}
+	.wx-wind {
+		margin-left: var(--space-2);
+		color: var(--text-tertiary);
+		font-weight: 500;
+	}
+	.display-root.wx-rain .wxline {
+		color: var(--scan);
 	}
 	.dateline,
 	.wxline {
@@ -674,6 +717,15 @@
 		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
 	}
+	.display-root[data-phase='dawn'] .clock-kicker {
+		color: var(--ok);
+	}
+	.display-root[data-phase='dusk'] .clock-kicker {
+		color: var(--solve);
+	}
+	.display-root[data-phase='night'] .clock-kicker {
+		color: var(--brand);
+	}
 	.school-pane {
 		--sheet-glow: radial-gradient(
 			44rem 26rem at 8% -6%,
@@ -690,28 +742,39 @@
 	}
 	.weather-pane {
 		min-height: 0;
+		background: color-mix(in srgb, var(--abyss) 8%, transparent);
 		--sheet-glow: radial-gradient(
 			44rem 26rem at 50% -8%,
 			var(--glow-scan),
 			transparent 70%
 		);
 	}
-	.weather-core {
-		display: grid;
-		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-		gap: 0;
-		min-height: 0;
-		height: 100%;
-	}
-	.radar-trough,
-	.weather-trough {
+	.radar-bleed {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
+		border-radius: inherit;
 	}
 	.weather-trough {
+		position: relative;
+		z-index: 1;
+		margin-left: auto;
+		width: min(36rem, 44%);
+		height: 100%;
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+		padding-left: var(--space-4);
 		border-left: 1px solid var(--hairline);
-		padding-left: var(--space-5);
+		background: linear-gradient(
+			90deg,
+			transparent,
+			color-mix(in srgb, var(--abyss) 42%, transparent) 18%,
+			color-mix(in srgb, var(--abyss) 78%, transparent) 55%
+		);
 	}
 	.bottom {
 		height: auto;
@@ -773,15 +836,21 @@
 			width: 100%;
 			padding-bottom: 0;
 		}
-		.weather-core {
-			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-		}
 		.weather-trough {
+			width: 100%;
+			height: auto;
+			max-height: 48%;
+			margin-left: 0;
+			margin-top: auto;
 			border-left: 0;
 			border-top: 1px solid var(--hairline);
 			padding-left: 0;
 			padding-top: var(--space-4);
+			background: linear-gradient(
+				0deg,
+				color-mix(in srgb, var(--abyss) 86%, transparent) 55%,
+				transparent
+			);
 		}
 	}
 

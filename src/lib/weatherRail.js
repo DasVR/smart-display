@@ -69,6 +69,36 @@ export function classifyWeatherRail(weatherData) {
 	const rain30 = Number(prediction.rain30min) || 0;
 	const rain60 = Number(prediction.rain60min) || 0;
 	const rain120 = Number(prediction.rain120min) || 0;
+	const eta = Number.isFinite(Number(prediction.etaMin)) ? Number(prediction.etaMin) : null;
+	const approaching = Boolean(prediction.approaching);
+
+	if (approaching || (eta != null && eta <= 60 && (rain60 >= 0.2 || rain30 >= RAIN_RAIL_SCORE))) {
+		if (eta != null && eta <= 5) {
+			return {
+				kind: 'rain',
+				kicker: 'Incoming rain',
+				title: 'Rain arriving',
+				body: 'A wet band is over home.',
+				severity: 'info'
+			};
+		}
+		if (eta != null && eta <= 120) {
+			return {
+				kind: 'rain',
+				kicker: 'Incoming rain',
+				title: `Rain in ${Math.round(eta)} minutes`,
+				body: 'Keep an eye on the radar.',
+				severity: 'info'
+			};
+		}
+		return {
+			kind: 'rain',
+			kicker: 'Incoming rain',
+			title: 'Rain moving in',
+			body: 'Nowcast sees a wet band near home.',
+			severity: 'info'
+		};
+	}
 
 	if (rain30 >= RAIN_RAIL_SCORE) {
 		return {

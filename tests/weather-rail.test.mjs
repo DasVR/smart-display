@@ -100,6 +100,20 @@ test('two-hour rain uses a higher floor so it does not nag all afternoon', () =>
 	assert.equal(rail.title, 'Rain in 2 hours');
 });
 
+test('radar nowcast eta becomes a rain rail', () => {
+	const arriving = classifyWeatherRail({
+		prediction: { rain30min: 0.2, rain60min: 0.22, rain120min: 0.2, approaching: true, etaMin: 4 }
+	});
+	assert.equal(arriving.kind, 'rain');
+	assert.equal(arriving.title, 'Rain arriving');
+
+	const soon = classifyWeatherRail({
+		prediction: { rain30min: 0.2, rain60min: 0.25, rain120min: 0.3, approaching: true, etaMin: 18 }
+	});
+	assert.equal(soon.kind, 'rain');
+	assert.equal(soon.title, 'Rain in 18 minutes');
+});
+
 test('below-threshold rain and empty alerts hide the rail', () => {
 	assert.equal(classifyWeatherRail(null), null);
 	assert.equal(classifyWeatherRail({}), null);
