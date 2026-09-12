@@ -320,17 +320,7 @@
 				source: 'Cursor'
 			});
 		}
-		if (islandPreview === 'down' || islandPreview === 'svc') {
-			setIslandActivity('svc:hermes', {
-				kind: 'service',
-				title: 'hermes',
-				body: 'Down',
-				severity: 'error'
-			});
-			pushIslandEvent({ title: 'Service down', body: 'hermes', severity: 'error', ttl: 8000 });
-		} else if (islandPreview === 'recover') {
-			pushIslandEvent({ title: 'Service recovered', body: 'hermes', severity: 'ok', ttl: 5000 });
-		} else if (islandPreview === 'music') {
+		if (islandPreview === 'music') {
 			nowPlaying.set({ playing: true, title: 'Night Drive', artist: 'Demo FM', art: null });
 		}
 		return () => {

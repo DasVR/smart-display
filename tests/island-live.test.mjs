@@ -1,12 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ordinalSuffix, shortDateline } from '../src/lib/dateline.js';
-import {
-	applyServiceSnapshot,
-	compactSlots,
-	serviceActivity,
-	serviceActivityId
-} from '../src/lib/islandLive.js';
+import { compactSlots } from '../src/lib/islandLive.js';
+
+const activity = (title, overrides = {}) => ({
+	id: `act:${title}`,
+	kind: 'test',
+	title,
+	body: 'Down',
+	severity: 'error',
+	...overrides
+});
 
 describe('dateline', () => {
 	it('writes September 12th without the weekday', () => {
@@ -17,42 +21,6 @@ describe('dateline', () => {
 		assert.equal(ordinalSuffix(11), 'th');
 		assert.equal(ordinalSuffix(22), 'nd');
 		assert.equal(shortDateline('September', 12), 'September 12th');
-	});
-});
-
-describe('service snapshot', () => {
-	const up = (name) => ({ name, status: true });
-	const down = (name) => ({ name, status: false });
-
-	it('seeds already-down services on first poll without chiming', () => {
-		const snap = applyServiceSnapshot(null, [up('display'), down('hermes')]);
-		assert.equal(snap.seed, true);
-		assert.deepEqual(snap.events, []);
-		assert.deepEqual(snap.set, [serviceActivity('hermes')]);
-		assert.deepEqual(snap.clear, []);
-	});
-
-	it('pings the island when a live service drops, and keeps a compact activity', () => {
-		const snap = applyServiceSnapshot([up('hermes')], [down('hermes')]);
-		assert.equal(snap.events[0].title, 'Service down');
-		assert.equal(snap.events[0].body, 'hermes');
-		assert.equal(snap.events[0].severity, 'error');
-		assert.deepEqual(snap.set, [serviceActivity('hermes')]);
-	});
-
-	it('pings recovered and clears the compact activity', () => {
-		const snap = applyServiceSnapshot([down('hermes')], [up('hermes')]);
-		assert.equal(snap.events[0].title, 'Service recovered');
-		assert.equal(snap.events[0].severity, 'ok');
-		assert.deepEqual(snap.clear, [serviceActivityId('hermes')]);
-		assert.deepEqual(snap.set, []);
-	});
-
-	it('does not re-emit while a service stays down', () => {
-		const snap = applyServiceSnapshot([down('hermes')], [down('hermes')]);
-		assert.deepEqual(snap.events, []);
-		assert.deepEqual(snap.set, []);
-		assert.deepEqual(snap.clear, []);
 	});
 });
 
@@ -69,29 +37,22 @@ describe('compact slots', () => {
 		assert.equal(slots.trailing.kind, 'eq');
 	});
 
-	it('keeps a downed service up as a compact Live Activity', () => {
-		const slots = compactSlots(null, [serviceActivity('hermes')]);
+	it('keeps a single ongoing activity up as a compact Live Activity', () => {
+		const slots = compactSlots(null, [activity('hermes')]);
 		assert.equal(slots.leading.title, 'hermes');
 		assert.equal(slots.trailing.kind, 'status');
 		assert.equal(slots.trailing.title, 'Down');
 	});
 
-	it('puts music on the leading side and a service on the trailing side', () => {
-		const slots = compactSlots(
-			{ playing: true, title: 'Night Drive' },
-			[serviceActivity('hermes')]
-		);
+	it('puts music on the leading side and an activity on the trailing side', () => {
+		const slots = compactSlots({ playing: true, title: 'Night Drive' }, [activity('hermes')]);
 		assert.equal(slots.leading.kind, 'music');
-		assert.equal(slots.trailing.kind, 'service');
+		assert.equal(slots.trailing.kind, 'test');
 		assert.equal(slots.trailing.title, 'hermes');
 	});
 
-	it('stacks extra downed services on the trailing side', () => {
-		const slots = compactSlots(null, [
-			serviceActivity('hermes'),
-			serviceActivity('godmode'),
-			serviceActivity('leadvine')
-		]);
+	it('stacks extra ongoing activities on the trailing side', () => {
+		const slots = compactSlots(null, [activity('hermes'), activity('godmode'), activity('leadvine')]);
 		assert.equal(slots.leading.title, 'hermes');
 		assert.equal(slots.trailing.kind, 'stack');
 		assert.equal(slots.trailing.title, '2 down');
