@@ -3,8 +3,10 @@ import path from 'node:path';
 
 export const DEFAULT_SCHEDULE = {
 	enabled: true,
+	wakeOnPhone: true,
 	offAt: '22:30',
 	onAt: '06:00',
+	phoneWakeAfter: '05:00',
 	timeZone: 'America/New_York'
 };
 
@@ -50,6 +52,18 @@ export function isQuietHours(date, schedule = DEFAULT_SCHEDULE) {
 	return current >= off || current < on;
 }
 
+export function isPhoneWakeWindow(date, schedule = DEFAULT_SCHEDULE) {
+	if (!schedule?.wakeOnPhone) return false;
+	if (!isQuietHours(date, schedule)) return false;
+	const floor = parseHHMM(schedule.phoneWakeAfter || DEFAULT_SCHEDULE.phoneWakeAfter);
+	const on = parseHHMM(schedule.onAt);
+	if (floor == null || on == null) return false;
+	const current = minutesOfDay(date, schedule.timeZone || DEFAULT_SCHEDULE.timeZone);
+	if (floor === on) return false;
+	if (floor < on) return current >= floor && current < on;
+	return current >= floor || current < on;
+}
+
 export function desiredHdmi(date, schedule = DEFAULT_SCHEDULE) {
 	if (!schedule?.enabled) return null;
 	return isQuietHours(date, schedule) ? 'off' : 'on';
@@ -82,6 +96,7 @@ export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 	const base = { ...DEFAULT_SCHEDULE, ...fallback, ...input };
 	const off = parseHHMM(base.offAt);
 	const on = parseHHMM(base.onAt);
+	const phoneWakeAfter = parseHHMM(base.phoneWakeAfter);
 	let timeZone = String(base.timeZone || DEFAULT_SCHEDULE.timeZone).trim() || DEFAULT_SCHEDULE.timeZone;
 	try {
 		new Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
@@ -90,8 +105,13 @@ export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 	}
 	return {
 		enabled: base.enabled !== false,
+		wakeOnPhone: base.wakeOnPhone !== false,
 		offAt: off == null ? fallback.offAt || DEFAULT_SCHEDULE.offAt : formatHHMM(off),
 		onAt: on == null ? fallback.onAt || DEFAULT_SCHEDULE.onAt : formatHHMM(on),
+		phoneWakeAfter:
+			phoneWakeAfter == null
+				? fallback.phoneWakeAfter || DEFAULT_SCHEDULE.phoneWakeAfter
+				: formatHHMM(phoneWakeAfter),
 		timeZone
 	};
 }
@@ -99,8 +119,10 @@ export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 export function envDefaults(env = process.env) {
 	const seed = { ...DEFAULT_SCHEDULE };
 	if (env.DISPLAY_SCHEDULE === '0' || env.DISPLAY_SCHEDULE === 'false') seed.enabled = false;
+	if (env.DISPLAY_WAKE_ON_PHONE === '0' || env.DISPLAY_WAKE_ON_PHONE === 'false') seed.wakeOnPhone = false;
 	if (env.DISPLAY_OFF_AT) seed.offAt = env.DISPLAY_OFF_AT;
 	if (env.DISPLAY_ON_AT) seed.onAt = env.DISPLAY_ON_AT;
+	if (env.DISPLAY_PHONE_WAKE_AFTER) seed.phoneWakeAfter = env.DISPLAY_PHONE_WAKE_AFTER;
 	if (env.DISPLAY_TZ) seed.timeZone = env.DISPLAY_TZ;
 	else if (env.TZ) seed.timeZone = env.TZ;
 	return normalizeSchedule(seed);

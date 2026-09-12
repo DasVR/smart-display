@@ -11,11 +11,13 @@ import {
 	getHAStates,
 	triggerHAView,
 	getWeather,
-	saveStationData
+	saveStationData,
+	fetchHAStates
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
 import {
 	desiredHdmi,
+	isPhoneWakeWindow,
 	isQuietHours,
 	loadSchedule,
 	minutesOfDay,
@@ -23,6 +25,7 @@ import {
 	saveSchedule,
 	scheduledAction
 } from './lib/server/displaySchedule.js';
+import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
 
 const port = process.env.PORT || 3000;
 const NOTIFY_SEVERITIES = new Set(['info', 'ok', 'warn', 'error']);
@@ -34,6 +37,8 @@ let schedule = loadSchedule(SCHEDULE_PATH);
 let hdmiState = 'on';
 let lastTickMinutes = null;
 let applyingHdmi = false;
+let phoneWatch = { entity: '', label: '', on: false, status: 'idle' };
+let lastPhoneSensor = null;
 
 function json(res, data, status = 200) {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -63,7 +68,11 @@ function displaySnapshot() {
 	return {
 		hdmi: hdmiState,
 		schedule,
-		quiet: isQuietHours(new Date(), schedule)
+		quiet: isQuietHours(new Date(), schedule),
+		phone: {
+			...phoneWatch,
+			wakeWindow: isPhoneWakeWindow(new Date(), schedule)
+		}
 	};
 }
 
@@ -116,6 +125,36 @@ async function handleTrigger(event, extra = {}) {
 		return;
 	}
 	broadcast({ type: 'trigger', event, view: extra.view, data: extra.data || {} });
+}
+
+async function handlePhoneWake(source = 'ha') {
+	if (!schedule.wakeOnPhone) return { ok: false, reason: 'disabled' };
+	if (hdmiState === 'on') return { ok: true, reason: 'already-on' };
+	if (!isPhoneWakeWindow(new Date(), schedule)) return { ok: false, reason: 'outside-window' };
+	await handleTrigger('morning', { view: 'school', data: { from: source } });
+	return { ok: true, reason: 'woke' };
+}
+
+async function pollPhone() {
+	const { states, status, error } = await fetchHAStates();
+	if (status !== 'ok') {
+		phoneWatch = { ...phoneWatch, status, error: error || status };
+		return;
+	}
+	const sensor = pickPhoneWakeSensor(states);
+	const prev = lastPhoneSensor;
+	lastPhoneSensor = sensor;
+	phoneWatch = sensor
+		? { ...describePhoneSensor(sensor), status: 'ok' }
+		: { entity: '', label: '', on: false, status: 'missing' };
+	if (becameOn(prev, sensor)) await handlePhoneWake('poll');
+}
+
+function phoneLoop() {
+	pollPhone().finally(() => {
+		const wait = phoneWatch.status === 'no-auth' || phoneWatch.status === 'error' ? 60_000 : 8_000;
+		setTimeout(phoneLoop, wait);
+	});
 }
 
 async function tickSchedule() {
@@ -178,6 +217,11 @@ const server = createServer(async (req, res) => {
 					json(res, { ok: true });
 					return;
 				}
+				if (data.event === 'phone_wake') {
+					const result = await handlePhoneWake('webhook');
+					json(res, { ok: result.ok, event: 'phone_wake', ...result });
+					return;
+				}
 			} catch {
 				/* fall through */
 			}
@@ -202,15 +246,19 @@ const server = createServer(async (req, res) => {
 				}
 				const next = { ...schedule };
 				if (typeof data.enabled === 'boolean') next.enabled = data.enabled;
+				if (typeof data.wakeOnPhone === 'boolean') next.wakeOnPhone = data.wakeOnPhone;
 				if (data.offAt) next.offAt = data.offAt;
 				if (data.onAt) next.onAt = data.onAt;
 				if (data.timeZone) next.timeZone = data.timeZone;
+				if (data.phoneWakeAfter) next.phoneWakeAfter = data.phoneWakeAfter;
 				if (data.schedule && typeof data.schedule === 'object') Object.assign(next, data.schedule);
 				const changedSchedule =
 					data.enabled !== undefined ||
+					data.wakeOnPhone !== undefined ||
 					data.offAt ||
 					data.onAt ||
 					data.timeZone ||
+					data.phoneWakeAfter ||
 					data.schedule;
 				if (changedSchedule) {
 					json(res, { ok: true, ...patchSchedule(next) });
@@ -381,8 +429,10 @@ wss.on('connection', (ws, req) => {
 server.listen(port, '0.0.0.0', () => {
 	console.log(`smart-display running on :${port}`);
 	console.log(
-		`display schedule ${schedule.enabled ? 'on' : 'off'} ${schedule.offAt}->${schedule.onAt} ${schedule.timeZone}`
+		`display schedule ${schedule.enabled ? 'on' : 'off'} ${schedule.offAt}->${schedule.onAt} ${schedule.timeZone}` +
+			` phone-wake ${schedule.wakeOnPhone ? 'on' : 'off'} after ${schedule.phoneWakeAfter}`
 	);
 	setTimeout(tickSchedule, 2500);
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
+	setTimeout(phoneLoop, 4000);
 });
