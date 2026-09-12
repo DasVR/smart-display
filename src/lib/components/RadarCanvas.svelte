@@ -15,6 +15,7 @@
 		CITY_GROUND_M,
 		INTRO_GROUND_M,
 		STORM_GROUND_M,
+		RADAR_TILE_PX,
 		lonLatToFractionalTile,
 		radarTileUrl,
 		basemapTileUrl,
@@ -52,6 +53,9 @@
 	let introKick = 0;
 	let zoomAssessTimer = 0;
 	let nativeSnapTimer = 0;
+	let crossfadeRaf = 0;
+	let crossfadeFromIndex = null;
+	let crossfadeStart = 0;
 	let gen = 0;
 	let composed = null;
 	let viewScale = 1;
@@ -76,7 +80,17 @@
 	const TOTAL_COVERAGE_ZOOM_IN = 0.015;
 
 	const FRAME_MS = 700;
+	// How long a frame swap takes to cross-fade into the next, instead of
+	// cutting instantly - most of the hold, so the loop reads as continuous
+	// motion rather than a slideshow.
+	const CROSSFADE_MS = 260;
 	const RADAR_SIZE = radarDrawSize(BASE_ZOOM);
+	// RainViewer's native cell, in the same world-pixel units sprites are
+	// placed in. A blur a bit over a third of one cell - set *inside* the
+	// pan/zoom transform below, so it scales with the view like real detail
+	// would - softens the raster's hard block edges without smearing
+	// distinct precip shapes into something the data didn't say.
+	const RADAR_SOFTEN_PX = (RADAR_SIZE / RADAR_TILE_PX) * 0.35;
 	const BAYER_4X4 = [
 		[0, 8, 2, 10],
 		[12, 4, 14, 6],
@@ -162,7 +176,36 @@
 			clearTimeout(nativeSnapTimer);
 			nativeSnapTimer = 0;
 		}
+		stopCrossfade();
 		stopZoomAssess();
+	}
+
+	function stopCrossfade() {
+		if (crossfadeRaf) {
+			cancelAnimationFrame(crossfadeRaf);
+			crossfadeRaf = 0;
+		}
+		crossfadeFromIndex = null;
+	}
+
+	/** Cross-fades from `fromIndex`'s frame into the (already current)
+	 *  `frameIndex`, instead of the hard cut a plain reassignment would give -
+	 *  the loop through the frame list should read as one continuous sweep. */
+	function runCrossfade(fromIndex) {
+		if (crossfadeRaf) cancelAnimationFrame(crossfadeRaf);
+		crossfadeFromIndex = fromIndex;
+		crossfadeStart = performance.now();
+		const step = (now) => {
+			const t = Math.min(1, (now - crossfadeStart) / CROSSFADE_MS);
+			drawCurrent(t);
+			if (t < 1) {
+				crossfadeRaf = requestAnimationFrame(step);
+			} else {
+				crossfadeRaf = 0;
+				crossfadeFromIndex = null;
+			}
+		};
+		crossfadeRaf = requestAnimationFrame(step);
 	}
 
 	function startAnim() {
@@ -172,8 +215,9 @@
 		}
 		if (reducedMotion || frames.length < 2) return;
 		animTimer = setInterval(() => {
+			const from = frameIndex;
 			frameIndex = (frameIndex + 1) % frames.length;
-			drawCurrent();
+			runCrossfade(from);
 		}, FRAME_MS);
 	}
 
@@ -203,6 +247,7 @@
 	 *  transform - soft, and zooming in never actually reveals more detail. */
 	function snapToNative(targetScale) {
 		if (!composed) return;
+		stopCrossfade();
 		suppressTransition = true;
 		viewScale = targetScale;
 		zoomFactor = 1;
@@ -354,7 +399,29 @@
 		return raw.endsWith('ms') || !raw.endsWith('s') ? n * 1.6 : n * 1600;
 	}
 
-	function drawCurrent() {
+	/** Draws one frame's precip sprites at `alpha`, skipped entirely at 0 so a
+	 *  fully faded-out side of a cross-fade costs nothing. */
+	function drawRadarLayer(layer, alpha) {
+		if (!layer || alpha <= 0) return;
+		ctx.globalAlpha = alpha;
+		const k = RADAR_SIZE / TILE_SIZE;
+		for (const sprite of layer) {
+			if (!sprite.img) continue;
+			ctx.drawImage(
+				sprite.img,
+				sprite.tx * k * TILE_SIZE - composed.fracX * TILE_SIZE,
+				sprite.ty * k * TILE_SIZE - composed.fracY * TILE_SIZE,
+				RADAR_SIZE,
+				RADAR_SIZE
+			);
+		}
+		ctx.globalAlpha = 1;
+	}
+
+	/** `crossfadeT` of 1 (the default) means "just the current frame", as if
+	 *  no cross-fade were in flight; `runCrossfade` drives it from 0->1 while
+	 *  blending `crossfadeFromIndex`'s frame out and the current one in. */
+	function drawCurrent(crossfadeT = 1) {
 		if (!ctx || !canvas || !composed) return;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, width, height);
@@ -366,22 +433,16 @@
 		if (composed.basemap) {
 			ctx.drawImage(composed.basemap, originX, originY);
 		}
-		const layer = composed.radarLayers[frameIndex];
-		if (layer) {
-			ctx.globalAlpha = 0.9;
-			const k = RADAR_SIZE / TILE_SIZE;
-			for (const sprite of layer) {
-				if (!sprite.img) continue;
-				ctx.drawImage(
-					sprite.img,
-					sprite.tx * k * TILE_SIZE - composed.fracX * TILE_SIZE,
-					sprite.ty * k * TILE_SIZE - composed.fracY * TILE_SIZE,
-					RADAR_SIZE,
-					RADAR_SIZE
-				);
-			}
-			ctx.globalAlpha = 1;
+		const newLayer = composed.radarLayers[frameIndex];
+		const oldLayer = crossfadeFromIndex != null ? composed.radarLayers[crossfadeFromIndex] : null;
+		ctx.filter = `blur(${RADAR_SOFTEN_PX}px)`;
+		if (oldLayer) {
+			drawRadarLayer(oldLayer, 0.9 * (1 - crossfadeT));
+			drawRadarLayer(newLayer, 0.9 * crossfadeT);
+		} else {
+			drawRadarLayer(newLayer, 0.9);
 		}
+		ctx.filter = 'none';
 		ctx.restore();
 	}
 
@@ -417,6 +478,7 @@
 	}
 
 	async function rebuild() {
+		stopCrossfade();
 		const rad = data?.rad;
 		const nextFrames = rad?.frames ?? [];
 		const host = rad?.host ?? '';
@@ -482,6 +544,8 @@
 		basemap.width = cols * TILE_SIZE;
 		basemap.height = rows * TILE_SIZE;
 		const bctx = basemap.getContext('2d', { alpha: true });
+		bctx.imageSmoothingEnabled = true;
+		bctx.imageSmoothingQuality = 'high';
 		for (const t of esri.tiles) {
 			const img = await loadTile(basemapTileUrl(BASE_ZOOM, t.wrappedX, t.wrappedY));
 			if (!img) continue;
@@ -537,6 +601,12 @@
 		canvas.style.width = `${nextW}px`;
 		canvas.style.height = `${nextH}px`;
 		ctx = canvas.getContext('2d', { alpha: true });
+		// Browsers default 2D canvas scaling to a cheap, blocky filter; the
+		// precip sprites get stretched well past their native size (RainViewer
+		// tops out at z7), so the better resampler is what actually keeps that
+		// stretch from looking pixelated.
+		ctx.imageSmoothingEnabled = true;
+		ctx.imageSmoothingQuality = 'high';
 		const lay = layoutForSize(nextW, nextH);
 		cx = lay.cx;
 		cy = lay.cy;
@@ -558,8 +628,12 @@
 			composed.x1 !== cov.x1 ||
 			composed.y1 !== cov.y1;
 		if (hasIntroduced) zoomedIn = true;
-		if (coverageChanged) void rebuild();
-		else drawCurrent();
+		if (coverageChanged) {
+			void rebuild();
+		} else {
+			stopCrossfade();
+			drawCurrent();
+		}
 	}
 
 	$effect(() => {
