@@ -17,9 +17,11 @@
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
+	import { islandWeatherSlip, splitNwsAlerts, tickerText } from '$lib/nwsAlerts.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
-	import WeatherRail from '$lib/components/WeatherRail.svelte';
+	import SevereTicker from '$lib/components/SevereTicker.svelte';
+	import BoardWidgets from '$lib/components/BoardWidgets.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
 	import DevHub from '$lib/components/DevHub.svelte';
@@ -28,7 +30,6 @@
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
-	import { classifyWeatherRail } from '$lib/weatherRail.js';
 
 	let ws;
 	let reconnectTimer;
@@ -36,7 +37,6 @@
 	let time = $state(new Date());
 	let weatherData = $state(null);
 	let weatherLoading = $state(true);
-	let notif = $state({ visible: false, title: '', body: '', kind: 'info' });
 	let mode = $state('normal');
 	let hdmiOff = $state(false);
 	let navEl = $state(null);
@@ -76,13 +76,6 @@
 				}, 560);
 			}
 		}
-	}
-
-	function showNotif(title, body, kind = 'info', ms = 4500) {
-		notif = { visible: true, title, body, kind };
-		setTimeout(() => {
-			notif = { ...notif, visible: false };
-		}, ms);
 	}
 
 	function applyDisplay(display) {
@@ -139,7 +132,14 @@
 				if (msg.type === 'trigger' && msg.event === 'morning') {
 					mode = 'morning';
 					displayMode.set('morning');
-					showNotif('Good morning', 'Briefing ready. Check due work.', 'info', 8000);
+					pushIslandEvent({
+						title: 'Good morning',
+						body: 'Briefing ready. Check due work.',
+						severity: 'info',
+						ttl: 8000,
+						source: 'Display',
+						kind: 'briefing'
+					});
 					currentView.set(msg.view || 'school');
 				}
 				if (msg.type === 'init') {
@@ -152,12 +152,24 @@
 				if (msg.type === 'trigger' && msg.event === 'sleep') {
 					mode = 'sleep';
 					displayMode.set('sleep');
-					showNotif('Sleep mode', 'Panel off for the night. See you tomorrow.', 'info', 4000);
+					pushIslandEvent({
+						title: 'Sleep mode',
+						body: 'Panel off for the night. See you tomorrow.',
+						severity: 'info',
+						ttl: 4000,
+						source: 'Display'
+					});
 				}
 				if (msg.type === 'trigger' && msg.event === 'normal') {
 					mode = 'normal';
 					displayMode.set('normal');
-					showNotif('Normal mode', 'Resuming full display.', 'info', 3000);
+					pushIslandEvent({
+						title: 'Normal mode',
+						body: 'Resuming full display.',
+						severity: 'info',
+						ttl: 3000,
+						source: 'Display'
+					});
 				}
 				if (msg.type === 'trigger' && msg.event === 'hdmi_off') {
 					hdmiOff = true;
@@ -249,6 +261,15 @@
 		window.addEventListener('pointerdown', primeAudio, { once: true });
 		window.addEventListener('keydown', primeAudio, { once: true });
 		updateIndicator();
+		if (new URLSearchParams(window.location.search).get('wx') === 'notify') {
+			pushIslandEvent({
+				title: 'Cursor finished',
+				body: 'Radar island layout is ready',
+				severity: 'ok',
+				ttl: 12000,
+				source: 'Cursor'
+			});
+		}
 		return () => {
 			clearInterval(clock);
 			clearInterval(music);
@@ -271,7 +292,6 @@
 	);
 	let atm = $derived(atmosphereFromWeather(time.getTime(), weatherData));
 	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
-	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || notif.visible);
 
 	const VIEW_TITLES = {
 		school: 'Due Work',
@@ -305,12 +325,38 @@
 			};
 		}
 		if (wx === 'rain') {
-			return { prediction: { rain30min: 0.72, rain60min: 0.8, rain120min: 0.2 } };
+			return { alerts: [], prediction: { rain30min: 0.72, rain60min: 0.8, rain120min: 0.2, approaching: true, etaMin: 18, source: 'nowcast+forecast' } };
+		}
+		if (wx === 'advisory') {
+			return {
+				alerts: [{ event: 'Heat Advisory', severity: 'Moderate', headline: 'Until 7 PM EDT' }]
+			};
+		}
+		if (wx === 'hurricane') {
+			return {
+				alerts: [
+					{
+						event: 'Hurricane Warning',
+						severity: 'Extreme',
+						headline: 'Hurricane Warning for coastal Pinellas including Largo'
+					}
+				]
+			};
+		}
+		if (wx === 'notify') {
+			return { notify: true };
 		}
 		return null;
 	}
 
-	let weatherRail = $derived(classifyWeatherRail(weatherFromQuery() ?? weatherData));
+	let wxForIsland = $derived.by(() => {
+		const override = weatherFromQuery();
+		if (!override || override.notify) return weatherData;
+		return { ...(weatherData || {}), ...override };
+	});
+	let islandWeather = $derived(islandWeatherSlip(wxForIsland));
+	let extremeTicker = $derived(tickerText(splitNwsAlerts(wxForIsland?.alerts).extreme));
+	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || islandWeather.active);
 
 	$effect(() => {
 		const idx = VIEWS.indexOf($currentView);
@@ -352,7 +398,7 @@
 	</defs>
 </svg>
 
-<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:has-rail={!!weatherRail}>
+<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
 	<LiquidMetalCanvas
 		isLowPower={$gpuLowPowerMode || mode === 'sleep'}
 		sun={atm.sun}
@@ -363,17 +409,17 @@
 		windDir={atm.windRad}
 	/>
 
-	{#if weatherRail}
-		<WeatherRail rail={weatherRail} onopen={() => currentView.set('weather')} />
-	{/if}
-
-	<DynamicIsland nowPlaying={$nowPlaying} notification={notif} events={$islandQueue} />
+	<DynamicIsland
+		nowPlaying={$nowPlaying}
+		weatherData={wxForIsland}
+		events={$islandQueue}
+		onweather={() => currentView.set('weather')}
+	/>
 
 	<div
 		class="display-root"
 		class:morning={mode === 'morning'}
 		class:sleep={mode === 'sleep'}
-		class:has-rail={!!weatherRail}
 		class:wx-rain={atm.rain >= 0.35}
 		data-phase={atm.phase}
 	>
@@ -400,13 +446,13 @@
 					{/each}
 				</nav>
 				<div class="status-cluster">
-					<p class="dateline" class:receded={islandActive || !!weatherRail}>
+					<p class="dateline" class:receded={islandActive}>
 						{weekday}, {month}&nbsp;{dayNum}
 						{#if $currentView !== 'clock'}
 							<span class="time num">{clockLabel}</span>
 						{/if}
 					</p>
-					<p class="wxline" class:receded={islandActive || !!weatherRail}>
+					<p class="wxline" class:receded={islandActive}>
 						{#if weatherLoading}
 							<span class="skeleton inline"></span>
 						{:else if $weather.temp !== '--'}
@@ -419,6 +465,9 @@
 					</p>
 				</div>
 			</div>
+			{#if extremeTicker}
+				<SevereTicker text={extremeTicker} />
+			{/if}
 			{#if $currentView !== 'clock'}
 				<h1 class="view-title">{viewTitle}</h1>
 			{/if}
@@ -430,6 +479,7 @@
 					<div class="clock-credits">
 						<p class="clock-kicker">{clockKicker}</p>
 						<HeroClock {time} size="poster" />
+						<BoardWidgets {atm} prediction={wxForIsland?.prediction || weatherData?.prediction} />
 					</div>
 				</section>
 			{:else if $currentView === 'school'}
@@ -463,7 +513,7 @@
 				{/each}
 			</div>
 			<div class="trough glass-field" data-glass>
-				<AmbientDeck />
+				<AmbientDeck {atm} prediction={wxForIsland?.prediction || weatherData?.prediction} />
 			</div>
 		</footer>
 	</div>
@@ -508,9 +558,6 @@
 		color: var(--text-primary);
 		font-family: var(--font-body);
 		min-width: 0;
-	}
-	.display-root.has-rail {
-		padding-top: 4.75rem;
 	}
 	.zone {
 		width: 100%;
@@ -719,8 +766,11 @@
 	}
 	.clock-credits {
 		min-width: 0;
-		max-width: min(92%, 32rem);
+		max-width: min(96%, 46rem);
 		padding: 0 0 var(--space-2);
+	}
+	.clock-credits :global(.widgets) {
+		margin-top: var(--space-4);
 	}
 	.clock-kicker {
 		margin: 0 0 var(--space-2);

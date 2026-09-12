@@ -2,11 +2,13 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { playChime } from '$lib/services/chime.js';
+	import { islandWeatherSlip } from '$lib/nwsAlerts.js';
 
 	let {
 		nowPlaying = null,
-		notification = { visible: false, title: '', body: '', kind: 'info' },
-		events = []
+		weatherData = null,
+		events = [],
+		onweather = null
 	} = $props();
 
 	let reducedMotion = $state(false);
@@ -28,14 +30,13 @@
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
 	}
 
-	// Priority: a live system event (docker/network/agent/bluetooth) always
-	// wins, then a one-off notification banner (morning/sleep triggers),
-	// then now-playing. Persistent weather lives on the full-width rail, not
-	// here, so a rain band cannot block Cursor-done or a phone connecting.
+	// Queued notices pop through first, then radar / ordinary NWS, then
+	// now-playing. Extreme NWS never lands here; that copy rolls on the ticker.
 	let activeEvent = $derived(events?.[0] ?? null);
+	let weatherSlip = $derived(islandWeatherSlip(weatherData));
 	let mode = $derived.by(() => {
 		if (activeEvent) return 'event';
-		if (notification?.visible) return 'alert';
+		if (weatherSlip.active) return 'weather';
 		if (nowPlaying?.playing) return 'nowplaying';
 		return 'idle';
 	});
@@ -44,6 +45,8 @@
 	function modeLabel(next) {
 		switch (next) {
 			case 'event': {
+				if (activeEvent?.source) return activeEvent.source;
+				if (activeEvent?.kind === 'briefing') return 'Morning';
 				const sev = activeEvent?.severity;
 				if (sev === 'error') return 'Error';
 				if (sev === 'warn') return 'Warning';
@@ -52,8 +55,8 @@
 			}
 			case 'nowplaying':
 				return 'Now playing';
-			case 'alert':
-				return notification?.kind === 'warn' ? 'Alert' : 'Notice';
+			case 'weather':
+				return weatherSlip.kicker || 'Weather';
 			case 'idle':
 				return '';
 			default: {
@@ -63,20 +66,18 @@
 		}
 	}
 
-	// Now-playing is handled separately in the template (album art vs. the
-	// music note icon), so this only covers the modes that always show one
-	// of the fixed SVG icons.
 	function iconFor(m) {
 		switch (m) {
 			case 'event': {
+				if (activeEvent?.kind === 'briefing') return 'bell';
 				const sev = activeEvent?.severity;
 				if (sev === 'error') return 'error';
 				if (sev === 'warn') return 'warn';
 				if (sev === 'ok') return 'ok';
 				return 'info';
 			}
-			case 'alert':
-				return notification?.kind === 'warn' ? 'warn' : 'bell';
+			case 'weather':
+				return 'weather';
 			default:
 				return null;
 		}
@@ -84,38 +85,23 @@
 
 	function sevFor(m) {
 		if (m === 'event') return activeEvent?.severity ?? 'info';
-		if (m === 'alert') return notification?.kind === 'warn' ? 'warn' : 'info';
+		if (m === 'weather') return weatherSlip.severity || 'info';
 		if (m === 'nowplaying') return 'info';
 		return 'info';
 	}
 
-	// A calm chime plays once each time the island actually opens with new
-	// content — not on every unrelated re-render while it's already showing
-	// something, and not twice for the same event. Tracked by a signature of
-	// "what's currently being shown" so a second event replacing the first
-	// (while the island never returns to idle) still gets its own chime.
-	// Now-playing gets its own brighter "music" tone since it's good news
-	// rather than a notice; everything else uses its severity tone.
 	let lastChimeKey = null;
 	$effect(() => {
 		let key = null;
 		if (mode === 'event') key = `event:${activeEvent?.id}`;
 		else if (mode === 'nowplaying') key = `nowplaying:${nowPlaying?.title}:${nowPlaying?.artist}`;
-		else if (mode === 'alert') key = `alert:${notification?.title}`;
+		else if (mode === 'weather') key = `weather:${weatherSlip.chimeKey}`;
 		if (key && key !== lastChimeKey) {
 			playChime(mode === 'nowplaying' ? 'music' : sevFor(mode));
 		}
 		lastChimeKey = key;
 	});
 
-	// The pill is one persistent capsule anchored to the top-center of the
-	// screen (like the real iPhone Dynamic Island) that spring-resizes its
-	// own bounds rather than being swapped out per mode. At idle it doesn't
-	// disappear — it rests as a small tab hanging from the top edge, always
-	// part of the screen's chrome, and grows downward from that same top
-	// anchor when something needs to be shown. A hidden "ghost" copy of the
-	// current content drives the target width/height via ResizeObserver,
-	// independent of whatever is mid-crossfade in the visible layer on top.
 	let ghostEl = $state(null);
 	let pillSize = $state({ w: 0, h: 0 });
 	let ready = $state(false);
@@ -139,11 +125,6 @@
 		return () => ro.disconnect();
 	});
 
-	// A ResizeObserver only reports changes once the browser has actually
-	// completed a layout/paint pass, which async content (like the album art
-	// <img> below) can occasionally miss on its very first measurement. A
-	// double rAF re-check right after each mode switch is a cheap guarantee
-	// we're never left showing a stale (usually too-small) size.
 	$effect(() => {
 		mode;
 		if (typeof window === 'undefined') return;
@@ -188,6 +169,17 @@
 			<path d="M6 8a6 6 0 1 1 12 0c0 3.5 1 5 2 6H4c1-1 2-2.5 2-6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
 			<path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
 		</svg>
+	{:else if kind === 'weather'}
+		<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+			<path
+				d="M7 16a4 4 0 0 1 .5-7.97A5.5 5.5 0 0 1 18 10a3.5 3.5 0 0 1-.5 6.97"
+				stroke="currentColor"
+				stroke-width="1.8"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			/>
+			<path d="M9 19l-1 2m5-2l-1 2m5-2l-1 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+		</svg>
 	{/if}
 {/snippet}
 
@@ -216,15 +208,16 @@
 				<div class="sub">{nowPlaying?.artist || ''}</div>
 			</div>
 		</div>
-	{:else if m === 'alert'}
-		<div class="slip sev-{sevFor(m)}">
+	{:else if m === 'weather'}
+		<button type="button" class="slip sev-{sevFor(m)}" data-layout="expanded" onclick={() => onweather?.()}>
 			<span class="icon-badge"><span class="icon">{@render icon(iconFor(m))}</span></span>
 			<div class="copy">
-				<div class="kicker">{modeLabel(m)}</div>
-				<div class="title">{notification.title}</div>
-				<div class="sub">{notification.body}</div>
+				<div class="kicker">{weatherSlip.kicker}</div>
+				<div class="title">{weatherSlip.title}</div>
+				{#if weatherSlip.sub}<div class="sub">{weatherSlip.sub}</div>{/if}
+				{#if weatherSlip.extra}<div class="extra">{weatherSlip.extra}</div>{/if}
 			</div>
-		</div>
+		</button>
 	{:else}
 		<div class="nub" aria-hidden="true"></div>
 	{/if}
@@ -251,9 +244,6 @@
 </div>
 
 <style>
-	/* Fixed to the viewport, not the document flow, so its own resizing can
-	   never push or cover anything else on the page — it's an overlay, like
-	   the real thing sitting in the status bar. */
 	.island {
 		position: fixed;
 		top: 0;
@@ -267,11 +257,6 @@
 		isolation: isolate;
 		width: var(--pill-w, 7rem);
 		height: var(--pill-h, 0.9rem);
-		/* A small rounded pill at rest, like the real thing's idle capsule —
-		   but once it opens it settles into a modest, consistent corner
-		   radius instead of scaling up to a full stadium shape, so a wide or
-		   tall expanded card reads as a boxy rounded rectangle rather than a
-		   giant pill. Top stays flat either way, flush with the screen edge. */
 		border-radius: 0 0 999px 999px;
 		background-color: var(--abyss);
 		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
@@ -316,11 +301,10 @@
 		top: 0;
 		left: 0;
 		width: max-content;
-		max-width: min(48rem, 90vw);
+		max-width: min(56rem, 94vw);
 		height: max-content;
 		visibility: hidden;
 		pointer-events: none;
-		white-space: nowrap;
 	}
 	.island-visible {
 		position: absolute;
@@ -334,9 +318,25 @@
 		align-items: center;
 		gap: var(--space-4);
 		min-height: 6rem;
-		max-width: min(48rem, 90vw);
+		max-width: min(56rem, 94vw);
 		padding: var(--space-4) var(--space-6);
 		box-sizing: border-box;
+		white-space: nowrap;
+	}
+	button.slip {
+		appearance: none;
+		border: 0;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+	}
+	.slip[data-layout='expanded'] {
+		align-items: flex-start;
+		min-height: 7.25rem;
+		white-space: normal;
+		padding-block: var(--space-5);
 	}
 	.icon-badge {
 		display: flex;
@@ -407,6 +407,12 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
+	.slip[data-layout='expanded'] .title {
+		white-space: normal;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+	}
 	.sub {
 		font-size: var(--text-lg);
 		color: var(--text-secondary);
@@ -414,6 +420,17 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.slip[data-layout='expanded'] .sub {
+		white-space: normal;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+	}
+	.extra {
+		margin-top: 0.15rem;
+		font-size: var(--text-base);
+		color: var(--text-tertiary);
 	}
 
 	@media (max-width: 414px) {
