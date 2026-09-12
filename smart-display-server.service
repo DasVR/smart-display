@@ -9,6 +9,8 @@ WorkingDirectory=/home/das/projects/smart-display
 Environment="NODE_ENV=production"
 Environment="PORT=3000"
 Environment="TZ=America/New_York"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus"
 ExecStart=/usr/bin/node src/ws-server.js
 Restart=on-failure
 RestartSec=3

@@ -21,12 +21,14 @@ function run(cmd, timeout = 3000) {
 	}
 }
 
-function runFile(bin, args, timeout = 3000) {
+function runFile(bin, args, opts = {}) {
+	const timeout = opts.timeout ?? 3000;
 	try {
 		return execFileSync(bin, args, {
 			encoding: 'utf8',
 			timeout,
-			stdio: ['ignore', 'pipe', 'pipe']
+			stdio: ['ignore', 'pipe', 'pipe'],
+			...(opts.env ? { env: opts.env } : {})
 		}).trim();
 	} catch (error) {
 		const out = String(error.stdout || '').trim();
@@ -34,8 +36,36 @@ function runFile(bin, args, timeout = 3000) {
 	}
 }
 
-function which(bin) {
-	return run(`command -v ${bin} 2>/dev/null`);
+function which(bin, env) {
+	const extra = env?.PATH ? `PATH=${JSON.stringify(env.PATH)} ` : '';
+	return run(`${extra}command -v ${bin} 2>/dev/null`);
+}
+
+export const SHAIRPORT_BINARIES = ['/usr/local/bin/shairport-sync', '/usr/bin/shairport-sync'];
+
+export function findShairportBinary({ exists = existsSync, lookup = which } = {}) {
+	for (const candidate of SHAIRPORT_BINARIES) {
+		if (exists(candidate)) return candidate;
+	}
+	return lookup('shairport-sync') || '';
+}
+
+export function userSessionEnv({
+	uid = typeof process.getuid === 'function' ? process.getuid() : 1000,
+	runtimeDir,
+	hasBus,
+	base = process.env
+} = {}) {
+	const dir = runtimeDir || base.XDG_RUNTIME_DIR || `/run/user/${uid}`;
+	const env = { ...base, XDG_RUNTIME_DIR: dir };
+	const busPath = path.join(dir, 'bus');
+	const busPresent = typeof hasBus === 'boolean' ? hasBus : existsSync(busPath);
+	if (busPresent) env.DBUS_SESSION_BUS_ADDRESS = `unix:path=${busPath}`;
+	const parts = String(env.PATH || '/usr/sbin:/usr/bin:/sbin:/bin').split(':');
+	if (!parts.includes('/usr/local/bin')) {
+		env.PATH = `/usr/local/bin:${env.PATH || '/usr/bin'}`;
+	}
+	return env;
 }
 
 function readText(file) {
@@ -115,7 +145,10 @@ export function airplayHint({
 	if (ready) return `Apple Music should list ${listed}`;
 	if (!installed) return 'shairport-sync is not installed';
 	if (!airplay2) return 'shairport-sync is not AirPlay 2';
-	if (unit !== 'active') return 'AirPlay unit is stopped';
+	if (unit !== 'active') {
+		if (unit === 'unknown') return 'AirPlay unit is not visible';
+		return 'AirPlay unit is stopped';
+	}
 	if (nqptp !== 'active') return 'nqptp is stopped';
 	if (avahi !== 'active') return 'Avahi is stopped';
 	return 'AirPlay is not ready';
@@ -163,32 +196,49 @@ export function buildAirplayStatus({
 	};
 }
 
-function unitState(unit, { user = false } = {}) {
-	const args = ['is-active', unit];
-	if (user) args.unshift('--user');
-	return parseSystemctlActive(runFile('systemctl', args));
+function unitState(unit, { user = false, env } = {}) {
+	const args = user ? ['--user', 'is-active', unit] : ['is-active', unit];
+	let state = parseSystemctlActive(runFile('systemctl', args, { env: user ? env : undefined }));
+	if (user && state === 'unknown') {
+		const machine = `${os.userInfo().username}@`;
+		state = parseSystemctlActive(
+			runFile('systemctl', ['--user', `--machine=${machine}`, 'is-active', unit])
+		);
+	}
+	return state;
 }
 
-function probeAirplay() {
-	const binary = which('shairport-sync');
-	const versionText = binary ? runFile(binary, ['-V']) || '' : '';
+function processRunning(name, env) {
+	return Boolean(runFile('pidof', [name], { env }) || runFile('pgrep', ['-x', name], { env }));
+}
+
+function probeAirplay(env) {
+	const binary = findShairportBinary({
+		lookup: (bin) => which(bin, env)
+	});
+	const versionText = binary ? runFile(binary, ['-V'], { env }) || '' : '';
 	const confPath =
 		process.env.SHAIRPORT_CONF || path.join(os.homedir(), '.config/shairport-sync.conf');
+	let unit = unitState(AIRPLAY_UNITS.unit, { user: true, env });
+	const meta = unitState(AIRPLAY_UNITS.meta, { user: true, env });
+	if (unit === 'unknown' && processRunning('shairport-sync', env)) {
+		unit = 'active';
+	}
 	return buildAirplayStatus({
 		binary,
 		versionText,
 		confText: readText(confPath),
-		unit: unitState(AIRPLAY_UNITS.unit, { user: true }),
-		meta: unitState(AIRPLAY_UNITS.meta, { user: true }),
+		unit,
+		meta,
 		nqptp: unitState('nqptp.service'),
 		avahi: unitState('avahi-daemon.service')
 	});
 }
 
-function probeBluetooth() {
-	const show = runFile('bluetoothctl', ['--timeout', '3', 'show']) || '';
+function probeBluetooth(env) {
+	const show = runFile('bluetoothctl', ['--timeout', '3', 'show'], { env }) || '';
 	const connectedText =
-		runFile('bluetoothctl', ['--timeout', '3', 'devices', 'Connected']) || '';
+		runFile('bluetoothctl', ['--timeout', '3', 'devices', 'Connected'], { env }) || '';
 	const adapter = parseBluetoothShow(show);
 	const connected = parseBluetoothDevices(connectedText);
 	const agent = unitState('smart-display-bt-agent.service');
@@ -202,8 +252,8 @@ function probeBluetooth() {
 	};
 }
 
-function probeSpeakers() {
-	const statusText = runFile('wpctl', ['status']) || '';
+function probeSpeakers(env) {
+	const statusText = runFile('wpctl', ['status'], { env }) || '';
 	if (!statusText) {
 		return formatSpeakerReport(null, []);
 	}
@@ -211,13 +261,13 @@ function probeSpeakers() {
 	return formatSpeakerReport(pickSpeakerSink(sinks), sinks);
 }
 
-function probePipewire() {
-	const pipewire = unitState('pipewire.service', { user: true });
-	const pulse = unitState('pipewire-pulse.service', { user: true });
+function probePipewire(env) {
+	const pipewire = unitState('pipewire.service', { user: true, env });
+	const pulse = unitState('pipewire-pulse.service', { user: true, env });
 	return {
 		pipewire,
 		pulse,
-		ready: pipewire === 'active'
+		ready: pipewire === 'active' || processRunning('pipewire', env)
 	};
 }
 
@@ -257,14 +307,15 @@ function localServices(airplay, bluetooth, speakers, pipewire) {
 }
 
 export async function getKioskStatus() {
+	const env = userSessionEnv();
 	const [telemetry, nowPlaying] = await Promise.all([
 		getTelemetry(),
 		getNowPlaying({ skipLyrics: true })
 	]);
-	const airplay = probeAirplay();
-	const bluetooth = probeBluetooth();
-	const speakers = probeSpeakers();
-	const pipewire = probePipewire();
+	const airplay = probeAirplay(env);
+	const bluetooth = probeBluetooth(env);
+	const speakers = probeSpeakers(env);
+	const pipewire = probePipewire(env);
 	const git = getGitContext();
 	const local = localServices(airplay, bluetooth, speakers, pipewire);
 	const remote = Array.isArray(telemetry.services)

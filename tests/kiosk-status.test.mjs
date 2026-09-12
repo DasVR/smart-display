@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import {
 	airplayHint,
 	buildAirplayStatus,
+	findShairportBinary,
 	parseBluetoothDevices,
 	parseBluetoothShow,
 	parseShairportName,
 	parseShairportVersion,
-	parseSystemctlActive
+	parseSystemctlActive,
+	userSessionEnv
 } from '../src/lib/server/kioskStatus.js';
 
 const SHAIRPORT_AP2 =
@@ -169,5 +171,57 @@ test('airplayHint names nqptp and Avahi when those are the missing pieces', () =
 			name: 'Smart Display'
 		}),
 		'Avahi is stopped'
+	);
+});
+
+test('findShairportBinary prefers the AirPlay 2 path over PATH', () => {
+	assert.equal(
+		findShairportBinary({
+			exists: (p) => p === '/usr/local/bin/shairport-sync',
+			lookup: () => '/usr/bin/shairport-sync'
+		}),
+		'/usr/local/bin/shairport-sync'
+	);
+	assert.equal(
+		findShairportBinary({
+			exists: () => false,
+			lookup: () => '/opt/shairport-sync'
+		}),
+		'/opt/shairport-sync'
+	);
+	assert.equal(
+		findShairportBinary({
+			exists: () => false,
+			lookup: () => null
+		}),
+		''
+	);
+});
+
+test('userSessionEnv points systemd --user at the lingering das bus', () => {
+	const env = userSessionEnv({
+		uid: 1000,
+		runtimeDir: '/run/user/1000',
+		hasBus: true,
+		base: { PATH: '/usr/bin:/bin', HOME: '/home/das' }
+	});
+	assert.equal(env.XDG_RUNTIME_DIR, '/run/user/1000');
+	assert.equal(env.DBUS_SESSION_BUS_ADDRESS, 'unix:path=/run/user/1000/bus');
+	assert.match(env.PATH, /^\/usr\/local\/bin:/);
+	assert.equal(env.HOME, '/home/das');
+});
+
+test('airplayHint distinguishes a hidden user unit from a stopped one', () => {
+	assert.equal(
+		airplayHint({
+			ready: false,
+			installed: true,
+			airplay2: true,
+			unit: 'unknown',
+			nqptp: 'active',
+			avahi: 'active',
+			name: 'Smart Display'
+		}),
+		'AirPlay unit is not visible'
 	);
 });
