@@ -168,10 +168,9 @@ export function windTowardDeg(fromDeg) {
 }
 
 export function fmtSunTime(iso, timeZone = DISPLAY_TZ) {
-	if (!iso) return '--';
-	const d = new Date(iso);
-	if (Number.isNaN(d.getTime())) return '--';
-	return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone });
+	const t = parseIsoMs(iso, timeZone);
+	if (!t) return '--';
+	return new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone });
 }
 
 export function atmosphereFromWeather(nowMs, weather) {

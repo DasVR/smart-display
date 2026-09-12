@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
 	compassFromDeg,
 	fallbackPhase,
+	fmtSunTime,
 	phaseKicker,
 	sunAmount,
 	sunPhase,
@@ -62,6 +63,11 @@ describe('atmosphere', () => {
 		assert.ok(sunAmount(rise - 2 * 3600_000, rise, set) < 0.2);
 		assert.ok(twilightAmount(rise, rise, set) > 0.8);
 		assert.equal(twilightAmount(noon, rise, set), 0);
+	});
+
+	it('formats Open-Meteo wall clocks in New York, not UTC', () => {
+		assert.equal(fmtSunTime('2026-09-11T07:14'), '7:14 AM');
+		assert.equal(fmtSunTime('2026-09-11T19:40'), '7:40 PM');
 	});
 
 	it('writes clock kickers without a fake weekday on day', () => {
