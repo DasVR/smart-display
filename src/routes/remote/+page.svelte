@@ -10,6 +10,11 @@
 	let status = $state('connecting');
 	let lastAction = $state('');
 	let host = $state('');
+	let hdmi = $state('on');
+	let autoNights = $state(true);
+	let offAt = $state('22:30');
+	let onAt = $state('06:00');
+	let saveTimer = 0;
 
 	function pickHost() {
 		const h = location.host;
@@ -19,6 +24,36 @@
 
 	function viewLabel(name) {
 		return name.slice(0, 1).toUpperCase() + name.slice(1);
+	}
+
+	function applyDisplay(display) {
+		if (!display) return;
+		if (display.hdmi === 'on' || display.hdmi === 'off') hdmi = display.hdmi;
+		const schedule = display.schedule || {};
+		if (typeof schedule.enabled === 'boolean') autoNights = schedule.enabled;
+		if (schedule.offAt) offAt = schedule.offAt;
+		if (schedule.onAt) onAt = schedule.onAt;
+	}
+
+	function queueSave() {
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(saveNightSchedule, 400);
+	}
+
+	async function saveNightSchedule() {
+		lastAction = 'saving nights';
+		try {
+			const r = await fetch('/api/display', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ enabled: autoNights, offAt, onAt })
+			});
+			const data = await r.json();
+			applyDisplay(data);
+			lastAction = autoNights ? `nights ${offAt} to ${onAt}` : 'auto nights off';
+		} catch (e) {
+			lastAction = e.message || 'save failed';
+		}
 	}
 
 	function connect() {
@@ -54,6 +89,10 @@
 				if (msg.type === 'init' || msg.type === 'navigate') {
 					current.set(msg.view || 'clock');
 				}
+				if (msg.type === 'init') applyDisplay(msg.display);
+				if (msg.type === 'display') applyDisplay(msg);
+				if (msg.type === 'trigger' && msg.event === 'hdmi_off') hdmi = 'off';
+				if (msg.type === 'trigger' && msg.event === 'hdmi_on') hdmi = 'on';
 				if (msg.type === 'pong') {
 					status = 'connected';
 				}
@@ -162,6 +201,45 @@
 		<button class="mode" onclick={() => send({ type: 'trigger', event: 'hdmi_on' })}>HDMI on</button>
 	</div>
 
+	<section class="night" aria-label="Night panel schedule">
+		<div class="night-top">
+			<p class="night-kicker">Night panel</p>
+			<p class="night-state" class:off={hdmi === 'off'}>{hdmi === 'off' ? 'Panel off' : 'Panel on'}</p>
+		</div>
+		<p class="night-copy">This LCD still glows on a black screen, so nights cut HDMI power instead of dimming.</p>
+		<button
+			class="auto"
+			class:on={autoNights}
+			onclick={() => {
+				autoNights = !autoNights;
+				queueSave();
+			}}
+			aria-pressed={autoNights}
+		>
+			Auto nights {autoNights ? 'on' : 'off'}
+		</button>
+		<div class="times" class:disabled={!autoNights}>
+			<label>
+				<span>Off</span>
+				<input
+					type="time"
+					bind:value={offAt}
+					disabled={!autoNights}
+					onchange={queueSave}
+				/>
+			</label>
+			<label>
+				<span>On</span>
+				<input
+					type="time"
+					bind:value={onAt}
+					disabled={!autoNights}
+					onchange={queueSave}
+				/>
+			</label>
+		</div>
+	</section>
+
 	{#if lastAction}
 		<p class="last">{lastAction}</p>
 	{/if}
@@ -186,8 +264,9 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: space-between;
-		padding: var(--space-6) var(--space-5) max(var(--space-6), env(safe-area-inset-bottom));
+		padding: var(--space-5) var(--space-5) max(var(--space-5), env(safe-area-inset-bottom));
 		box-sizing: border-box;
+		overflow: auto;
 		user-select: none;
 		-webkit-user-select: none;
 	}
@@ -333,6 +412,87 @@
 	}
 	.mode:active { transform: scale(0.98); }
 	.mode.warn { color: var(--warn); }
+
+	.night {
+		width: 100%;
+		max-width: 22.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		padding: var(--space-4);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-md);
+		background: var(--abyss-2);
+		box-sizing: border-box;
+	}
+	.night-top {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-3);
+	}
+	.night-kicker,
+	.night-copy,
+	.night-state {
+		margin: 0;
+	}
+	.night-kicker {
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--text-tertiary);
+	}
+	.night-state {
+		font-size: var(--text-sm);
+		font-weight: 700;
+		color: var(--ok);
+	}
+	.night-state.off { color: var(--warn); }
+	.night-copy {
+		font-size: var(--text-sm);
+		line-height: 1.35;
+		color: var(--text-secondary);
+	}
+	.auto {
+		min-height: 2.75rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		color: var(--text-secondary);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+	.auto.on {
+		color: var(--ok);
+		border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+	}
+	.times {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-2);
+	}
+	.times.disabled { opacity: 0.45; }
+	.times label {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--text-tertiary);
+	}
+	.times input[type='time'] {
+		min-height: 2.75rem;
+		padding: 0 var(--space-3);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		color: var(--foreground);
+		font-family: var(--font-body);
+		font-size: var(--text-lg);
+		font-weight: 600;
+	}
 
 	.last {
 		margin: 0;

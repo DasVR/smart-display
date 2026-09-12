@@ -1,4 +1,5 @@
 import { createServer } from 'http';
+import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { handler } from '../build/handler.js';
 import {
@@ -12,9 +13,27 @@ import {
 	getWeather,
 	saveStationData
 } from './lib/server/hostData.js';
+import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
+import {
+	desiredHdmi,
+	isQuietHours,
+	loadSchedule,
+	minutesOfDay,
+	normalizeSchedule,
+	saveSchedule,
+	scheduledAction
+} from './lib/server/displaySchedule.js';
 
 const port = process.env.PORT || 3000;
 const NOTIFY_SEVERITIES = new Set(['info', 'ok', 'warn', 'error']);
+const SCHEDULE_PATH =
+	process.env.DISPLAY_SCHEDULE_PATH || path.join(PROJECT_ROOT, 'data/display-schedule.json');
+const SCHEDULE_TICK_MS = 15_000;
+
+let schedule = loadSchedule(SCHEDULE_PATH);
+let hdmiState = 'on';
+let lastTickMinutes = null;
+let applyingHdmi = false;
 
 function json(res, data, status = 200) {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -40,6 +59,92 @@ async function pollOllama() {
 }
 setInterval(pollOllama, 500);
 
+function displaySnapshot() {
+	return {
+		hdmi: hdmiState,
+		schedule,
+		quiet: isQuietHours(new Date(), schedule)
+	};
+}
+
+async function applyHdmi(state, { reason } = {}) {
+	if (state !== 'on' && state !== 'off') return hdmiState;
+	if (applyingHdmi) {
+		hdmiState = state;
+		return state;
+	}
+	applyingHdmi = true;
+	hdmiState = state;
+	try {
+		await setPanelPower(state === 'on');
+	} finally {
+		applyingHdmi = false;
+	}
+	broadcast({ type: 'trigger', event: state === 'off' ? 'hdmi_off' : 'hdmi_on' });
+	if (reason === 'schedule' && state === 'off') {
+		broadcast({ type: 'trigger', event: 'sleep' });
+	}
+	if (reason === 'schedule' && state === 'on') {
+		broadcast({ type: 'trigger', event: 'normal' });
+	}
+	broadcast({ type: 'display', ...displaySnapshot() });
+	return hdmiState;
+}
+
+async function handleTrigger(event, extra = {}) {
+	if (event === 'sleep') {
+		broadcast({ type: 'trigger', event: 'sleep', view: extra.view, data: extra.data || {} });
+		await applyHdmi('off');
+		return;
+	}
+	if (event === 'morning' || event === 'normal') {
+		await applyHdmi('on');
+		broadcast({
+			type: 'trigger',
+			event,
+			view: extra.view,
+			data: extra.data || {}
+		});
+		return;
+	}
+	if (event === 'hdmi_off') {
+		await applyHdmi('off');
+		return;
+	}
+	if (event === 'hdmi_on') {
+		await applyHdmi('on');
+		return;
+	}
+	broadcast({ type: 'trigger', event, view: extra.view, data: extra.data || {} });
+}
+
+async function tickSchedule() {
+	const now = new Date();
+	const curr = minutesOfDay(now, schedule.timeZone);
+	if (lastTickMinutes == null) {
+		lastTickMinutes = curr;
+		const desired = desiredHdmi(now, schedule);
+		if (desired) await applyHdmi(desired, { reason: 'schedule' });
+		return;
+	}
+	const action = scheduledAction(lastTickMinutes, curr, schedule);
+	lastTickMinutes = curr;
+	if (action) await applyHdmi(action, { reason: 'schedule' });
+}
+
+function patchSchedule(input) {
+	const wasEnabled = schedule.enabled;
+	schedule = saveSchedule(SCHEDULE_PATH, normalizeSchedule(input, schedule));
+	lastTickMinutes = null;
+	broadcast({ type: 'display', ...displaySnapshot() });
+	if (wasEnabled && !schedule.enabled && hdmiState === 'off') {
+		applyHdmi('on');
+		return displaySnapshot();
+	}
+	tickSchedule();
+	return displaySnapshot();
+}
+
 const server = createServer(async (req, res) => {
 	res.setHeader('Access-Control-Allow-Origin', '*');
 	res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -57,7 +162,7 @@ const server = createServer(async (req, res) => {
 			try {
 				const data = JSON.parse(body);
 				if (data.event === 'morning' || data.event === 'normal' || data.event === 'sleep') {
-					broadcast({ type: 'trigger', event: data.event, view: data.view || currentView, data: data.data || {} });
+					await handleTrigger(data.event, { view: data.view || currentView, data: data.data || {} });
 					json(res, { ok: true, event: data.event });
 					return;
 				}
@@ -68,23 +173,8 @@ const server = createServer(async (req, res) => {
 					json(res, { ok: true });
 					return;
 				}
-				if (data.event === 'hdmi_off') {
-					import('node:child_process').then(({ execFile }) => {
-						execFile('/home/das/projects/smart-display/scripts/display-off.sh', (e) => {
-							if (e) console.error('hdmi_off failed', e.message);
-						});
-					});
-					broadcast({ type: 'trigger', event: 'hdmi_off' });
-					json(res, { ok: true });
-					return;
-				}
-				if (data.event === 'hdmi_on') {
-					import('node:child_process').then(({ execFile }) => {
-						execFile('/home/das/projects/smart-display/scripts/display-on.sh', (e) => {
-							if (e) console.error('hdmi_on failed', e.message);
-						});
-					});
-					broadcast({ type: 'trigger', event: 'hdmi_on' });
+				if (data.event === 'hdmi_off' || data.event === 'hdmi_on') {
+					await handleTrigger(data.event);
 					json(res, { ok: true });
 					return;
 				}
@@ -92,6 +182,44 @@ const server = createServer(async (req, res) => {
 				/* fall through */
 			}
 			json(res, { error: 'invalid payload' }, 400);
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && req.url === '/api/display') {
+		json(res, displaySnapshot());
+		return;
+	}
+
+	if (req.method === 'POST' && req.url === '/api/display') {
+		let body = '';
+		req.on('data', (chunk) => (body += chunk));
+		req.on('end', async () => {
+			try {
+				const data = JSON.parse(body || '{}');
+				if (data.hdmi === 'on' || data.hdmi === 'off') {
+					await applyHdmi(data.hdmi);
+				}
+				const next = { ...schedule };
+				if (typeof data.enabled === 'boolean') next.enabled = data.enabled;
+				if (data.offAt) next.offAt = data.offAt;
+				if (data.onAt) next.onAt = data.onAt;
+				if (data.timeZone) next.timeZone = data.timeZone;
+				if (data.schedule && typeof data.schedule === 'object') Object.assign(next, data.schedule);
+				const changedSchedule =
+					data.enabled !== undefined ||
+					data.offAt ||
+					data.onAt ||
+					data.timeZone ||
+					data.schedule;
+				if (changedSchedule) {
+					json(res, { ok: true, ...patchSchedule(next) });
+					return;
+				}
+				json(res, { ok: true, ...displaySnapshot() });
+			} catch {
+				json(res, { error: 'invalid payload' }, 400);
+			}
 		});
 		return;
 	}
@@ -210,7 +338,15 @@ wss.on('connection', (ws, req) => {
 	const isRemote = req.headers['x-remote'] === 'phone' || req.url?.includes('remote');
 	ws.isRemote = isRemote;
 	clients.add(ws);
-	ws.send(JSON.stringify({ type: 'init', view: currentView, ts: Date.now(), power: ollamaPowerState }));
+	ws.send(
+		JSON.stringify({
+			type: 'init',
+			view: currentView,
+			ts: Date.now(),
+			power: ollamaPowerState,
+			display: displaySnapshot()
+		})
+	);
 
 	ws.on('message', (raw) => {
 		try {
@@ -229,17 +365,10 @@ wss.on('connection', (ws, req) => {
 				broadcast({ type: 'navigate', view: currentView, from: 'remote' });
 			}
 			if (msg.type === 'trigger') {
-				broadcast({ type: 'trigger', event: msg.event, view: msg.view || currentView, data: msg.data || {} });
-				if (msg.event === 'hdmi_off') {
-					import('node:child_process').then(({ execFile }) => {
-						execFile('/home/das/projects/smart-display/scripts/display-off.sh', (e) => { if (e) console.error(e); });
-					});
-				}
-				if (msg.event === 'hdmi_on') {
-					import('node:child_process').then(({ execFile }) => {
-						execFile('/home/das/projects/smart-display/scripts/display-on.sh', (e) => { if (e) console.error(e); });
-					});
-				}
+				handleTrigger(msg.event, { view: msg.view || currentView, data: msg.data || {} });
+			}
+			if (msg.type === 'display' && msg.schedule) {
+				patchSchedule({ ...schedule, ...msg.schedule });
 			}
 		} catch {
 			/* ignore */
@@ -249,4 +378,11 @@ wss.on('connection', (ws, req) => {
 	ws.on('close', () => clients.delete(ws));
 });
 
-server.listen(port, '0.0.0.0', () => console.log(`smart-display running on :${port}`));
+server.listen(port, '0.0.0.0', () => {
+	console.log(`smart-display running on :${port}`);
+	console.log(
+		`display schedule ${schedule.enabled ? 'on' : 'off'} ${schedule.offAt}->${schedule.onAt} ${schedule.timeZone}`
+	);
+	setTimeout(tickSchedule, 2500);
+	setInterval(tickSchedule, SCHEDULE_TICK_MS);
+});

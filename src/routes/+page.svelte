@@ -76,6 +76,24 @@
 		}, ms);
 	}
 
+	function applyDisplay(display) {
+		if (!display) return;
+		if (display.hdmi === 'off') {
+			hdmiOff = true;
+			if (mode !== 'sleep') {
+				mode = 'sleep';
+				displayMode.set('sleep');
+			}
+		}
+		if (display.hdmi === 'on') {
+			hdmiOff = false;
+			if (mode === 'sleep') {
+				mode = 'normal';
+				displayMode.set('normal');
+			}
+		}
+	}
+
 	function connect() {
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -115,10 +133,17 @@
 					showNotif('Good morning', 'Briefing ready. Check due work.', 'info', 8000);
 					currentView.set(msg.view || 'school');
 				}
+				if (msg.type === 'init') {
+					if (msg.view) currentView.set(msg.view);
+					applyDisplay(msg.display);
+				}
+				if (msg.type === 'display') {
+					applyDisplay(msg);
+				}
 				if (msg.type === 'trigger' && msg.event === 'sleep') {
 					mode = 'sleep';
 					displayMode.set('sleep');
-					showNotif('Sleep mode', 'Dimming for the night. See you tomorrow.', 'info', 5000);
+					showNotif('Sleep mode', 'Panel off for the night. See you tomorrow.', 'info', 4000);
 				}
 				if (msg.type === 'trigger' && msg.event === 'normal') {
 					mode = 'normal';
@@ -130,6 +155,10 @@
 				}
 				if (msg.type === 'trigger' && msg.event === 'hdmi_on') {
 					hdmiOff = false;
+					if (mode === 'sleep') {
+						mode = 'normal';
+						displayMode.set('normal');
+					}
 				}
 				if (msg.type === 'power') {
 					window.dispatchEvent(new CustomEvent('power-state', { detail: msg.state }));

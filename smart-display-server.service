@@ -8,6 +8,7 @@ User=das
 WorkingDirectory=/home/das/projects/smart-display
 Environment="NODE_ENV=production"
 Environment="PORT=3000"
+Environment="TZ=America/New_York"
 ExecStart=/usr/bin/node src/ws-server.js
 Restart=on-failure
 RestartSec=3
