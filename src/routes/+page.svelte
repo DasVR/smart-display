@@ -13,7 +13,7 @@
 	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, pushIslandEvent } from '$lib/stores.js';
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
-	import { primeAudio } from '$lib/services/chime.js';
+	import { primeAudio, playChime } from '$lib/services/chime.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
@@ -48,6 +48,10 @@
 	// both reads and writes this to detect movement; using $state for that read
 	// would make the enclosing $effect depend on its own write and loop forever.
 	let lastIndicatorPos = { left: 0, width: 0, set: false };
+	// Same idea for the view-swap chime below: plain, not $state, so reading
+	// it in the effect that reacts to $currentView doesn't create a
+	// self-triggering loop.
+	let lastViewIdx = -1;
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
 
@@ -309,8 +313,17 @@
 	let weatherRail = $derived(classifyWeatherRail(weatherFromQuery() ?? weatherData));
 
 	$effect(() => {
-		$currentView;
+		const idx = VIEWS.indexOf($currentView);
 		updateIndicator();
+		if (idx !== -1 && lastViewIdx !== -1 && idx !== lastViewIdx) {
+			// Shortest path around the tab strip decides the chime's direction,
+			// so wrapping from the last tab to the first (or back) still reads
+			// as "forward"/"backward" rather than the raw index jump.
+			const n = VIEWS.length;
+			const forwardDist = (idx - lastViewIdx + n) % n;
+			playChime(forwardDist <= n / 2 ? 'swap-next' : 'swap-prev');
+		}
+		lastViewIdx = idx;
 	});
 </script>
 
@@ -654,13 +667,14 @@
 		white-space: nowrap;
 		transition:
 			color 280ms var(--spring-smooth),
-			transform 280ms var(--spring-smooth);
+			transform 320ms var(--spring-bouncy);
 	}
 	.view-tab:hover {
 		color: var(--text-secondary);
 	}
 	.view-tab:active {
-		transform: scale(0.98);
+		transform: scale(0.92);
+		transition-duration: 90ms;
 	}
 	.view-tab.active {
 		color: var(--foreground);
