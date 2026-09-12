@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,16 @@ export function stampPath() {
 	const runtimeDir = process.env.XDG_RUNTIME_DIR || '/run/user/1000';
 	if (existsSync(runtimeDir)) return path.join(runtimeDir, 'smart-display-hdmi');
 	return path.join(os.tmpdir(), 'smart-display-hdmi');
+}
+
+export function readHdmiStamp(file = stampPath()) {
+	try {
+		if (!existsSync(file)) return 'unknown';
+		const value = readFileSync(file, 'utf8').trim();
+		return value === 'on' || value === 'off' ? value : 'unknown';
+	} catch {
+		return 'unknown';
+	}
 }
 
 export function writeHdmiStamp(state, file = stampPath()) {

@@ -299,12 +299,13 @@ function readMprisNowPlaying() {
 	};
 }
 
-export async function getNowPlaying() {
+export async function getNowPlaying({ skipLyrics = false } = {}) {
 	try {
 		const merged = mergeNowPlaying(readMprisNowPlaying(), readAirplayNowPlaying());
 		if (!merged.playing && !merged.title) {
 			return { playing: false };
 		}
+		if (skipLyrics) return merged;
 		const lyrics =
 			merged.artist &&
 			merged.title &&

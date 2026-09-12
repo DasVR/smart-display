@@ -16,6 +16,7 @@ import {
 	fetchHAStates
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
+import { getKioskStatus } from './lib/server/kioskStatus.js';
 import {
 	agentFinishedNotify,
 	parseAirplayConnectedPayload,
@@ -298,6 +299,11 @@ const server = createServer(async (req, res) => {
 
 	if (req.method === 'GET' && req.url === '/api/telemetry') {
 		json(res, await getTelemetry());
+		return;
+	}
+
+	if (req.method === 'GET' && req.url === '/api/kiosk') {
+		json(res, await getKioskStatus());
 		return;
 	}
 
