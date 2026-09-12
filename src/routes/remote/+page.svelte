@@ -7,6 +7,7 @@
 	import '../../app.css';
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
+	import { primeAudio, playChime } from '$lib/services/chime.js';
 
 	const current = writable('clock');
 	const views = [
@@ -127,6 +128,7 @@
 		ws.send(JSON.stringify(obj));
 		lastAction = obj.event || obj.view || obj.dir || obj.type;
 		if (navigator.vibrate) navigator.vibrate(12);
+		playChime('tap');
 	}
 
 	function go(view) {
@@ -182,8 +184,12 @@
 				ws.send(JSON.stringify({ type: 'ping' }));
 			}
 		}, 5000);
+		// Browsers block audio until a real user gesture; the first touch on
+		// the remote unlocks it so subsequent taps can chime.
+		window.addEventListener('pointerdown', primeAudio, { once: true });
 		return () => {
 			clearInterval(ping);
+			window.removeEventListener('pointerdown', primeAudio);
 			ws?.close();
 		};
 	});
@@ -261,7 +267,10 @@
 	<section class="block night-block" aria-label="Night">
 		<button
 			class="night-toggle"
-			onclick={() => (nightOpen = !nightOpen)}
+			onclick={() => {
+				nightOpen = !nightOpen;
+				playChime('tap');
+			}}
 			aria-expanded={nightOpen}
 		>
 			<span>Night</span>
@@ -277,6 +286,7 @@
 						onclick={() => {
 							autoNights = !autoNights;
 							queueSave();
+							playChime('tap');
 						}}
 					>
 						Auto schedule
@@ -288,6 +298,7 @@
 						onclick={() => {
 							wakeOnPhone = !wakeOnPhone;
 							queueSave();
+							playChime('tap');
 						}}
 					>
 						Phone wake
@@ -392,7 +403,7 @@
 		place-items: center;
 		cursor: pointer;
 		touch-action: manipulation;
-		transition: transform 180ms var(--spring-smooth), border-color 180ms var(--spring-smooth), color 180ms var(--spring-smooth);
+		transition: transform 280ms var(--spring-bouncy), border-color 180ms var(--spring-smooth), color 180ms var(--spring-smooth);
 	}
 	.power svg {
 		width: 2.1rem;
@@ -407,7 +418,7 @@
 		outline: 2px solid var(--brand);
 		outline-offset: 3px;
 	}
-	.power:active { transform: scale(0.96); }
+	.power:active { transform: scale(0.9); transition-duration: 90ms; }
 	.power:disabled { opacity: 0.4; cursor: not-allowed; }
 	.power.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 	.power-label {
@@ -437,6 +448,12 @@
 		cursor: pointer;
 		touch-action: manipulation;
 	}
+	.step,
+	.key,
+	.rocker,
+	.night-toggle {
+		transition: transform 280ms var(--spring-bouncy);
+	}
 	.step:focus-visible,
 	.key:focus-visible,
 	.rocker:focus-visible,
@@ -446,7 +463,11 @@
 	}
 	.step:active,
 	.key:active,
-	.rocker:active { transform: scale(0.97); }
+	.rocker:active,
+	.night-toggle:active {
+		transform: scale(0.94);
+		transition-duration: 90ms;
+	}
 	.now-name {
 		margin: 0;
 		text-align: center;

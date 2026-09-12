@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fuseRainPrediction } from '../rainModel.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
+import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 
 function run(cmd) {
 	try {
@@ -129,6 +130,18 @@ export async function triggerHAView(view) {
 	}
 }
 
+/** Reports which PipeWire sink is actually live, so the dashboard can
+ *  confirm the speakers wired into the headphone jack (or USB/HDMI) are
+ *  recognized and selected, not silently falling back to Dummy Output. */
+function getSpeakerService() {
+	const statusText = run('wpctl status 2>/dev/null');
+	if (statusText === null) return { name: 'Speakers', status: false, uptime: 'n/a' };
+	const pick = pickSpeakerSink(parseWpctlStatus(statusText));
+	if (!pick) return { name: 'Speakers', status: false, uptime: 'none found' };
+	const kind = classifySink(pick.name);
+	return { name: `Speakers (${kind})`, status: kind !== 'dummy', uptime: pick.name };
+}
+
 export async function getTelemetry() {
 	const total = os.totalmem() / 1024 / 1024 / 1024;
 	const free = os.freemem() / 1024 / 1024 / 1024;
@@ -155,6 +168,7 @@ export async function getTelemetry() {
 		check('http://127.0.0.1:8123/api/', 'home assistant', '100%'),
 		check('http://localhost:3000', 'display', '100%')
 	]);
+	services.push(getSpeakerService());
 
 	const containers = run('docker ps -q 2>/dev/null | wc -l') || '0';
 
