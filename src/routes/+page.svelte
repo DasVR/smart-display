@@ -478,6 +478,14 @@
 		windDir={atm.windRad}
 	/>
 
+	{#if $currentView === 'music' && $nowPlaying?.playing && $nowPlaying?.art}
+		<div
+			class="music-ambient"
+			style="background-image: linear-gradient(color-mix(in srgb, var(--abyss) 80%, transparent), color-mix(in srgb, var(--abyss) 80%, transparent)), url({$nowPlaying.art})"
+			aria-hidden="true"
+		></div>
+	{/if}
+
 	<DynamicIsland nowPlaying={$nowPlaying} events={$islandQueue} activities={$islandActivities} />
 
 	<div
@@ -608,6 +616,33 @@
 		overflow-y: hidden;
 		position: relative;
 		background: var(--background);
+	}
+	/* The whole screen picks up the now-playing album art as a soft, glowing
+	   backdrop - every pane is transparent over the liquid-metal canvas
+	   already, so this just takes that canvas's place while music plays,
+	   the way Apple Music/Cider tint their whole now-playing screen. */
+	.music-ambient {
+		position: fixed;
+		inset: -10%;
+		z-index: 1;
+		background-size: cover;
+		background-position: center;
+		filter: blur(90px) saturate(1.3) brightness(0.65);
+		transform: translateZ(0);
+		pointer-events: none;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.music-ambient {
+			animation: ambient-in 900ms var(--spring-smooth) both;
+		}
+	}
+	@keyframes ambient-in {
+		from {
+			opacity: 0;
+		}
+		to {
+			opacity: 1;
+		}
 	}
 	.display-root {
 		position: relative;
