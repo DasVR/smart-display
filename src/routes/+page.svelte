@@ -16,9 +16,10 @@
 	import { primeAudio } from '$lib/services/chime.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
-	import { alertKeyForPrediction, mergeRadarPrediction } from '$lib/rainModel.js';
+	import { mergeRadarPrediction } from '$lib/rainModel.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
+	import WeatherRail from '$lib/components/WeatherRail.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
 	import DevHub from '$lib/components/DevHub.svelte';
@@ -27,6 +28,7 @@
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
+	import { classifyWeatherRail } from '$lib/weatherRail.js';
 
 	let ws;
 	let reconnectTimer;
@@ -126,7 +128,7 @@
 						title: msg.title || 'Notice',
 						body: msg.body || '',
 						severity: msg.severity || 'info',
-						ttl: msg.ttl || 6000,
+						ttl: msg.ttl || 9000,
 						source: msg.source || ''
 					});
 				}
@@ -172,29 +174,6 @@
 		};
 	}
 
-	let lastRainAlertKey = '';
-
-	function maybeAlertRain(data) {
-		const pred = data?.prediction;
-		if (!pred) return;
-		if (data?.alerts?.length) return;
-		const should = pred.approaching || (pred.etaMin != null && pred.etaMin <= 60 && pred.rain60min >= 0.2);
-		if (!should) return;
-		const key = alertKeyForPrediction(pred, time);
-		if (key === lastRainAlertKey) return;
-		lastRainAlertKey = key;
-		const eta = pred.etaMin;
-		const body =
-			eta == null ? 'Nowcast sees rain near home' : eta <= 5 ? 'Rain arriving now' : `About ${eta} min out`;
-		pushIslandEvent({
-			title: 'Rain approaching',
-			body,
-			severity: 'warn',
-			ttl: 12000,
-			source: 'Radar'
-		});
-	}
-
 	async function fetchWeather() {
 		weatherLoading = true;
 		try {
@@ -219,11 +198,6 @@
 				weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0, source: 'forecast' }
 			);
 			weatherLoading = false;
-			if (weatherData?.alerts?.length) {
-				const top = weatherData.alerts[0];
-				showNotif(top.event, top.headline, 'warn', 12000);
-			}
-			maybeAlertRain(weatherData);
 		} catch {
 			weatherLoading = false;
 		}
@@ -293,13 +267,7 @@
 	);
 	let atm = $derived(atmosphereFromWeather(time.getTime(), weatherData));
 	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
-	let islandActive = $derived(
-		$islandQueue.length > 0 ||
-			$nowPlaying?.playing ||
-			(weatherData?.alerts?.length ?? 0) > 0 ||
-			(weatherData?.prediction?.rain60min ?? 0) >= 0.35 ||
-			Boolean(weatherData?.prediction?.approaching)
-	);
+	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || notif.visible);
 
 	const VIEW_TITLES = {
 		school: 'Due Work',
@@ -312,6 +280,33 @@
 	function viewLabel(name) {
 		return name.slice(0, 1).toUpperCase() + name.slice(1);
 	}
+
+	function weatherFromQuery() {
+		if (typeof window === 'undefined') return null;
+		const wx = new URLSearchParams(window.location.search).get('wx');
+		if (wx === 'warning') {
+			return {
+				alerts: [
+					{
+						event: 'Tornado Warning',
+						severity: 'Extreme',
+						headline: 'Tornado Warning for Pinellas including Largo until 4:15 PM EDT'
+					}
+				]
+			};
+		}
+		if (wx === 'watch') {
+			return {
+				alerts: [{ event: 'Tornado Watch', severity: 'Moderate', headline: 'Watch until 8 PM EDT' }]
+			};
+		}
+		if (wx === 'rain') {
+			return { prediction: { rain30min: 0.72, rain60min: 0.8, rain120min: 0.2 } };
+		}
+		return null;
+	}
+
+	let weatherRail = $derived(classifyWeatherRail(weatherFromQuery() ?? weatherData));
 
 	$effect(() => {
 		$currentView;
@@ -344,7 +339,7 @@
 	</defs>
 </svg>
 
-<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
+<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:has-rail={!!weatherRail}>
 	<LiquidMetalCanvas
 		isLowPower={$gpuLowPowerMode || mode === 'sleep'}
 		sun={atm.sun}
@@ -355,10 +350,17 @@
 		windDir={atm.windRad}
 	/>
 
+	{#if weatherRail}
+		<WeatherRail rail={weatherRail} onopen={() => currentView.set('weather')} />
+	{/if}
+
+	<DynamicIsland nowPlaying={$nowPlaying} notification={notif} events={$islandQueue} />
+
 	<div
 		class="display-root"
 		class:morning={mode === 'morning'}
 		class:sleep={mode === 'sleep'}
+		class:has-rail={!!weatherRail}
 		class:wx-rain={atm.rain >= 0.35}
 		data-phase={atm.phase}
 	>
@@ -385,13 +387,13 @@
 					{/each}
 				</nav>
 				<div class="status-cluster">
-					<p class="dateline" class:receded={islandActive}>
+					<p class="dateline" class:receded={islandActive || !!weatherRail}>
 						{weekday}, {month}&nbsp;{dayNum}
 						{#if $currentView !== 'clock'}
 							<span class="time num">{clockLabel}</span>
 						{/if}
 					</p>
-					<p class="wxline" class:receded={islandActive}>
+					<p class="wxline" class:receded={islandActive || !!weatherRail}>
 						{#if weatherLoading}
 							<span class="skeleton inline"></span>
 						{:else if $weather.temp !== '--'}
@@ -408,13 +410,6 @@
 				<h1 class="view-title">{viewTitle}</h1>
 			{/if}
 		</header>
-
-		<DynamicIsland
-			nowPlaying={$nowPlaying}
-			notification={notif}
-			weatherData={weatherData}
-			events={$islandQueue}
-		/>
 
 		<main id="main-stage" class="zone center">
 			{#if $currentView === 'clock'}
@@ -500,6 +495,9 @@
 		color: var(--text-primary);
 		font-family: var(--font-body);
 		min-width: 0;
+	}
+	.display-root.has-rail {
+		padding-top: 4.75rem;
 	}
 	.zone {
 		width: 100%;

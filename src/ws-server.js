@@ -16,6 +16,11 @@ import {
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
 import {
+	agentFinishedNotify,
+	parseBtConnectedPayload,
+	parseNotifyPayload
+} from './lib/server/notifyPayload.js';
+import {
 	desiredHdmi,
 	isPhoneWakeWindow,
 	isQuietHours,
@@ -28,7 +33,6 @@ import {
 import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
 
 const port = process.env.PORT || 3000;
-const NOTIFY_SEVERITIES = new Set(['info', 'ok', 'warn', 'error']);
 const SCHEDULE_PATH =
 	process.env.DISPLAY_SCHEDULE_PATH || path.join(PROJECT_ROOT, 'data/display-schedule.json');
 const SCHEDULE_TICK_MS = 15_000;
@@ -52,13 +56,18 @@ async function pollOllama() {
 		const hasModels = d.models && d.models.length > 0;
 		const newState = hasModels ? 'LOW_POWER' : 'HIGH_PERFORMANCE';
 		if (newState !== ollamaPowerState) {
+			const prev = ollamaPowerState;
 			ollamaPowerState = newState;
 			broadcast({ type: 'power', state: newState });
+			if (prev === 'LOW_POWER' && newState === 'HIGH_PERFORMANCE') {
+				broadcast(agentFinishedNotify());
+			}
 		}
 	} catch {
 		if (ollamaPowerState !== 'HIGH_PERFORMANCE') {
 			ollamaPowerState = 'HIGH_PERFORMANCE';
 			broadcast({ type: 'power', state: 'HIGH_PERFORMANCE' });
+			broadcast(agentFinishedNotify());
 		}
 	}
 }
@@ -307,9 +316,15 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'POST' && req.url === '/api/bt/connected') {
-		currentView = 'music';
-		broadcast({ type: 'navigate', view: 'music', from: 'bluetooth' });
-		json(res, { ok: true });
+		let raw = '';
+		req.on('data', (chunk) => (raw += chunk));
+		req.on('end', () => {
+			const { notify } = parseBtConnectedPayload(raw);
+			currentView = 'music';
+			broadcast({ type: 'navigate', view: 'music', from: 'bluetooth' });
+			broadcast(notify);
+			json(res, { ok: true });
+		});
 		return;
 	}
 
@@ -318,21 +333,12 @@ const server = createServer(async (req, res) => {
 		req.on('data', (chunk) => (body += chunk));
 		req.on('end', () => {
 			try {
-				const data = JSON.parse(body);
-				const title = String(data.title || '').slice(0, 120);
-				if (!title) {
-					json(res, { error: 'title required' }, 400);
+				const parsed = parseNotifyPayload(JSON.parse(body));
+				if (parsed.error) {
+					json(res, { error: parsed.error }, parsed.status || 400);
 					return;
 				}
-				const severity = NOTIFY_SEVERITIES.has(data.severity) ? data.severity : 'info';
-				broadcast({
-					type: 'notify',
-					title,
-					body: String(data.body || '').slice(0, 240),
-					severity,
-					source: String(data.source || '').slice(0, 40),
-					ttl: Math.min(Math.max(Number(data.ttl) || 6000, 1000), 30000)
-				});
+				broadcast(parsed.notify);
 				json(res, { ok: true });
 			} catch {
 				json(res, { error: 'invalid payload' }, 400);

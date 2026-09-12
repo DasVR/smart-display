@@ -38,9 +38,10 @@ live.
    change for this to work**, once `mpris-proxy` is running.
 4. **Auto-switch to Music** — `scripts/bt-connect-watch.py` watches
    BlueZ over D-Bus for a device's `Connected` property flipping to
-   `true`, then `POST`s `/api/bt/connected`, which the dashboard server
-   (`ws-server.js`) turns into a `navigate` broadcast to switch every
-   connected screen/remote to the Music view.
+   `true`, then `POST`s `/api/bt/connected` with the device Alias when
+   BlueZ has one. The dashboard server (`ws-server.js`) turns that into a
+   `navigate` broadcast (Music view) plus a Dynamic Island event
+   (`Phone connected`, or `{Alias} connected`).
 5. **Lyrics + album art** — already handled server-side: whatever
    `playerctl` reports (title, artist, `mpris:artUrl`) is looked up
    against [lrclib.net](https://lrclib.net) (free, no account) for

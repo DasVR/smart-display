@@ -6,7 +6,6 @@
 	let {
 		nowPlaying = null,
 		notification = { visible: false, title: '', body: '', kind: 'info' },
-		weatherData = null,
 		events = []
 	} = $props();
 
@@ -29,34 +28,18 @@
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
 	}
 
-	// Priority: a live system event (docker/network/etc) always wins, then a
-	// one-off notification banner (morning/sleep triggers), then weather,
-	// then now-playing. Nothing else -> the island renders nothing at all.
+	// Priority: a live system event (docker/network/agent/bluetooth) always
+	// wins, then a one-off notification banner (morning/sleep triggers),
+	// then now-playing. Persistent weather lives on the full-width rail, not
+	// here, so a rain band cannot block Cursor-done or a phone connecting.
 	let activeEvent = $derived(events?.[0] ?? null);
 	let mode = $derived.by(() => {
 		if (activeEvent) return 'event';
 		if (notification?.visible) return 'alert';
-		if (weatherData?.alerts?.length) return 'weather';
-		if (weatherData?.prediction?.approaching) return 'weather';
-		if (weatherData?.prediction?.rain60min >= 0.35) return 'weather';
 		if (nowPlaying?.playing) return 'nowplaying';
 		return 'idle';
 	});
 	let isIdle = $derived(mode === 'idle');
-
-	let weatherWord = $derived.by(() => {
-		const alerts = weatherData?.alerts || [];
-		if (alerts.length) return 'Weather alert';
-		const p = weatherData?.prediction || {};
-		if (p.etaMin != null && p.etaMin <= 120 && (p.approaching || p.rain60min >= 0.2)) {
-			if (p.etaMin <= 5) return 'Rain arriving';
-			return `Rain in ${p.etaMin} min`;
-		}
-		if (p.rain30min >= 0.6) return 'Rain in 30 min';
-		if (p.rain60min >= 0.6) return 'Rain in an hour';
-		if (p.rain120min >= 0.6) return 'Rain in 2 hours';
-		return 'Clear skies';
-	});
 
 	function modeLabel(next) {
 		switch (next) {
@@ -71,8 +54,6 @@
 				return 'Now playing';
 			case 'alert':
 				return notification?.kind === 'warn' ? 'Alert' : 'Notice';
-			case 'weather':
-				return weatherWord;
 			case 'idle':
 				return '';
 			default: {
@@ -96,8 +77,6 @@
 			}
 			case 'alert':
 				return notification?.kind === 'warn' ? 'warn' : 'bell';
-			case 'weather':
-				return 'weather';
 			default:
 				return null;
 		}
@@ -106,7 +85,6 @@
 	function sevFor(m) {
 		if (m === 'event') return activeEvent?.severity ?? 'info';
 		if (m === 'alert') return notification?.kind === 'warn' ? 'warn' : 'info';
-		if (m === 'weather') return weatherData?.alerts?.length ? 'warn' : 'info';
 		if (m === 'nowplaying') return 'info';
 		return 'info';
 	}
@@ -123,7 +101,6 @@
 		let key = null;
 		if (mode === 'event') key = `event:${activeEvent?.id}`;
 		else if (mode === 'nowplaying') key = `nowplaying:${nowPlaying?.title}:${nowPlaying?.artist}`;
-		else if (mode === 'weather') key = `weather:${modeLabel('weather')}`;
 		else if (mode === 'alert') key = `alert:${notification?.title}`;
 		if (key && key !== lastChimeKey) {
 			playChime(mode === 'nowplaying' ? 'music' : sevFor(mode));
@@ -211,17 +188,6 @@
 			<path d="M6 8a6 6 0 1 1 12 0c0 3.5 1 5 2 6H4c1-1 2-2.5 2-6Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
 			<path d="M10 19a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
 		</svg>
-	{:else if kind === 'weather'}
-		<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-			<path
-				d="M7 16a4 4 0 0 1 .5-7.97A5.5 5.5 0 0 1 18 10a3.5 3.5 0 0 1-.5 6.97"
-				stroke="currentColor"
-				stroke-width="1.8"
-				stroke-linecap="round"
-				stroke-linejoin="round"
-			/>
-			<path d="M9 19l-1 2m5-2l-1 2m5-2l-1 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
-		</svg>
 	{/if}
 {/snippet}
 
@@ -257,14 +223,6 @@
 				<div class="kicker">{modeLabel(m)}</div>
 				<div class="title">{notification.title}</div>
 				<div class="sub">{notification.body}</div>
-			</div>
-		</div>
-	{:else if m === 'weather'}
-		<div class="slip sev-{sevFor(m)}">
-			<span class="icon-badge"><span class="icon">{@render icon(iconFor(m))}</span></span>
-			<div class="copy">
-				<div class="kicker">Weather</div>
-				<div class="title">{modeLabel(m)}</div>
 			</div>
 		</div>
 	{:else}
@@ -307,8 +265,8 @@
 	.island-pill {
 		position: relative;
 		isolation: isolate;
-		width: var(--pill-w, 3rem);
-		height: var(--pill-h, 0.4rem);
+		width: var(--pill-w, 7rem);
+		height: var(--pill-h, 0.9rem);
 		/* A small rounded pill at rest, like the real thing's idle capsule —
 		   but once it opens it settles into a modest, consistent corner
 		   radius instead of scaling up to a full stadium shape, so a wide or
@@ -323,7 +281,7 @@
 			0 14px 34px color-mix(in srgb, var(--abyss) 65%, transparent),
 			0 6px 18px color-mix(in srgb, var(--abyss) 40%, transparent);
 		overflow: hidden;
-		opacity: 0.5;
+		opacity: 0.72;
 		pointer-events: none;
 	}
 	.island-pill.active {
@@ -350,14 +308,15 @@
 		}
 	}
 	.nub {
-		width: 3rem;
-		height: 0.4rem;
+		width: 7rem;
+		height: 0.9rem;
 	}
 	.island-ghost {
 		position: absolute;
 		top: 0;
 		left: 0;
 		width: max-content;
+		max-width: min(48rem, 90vw);
 		height: max-content;
 		visibility: hidden;
 		pointer-events: none;
@@ -373,19 +332,19 @@
 	.slip {
 		display: flex;
 		align-items: center;
-		gap: var(--space-3);
-		min-height: 3.5rem;
-		max-width: min(38rem, 100%);
-		padding: var(--space-3) var(--space-5);
+		gap: var(--space-4);
+		min-height: 6rem;
+		max-width: min(48rem, 90vw);
+		padding: var(--space-4) var(--space-6);
 		box-sizing: border-box;
 	}
 	.icon-badge {
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		width: 2.5rem;
-		height: 2.5rem;
-		border-radius: 0.75rem;
+		width: 4rem;
+		height: 4rem;
+		border-radius: 0.9rem;
 		flex-shrink: 0;
 		overflow: hidden;
 		color: var(--brand);
@@ -395,8 +354,8 @@
 		background: none;
 	}
 	.icon {
-		width: 1.35rem;
-		height: 1.35rem;
+		width: 2.1rem;
+		height: 2.1rem;
 		display: block;
 	}
 	.icon :global(svg) {
@@ -415,7 +374,7 @@
 	}
 	.kicker {
 		font-family: var(--font-body);
-		font-size: var(--text-sm);
+		font-size: var(--text-lg);
 		font-weight: 600;
 		letter-spacing: -0.01em;
 		color: var(--text-tertiary);
@@ -438,18 +397,20 @@
 	}
 	.title {
 		font-family: var(--font-body);
-		font-size: var(--text-lg);
+		font-size: 2rem;
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
-		letter-spacing: -0.02em;
+		letter-spacing: -0.03em;
+		line-height: 1.15;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 	.sub {
-		font-size: var(--text-sm);
+		font-size: var(--text-lg);
 		color: var(--text-secondary);
+		line-height: 1.25;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
