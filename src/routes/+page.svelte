@@ -10,7 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, pushIslandEvent } from '$lib/stores.js';
+	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
@@ -18,6 +18,7 @@
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
 	import { islandWeatherSlip, splitNwsAlerts, tickerText } from '$lib/nwsAlerts.js';
+	import { shortDateline } from '$lib/dateline.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
 	import SevereTicker from '$lib/components/SevereTicker.svelte';
@@ -100,6 +101,7 @@
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(`${proto}//${location.host}/ws`);
 		ws.onopen = () => {
+			clearIslandActivity('network');
 			if (hadDroppedConnection) {
 				pushIslandEvent({ title: 'Network restored', body: 'Reconnected', severity: 'ok', ttl: 4000 });
 			}
@@ -107,6 +109,12 @@
 			wsStatus.set('connected');
 		};
 		ws.onclose = () => {
+			setIslandActivity('network', {
+				kind: 'network',
+				title: 'Network',
+				body: 'Retrying',
+				severity: 'warn'
+			});
 			if (!hadDroppedConnection) {
 				pushIslandEvent({ title: 'Network issue', body: 'Lost connection, retrying', severity: 'warn', ttl: 8000 });
 			}
@@ -285,14 +293,16 @@
 	}
 
 	onMount(() => {
+		const preview = new URLSearchParams(window.location.search);
+		const islandPreview = preview.get('island');
 		connect();
 		fetchWeather();
-		fetchNowPlaying();
+		if (islandPreview !== 'music') fetchNowPlaying();
 		const stopSystemWatch = startSystemWatch();
 		const clock = setInterval(() => {
 			time = new Date();
 		}, 1000);
-		const music = setInterval(fetchNowPlaying, 4000);
+		const music = islandPreview === 'music' ? 0 : setInterval(fetchNowPlaying, 4000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });
@@ -301,7 +311,7 @@
 		window.addEventListener('pointerdown', primeAudio, { once: true });
 		window.addEventListener('keydown', primeAudio, { once: true });
 		updateIndicator();
-		if (new URLSearchParams(window.location.search).get('wx') === 'notify') {
+		if (preview.get('wx') === 'notify') {
 			pushIslandEvent({
 				title: 'Cursor finished',
 				body: 'Radar island layout is ready',
@@ -309,6 +319,19 @@
 				ttl: 12000,
 				source: 'Cursor'
 			});
+		}
+		if (islandPreview === 'down' || islandPreview === 'svc') {
+			setIslandActivity('svc:hermes', {
+				kind: 'service',
+				title: 'hermes',
+				body: 'Down',
+				severity: 'error'
+			});
+			pushIslandEvent({ title: 'Service down', body: 'hermes', severity: 'error', ttl: 8000 });
+		} else if (islandPreview === 'recover') {
+			pushIslandEvent({ title: 'Service recovered', body: 'hermes', severity: 'ok', ttl: 5000 });
+		} else if (islandPreview === 'music') {
+			nowPlaying.set({ playing: true, title: 'Night Drive', artist: 'Demo FM', art: null });
 		}
 		return () => {
 			clearInterval(clock);
@@ -327,6 +350,7 @@
 	let weekday = $derived(time.toLocaleDateString('en-US', { weekday: 'long', timeZone: 'America/New_York' }));
 	let month = $derived(time.toLocaleDateString('en-US', { month: 'long', timeZone: 'America/New_York' }));
 	let dayNum = $derived(new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' })).getDate());
+	let shortDate = $derived(shortDateline(month, dayNum));
 	let clockLabel = $derived(
 		time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
 	);
@@ -394,7 +418,7 @@
 		if (!override || override.notify) return weatherData;
 		return { ...(weatherData || {}), ...override };
 	});
-	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing);
+	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || $islandActivities.length > 0);
 	let showChromeTicker = $derived(Boolean(tickerPulse) && $currentView !== 'weather');
 
 	$effect(() => {
@@ -454,7 +478,7 @@
 		windDir={atm.windRad}
 	/>
 
-	<DynamicIsland nowPlaying={$nowPlaying} events={$islandQueue} />
+	<DynamicIsland nowPlaying={$nowPlaying} events={$islandQueue} activities={$islandActivities} />
 
 	<div
 		class="display-root"
@@ -487,7 +511,7 @@
 				</nav>
 				<div class="status-cluster">
 					<p class="dateline" class:receded={islandActive}>
-						{weekday}, {month}&nbsp;{dayNum}
+						{shortDate}
 						{#if $currentView !== 'clock'}
 							<span class="time num">{clockLabel}</span>
 						{/if}
@@ -498,9 +522,6 @@
 						{:else if $weather.temp !== '--'}
 							<span class="num">{$weather.temp}°</span>
 							{$weather.desc}
-							{#if atm.compass && atm.compass !== '--'}
-								<span class="wx-wind">{atm.compass} {Math.round(atm.windSpeed)} mph</span>
-							{/if}
 						{/if}
 					</p>
 				</div>
@@ -648,11 +669,6 @@
 	.wxline .num {
 		margin-right: var(--space-2);
 		color: var(--foreground);
-	}
-	.wx-wind {
-		margin-left: var(--space-2);
-		color: var(--text-tertiary);
-		font-weight: 500;
 	}
 	.display-root.wx-rain .wxline {
 		color: var(--scan);

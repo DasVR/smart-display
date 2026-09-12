@@ -30,6 +30,7 @@ export const gitContext = writable({
 });
 
 export const islandQueue = writable([]);
+export const islandActivities = writable([]);
 
 let islandEventSeq = 0;
 
@@ -47,6 +48,31 @@ export function pushIslandEvent({ title, body = '', severity = 'info', ttl = 900
 		islandQueue.update((q) => q.filter((e) => e.id !== id));
 	}, ttl);
 	return id;
+}
+
+/** Persistent compact island status (iPhone Live Activity). `id` is stable so
+ *  a service that stays down does not stack duplicates every poll. */
+export function setIslandActivity(id, payload) {
+	const item = { ...payload, id };
+	islandActivities.update((list) => {
+		const idx = list.findIndex((a) => a.id === id);
+		if (idx === -1) return [...list, item];
+		if (
+			list[idx].kind === item.kind &&
+			list[idx].title === item.title &&
+			list[idx].body === item.body &&
+			list[idx].severity === item.severity
+		) {
+			return list;
+		}
+		const next = list.slice();
+		next[idx] = item;
+		return next;
+	});
+}
+
+export function clearIslandActivity(id) {
+	islandActivities.update((list) => list.filter((a) => a.id !== id));
 }
 
 export const viewNames = {
