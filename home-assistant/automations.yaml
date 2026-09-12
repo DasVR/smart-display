@@ -1,4 +1,6 @@
 # Home Assistant automations for smart display
+# Optional now: the kiosk server also turns HDMI off at 22:30 and on at 06:00
+# (America/New_York) by itself. Times can be changed from the phone remote.
 # Paste into HA UI (Settings → Automations & Scenes → YAML mode) or drop into /config/automations.yaml
 - id: smart_display_morning
   alias: Smart Display — Morning Mode
@@ -11,7 +13,7 @@
 
 - id: smart_display_sleep
   alias: Smart Display — Sleep Mode
-  description: Dim/sleep overlay at 10:30 PM
+  description: Sleep + cut the panel at 10:30 PM (LCD still glows if we only dim)
   trigger:
     - platform: time
       at: "22:30:00"
@@ -20,10 +22,10 @@
 
 - id: smart_display_hdmi_off
   alias: Smart Display — HDMI Off
-  description: Turn off HDMI at midnight
+  description: Power the HDMI output off at 10:30 PM (same window as sleep)
   trigger:
     - platform: time
-      at: "00:00:00"
+      at: "22:30:00"
   action:
     - service: rest_command.smart_display_hdmi_off
 
