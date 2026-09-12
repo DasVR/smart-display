@@ -886,7 +886,6 @@
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
-		padding-left: var(--space-4);
 		border-left: 1px solid var(--hairline);
 		background: linear-gradient(
 			90deg,
@@ -963,8 +962,6 @@
 			margin-top: auto;
 			border-left: 0;
 			border-top: 1px solid var(--hairline);
-			padding-left: 0;
-			padding-top: var(--space-4);
 			background: linear-gradient(
 				0deg,
 				color-mix(in srgb, var(--abyss) 86%, transparent) 55%,
