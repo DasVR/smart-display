@@ -67,7 +67,7 @@
 		switch (m) {
 			case 'event': {
 				if (activeEvent?.kind === 'briefing') return 'bell';
-				if (activeEvent?.kind === 'weather') return 'weather';
+				if (activeEvent?.kind === 'weather' || activeEvent?.kind === 'severe-weather') return 'weather';
 				const sev = activeEvent?.severity;
 				if (sev === 'error') return 'error';
 				if (sev === 'warn') return 'warn';
@@ -105,7 +105,7 @@
 		let tone = 'info';
 		if (mode === 'event') {
 			key = `event:${activeEvent?.id}`;
-			tone = sevFor('event');
+			tone = activeEvent?.kind === 'severe-weather' ? 'severe' : sevFor('event');
 		} else if (mode === 'compact' && slots?.leading?.kind === 'music') {
 			key = `music:${nowPlaying?.title}:${nowPlaying?.artist}`;
 			tone = 'music';

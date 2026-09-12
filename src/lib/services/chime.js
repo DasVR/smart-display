@@ -29,6 +29,15 @@ const PROFILES = {
 	// A fuller ascending three-note lift for a genuine completion (bigger
 	// than `ok`, which is reserved for the quieter island-event severity).
 	success: [{ freq: 587.33 }, { freq: 739.99, at: 0.09 }, { freq: 987.77, at: 0.18 }],
+	// An urgent alternating alarm for extreme weather (tornado/hurricane
+	// warnings) - louder and more insistent than `error`, since these are
+	// the one alert category that genuinely deserves to interrupt.
+	severe: [
+		{ freq: 587.33, peak: 0.22 },
+		{ freq: 466.16, at: 0.24, peak: 0.22 },
+		{ freq: 587.33, at: 0.48, peak: 0.22 },
+		{ freq: 466.16, at: 0.72, peak: 0.22 }
+	],
 	// A single quiet click for any button/tab tap - present on almost every
 	// interaction, so it has to stay small and out of the way.
 	tap: [{ freq: 1600, kind: 'tick', dur: 0.05, peak: 0.07 }],
@@ -105,7 +114,8 @@ function tick(context, freq, startAt, peak = 0.08, duration = 0.06) {
 
 /** Plays a short calming chime for the given kind: a severity (info/ok/
  *  warn/error), 'music' for the now-playing open, 'success' for a bigger
- *  completion, or 'tap'/'swap-next'/'swap-prev' for tactile UI feedback.
+ *  completion, 'severe' for extreme weather, or 'tap'/'swap-next'/
+ *  'swap-prev' for tactile UI feedback.
  *  Safe to call from anywhere (server-rendered code included) — it's a
  *  no-op without a window/AudioContext. */
 export function playChime(kind = 'info') {
