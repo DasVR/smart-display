@@ -85,4 +85,15 @@ describe('compact slots', () => {
 		assert.equal(slots.trailing.kind, 'service');
 		assert.equal(slots.trailing.title, 'hermes');
 	});
+
+	it('stacks extra downed services on the trailing side', () => {
+		const slots = compactSlots(null, [
+			serviceActivity('hermes'),
+			serviceActivity('godmode'),
+			serviceActivity('leadvine')
+		]);
+		assert.equal(slots.leading.title, 'hermes');
+		assert.equal(slots.trailing.kind, 'stack');
+		assert.equal(slots.trailing.title, '2 down');
+	});
 });

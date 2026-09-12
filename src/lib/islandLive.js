@@ -82,7 +82,7 @@ function compactPeer(list) {
 	return {
 		id: 'stack',
 		kind: 'stack',
-		title: String(n),
+		title: n === 1 ? list[0].title : `${n} down`,
 		body: list.map((a) => a.title).filter(Boolean).join(', '),
 		severity: list[0]?.severity || 'error'
 	};
