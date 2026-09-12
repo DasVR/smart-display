@@ -1,5 +1,7 @@
 <script>
 	import { compassFromDeg, fmtSunTime } from '$lib/atmosphere.js';
+	import { isExtremeAlert, tickerText } from '$lib/nwsAlerts.js';
+	import SevereTicker from './SevereTicker.svelte';
 
 	let { data } = $props();
 
@@ -36,6 +38,7 @@
 
 	let precipHours = $derived(nextPrecipHours(data?.hourly));
 	let alerts = $derived(data?.alerts || []);
+	let extremeCopy = $derived(tickerText(alerts.filter((a) => isExtremeAlert(a))));
 	let pred = $derived(data?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0 });
 	let current = $derived(data?.current || {});
 	let sun = $derived(data?.sun || {});
@@ -85,6 +88,10 @@
 			<div class="meta-row"><span class="label">Clouds</span> {current.cloudCover ?? '--'}%</div>
 		</div>
 	</header>
+
+	{#if extremeCopy}
+		<SevereTicker text={extremeCopy} />
+	{/if}
 
 	<section class="predictions">
 		{#each [{ label: '30 min', val: pred.rain30min }, { label: '60 min', val: pred.rain60min }, { label: '120 min', val: pred.rain120min }] as p, i}
@@ -140,7 +147,7 @@
 		<section class="alerts">
 			<h3 class="section-title">NWS Alerts</h3>
 			{#each alerts as a}
-				<div class="alert-card" data-severity={a.severity?.toLowerCase()}>
+				<div class="alert-card" class:extreme={isExtremeAlert(a)} data-severity={a.severity?.toLowerCase()}>
 					<div class="alert-title">{a.event}</div>
 					<div class="alert-sev">{a.severity}</div>
 					<div class="alert-body">{a.headline}</div>
@@ -339,6 +346,10 @@
 		background: color-mix(in srgb, var(--warn) 10%, transparent);
 		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
 		margin-bottom: var(--space-3);
+	}
+	.alert-card.extreme {
+		background: color-mix(in srgb, var(--warn) 18%, transparent);
+		border-color: color-mix(in srgb, var(--warn) 48%, transparent);
 	}
 	.station {
 		flex-shrink: 0;
