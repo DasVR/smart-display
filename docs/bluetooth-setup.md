@@ -37,10 +37,10 @@ refuses the route, use AirPlay.
    source on the default sink.
 4. **Track metadata (Bluetooth)** — `mpris-proxy` still bridges AVRCP to
    MPRIS so `playerctl` / `/api/nowplaying` work.
-5. **AirPlay** — `shairport-sync` advertises `Smart Display` over mDNS
-   (Avahi). AirPlay 2 needs `nqptp`; the setup script builds that when
-   it can, and otherwise installs distro AirPlay 1 (still listed in
-   Apple Music). Playback goes through PipeWire Pulse, so it uses the
+5. **AirPlay 2** — `shairport-sync` advertises `Smart Display` over mDNS
+   (Avahi) with `nqptp`. Current Apple Music Now Playing sheets only
+   list AirPlay 2 receivers (the same list as an Apple TV). AirPlay 1
+   is not used. Playback goes through PipeWire Pulse, so it uses the
    same default sink as Bluetooth.
 6. **Auto-switch to Music** — Bluetooth `POST /api/bt/connected` and
    AirPlay `POST /api/airplay/connected` both jump the dashboard to Music
@@ -57,12 +57,15 @@ cd /home/das/projects/smart-display
 ./scripts/speaker-audio-setup.sh
 ```
 
-That runs Bluetooth setup, AirPlay setup, sink picking, then
+That runs Bluetooth setup, AirPlay 2 setup, sink picking, then
 `./scripts/audio-doctor.sh`.
 
-Or from GitHub Actions: run the `Bluetooth Audio Setup` workflow
-(`workflow_dispatch` on the self-hosted kiosk runner). It now calls the
-combined speaker script.
+A dashboard deploy (`Deploy + Reboot Display`) does **not** start the
+AirPlay speaker. Merging only the app leaves Apple Music showing iPhone
+Speaker and the TV, with this computer missing. The `Bluetooth Audio
+Setup` workflow is what installs `shairport-sync` and advertises
+`Smart Display`. It runs on `workflow_dispatch` and on pushes that
+touch the audio setup files, so that merge actually turns the speaker on.
 
 **If it just added you to the `audio` group, reboot** (or fully log out
 and back in) before testing sound. PipeWire's already-running session
@@ -76,9 +79,6 @@ Pieces on their own:
 ./scripts/audio-pick-sink.mjs          # also --dry-run or --beep
 ./scripts/audio-doctor.sh              # also --fix and --beep
 ```
-
-Set `SHAIRPORT_SKIP_AIRPLAY2=1` to skip the source build and use distro
-AirPlay 1 only.
 
 ## Verifying speakers are connected
 
@@ -120,14 +120,16 @@ exists (`pactl list short sources`) and that the loopback script loaded
 
 ```bash
 systemctl --user status smart-display-airplay
-systemctl --user status smart-display-airplay-meta
 systemctl is-active avahi-daemon
-systemctl is-active nqptp              # AirPlay 2 only
+systemctl is-active nqptp
+avahi-browse -rt _airplay._tcp
 curl -X POST http://localhost:3000/api/airplay/connected
 ```
 
-On the iPhone, the kiosk should appear as **Smart Display** in Apple
-Music's AirPlay list within a few seconds of the service starting.
+On the iPhone, **Smart Display** should appear in the same Apple Music
+sheet as `Arriq's Bedroom TV`, under iPhone Speaker. If that sheet is
+empty besides the phone and the TV, the kiosk is not advertising AirPlay
+2 yet (dashboard deploy does not start it).
 
 ## Known gaps
 

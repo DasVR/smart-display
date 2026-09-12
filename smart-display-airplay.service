@@ -1,13 +1,13 @@
 [Unit]
-Description=Smart Display: AirPlay speaker (shairport-sync)
-After=pipewire-pulse.service sound.target avahi-daemon.service
-Wants=pipewire-pulse.service
+Description=Smart Display: AirPlay 2 speaker (shairport-sync)
+After=network-online.target avahi-daemon.service nqptp.service pipewire-pulse.service sound.target
+Wants=avahi-daemon.service nqptp.service pipewire-pulse.service
 
 [Service]
 Type=simple
 Environment=DASHBOARD_URL=http://localhost:3000
 ExecStart=/home/das/projects/smart-display/scripts/airplay-run.sh
-Restart=on-failure
+Restart=always
 RestartSec=3
 
 [Install]
