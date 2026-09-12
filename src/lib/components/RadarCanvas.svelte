@@ -7,6 +7,7 @@
 	let ctx = $state(null);
 	let width = $state(0);
 	let height = $state(0);
+	let radius = $state(170);
 	let frames = $state([]);
 	let frameIndex = $state(0);
 	let loading = $state(true);
@@ -15,9 +16,30 @@
 	let tileCache = $state(new Map());
 	let dpr = $state(1);
 
-	const TILE_SIZE = 256;
-	const ZOOM = 7;
-	const RADIUS = 170;
+	// RainViewer serves the same map area at 256px OR 512px per tile - 512
+	// is a straight sharper asset for the identical geographic cell, so it's
+	// a real resolution win, not just upscaling.
+	const TILE_SIZE = 512;
+	const DEFAULT_ZOOM = 7;
+	const MIN_ZOOM = 5; // wide enough to catch a Gulf-scale system approaching
+	const MAX_ZOOM = 9; // tight, high-definition local view when it's clear
+	const RADIUS_INSET = 10;
+
+	// The circle grows/shrinks to actually fill the (now padded) container
+	// instead of a fixed 170px regardless of how much room there is.
+	let zoomLevel = $state(DEFAULT_ZOOM);
+
+	// Adaptive zoom bookkeeping: only reassessed every few seconds, and only
+	// acted on after the same direction shows up twice in a row, so the view
+	// doesn't flicker between zoom levels as precip drifts near the edge.
+	let lastZoomAssessAt = 0;
+	let pendingZoomDirection = 0;
+	let pendingZoomStreak = 0;
+	const ZOOM_ASSESS_INTERVAL_MS = 9000;
+	const ZOOM_STREAK_NEEDED = 2;
+	const EDGE_COVERAGE_ZOOM_OUT = 0.1;
+	const TOTAL_COVERAGE_ZOOM_IN = 0.015;
+	let analysisCanvas;
 
 	let theme = { bg: 'rgba(5,5,7,0.95)', ring: 'rgba(255,255,255,0.12)', marker: '#fe6f69' };
 
@@ -60,9 +82,8 @@
 		};
 	}
 
-	function worldToPixel(lat, lon, centerWorld, centerPixel) {
+	function worldToPixel(lat, lon, centerWorld, centerPixel, scale) {
 		const p = projectMercator(lat, lon);
-		const scale = Math.pow(2, ZOOM) * TILE_SIZE / 256;
 		return {
 			x: centerPixel.x + (p.x - centerWorld.x) * scale,
 			y: centerPixel.y + (p.y - centerWorld.y) * scale
@@ -86,87 +107,168 @@
 		}
 	}
 
-	function drawFrame() {
-		if (!ctx || !canvas || !frames.length || !data?.rad?.host) return;
-		const frame = frames[frameIndex];
-		const host = data.rad.host;
-		const centerWorld = projectMercator(data.rad.lat, data.rad.lon);
-		const centerPixel = { x: width * 0.45, y: height / 2 };
+	/** Which tiles cover the visible circle at the given zoom/scale, in the
+	 *  same CSS-pixel coordinate space the canvas is drawn in. */
+	function tilesForView(host, urlTemplate, lat, lon, centerPixel, radius, zoom) {
+		const centerWorld = projectMercator(lat, lon);
+		const scale = (Math.pow(2, zoom) * TILE_SIZE) / 256;
+		const n = Math.pow(2, zoom);
 
-		ctx.save();
-		ctx.clearRect(0, 0, width, height);
-
-		// Background
-		ctx.fillStyle = theme.bg;
-		ctx.fillRect(0, 0, width, height);
-
-		// Clip to circle
-		ctx.beginPath();
-		ctx.arc(centerPixel.x, centerPixel.y, RADIUS, 0, Math.PI * 2);
-		ctx.clip();
-
-		// Determine needed tile indices
-		const scale = Math.pow(2, ZOOM) * TILE_SIZE / 256;
-		const tilePromises = [];
-		const tileList = [];
-		const n = Math.pow(2, ZOOM);
-
-		// approximate lat/lon bounds of circle
 		const kmPerDegLat = 111;
-		const kmPerDegLon = 111 * Math.cos((data.rad.lat * Math.PI) / 180);
-		const deltaLat = (RADIUS / scale) * (256 / TILE_SIZE) * (180 / (Math.PI * 128)) / kmPerDegLat * 150;
-		const deltaLon = (RADIUS / scale) * (256 / TILE_SIZE) * (180 / (Math.PI * 128)) / kmPerDegLon * 150;
+		const kmPerDegLon = 111 * Math.cos((lat * Math.PI) / 180);
+		const deltaLat = (((radius / scale) * (256 / TILE_SIZE) * (180 / (Math.PI * 128))) / kmPerDegLat) * 150;
+		const deltaLon = (((radius / scale) * (256 / TILE_SIZE) * (180 / (Math.PI * 128))) / kmPerDegLon) * 150;
 
-		const minLat = data.rad.lat - deltaLat;
-		const maxLat = data.rad.lat + deltaLat;
-		const minLon = data.rad.lon - deltaLon;
-		const maxLon = data.rad.lon + deltaLon;
-
-		const nw = worldToPixel(maxLat, minLon, centerWorld, centerPixel);
-		const se = worldToPixel(minLat, maxLon, centerWorld, centerPixel);
+		const nw = worldToPixel(lat + deltaLat, lon - deltaLon, centerWorld, centerPixel, scale);
+		const se = worldToPixel(lat - deltaLat, lon + deltaLon, centerWorld, centerPixel, scale);
 
 		const startTileX = Math.floor(nw.x / TILE_SIZE);
 		const endTileX = Math.ceil(se.x / TILE_SIZE);
 		const startTileY = Math.floor(nw.y / TILE_SIZE);
 		const endTileY = Math.ceil(se.y / TILE_SIZE);
 
+		const tiles = [];
 		for (let ty = startTileY; ty <= endTileY; ty++) {
 			for (let tx = startTileX; tx <= endTileX; tx++) {
 				const wrappedX = ((tx % n) + n) % n;
 				const wrappedY = Math.max(0, Math.min(n - 1, ty));
-				const url = `${host}${frame.urlTemplate}/${TILE_SIZE}/${ZOOM}/${wrappedX}/${wrappedY}/2/1_1.png`;
-				const tilePixel = { x: tx * TILE_SIZE, y: ty * TILE_SIZE };
-				tileList.push({ url, x: tilePixel.x, y: tilePixel.y });
-				tilePromises.push(loadTile(url));
+				const url = `${host}${urlTemplate}/${TILE_SIZE}/${zoom}/${wrappedX}/${wrappedY}/2/1_1.png`;
+				tiles.push({ url, x: tx * TILE_SIZE, y: ty * TILE_SIZE });
 			}
 		}
+		return { tiles, scale };
+	}
 
-		Promise.all(tilePromises).then((imgs) => {
+	/** Average alpha coverage of actual precipitation pixels (RainViewer
+	 *  tiles are transparent where there's nothing to show), both across the
+	 *  whole visible circle and just its outer edge — a system with strong
+	 *  coverage right at the edge is very likely bigger than what's in view. */
+	function assessPrecipCoverage(imgData, w, h, cx, cy, r) {
+		const data = imgData.data;
+		const edgeR2 = (r * 0.72) ** 2;
+		const fullR2 = r * r;
+		let edgeAlpha = 0,
+			edgeCount = 0,
+			totalAlpha = 0,
+			totalCount = 0;
+		for (let y = 0; y < h; y++) {
+			const dy = y - cy;
+			for (let x = 0; x < w; x++) {
+				const dx = x - cx;
+				const d2 = dx * dx + dy * dy;
+				if (d2 > fullR2) continue;
+				const a = data[(y * w + x) * 4 + 3] / 255;
+				totalAlpha += a;
+				totalCount++;
+				if (d2 >= edgeR2) {
+					edgeAlpha += a;
+					edgeCount++;
+				}
+			}
+		}
+		return {
+			edgeCoverage: edgeCount ? edgeAlpha / edgeCount : 0,
+			totalCoverage: totalCount ? totalAlpha / totalCount : 0
+		};
+	}
+
+	/** Widens or tightens the view based on where precipitation actually is,
+	 *  gated to an occasional check with a same-direction streak so the zoom
+	 *  doesn't hunt back and forth as a storm edge drifts across the ring. */
+	function assessAndMaybeAdjustZoom(coverage) {
+		const now = performance.now();
+		if (now - lastZoomAssessAt < ZOOM_ASSESS_INTERVAL_MS) return false;
+		lastZoomAssessAt = now;
+
+		let direction = 0;
+		if (coverage.edgeCoverage > EDGE_COVERAGE_ZOOM_OUT && zoomLevel > MIN_ZOOM) direction = -1;
+		else if (coverage.totalCoverage < TOTAL_COVERAGE_ZOOM_IN && zoomLevel < MAX_ZOOM) direction = 1;
+
+		if (direction !== 0 && direction === pendingZoomDirection) {
+			pendingZoomStreak++;
+		} else {
+			pendingZoomDirection = direction;
+			pendingZoomStreak = direction === 0 ? 0 : 1;
+		}
+
+		if (direction !== 0 && pendingZoomStreak >= ZOOM_STREAK_NEEDED) {
+			zoomLevel = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel + direction));
+			pendingZoomStreak = 0;
+			pendingZoomDirection = 0;
+			return true;
+		}
+		return false;
+	}
+
+	function drawFrame() {
+		if (!ctx || !canvas || !frames.length || !data?.rad?.host) return;
+		const frame = frames[frameIndex];
+		const host = data.rad.host;
+		const centerPixel = { x: width / 2, y: height / 2 };
+
+		const { tiles } = tilesForView(
+			host,
+			frame.urlTemplate,
+			data.rad.lat,
+			data.rad.lon,
+			centerPixel,
+			radius,
+			zoomLevel
+		);
+
+		Promise.all(tiles.map((t) => loadTile(t.url))).then((imgs) => {
+			// Composite onto a transparent CSS-pixel-space canvas first so
+			// tile alpha (i.e. "is there precip here") survives for the
+			// coverage scan below - the visible canvas gets an opaque
+			// background painted under it, which would otherwise erase that.
+			if (!analysisCanvas) analysisCanvas = document.createElement('canvas');
+			analysisCanvas.width = width;
+			analysisCanvas.height = height;
+			const actx = analysisCanvas.getContext('2d');
+			actx.clearRect(0, 0, width, height);
 			for (let i = 0; i < imgs.length; i++) {
-				const img = imgs[i];
-				if (!img) continue;
-				const t = tileList[i];
-				ctx.globalAlpha = 0.9;
-				ctx.drawImage(img, t.x, t.y, TILE_SIZE, TILE_SIZE);
+				if (!imgs[i]) continue;
+				actx.drawImage(imgs[i], tiles[i].x, tiles[i].y, TILE_SIZE, TILE_SIZE);
 			}
 
-			// Restore before applying dither mask
+			ctx.clearRect(0, 0, width, height);
+			ctx.fillStyle = theme.bg;
+			ctx.fillRect(0, 0, width, height);
+
+			ctx.save();
+			ctx.beginPath();
+			ctx.arc(centerPixel.x, centerPixel.y, radius, 0, Math.PI * 2);
+			ctx.clip();
+			ctx.globalAlpha = 0.9;
+			ctx.drawImage(analysisCanvas, 0, 0);
 			ctx.restore();
 
-			applyDither(ctx, width, height, centerPixel.x, centerPixel.y, RADIUS);
+			// getImageData/putImageData always address the canvas's actual
+			// backing-store (physical) pixels, ignoring the dpr transform
+			// active on ctx for drawing ops - so this needs physical-pixel
+			// dimensions or a HiDPI display only gets a corner dithered.
+			applyDither(ctx, canvas.width, canvas.height, centerPixel.x * dpr, centerPixel.y * dpr, radius * dpr);
 
-			// ring
 			ctx.beginPath();
-			ctx.arc(centerPixel.x, centerPixel.y, RADIUS, 0, Math.PI * 2);
+			ctx.arc(centerPixel.x, centerPixel.y, radius, 0, Math.PI * 2);
 			ctx.strokeStyle = theme.ring;
 			ctx.lineWidth = 1.5;
 			ctx.stroke();
 
-			// center dot
 			ctx.beginPath();
 			ctx.arc(centerPixel.x, centerPixel.y, 3, 0, Math.PI * 2);
 			ctx.fillStyle = theme.marker;
 			ctx.fill();
+
+			const coverage = assessPrecipCoverage(
+				actx.getImageData(0, 0, width, height),
+				width,
+				height,
+				centerPixel.x,
+				centerPixel.y,
+				radius
+			);
+			if (assessAndMaybeAdjustZoom(coverage)) drawFrame();
 		});
 	}
 
@@ -202,15 +304,16 @@
 	function resize() {
 		if (!canvas || !canvas.parentElement) return;
 		const rect = canvas.parentElement.getBoundingClientRect();
-		dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+		dpr = Math.min(window.devicePixelRatio || 1, 2);
 		width = Math.floor(rect.width);
 		height = Math.floor(rect.height);
+		radius = Math.max(90, Math.min(width, height) / 2 - RADIUS_INSET);
 		canvas.width = Math.floor(width * dpr);
 		canvas.height = Math.floor(height * dpr);
 		canvas.style.width = `${width}px`;
 		canvas.style.height = `${height}px`;
 		ctx = canvas.getContext('2d');
-		ctx.scale(dpr, dpr);
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		drawFrame();
 	}
 
@@ -261,6 +364,7 @@
 	{#if frames.length > 0}
 		<div class="legend" aria-hidden="true">
 			<span class:future={frames[frameIndex]?.nowcast}>{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'RADAR'}</span>
+			<span class="zoom-tag">Z{zoomLevel}</span>
 		</div>
 	{/if}
 </div>
@@ -281,7 +385,6 @@
 		inset: 0;
 		width: 100%;
 		height: 100%;
-		image-rendering: pixelated;
 	}
 	.overlay {
 		position: absolute;
@@ -301,6 +404,9 @@
 		position: absolute;
 		bottom: var(--space-3);
 		left: var(--space-3);
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 		padding: var(--space-1) var(--space-3);
 		border-radius: var(--radius-sm);
 		background: var(--shell-fill);
@@ -312,5 +418,8 @@
 	}
 	.legend span.future {
 		color: var(--brand);
+	}
+	.zoom-tag {
+		opacity: 0.55;
 	}
 </style>

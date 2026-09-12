@@ -502,7 +502,6 @@
 		width: max-content;
 		max-width: 100%;
 		gap: var(--space-2);
-		margin-top: var(--space-6);
 		padding: 0;
 		min-width: 0;
 		border: 0;
@@ -657,6 +656,10 @@
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
+		box-sizing: border-box;
+	}
+	.radar-trough {
+		padding: var(--space-6);
 	}
 	.weather-trough {
 		border-left: 1px solid var(--hairline);
