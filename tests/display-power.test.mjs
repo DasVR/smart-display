@@ -4,7 +4,7 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { setPanelPower, writeHdmiStamp } from '../src/lib/server/displayPower.js';
+import { readHdmiStamp, setPanelPower, writeHdmiStamp } from '../src/lib/server/displayPower.js';
 
 const tmpDirs = [];
 
@@ -29,4 +29,6 @@ test('setPanelPower stamps desired state and runs the matching script', async ()
 	assert.deepEqual(ran, ['/bin/true']);
 	writeHdmiStamp('on', stamp);
 	assert.equal(readFileSync(stamp, 'utf8'), 'on');
+	assert.equal(readHdmiStamp(stamp), 'on');
+	assert.equal(readHdmiStamp(path.join(dir, 'missing')), 'unknown');
 });

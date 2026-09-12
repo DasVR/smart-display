@@ -219,7 +219,10 @@
 			<span class="dot"></span>
 			<span>{status}</span>
 		</div>
-		<p class="panel" class:off={hdmi === 'off'}>{hdmi === 'off' ? 'Panel off' : 'Panel on'}</p>
+		<div class="bar-end">
+			<a class="stats-link" href="/remote/stats">Stats</a>
+			<p class="panel" class:off={hdmi === 'off'}>{hdmi === 'off' ? 'Panel off' : 'Panel on'}</p>
+		</div>
 	</header>
 
 	<section class="block power-block" aria-label="Power">
@@ -352,6 +355,26 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
+	}
+	.bar-end {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-3);
+		min-width: 0;
+	}
+	.stats-link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+		color: var(--text-tertiary);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		text-decoration: none;
+	}
+	.stats-link:hover { color: var(--foreground); }
+	.stats-link:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
 	}
 	.status,
 	.panel {
