@@ -30,7 +30,7 @@
 	}
 
 	// Queued notices expand through, then compact Live Activities
-	// (now-playing, downed services, network) stay like iPhone's island.
+	// (now-playing, network) stay like iPhone's island.
 	let activeEvent = $derived(events?.[0] ?? null);
 	let slots = $derived(compactSlots(nowPlaying, activities));
 	let mode = $derived.by(() => {

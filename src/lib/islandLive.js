@@ -1,28 +1,13 @@
 /**
  * Persistent Dynamic Island "Live Activities": compact statuses that stay
- * up while something is ongoing (now playing, a service that is down,
- * a dropped network), matching how iPhone keeps Music / Maps / a timer
- * in the island instead of only flashing a banner.
+ * up while something is ongoing (now playing, a dropped network),
+ * matching how iPhone keeps Music / Maps / a timer in the island instead
+ * of only flashing a banner.
  *
- * Transient pings (service just died, then recovered) still go through
- * `pushIslandEvent` and expand the island; this module owns the compact
- * leftovers that remain after that slip dismisses.
+ * Transient pings still go through `pushIslandEvent` and expand the
+ * island; this module owns the compact leftovers that remain after that
+ * slip dismisses.
  */
-
-export function serviceActivityId(name) {
-	const n = String(name || '').trim() || 'unknown';
-	return `svc:${n}`;
-}
-
-export function serviceActivity(name) {
-	return {
-		id: serviceActivityId(name),
-		kind: 'service',
-		title: name,
-		body: 'Down',
-		severity: 'error'
-	};
-}
 
 function severityRank(severity) {
 	switch (severity) {
@@ -35,45 +20,6 @@ function severityRank(severity) {
 		default:
 			return 3;
 	}
-}
-
-/**
- * Diff a telemetry service list into island events + compact activities.
- * The first snapshot (`prev === null`) seeds down services silently so boot
- * does not chime for things that were already down.
- */
-export function applyServiceSnapshot(prev, next) {
-	const curr = Array.isArray(next) ? next : [];
-	const seed = prev === null;
-	const events = [];
-	const set = [];
-	const clear = [];
-	const prevByName = new Map((prev || []).map((s) => [s.name, s.status]));
-
-	for (const svc of curr) {
-		if (!svc || typeof svc.name !== 'string') continue;
-		const up = svc.status === true;
-		const known = prevByName.has(svc.name);
-		const was = known ? prevByName.get(svc.name) : undefined;
-
-		if (seed) {
-			if (!up) set.push(serviceActivity(svc.name));
-			continue;
-		}
-
-		if (was === true && !up) {
-			events.push({ title: 'Service down', body: svc.name, severity: 'error', ttl: 8000 });
-			set.push(serviceActivity(svc.name));
-		} else if (was === false && up) {
-			events.push({ title: 'Service recovered', body: svc.name, severity: 'ok', ttl: 5000 });
-			clear.push(serviceActivityId(svc.name));
-		} else if (!known && !up) {
-			events.push({ title: 'Service down', body: svc.name, severity: 'error', ttl: 8000 });
-			set.push(serviceActivity(svc.name));
-		}
-	}
-
-	return { prev: curr, events, set, clear, seed };
 }
 
 function compactPeer(list) {
