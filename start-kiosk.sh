@@ -39,6 +39,11 @@ for i in {1..30}; do
   if [ -S "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" ]; then
     sleep 1
     /usr/bin/wlr-randr --output HDMI-A-1 --mode 1920x1080 || true
+    STAMP="${XDG_RUNTIME_DIR}/smart-display-hdmi"
+    if [ -f "$STAMP" ] && grep -qx off "$STAMP"; then
+      ROOT="$(cd "$(dirname "$0")" && pwd)"
+      "$ROOT/scripts/display-off.sh" || true
+    fi
     break
   fi
   sleep 0.5

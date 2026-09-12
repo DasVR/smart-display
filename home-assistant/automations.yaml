@@ -1,4 +1,6 @@
 # Home Assistant automations for smart display
+# The kiosk server also turns HDMI off at 22:30 and on at 06:00
+# (America/New_York) by itself. Times can be changed from the phone remote.
 # Paste into HA UI (Settings → Automations & Scenes → YAML mode) or drop into /config/automations.yaml
 - id: smart_display_morning
   alias: Smart Display — Morning Mode
@@ -11,7 +13,7 @@
 
 - id: smart_display_sleep
   alias: Smart Display — Sleep Mode
-  description: Dim/sleep overlay at 10:30 PM
+  description: Sleep + cut the panel at 10:30 PM (LCD still glows if we only dim)
   trigger:
     - platform: time
       at: "22:30:00"
@@ -20,10 +22,10 @@
 
 - id: smart_display_hdmi_off
   alias: Smart Display — HDMI Off
-  description: Turn off HDMI at midnight
+  description: Power the HDMI output off at 10:30 PM (same window as sleep)
   trigger:
     - platform: time
-      at: "00:00:00"
+      at: "22:30:00"
   action:
     - service: rest_command.smart_display_hdmi_off
 
@@ -35,6 +37,30 @@
       at: "06:00:00"
   action:
     - service: rest_command.smart_display_hdmi_on
+
+# Phone screen-on / boot. Companion App (Android) exposes
+# binary_sensor.<device>_interactive. Replace the entity_id with yours
+# (Developer Tools → States, search "interactive"). iOS does not always
+# publish interactive; the kiosk also polls HA for that sensor as backup.
+# Window matches the server: only while the panel is in night-off hours
+# after 5:00 AM, so a 1 AM notification does not light the room.
+- id: smart_display_phone_wake
+  alias: Smart Display — Phone Wake
+  description: Wake the panel when the phone screen comes on after 5 AM
+  trigger:
+    - platform: state
+      entity_id: binary_sensor.REPLACE_ME_interactive
+      from:
+        - "off"
+        - "unavailable"
+        - "unknown"
+      to: "on"
+  condition:
+    - condition: time
+      after: "05:00:00"
+      before: "11:00:00"
+  action:
+    - service: rest_command.smart_display_phone_wake
 
 # Required REST commands (add via configuration.yaml or UI):
 # rest_command:
@@ -57,4 +83,9 @@
 #     url: "http://172.22.0.1:3000/webhook/ha"
 #     method: POST
 #     payload: '{"event":"hdmi_on"}'
+#     content_type: "application/json"
+#   smart_display_phone_wake:
+#     url: "http://172.22.0.1:3000/webhook/ha"
+#     method: POST
+#     payload: '{"event":"phone_wake"}'
 #     content_type: "application/json"

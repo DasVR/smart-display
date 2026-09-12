@@ -3,6 +3,8 @@ import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { fuseRainPrediction } from '../rainModel.js';
+import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 
 function run(cmd) {
 	try {
@@ -76,10 +78,10 @@ async function getHAToken() {
 	}
 }
 
-export async function getHAStates() {
+export async function fetchHAStates() {
+	const token = await getHAToken();
+	if (!token) return { states: [], status: 'no-auth' };
 	try {
-		const token = await getHAToken();
-		if (!token) return { entities: [], status: 'no-auth' };
 		const raw = readFileSync(HA_TOKEN_PATH, 'utf8');
 		const cfg = JSON.parse(raw);
 		const r = await fetch(`${cfg.base_url}/api/states`, {
@@ -88,18 +90,24 @@ export async function getHAStates() {
 		});
 		if (!r.ok) throw new Error(`ha states ${r.status}`);
 		const states = await r.json();
-		const summary = {
-			temperature: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('temperature'))?.state,
-			humidity: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('humidity'))?.state,
-			online: states.length,
-			lightsOn: states.filter((s) => s.entity_id.startsWith('light.') && s.state === 'on').length,
-			doorsOpen: states.filter((s) => s.entity_id.startsWith('binary_sensor.') && s.attributes?.device_class === 'door' && s.state === 'on').length
-		};
-		return { entities: states.slice(0, 40), summary, status: 'ok' };
+		return { states: Array.isArray(states) ? states : [], status: 'ok' };
 	} catch (e) {
 		console.error('ha states error:', e.message);
-		return { entities: [], summary: {}, status: 'error', error: e.message };
+		return { states: [], status: 'error', error: e.message };
 	}
+}
+
+export async function getHAStates() {
+	const { states, status, error } = await fetchHAStates();
+	if (status !== 'ok') return { entities: [], summary: {}, status, error };
+	const summary = {
+		temperature: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('temperature'))?.state,
+		humidity: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('humidity'))?.state,
+		online: states.length,
+		lightsOn: states.filter((s) => s.entity_id.startsWith('light.') && s.state === 'on').length,
+		doorsOpen: states.filter((s) => s.entity_id.startsWith('binary_sensor.') && s.attributes?.device_class === 'door' && s.state === 'on').length
+	};
+	return { entities: states.slice(0, 40), summary, status: 'ok' };
 }
 
 export async function triggerHAView(view) {
@@ -253,33 +261,43 @@ async function fetchLyrics(artist, title, durationSec) {
 	}
 }
 
+function readMprisNowPlaying() {
+	const status = run('playerctl status 2>/dev/null') || 'Not available';
+	if (!status.includes('Playing') && !status.includes('Paused')) {
+		return { playing: false };
+	}
+	const artist = run('playerctl metadata xesam:artist 2>/dev/null') || 'Unknown artist';
+	const title = run('playerctl metadata xesam:title 2>/dev/null') || 'Unknown title';
+	const album = run('playerctl metadata xesam:album 2>/dev/null') || '';
+	const art = run('playerctl metadata mpris:artUrl 2>/dev/null') || '';
+	const posStr = run('playerctl position 2>/dev/null') || '0';
+	const lenStr = run('playerctl metadata mpris:length 2>/dev/null') || '0';
+	const length = parseInt(lenStr, 10) / 1_000_000 || 0;
+	return {
+		playing: status.includes('Playing'),
+		artist,
+		title,
+		album,
+		art,
+		position: parseFloat(posStr),
+		length
+	};
+}
+
 export async function getNowPlaying() {
 	try {
-		const status = run('playerctl status 2>/dev/null') || 'Not available';
-		if (!status.includes('Playing') && !status.includes('Paused')) {
+		const merged = mergeNowPlaying(readMprisNowPlaying(), readAirplayNowPlaying());
+		if (!merged.playing && !merged.title) {
 			return { playing: false };
 		}
-		const artist = run('playerctl metadata xesam:artist 2>/dev/null') || 'Unknown artist';
-		const title = run('playerctl metadata xesam:title 2>/dev/null') || 'Unknown title';
-		const album = run('playerctl metadata xesam:album 2>/dev/null') || '';
-		const art = run('playerctl metadata mpris:artUrl 2>/dev/null') || '';
-		const posStr = run('playerctl position 2>/dev/null') || '0';
-		const lenStr = run('playerctl metadata mpris:length 2>/dev/null') || '0';
-		const length = parseInt(lenStr, 10) / 1_000_000 || 0;
 		const lyrics =
-			artist !== 'Unknown artist' && title !== 'Unknown title'
-				? await fetchLyrics(artist, title, length)
+			merged.artist &&
+			merged.title &&
+			merged.artist !== 'Unknown artist' &&
+			merged.title !== 'Unknown title'
+				? await fetchLyrics(merged.artist, merged.title, merged.length)
 				: null;
-		return {
-			playing: status.includes('Playing'),
-			artist,
-			title,
-			album,
-			art,
-			position: parseFloat(posStr),
-			length,
-			lyrics
-		};
+		return { ...merged, lyrics };
 	} catch {
 		return { playing: false };
 	}
@@ -424,28 +442,6 @@ function loadStationHistory(hours = 2) {
 	}
 }
 
-function predictRainML(history, hourlyForecast) {
-// placeholder: rule-based with station-derived trend
-// when enough samples accumulate we can swap in sklearn regression
-const recent = history.filter((h) => Date.now() - (h.ts || 0) <= 30 * 60 * 1000);
-const rainingNow = recent.some((h) => (h.rainin || 0) > 0.001);
-const trendDry = !rainingNow && recent.length > 2;
-const trendWet = rainingNow;
-
-const base = hourlyForecast?.length ? hourlyForecast[0]?.precipitation_probability || 0 : 0;
-
-let rain30 = Math.min(1, Math.max(0, (base / 100) * 0.8 + (trendWet ? 0.2 : 0) - (trendDry ? 0.1 : 0)));
-let rain60 = Math.min(1, Math.max(0, rain30 + ((hourlyForecast?.[1]?.precipitation_probability || 0) / 100) * 0.15));
-let rain120 = Math.min(1, Math.max(0, rain60 + ((hourlyForecast?.[3]?.precipitation_probability || 0) / 100) * 0.1));
-
-return {
-	rain30min: Number(rain30.toFixed(2)),
-	rain60min: Number(rain60.toFixed(2)),
-	rain120min: Number(rain120.toFixed(2)),
-	source: 'station+rule'
-};
-}
-
 const WEATHER_LAT = 27.9097;
 const WEATHER_LON = -82.7873;
 const RAINVIEWER_CACHE_TTL = 300_000;
@@ -504,46 +500,25 @@ function wmoLabel(code) {
 	return 'Fair';
 }
 
-function predictRain(hourly) {
-	// rule-based predictor until ML model lands
-	if (!hourly?.length) return { rain30min: 0, rain60min: 0, rain120min: 0, source: 'rule' };
-	const now = new Date();
-	const precips = hourly.map((h) => ({
-		hours: (new Date(h.time) - now) / 36e5,
-		prob: h.precipitation_probability ?? 0,
-		intensity: h.precipitation ?? 0
-	}));
-	const rain30 = precips.filter((p) => p.hours >= 0 && p.hours <= 0.5);
-	const rain60 = precips.filter((p) => p.hours >= 0 && p.hours <= 1);
-	const rain120 = precips.filter((p) => p.hours >= 0 && p.hours <= 2);
-	const score = (arr) => {
-		if (!arr.length) return 0;
-		const maxProb = Math.max(...arr.map((p) => p.prob));
-		const avgInt = arr.reduce((s, p) => s + p.intensity, 0) / arr.length;
-		return Math.min(1, Math.max(0, (maxProb / 100) * 0.7 + Math.min(avgInt * 2, 0.3)));
-	};
-	return {
-		rain30min: Number(score(rain30).toFixed(2)),
-		rain60min: Number(score(rain60).toFixed(2)),
-		rain120min: Number(score(rain120).toFixed(2)),
-		source: 'rule'
-	};
-}
-
 export async function getWeather(hours = 48) {
 	try {
+		const days = Math.max(1, Math.ceil(hours / 24));
+		const openMeteoUrl =
+			`https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}` +
+			`&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,is_day` +
+			`&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,rain,showers,weather_code,pressure_msl,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+			`&minutely_15=precipitation,rain,weather_code,wind_speed_10m,wind_direction_10m` +
+			`&daily=sunrise,sunset,uv_index_max` +
+			`&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America/New_York&forecast_days=${days}`;
 		const [openMeteo, radarMeta, alerts] = await Promise.all([
-			fetch(
-				`https://api.open-meteo.com/v1/forecast?latitude=${WEATHER_LAT}&longitude=${WEATHER_LON}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,rain,showers,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,pressure_msl&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,rain,showers,weather_code,pressure_msl,cloud_cover,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America/New_York&forecast_days=${Math.ceil(hours / 24)}`,
-				{ signal: AbortSignal.timeout(8000) }
-			).then((r) => r.json()),
+			fetch(openMeteoUrl, { signal: AbortSignal.timeout(8000) }).then((r) => r.json()),
 			getRainViewer(),
 			getNWSAlerts()
 		]);
 
 		const station = loadStation();
 		const stationHistory = loadStationHistory(2);
-		const stationFresh = station && (Date.now() - station.ts) < 10 * 60 * 1000;
+		const stationFresh = station && Date.now() - station.ts < 10 * 60 * 1000;
 
 		const current = openMeteo?.current || {};
 		const hourlyRaw = openMeteo?.hourly || {};
@@ -560,13 +535,38 @@ export async function getWeather(hours = 48) {
 				weather_code: hourlyRaw.weather_code?.[i],
 				pressure: hourlyRaw.pressure_msl?.[i],
 				cloud_cover: hourlyRaw.cloud_cover?.[i],
-				wind_speed: hourlyRaw.wind_speed_10m?.[i]
+				wind_speed: hourlyRaw.wind_speed_10m?.[i],
+				wind_direction: hourlyRaw.wind_direction_10m?.[i],
+				wind_gusts: hourlyRaw.wind_gusts_10m?.[i]
 			});
 		}
 
-		const prediction = stationFresh
-			? predictRainML(stationHistory, hourly)
-			: predictRain(hourly);
+		const minuteRaw = openMeteo?.minutely_15 || {};
+		const minutely = [];
+		for (let i = 0; i < (minuteRaw.time?.length || 0); i++) {
+			minutely.push({
+				time: minuteRaw.time[i],
+				precipitation: minuteRaw.precipitation?.[i],
+				rain: minuteRaw.rain?.[i],
+				weather_code: minuteRaw.weather_code?.[i],
+				wind_speed: minuteRaw.wind_speed_10m?.[i],
+				wind_direction: minuteRaw.wind_direction_10m?.[i]
+			});
+		}
+
+		const dailyRaw = openMeteo?.daily || {};
+		const sun = {
+			sunrise: dailyRaw.sunrise?.[0] || null,
+			sunset: dailyRaw.sunset?.[0] || null,
+			uvMax: dailyRaw.uv_index_max?.[0] ?? null
+		};
+
+		const prediction = fuseRainPrediction({
+			hourly,
+			minutely,
+			stationHistory: stationFresh ? stationHistory : [],
+			nowMs: Date.now()
+		});
 
 		const currentOut = stationFresh
 			? {
@@ -581,10 +581,12 @@ export async function getWeather(hours = 48) {
 					cloudCover: current.cloud_cover,
 					windSpeed: station.windspeedmph ?? current.wind_speed_10m,
 					windDirection: station.winddir ?? current.wind_direction_10m,
+					windGusts: station.windgustmph ?? current.wind_gusts_10m,
 					pressure: station.baromabsin ?? current.pressure_msl,
+					isDay: current.is_day,
 					uv: station.uv,
 					solar: station.solarradiation
-			  }
+				}
 			: {
 					temp: current.temperature_2m,
 					feelsLike: current.apparent_temperature,
@@ -597,8 +599,10 @@ export async function getWeather(hours = 48) {
 					cloudCover: current.cloud_cover,
 					windSpeed: current.wind_speed_10m,
 					windDirection: current.wind_direction_10m,
-					pressure: current.pressure_msl
-			  };
+					windGusts: current.wind_gusts_10m,
+					pressure: current.pressure_msl,
+					isDay: current.is_day
+				};
 
 		const radarFrames = [];
 		if (radarMeta?.radar?.past) {
@@ -617,6 +621,8 @@ export async function getWeather(hours = 48) {
 		return {
 			current: currentOut,
 			hourly,
+			minutely,
+			sun,
 			rad: { host, frames: radarFrames, colorScheme, lat: WEATHER_LAT, lon: WEATHER_LON },
 			alerts,
 			prediction,
@@ -627,11 +633,20 @@ export async function getWeather(hours = 48) {
 		console.error('weather error:', e.message);
 		return {
 			current: { temp: '--', desc: '--', humidity: '--', windSpeed: '--', pressure: '--' },
-				hourly: [],
-				rad: { host: '', frames: [], colorScheme: 2, lat: WEATHER_LAT, lon: WEATHER_LON },
-				alerts: [],
-				prediction: { rain30min: 0, rain60min: 0, rain120min: 0, source: 'rule' },
-				error: e.message
+			hourly: [],
+			minutely: [],
+			sun: { sunrise: null, sunset: null, uvMax: null },
+			rad: { host: '', frames: [], colorScheme: 2, lat: WEATHER_LAT, lon: WEATHER_LON },
+			alerts: [],
+			prediction: {
+				rain30min: 0,
+				rain60min: 0,
+				rain120min: 0,
+				source: 'forecast',
+				etaMin: null,
+				approaching: false
+			},
+			error: e.message
 		};
 	}
 }

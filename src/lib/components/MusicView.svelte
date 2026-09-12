@@ -98,7 +98,7 @@
 	{:else if error || !track || !track.playing}
 		<div class="empty">
 			<p class="empty-title">Nothing playing</p>
-			<p class="empty-copy">Connect bluetooth or start a track on the server.</p>
+			<p class="empty-copy">AirPlay from Apple Music, connect Bluetooth, or start a track here.</p>
 		</div>
 	{:else}
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics)}>

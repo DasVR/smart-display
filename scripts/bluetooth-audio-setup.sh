@@ -14,9 +14,9 @@ PROJECT_DIR="${PROJECT_DIR:-/home/das/projects/smart-display}"
 
 echo "=== smart-display bluetooth audio setup ==="
 
-echo "[1/7] installing bluez, bluez-tools (mpris-proxy), and the D-Bus agent deps"
+echo "[1/7] installing bluez, bluez-tools (mpris-proxy), D-Bus agent deps, and pactl"
 sudo apt-get update
-sudo apt-get install -y bluez bluez-tools python3-dbus python3-gi
+sudo apt-get install -y bluez bluez-tools python3-dbus python3-gi pulseaudio-utils
 
 echo "[2/7] making sure this user can actually open the real ALSA devices"
 # /dev/snd/* is root:audio mode 660 — without audio-group membership PipeWire
@@ -43,16 +43,24 @@ PairableTimeout = 0
 CONF
 fi
 
-echo "[4/7] enabling PipeWire's bluez5 A2DP sink role (so this box RECEIVES audio, i.e. acts as headphones)"
-# WirePlumber 0.5 dropped support for the old *.lua config format entirely —
-# it logs a warning and ignores the file, which silently no-ops this whole
-# step. The modern equivalent is a .conf snippet under wireplumber.conf.d/.
+echo "[4/7] enabling PipeWire as a stereo speaker (A2DP sink only, no headset profile)"
+# iPhone / Apple Music will refuse or drop the link if Linux advertises HFP/HSP
+# (headset / hands-free). Those profiles are mono call audio, not music.
+# WirePlumber 0.5 dropped *.lua snippets; this has to be a .conf file.
 rm -rf ~/.config/wireplumber/bluetooth.lua.d
 mkdir -p ~/.config/wireplumber/wireplumber.conf.d
 cat > ~/.config/wireplumber/wireplumber.conf.d/51-bluez-a2dp-sink.conf <<'CONF'
 monitor.bluez.properties = {
-  bluez5.roles = [ a2dp_sink a2dp_source bap_sink bap_source hsp_hs hsp_ag hfp_hf hfp_ag ]
+  bluez5.roles = [ a2dp_sink ]
+  bluez5.hfphsp-backend = "none"
   bluez5.enable-sbc-xq = true
+  bluez5.enable-msbc = false
+  bluez5.auto-connect = [ a2dp_sink ]
+}
+CONF
+cat > ~/.config/wireplumber/wireplumber.conf.d/51-bluez-no-headset.conf <<'CONF'
+wireplumber.settings = {
+  bluetooth.autoswitch-to-headset-profile = false
 }
 CONF
 
@@ -67,15 +75,18 @@ sudo systemctl daemon-reload
 sudo systemctl restart bluetooth
 sudo systemctl enable --now smart-display-bt-agent.service
 sudo systemctl enable --now smart-display-bt-watch.service
+sudo systemctl restart smart-display-bt-agent.service smart-display-bt-watch.service
 systemctl --user daemon-reload
 systemctl --user enable --now mpris-proxy.service 2>/dev/null \
 	|| systemctl --user enable --now smart-display-mpris-proxy.service
 systemctl --user restart wireplumber pipewire pipewire-pulse 2>/dev/null || true
+chmod +x "$PROJECT_DIR/scripts/bt-audio-loopback.sh" "$PROJECT_DIR/scripts/audio-pick-sink.mjs"
 
-echo "[7/7] powering on the adapter and making it discoverable"
+echo "[7/7] powering on the adapter, making it discoverable, and picking speakers"
 bluetoothctl power on
 bluetoothctl discoverable on
 bluetoothctl pairable on
+node "$PROJECT_DIR/scripts/audio-pick-sink.mjs" || true
 
 if [ "$NEEDS_RELOGIN" = "1" ]; then
 	cat <<'EOF'
@@ -93,20 +104,23 @@ fi
 cat <<'EOF'
 
 === done ===
-Your phone should now see this device in its Bluetooth list. Pairing
-should complete without a PIN prompt (the auto-pair agent accepts it).
+Your phone should now see this device in its Bluetooth list as a speaker.
+Pairing should complete without a PIN prompt (the auto-pair agent accepts it).
+Headset / HFP profiles are off so Apple Music stereo is not refused.
 
-Still needed — this script can't detect your hardware for you:
-  1. Confirm the analog/headphone-jack output is the DEFAULT sink so the
-     phone's audio actually comes out of it:
-       wpctl status                 # find the analog output's ID
-       wpctl set-default <ID>
-  2. Play something on the phone, then check:
-       playerctl status             # should report Playing
-       playerctl metadata           # should show the phone's track info
-     If this is empty, check `systemctl --user status mpris-proxy` (or
-     smart-display-mpris-proxy) — see docs/bluetooth-setup.md.
+This script now tries to pick analog / USB / headphone over Dummy Output
+and HDMI. Confirm with:
+  ./scripts/audio-doctor.sh
+  wpctl status
 
-None of this could be tested against real hardware from where it was
-written — verify each step against what you actually see.
+Play something on the phone, then:
+  playerctl status
+  playerctl metadata
+
+If metadata is empty, check `systemctl --user status mpris-proxy`.
+For Apple Music, AirPlay to "Smart Display" is the reliable path:
+  ./scripts/airplay-setup.sh
+  (or the combined ./scripts/speaker-audio-setup.sh)
+
+See docs/bluetooth-setup.md.
 EOF

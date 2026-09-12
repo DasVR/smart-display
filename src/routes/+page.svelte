@@ -14,8 +14,12 @@
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio } from '$lib/services/chime.js';
+	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
+	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
+	import { mergeRadarPrediction } from '$lib/rainModel.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
+	import WeatherRail from '$lib/components/WeatherRail.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
 	import DevHub from '$lib/components/DevHub.svelte';
@@ -24,6 +28,7 @@
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
+	import { classifyWeatherRail } from '$lib/weatherRail.js';
 
 	let ws;
 	let reconnectTimer;
@@ -76,6 +81,24 @@
 		}, ms);
 	}
 
+	function applyDisplay(display) {
+		if (!display) return;
+		if (display.hdmi === 'off') {
+			hdmiOff = true;
+			if (mode !== 'sleep') {
+				mode = 'sleep';
+				displayMode.set('sleep');
+			}
+		}
+		if (display.hdmi === 'on') {
+			hdmiOff = false;
+			if (mode === 'sleep') {
+				mode = 'normal';
+				displayMode.set('normal');
+			}
+		}
+	}
+
 	function connect() {
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -105,7 +128,7 @@
 						title: msg.title || 'Notice',
 						body: msg.body || '',
 						severity: msg.severity || 'info',
-						ttl: msg.ttl || 6000,
+						ttl: msg.ttl || 9000,
 						source: msg.source || ''
 					});
 				}
@@ -115,10 +138,17 @@
 					showNotif('Good morning', 'Briefing ready. Check due work.', 'info', 8000);
 					currentView.set(msg.view || 'school');
 				}
+				if (msg.type === 'init') {
+					if (msg.view) currentView.set(msg.view);
+					applyDisplay(msg.display);
+				}
+				if (msg.type === 'display') {
+					applyDisplay(msg);
+				}
 				if (msg.type === 'trigger' && msg.event === 'sleep') {
 					mode = 'sleep';
 					displayMode.set('sleep');
-					showNotif('Sleep mode', 'Dimming for the night. See you tomorrow.', 'info', 5000);
+					showNotif('Sleep mode', 'Panel off for the night. See you tomorrow.', 'info', 4000);
 				}
 				if (msg.type === 'trigger' && msg.event === 'normal') {
 					mode = 'normal';
@@ -130,6 +160,10 @@
 				}
 				if (msg.type === 'trigger' && msg.event === 'hdmi_on') {
 					hdmiOff = false;
+					if (mode === 'sleep') {
+						mode = 'normal';
+						displayMode.set('normal');
+					}
 				}
 				if (msg.type === 'power') {
 					window.dispatchEvent(new CustomEvent('power-state', { detail: msg.state }));
@@ -145,15 +179,25 @@
 		try {
 			const r = await fetch('/api/weather?hours=48');
 			weatherData = await r.json();
+			try {
+				const samples = await sampleRadarNowcast(weatherData?.rad);
+				if (samples.length) {
+					weatherData = {
+						...weatherData,
+						radarNowcast: samples,
+						prediction: mergeRadarPrediction(weatherData.prediction, samples)
+					};
+				}
+			} catch {
+				/* nowcast sample is optional */
+			}
 			const cur = weatherData?.current || {};
 			weather.set({ temp: cur.temp ?? '--', desc: cur.desc ?? '--' });
 			weatherDetail.set(weatherData);
-			rainPrediction.set(weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0 });
+			rainPrediction.set(
+				weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0, source: 'forecast' }
+			);
 			weatherLoading = false;
-			if (weatherData?.alerts?.length) {
-				const top = weatherData.alerts[0];
-				showNotif(top.event, top.headline, 'warn', 12000);
-			}
 		} catch {
 			weatherLoading = false;
 		}
@@ -221,12 +265,9 @@
 	let clockLabel = $derived(
 		time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
 	);
-	let islandActive = $derived(
-		$islandQueue.length > 0 ||
-			$nowPlaying?.playing ||
-			(weatherData?.alerts?.length ?? 0) > 0 ||
-			(weatherData?.prediction?.rain60min ?? 0) >= 0.35
-	);
+	let atm = $derived(atmosphereFromWeather(time.getTime(), weatherData));
+	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
+	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || notif.visible);
 
 	const VIEW_TITLES = {
 		school: 'Due Work',
@@ -239,6 +280,33 @@
 	function viewLabel(name) {
 		return name.slice(0, 1).toUpperCase() + name.slice(1);
 	}
+
+	function weatherFromQuery() {
+		if (typeof window === 'undefined') return null;
+		const wx = new URLSearchParams(window.location.search).get('wx');
+		if (wx === 'warning') {
+			return {
+				alerts: [
+					{
+						event: 'Tornado Warning',
+						severity: 'Extreme',
+						headline: 'Tornado Warning for Pinellas including Largo until 4:15 PM EDT'
+					}
+				]
+			};
+		}
+		if (wx === 'watch') {
+			return {
+				alerts: [{ event: 'Tornado Watch', severity: 'Moderate', headline: 'Watch until 8 PM EDT' }]
+			};
+		}
+		if (wx === 'rain') {
+			return { prediction: { rain30min: 0.72, rain60min: 0.8, rain120min: 0.2 } };
+		}
+		return null;
+	}
+
+	let weatherRail = $derived(classifyWeatherRail(weatherFromQuery() ?? weatherData));
 
 	$effect(() => {
 		$currentView;
@@ -271,10 +339,31 @@
 	</defs>
 </svg>
 
-<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
-	<LiquidMetalCanvas isLowPower={$gpuLowPowerMode || mode === 'sleep'} />
+<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:has-rail={!!weatherRail}>
+	<LiquidMetalCanvas
+		isLowPower={$gpuLowPowerMode || mode === 'sleep'}
+		sun={atm.sun}
+		twilight={atm.twilight}
+		rain={atm.rain}
+		wind={atm.wind}
+		cloud={atm.cloud}
+		windDir={atm.windRad}
+	/>
 
-	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'}>
+	{#if weatherRail}
+		<WeatherRail rail={weatherRail} onopen={() => currentView.set('weather')} />
+	{/if}
+
+	<DynamicIsland nowPlaying={$nowPlaying} notification={notif} events={$islandQueue} />
+
+	<div
+		class="display-root"
+		class:morning={mode === 'morning'}
+		class:sleep={mode === 'sleep'}
+		class:has-rail={!!weatherRail}
+		class:wx-rain={atm.rain >= 0.35}
+		data-phase={atm.phase}
+	>
 		<header class="zone top">
 			<div class="top-row">
 				<nav class="view-strip" aria-label="Views" bind:this={navEl}>
@@ -298,18 +387,21 @@
 					{/each}
 				</nav>
 				<div class="status-cluster">
-					<p class="dateline" class:receded={islandActive}>
+					<p class="dateline" class:receded={islandActive || !!weatherRail}>
 						{weekday}, {month}&nbsp;{dayNum}
 						{#if $currentView !== 'clock'}
 							<span class="time num">{clockLabel}</span>
 						{/if}
 					</p>
-					<p class="wxline" class:receded={islandActive}>
+					<p class="wxline" class:receded={islandActive || !!weatherRail}>
 						{#if weatherLoading}
 							<span class="skeleton inline"></span>
 						{:else if $weather.temp !== '--'}
 							<span class="num">{$weather.temp}°</span>
 							{$weather.desc}
+							{#if atm.compass && atm.compass !== '--'}
+								<span class="wx-wind">{atm.compass} {Math.round(atm.windSpeed)} mph</span>
+							{/if}
 						{/if}
 					</p>
 				</div>
@@ -319,18 +411,11 @@
 			{/if}
 		</header>
 
-		<DynamicIsland
-			nowPlaying={$nowPlaying}
-			notification={notif}
-			weatherData={weatherData}
-			events={$islandQueue}
-		/>
-
 		<main id="main-stage" class="zone center">
 			{#if $currentView === 'clock'}
 				<section class="view-pane clock-pane">
 					<div class="clock-credits">
-						<p class="clock-kicker">{weekday}</p>
+						<p class="clock-kicker">{clockKicker}</p>
 						<HeroClock {time} size="poster" />
 					</div>
 				</section>
@@ -348,13 +433,11 @@
 				</section>
 			{:else if $currentView === 'weather'}
 				<section class="view-pane sheet weather-pane" data-glass>
-					<div class="weather-core">
-						<div class="radar-trough">
-							<RadarCanvas data={weatherData} />
-						</div>
-						<div class="weather-trough">
-							<WeatherView data={weatherData} />
-						</div>
+					<div class="radar-bleed">
+						<RadarCanvas data={weatherData} />
+					</div>
+					<div class="weather-trough">
+						<WeatherView data={weatherData} />
 					</div>
 				</section>
 			{/if}
@@ -413,6 +496,9 @@
 		font-family: var(--font-body);
 		min-width: 0;
 	}
+	.display-root.has-rail {
+		padding-top: 4.75rem;
+	}
 	.zone {
 		width: 100%;
 		padding: 0 var(--space-8);
@@ -462,6 +548,14 @@
 	.wxline .num {
 		margin-right: var(--space-2);
 		color: var(--foreground);
+	}
+	.wx-wind {
+		margin-left: var(--space-2);
+		color: var(--text-tertiary);
+		font-weight: 500;
+	}
+	.display-root.wx-rain .wxline {
+		color: var(--scan);
 	}
 	.dateline,
 	.wxline {
@@ -622,6 +716,15 @@
 		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
 	}
+	.display-root[data-phase='dawn'] .clock-kicker {
+		color: var(--ok);
+	}
+	.display-root[data-phase='dusk'] .clock-kicker {
+		color: var(--solve);
+	}
+	.display-root[data-phase='night'] .clock-kicker {
+		color: var(--brand);
+	}
 	.school-pane {
 		--sheet-glow: radial-gradient(
 			44rem 26rem at 8% -6%,
@@ -638,32 +741,39 @@
 	}
 	.weather-pane {
 		min-height: 0;
+		background: color-mix(in srgb, var(--abyss) 8%, transparent);
 		--sheet-glow: radial-gradient(
 			44rem 26rem at 50% -8%,
 			var(--glow-scan),
 			transparent 70%
 		);
 	}
-	.weather-core {
-		display: grid;
-		grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-		gap: 0;
-		min-height: 0;
-		height: 100%;
-	}
-	.radar-trough,
-	.weather-trough {
+	.radar-bleed {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
-		box-sizing: border-box;
-	}
-	.radar-trough {
-		padding: var(--space-6);
+		border-radius: inherit;
 	}
 	.weather-trough {
+		position: relative;
+		z-index: 1;
+		margin-left: auto;
+		width: min(36rem, 44%);
+		height: 100%;
+		min-width: 0;
+		min-height: 0;
+		overflow: hidden;
+		padding-left: var(--space-4);
 		border-left: 1px solid var(--hairline);
-		padding-left: var(--space-5);
+		background: linear-gradient(
+			90deg,
+			transparent,
+			color-mix(in srgb, var(--abyss) 42%, transparent) 18%,
+			color-mix(in srgb, var(--abyss) 78%, transparent) 55%
+		);
 	}
 	.bottom {
 		height: auto;
@@ -725,15 +835,21 @@
 			width: 100%;
 			padding-bottom: 0;
 		}
-		.weather-core {
-			grid-template-columns: minmax(0, 1fr);
-			grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-		}
 		.weather-trough {
+			width: 100%;
+			height: auto;
+			max-height: 48%;
+			margin-left: 0;
+			margin-top: auto;
 			border-left: 0;
 			border-top: 1px solid var(--hairline);
 			padding-left: 0;
 			padding-top: var(--space-4);
+			background: linear-gradient(
+				0deg,
+				color-mix(in srgb, var(--abyss) 86%, transparent) 55%,
+				transparent
+			);
 		}
 	}
 

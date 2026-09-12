@@ -1,0 +1,8 @@
+{
+	"name": "Display remote",
+	"short_name": "Remote",
+	"start_url": "/remote",
+	"display": "standalone",
+	"background_color": "#07070b",
+	"theme_color": "#07070b"
+}

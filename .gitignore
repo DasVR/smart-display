@@ -7,5 +7,6 @@ build/
 *.log
 .DS_Store
 .station/
+data/display-schedule.json
 
 .claude/buzz/
