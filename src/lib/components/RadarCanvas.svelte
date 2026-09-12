@@ -14,12 +14,14 @@
 		BASE_ZOOM,
 		CITY_GROUND_M,
 		INTRO_GROUND_M,
+		STORM_GROUND_M,
 		lonLatToFractionalTile,
 		radarTileUrl,
 		basemapTileUrl,
 		tilesCoveringRect,
 		lastPastFrameIndex,
 		scaleForGroundRadius,
+		metersPerPixel,
 		radarDrawSize
 	} from '$lib/radarMap.js';
 	import { compassFromDeg, windTowardDeg } from '$lib/atmosphere.js';
@@ -47,13 +49,29 @@
 	let animTimer = 0;
 	let settleTimer = 0;
 	let introKick = 0;
+	let zoomAssessTimer = 0;
 	let gen = 0;
 	let composed = null;
 	let viewScale = 1;
 	let introScale = 1;
-	let cityScale = 1;
+	let currentLat = LARGO_LAT;
 	let hasIntroduced = false;
 	const tileCache = new Map();
+
+	// Adaptive zoom: 0 is the tight, settled city view; 1 is pulled all the
+	// way out to STORM_GROUND_M. Reassessed on a slow interval and only acted
+	// on after the same direction repeats, so the view doesn't hunt back and
+	// forth as a storm edge drifts near the ring.
+	let adaptiveT = 0;
+	let adaptiveGroundM = $state(CITY_GROUND_M);
+	let lastZoomAssessAt = 0;
+	let pendingZoomDir = 0;
+	let pendingZoomStreak = 0;
+	const ZOOM_ASSESS_INTERVAL_MS = 9000;
+	const ZOOM_STREAK_NEEDED = 2;
+	const ZOOM_STEP = 1 / 3;
+	const EDGE_COVERAGE_ZOOM_OUT = 0.1;
+	const TOTAL_COVERAGE_ZOOM_IN = 0.015;
 
 	const FRAME_MS = 700;
 	const RADAR_SIZE = radarDrawSize(BASE_ZOOM);
@@ -64,10 +82,13 @@
 		[15, 7, 13, 5]
 	];
 
+	// Ring screen positions stay at fixed fractions of the container; the km
+	// labels track the actual current ground radius so they stay honest once
+	// the adaptive zoom pulls back to show an approaching system.
 	let ringLabels = $derived([
-		{ r: radius * (5 / 14), km: 5 },
-		{ r: radius * (9 / 14), km: 9 },
-		{ r: radius, km: 14 }
+		{ r: radius * (5 / 14), km: Math.round((adaptiveGroundM * (5 / 14)) / 1000) },
+		{ r: radius * (9 / 14), km: Math.round((adaptiveGroundM * (9 / 14)) / 1000) },
+		{ r: radius, km: Math.round(adaptiveGroundM / 1000) }
 	]);
 
 	let windFrom = $derived(Number(data?.current?.windDirection));
@@ -135,6 +156,7 @@
 			cancelAnimationFrame(introKick);
 			introKick = 0;
 		}
+		stopZoomAssess();
 	}
 
 	function startAnim() {
@@ -147,6 +169,136 @@
 			frameIndex = (frameIndex + 1) % frames.length;
 			drawCurrent();
 		}, FRAME_MS);
+	}
+
+	function stopZoomAssess() {
+		if (zoomAssessTimer) {
+			clearInterval(zoomAssessTimer);
+			zoomAssessTimer = 0;
+		}
+	}
+
+	function startZoomAssess() {
+		stopZoomAssess();
+		zoomAssessTimer = setInterval(() => assessAndMaybeAdjustZoom(), ZOOM_ASSESS_INTERVAL_MS / 3);
+	}
+
+	/** Ground radius for a point on the city<->storm adaptive slider. */
+	function groundMForT(t) {
+		return CITY_GROUND_M + (STORM_GROUND_M - CITY_GROUND_M) * t;
+	}
+
+	/** Recomputes the reactive ground radius + CSS zoom factor for the given
+	 *  point on the adaptive slider (0 = tight city, 1 = wide storm view). */
+	function applyAdaptiveZoom(t) {
+		adaptiveGroundM = groundMForT(t);
+		const scale = scaleForGroundRadius(radius, currentLat, BASE_ZOOM, adaptiveGroundM);
+		zoomFactor = scale / introScale;
+	}
+
+	/** Builds a transparent-background canvas holding just the current
+	 *  frame's radar sprites (no basemap), in the same pixel grid as
+	 *  `composed.basemap`, so precipitation alpha can be sampled without the
+	 *  opaque basemap fill destroying it. */
+	function buildRadarAlphaCanvas(layer) {
+		const cols = composed.x1 - composed.x0 + 1;
+		const rows = composed.y1 - composed.y0 + 1;
+		const c = document.createElement('canvas');
+		c.width = cols * TILE_SIZE;
+		c.height = rows * TILE_SIZE;
+		const actx = c.getContext('2d', { alpha: true });
+		const k = RADAR_SIZE / TILE_SIZE;
+		for (const sprite of layer) {
+			if (!sprite.img) continue;
+			actx.drawImage(
+				sprite.img,
+				(sprite.tx * k - composed.x0) * TILE_SIZE,
+				(sprite.ty * k - composed.y0) * TILE_SIZE,
+				RADAR_SIZE,
+				RADAR_SIZE
+			);
+		}
+		return c;
+	}
+
+	/** Average precip alpha coverage across the circle currently in view,
+	 *  and just its outer edge — strong coverage right at the edge means the
+	 *  system is very likely bigger than what's on screen. */
+	function assessPrecipCoverage() {
+		if (!composed) return null;
+		const layer = composed.radarLayers[frameIndex];
+		if (!layer) return null;
+		const alphaCanvas = buildRadarAlphaCanvas(layer);
+		const actx = alphaCanvas.getContext('2d');
+		const homeX = (composed.fracX - composed.x0) * TILE_SIZE;
+		const homeY = (composed.fracY - composed.y0) * TILE_SIZE;
+		const r = groundMForT(adaptiveT) / metersPerPixel(currentLat, BASE_ZOOM);
+		const sx = Math.max(0, Math.floor(homeX - r));
+		const sy = Math.max(0, Math.floor(homeY - r));
+		const ex = Math.min(alphaCanvas.width, Math.ceil(homeX + r));
+		const ey = Math.min(alphaCanvas.height, Math.ceil(homeY + r));
+		const w = ex - sx;
+		const h = ey - sy;
+		if (w <= 0 || h <= 0) return null;
+		const { data } = actx.getImageData(sx, sy, w, h);
+		const cx0 = homeX - sx;
+		const cy0 = homeY - sy;
+		const edgeR2 = (r * 0.72) ** 2;
+		const fullR2 = r * r;
+		let edgeAlpha = 0,
+			edgeCount = 0,
+			totalAlpha = 0,
+			totalCount = 0;
+		for (let y = 0; y < h; y++) {
+			const dy = y - cy0;
+			for (let x = 0; x < w; x++) {
+				const dx = x - cx0;
+				const d2 = dx * dx + dy * dy;
+				if (d2 > fullR2) continue;
+				const a = data[(y * w + x) * 4 + 3] / 255;
+				totalAlpha += a;
+				totalCount++;
+				if (d2 >= edgeR2) {
+					edgeAlpha += a;
+					edgeCount++;
+				}
+			}
+		}
+		return {
+			edgeCoverage: edgeCount ? edgeAlpha / edgeCount : 0,
+			totalCoverage: totalCount ? totalAlpha / totalCount : 0
+		};
+	}
+
+	/** Widens or tightens the view based on where precipitation actually is,
+	 *  gated to an occasional check with a same-direction streak so it
+	 *  doesn't flicker between levels as a storm edge drifts near the ring. */
+	function assessAndMaybeAdjustZoom() {
+		if (!hasIntroduced) return;
+		const now = performance.now();
+		if (now - lastZoomAssessAt < ZOOM_ASSESS_INTERVAL_MS) return;
+		lastZoomAssessAt = now;
+
+		const coverage = assessPrecipCoverage();
+		if (!coverage) return;
+
+		let direction = 0;
+		if (coverage.edgeCoverage > EDGE_COVERAGE_ZOOM_OUT && adaptiveT < 1) direction = 1;
+		else if (coverage.totalCoverage < TOTAL_COVERAGE_ZOOM_IN && adaptiveT > 0) direction = -1;
+
+		if (direction !== 0 && direction === pendingZoomDir) {
+			pendingZoomStreak++;
+		} else {
+			pendingZoomDir = direction;
+			pendingZoomStreak = direction === 0 ? 0 : 1;
+		}
+
+		if (direction !== 0 && pendingZoomStreak >= ZOOM_STREAK_NEEDED) {
+			adaptiveT = Math.max(0, Math.min(1, adaptiveT + direction * ZOOM_STEP));
+			pendingZoomStreak = 0;
+			pendingZoomDir = 0;
+			applyAdaptiveZoom(adaptiveT);
+		}
 	}
 
 	function introDurationMs() {
@@ -190,9 +342,10 @@
 
 	function playIntro() {
 		viewScale = introScale;
-		zoomFactor = cityScale / introScale;
+		applyAdaptiveZoom(adaptiveT);
 		drawCurrent();
 		startAnim();
+		startZoomAssess();
 		if (reducedMotion) {
 			zoomedIn = true;
 			settled = true;
@@ -242,9 +395,13 @@
 		cx = lay.cx;
 		cy = lay.cy;
 		radius = lay.radius;
+		currentLat = lat;
 		introScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, INTRO_GROUND_M);
-		cityScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, CITY_GROUND_M);
 
+		// Tile coverage is fetched to cover the intro's own (wider) ground
+		// radius, same as before this change - STORM_GROUND_M is kept inside
+		// that bound, so the adaptive zoom-out is a pure CSS zoom onto tiles
+		// already being fetched, not an additional, much larger fetch.
 		const frac = lonLatToFractionalTile(lat, lon, BASE_ZOOM);
 		const worldHalfW = lay.halfW / introScale;
 		const worldHalfH = lay.halfH / introScale;
@@ -327,7 +484,7 @@
 		const nextW = Math.floor(rect.width);
 		const nextH = Math.floor(rect.height);
 		if (nextW <= 0 || nextH <= 0) return;
-		dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+		dpr = Math.min(window.devicePixelRatio || 1, 2);
 		width = nextW;
 		height = nextH;
 		canvas.width = Math.floor(nextW * dpr);
@@ -341,10 +498,10 @@
 		radius = lay.radius;
 		const rad = data?.rad;
 		const lat = Number.isFinite(rad?.lat) ? rad.lat : LARGO_LAT;
+		currentLat = lat;
 		introScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, INTRO_GROUND_M);
-		cityScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, CITY_GROUND_M);
 		viewScale = introScale;
-		zoomFactor = cityScale / introScale;
+		applyAdaptiveZoom(adaptiveT);
 		const worldHalfW = lay.halfW / introScale;
 		const worldHalfH = lay.halfH / introScale;
 		const frac = lonLatToFractionalTile(lat, Number.isFinite(rad?.lon) ? rad.lon : LARGO_LON, BASE_ZOOM);
@@ -492,7 +649,6 @@
 		inset: 0;
 		width: 100%;
 		height: 100%;
-		image-rendering: pixelated;
 	}
 	.dither {
 		position: absolute;
