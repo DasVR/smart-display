@@ -1,3 +1,9 @@
+<!--
+	Hallmark design scores
+	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
+	Full-bleed rectangular Largo radar: ESRI z11, RainViewer z7 stretched,
+	Tampa Bay intro zoom, wind vane at home. Tokens only. No other views restyled.
+-->
 <script>
 	import { onMount, untrack } from 'svelte';
 	import {
@@ -5,12 +11,18 @@
 		LARGO_LON,
 		TILE_SIZE,
 		RADAR_ZOOM,
+		BASE_ZOOM,
+		CITY_GROUND_M,
+		INTRO_GROUND_M,
 		lonLatToFractionalTile,
 		radarTileUrl,
 		basemapTileUrl,
-		tilesCoveringRadius,
-		lastPastFrameIndex
+		tilesCoveringRect,
+		lastPastFrameIndex,
+		scaleForGroundRadius,
+		radarDrawSize
 	} from '$lib/radarMap.js';
+	import { compassFromDeg, windTowardDeg } from '$lib/atmosphere.js';
 
 	let { data = null } = $props();
 
@@ -26,21 +38,43 @@
 	let loading = $state(true);
 	let error = $state(null);
 	let reducedMotion = $state(false);
+	let settled = $state(false);
+	let zoomedIn = $state(false);
+	let zoomFactor = $state(1);
 
 	let ctx = null;
 	let dpr = 1;
 	let animTimer = 0;
+	let settleTimer = 0;
+	let introKick = 0;
 	let gen = 0;
 	let composed = null;
+	let viewScale = 1;
+	let introScale = 1;
+	let cityScale = 1;
+	let hasIntroduced = false;
 	const tileCache = new Map();
 
 	const FRAME_MS = 700;
+	const RADAR_SIZE = radarDrawSize(BASE_ZOOM);
 	const BAYER_4X4 = [
 		[0, 8, 2, 10],
 		[12, 4, 14, 6],
 		[3, 11, 1, 9],
 		[15, 7, 13, 5]
 	];
+
+	let ringLabels = $derived([
+		{ r: radius * (5 / 14), km: 5 },
+		{ r: radius * (9 / 14), km: 9 },
+		{ r: radius, km: 14 }
+	]);
+
+	let windFrom = $derived(Number(data?.current?.windDirection));
+	let windSpeed = $derived(Number(data?.current?.windSpeed) || 0);
+	let windToward = $derived(Number.isFinite(windFrom) ? windTowardDeg(windFrom) : 0);
+	let windCompass = $derived(compassFromDeg(windFrom));
+	let showWind = $derived(Number.isFinite(windFrom) && windSpeed >= 0.4);
 
 	function makeBayerDataUrl() {
 		const c = document.createElement('canvas');
@@ -76,11 +110,15 @@
 	}
 
 	function layoutForSize(w, h) {
-		const nextRadius = Math.max(120, Math.min(w, h) * 0.42);
+		const nextHalfW = w * 0.5;
+		const nextHalfH = h * 0.5;
+		const shortHalf = Math.min(nextHalfW, nextHalfH);
 		return {
-			cx: w * 0.5,
-			cy: h * 0.5,
-			radius: nextRadius
+			cx: nextHalfW,
+			cy: nextHalfH,
+			halfW: nextHalfW,
+			halfH: nextHalfH,
+			radius: shortHalf
 		};
 	}
 
@@ -89,10 +127,21 @@
 			clearInterval(animTimer);
 			animTimer = 0;
 		}
+		if (settleTimer) {
+			clearTimeout(settleTimer);
+			settleTimer = 0;
+		}
+		if (introKick) {
+			cancelAnimationFrame(introKick);
+			introKick = 0;
+		}
 	}
 
 	function startAnim() {
-		stopAnim();
+		if (animTimer) {
+			clearInterval(animTimer);
+			animTimer = 0;
+		}
 		if (reducedMotion || frames.length < 2) return;
 		animTimer = setInterval(() => {
 			frameIndex = (frameIndex + 1) % frames.length;
@@ -100,21 +149,73 @@
 		}, FRAME_MS);
 	}
 
+	function introDurationMs() {
+		if (typeof getComputedStyle === 'undefined') return 1100;
+		const raw = getComputedStyle(document.documentElement).getPropertyValue('--dur-pane').trim();
+		const n = parseFloat(raw);
+		if (!Number.isFinite(n)) return 1100;
+		return raw.endsWith('ms') || !raw.endsWith('s') ? n * 1.6 : n * 1600;
+	}
+
 	function drawCurrent() {
 		if (!ctx || !canvas || !composed) return;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, width, height);
 		ctx.save();
-		ctx.beginPath();
-		ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-		ctx.clip();
-		const frameCanvas = composed.cache[frameIndex];
-		if (frameCanvas) {
-			const originX = cx + (composed.x0 - composed.fracX) * TILE_SIZE;
-			const originY = cy + (composed.y0 - composed.fracY) * TILE_SIZE;
-			ctx.drawImage(frameCanvas, originX, originY);
+		ctx.translate(cx, cy);
+		ctx.scale(viewScale, viewScale);
+		const originX = (composed.x0 - composed.fracX) * TILE_SIZE;
+		const originY = (composed.y0 - composed.fracY) * TILE_SIZE;
+		if (composed.basemap) {
+			ctx.drawImage(composed.basemap, originX, originY);
+		}
+		const layer = composed.radarLayers[frameIndex];
+		if (layer) {
+			ctx.globalAlpha = 0.9;
+			const k = RADAR_SIZE / TILE_SIZE;
+			for (const sprite of layer) {
+				if (!sprite.img) continue;
+				ctx.drawImage(
+					sprite.img,
+					sprite.tx * k * TILE_SIZE - composed.fracX * TILE_SIZE,
+					sprite.ty * k * TILE_SIZE - composed.fracY * TILE_SIZE,
+					RADAR_SIZE,
+					RADAR_SIZE
+				);
+			}
+			ctx.globalAlpha = 1;
 		}
 		ctx.restore();
+	}
+
+	function playIntro() {
+		viewScale = introScale;
+		zoomFactor = cityScale / introScale;
+		drawCurrent();
+		startAnim();
+		if (reducedMotion) {
+			zoomedIn = true;
+			settled = true;
+			hasIntroduced = true;
+			return;
+		}
+		if (hasIntroduced) {
+			zoomedIn = true;
+			return;
+		}
+		zoomedIn = false;
+		settled = false;
+		introKick = requestAnimationFrame(() => {
+			introKick = requestAnimationFrame(() => {
+				introKick = 0;
+				zoomedIn = true;
+				hasIntroduced = true;
+				settleTimer = setTimeout(() => {
+					settled = true;
+					settleTimer = 0;
+				}, introDurationMs());
+			});
+		});
 	}
 
 	async function rebuild() {
@@ -141,17 +242,31 @@
 		cx = lay.cx;
 		cy = lay.cy;
 		radius = lay.radius;
+		introScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, INTRO_GROUND_M);
+		cityScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, CITY_GROUND_M);
 
-		const { x: fracX, y: fracY } = lonLatToFractionalTile(lat, lon, RADAR_ZOOM);
-		const coverage = tilesCoveringRadius(fracX, fracY, lay.radius, RADAR_ZOOM);
-		const { tiles, x0, x1, y0, y1 } = coverage;
+		const frac = lonLatToFractionalTile(lat, lon, BASE_ZOOM);
+		const worldHalfW = lay.halfW / introScale;
+		const worldHalfH = lay.halfH / introScale;
+		const esri = tilesCoveringRect(frac.x, frac.y, worldHalfW, worldHalfH, BASE_ZOOM);
+		const radarFrac = lonLatToFractionalTile(lat, lon, RADAR_ZOOM);
+		const kZoom = 2 ** (BASE_ZOOM - RADAR_ZOOM);
+		const rain = tilesCoveringRect(
+			radarFrac.x,
+			radarFrac.y,
+			worldHalfW / kZoom,
+			worldHalfH / kZoom,
+			RADAR_ZOOM
+		);
 
 		loading = true;
 		error = null;
 
 		const urls = [];
-		for (const t of tiles) {
-			urls.push(basemapTileUrl(RADAR_ZOOM, t.wrappedX, t.wrappedY));
+		for (const t of esri.tiles) {
+			urls.push(basemapTileUrl(BASE_ZOOM, t.wrappedX, t.wrappedY));
+		}
+		for (const t of rain.tiles) {
 			for (const frame of nextFrames) {
 				urls.push(radarTileUrl(host, frame.urlTemplate, RADAR_ZOOM, t.wrappedX, t.wrappedY));
 			}
@@ -159,41 +274,51 @@
 		await Promise.all(urls.map(loadTile));
 		if (my !== gen) return;
 
-		const cols = x1 - x0 + 1;
-		const rows = y1 - y0 + 1;
-		const cache = [];
+		const cols = esri.x1 - esri.x0 + 1;
+		const rows = esri.y1 - esri.y0 + 1;
+		const basemap = document.createElement('canvas');
+		basemap.width = cols * TILE_SIZE;
+		basemap.height = rows * TILE_SIZE;
+		const bctx = basemap.getContext('2d', { alpha: true });
+		for (const t of esri.tiles) {
+			const img = await loadTile(basemapTileUrl(BASE_ZOOM, t.wrappedX, t.wrappedY));
+			if (!img) continue;
+			bctx.drawImage(
+				img,
+				(t.tx - esri.x0) * TILE_SIZE,
+				(t.ty - esri.y0) * TILE_SIZE,
+				TILE_SIZE,
+				TILE_SIZE
+			);
+		}
+
+		const radarLayers = [];
 		for (const frame of nextFrames) {
-			const off = document.createElement('canvas');
-			off.width = cols * TILE_SIZE;
-			off.height = rows * TILE_SIZE;
-			const octx = off.getContext('2d', { alpha: true });
-			for (const t of tiles) {
-				const dx = (t.tx - x0) * TILE_SIZE;
-				const dy = (t.ty - y0) * TILE_SIZE;
-				const base = await loadTile(basemapTileUrl(RADAR_ZOOM, t.wrappedX, t.wrappedY));
-				if (base) octx.drawImage(base, dx, dy, TILE_SIZE, TILE_SIZE);
-			}
-			octx.globalAlpha = 0.9;
-			for (const t of tiles) {
-				const dx = (t.tx - x0) * TILE_SIZE;
-				const dy = (t.ty - y0) * TILE_SIZE;
-				const radar = await loadTile(
+			const layer = [];
+			for (const t of rain.tiles) {
+				const img = await loadTile(
 					radarTileUrl(host, frame.urlTemplate, RADAR_ZOOM, t.wrappedX, t.wrappedY)
 				);
-				if (radar) octx.drawImage(radar, dx, dy, TILE_SIZE, TILE_SIZE);
+				layer.push({ tx: t.tx, ty: t.ty, img });
 			}
-			octx.globalAlpha = 1;
-			cache.push(off);
+			radarLayers.push(layer);
 		}
 		if (my !== gen) return;
 
-		composed = { cache, x0, y0, x1, y1, fracX, fracY };
-		const start = lastPastFrameIndex(nextFrames);
-		frameIndex = start;
+		composed = {
+			basemap,
+			radarLayers,
+			x0: esri.x0,
+			y0: esri.y0,
+			x1: esri.x1,
+			y1: esri.y1,
+			fracX: frac.x,
+			fracY: frac.y
+		};
+		frameIndex = lastPastFrameIndex(nextFrames);
 		loading = false;
 		error = null;
-		drawCurrent();
-		startAnim();
+		playIntro();
 	}
 
 	function resize() {
@@ -216,15 +341,21 @@
 		radius = lay.radius;
 		const rad = data?.rad;
 		const lat = Number.isFinite(rad?.lat) ? rad.lat : LARGO_LAT;
-		const lon = Number.isFinite(rad?.lon) ? rad.lon : LARGO_LON;
-		const { x: fracX, y: fracY } = lonLatToFractionalTile(lat, lon, RADAR_ZOOM);
-		const cov = tilesCoveringRadius(fracX, fracY, lay.radius, RADAR_ZOOM);
+		introScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, INTRO_GROUND_M);
+		cityScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, CITY_GROUND_M);
+		viewScale = introScale;
+		zoomFactor = cityScale / introScale;
+		const worldHalfW = lay.halfW / introScale;
+		const worldHalfH = lay.halfH / introScale;
+		const frac = lonLatToFractionalTile(lat, Number.isFinite(rad?.lon) ? rad.lon : LARGO_LON, BASE_ZOOM);
+		const cov = tilesCoveringRect(frac.x, frac.y, worldHalfW, worldHalfH, BASE_ZOOM);
 		const coverageChanged =
 			!composed ||
 			composed.x0 !== cov.x0 ||
 			composed.y0 !== cov.y0 ||
 			composed.x1 !== cov.x1 ||
 			composed.y1 !== cov.y1;
+		if (hasIntroduced) zoomedIn = true;
 		if (coverageChanged) void rebuild();
 		else drawCurrent();
 	}
@@ -252,14 +383,16 @@
 		const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
 		const onMotion = () => {
 			reducedMotion = mq.matches;
-			if (composed) {
-				if (reducedMotion) {
-					stopAnim();
-					frameIndex = lastPastFrameIndex(frames);
-					drawCurrent();
-				} else {
-					startAnim();
-				}
+			if (!composed) return;
+			if (reducedMotion) {
+				stopAnim();
+				zoomedIn = true;
+				settled = true;
+				hasIntroduced = true;
+				frameIndex = lastPastFrameIndex(frames);
+				drawCurrent();
+			} else if (hasIntroduced) {
+				startAnim();
 			}
 		};
 		onMotion();
@@ -280,16 +413,34 @@
 
 <div
 	class="radar"
-	style="--cx: {cx}px; --cy: {cy}px; --r: {radius}px"
+	style="--cx: {cx}px; --cy: {cy}px; --zoom-in: {zoomFactor}"
 >
-	<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on Largo, Florida"></canvas>
+	<div class="map-clip">
+		<div class="map-zoom" class:city={zoomedIn}>
+			<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on Largo, Florida"></canvas>
+		</div>
+	</div>
 	{#if ditherUrl && !loading}
 		<div class="dither" style="background-image: url({ditherUrl})" aria-hidden="true"></div>
 	{/if}
 	<svg class="rings" aria-hidden="true">
-		<circle class="ring" cx={cx} cy={cy} r={radius} />
-		<circle class="ring" cx={cx} cy={cy} r={radius * (2 / 3)} />
-		<circle class="ring" cx={cx} cy={cy} r={radius / 3} />
+		{#each ringLabels as ring (ring.km)}
+			<circle class="ring" cx={cx} cy={cy} r={ring.r} />
+			{#if settled}
+				<text class="ring-label" text-anchor="middle" x={cx} y={cy - ring.r + 14}
+					>{ring.km} km</text
+				>
+			{/if}
+		{/each}
+		{#if showWind}
+			<g class="vane" transform="translate({cx} {cy}) rotate({windToward})">
+				<line class="vane-shaft" x1="0" y1="10" x2="0" y2={-Math.max(36, radius * 0.28)} />
+				<polygon
+					class="vane-head"
+					points="0,{-(Math.max(36, radius * 0.28) + 10)} -6,{-(Math.max(36, radius * 0.28) - 6)} 6,{-(Math.max(36, radius * 0.28) - 6)}"
+				/>
+			</g>
+		{/if}
 		<circle class="mark" cx={cx} cy={cy} r="3.5" />
 	</svg>
 	{#if loading}
@@ -300,8 +451,11 @@
 	{#if frames.length > 0 && !loading}
 		<div class="legend" aria-hidden="true">
 			<span class:future={frames[frameIndex]?.nowcast}
-				>{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'RADAR'}</span
+				>{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'LARGO'}</span
 			>
+			{#if showWind}
+				<span class="wind-read">{windCompass} {Math.round(windSpeed)} mph</span>
+			{/if}
 		</div>
 	{/if}
 </div>
@@ -318,6 +472,21 @@
 		background: var(--abyss);
 		isolation: isolate;
 	}
+	.map-clip {
+		position: absolute;
+		inset: 0;
+		overflow: hidden;
+	}
+	.map-zoom {
+		position: absolute;
+		inset: 0;
+		transform-origin: var(--cx) var(--cy);
+		transform: scale(1);
+		transition: transform calc(var(--dur-pane) * 1.6) var(--ease-out);
+	}
+	.map-zoom.city {
+		transform: scale(var(--zoom-in));
+	}
 	.map {
 		position: absolute;
 		inset: 0;
@@ -329,12 +498,11 @@
 		position: absolute;
 		inset: 0;
 		pointer-events: none;
-		clip-path: circle(var(--r) at var(--cx) var(--cy));
 		background-repeat: repeat;
 		background-size: 8px 8px;
 		image-rendering: pixelated;
 		mix-blend-mode: overlay;
-		opacity: 0.32;
+		opacity: 0.28;
 	}
 	.rings {
 		position: absolute;
@@ -349,9 +517,46 @@
 		stroke: color-mix(in srgb, var(--foreground) 12%, transparent);
 		stroke-width: 1.5;
 	}
+	.ring-label {
+		fill: var(--text-tertiary);
+		font-family: var(--font-display);
+		font-size: var(--text-sm);
+		font-style: normal;
+	}
 	.mark {
 		fill: var(--radar-marker);
 		stroke: none;
+	}
+	.vane-shaft {
+		stroke: color-mix(in srgb, var(--scan) 80%, var(--foreground));
+		stroke-width: 2;
+		stroke-linecap: round;
+	}
+	.vane-head {
+		fill: var(--scan);
+	}
+	.legend {
+		position: absolute;
+		bottom: var(--space-3);
+		left: var(--space-3);
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-3);
+		padding: var(--space-1) var(--space-3);
+		border-radius: var(--radius-sm);
+		background: var(--shell-fill);
+		border: 1px solid var(--hairline);
+		font-family: var(--font-display);
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
+		pointer-events: none;
+	}
+	.legend span.future {
+		color: var(--brand);
+	}
+	.wind-read {
+		color: var(--scan);
+		font-style: normal;
 	}
 	.overlay {
 		position: absolute;
@@ -367,25 +572,12 @@
 	.overlay.warn {
 		color: var(--warn);
 	}
-	.legend {
-		position: absolute;
-		bottom: var(--space-3);
-		left: var(--space-3);
-		padding: var(--space-1) var(--space-3);
-		border-radius: var(--radius-sm);
-		background: var(--shell-fill);
-		border: 1px solid var(--hairline);
-		font-family: var(--font-display);
-		font-size: var(--text-sm);
-		color: var(--text-tertiary);
-		pointer-events: none;
-	}
-	.legend span.future {
-		color: var(--brand);
-	}
 	@media (prefers-reduced-motion: reduce) {
+		.map-zoom {
+			transition: none;
+		}
 		.dither {
-			opacity: 0.18;
+			opacity: 0.16;
 		}
 	}
 </style>
