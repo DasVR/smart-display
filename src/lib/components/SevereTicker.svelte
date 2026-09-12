@@ -13,7 +13,6 @@
 		<div class="viewport">
 			<div class="track">
 				<span class="copy">{text}</span>
-				<span class="copy" aria-hidden="true">{text}</span>
 			</div>
 		</div>
 	</div>
@@ -51,9 +50,9 @@
 		mask-image: linear-gradient(90deg, transparent, #000 1.25rem, #000 calc(100% - 1.5rem), transparent);
 	}
 	.track {
-		display: flex;
+		display: inline-flex;
 		width: max-content;
-		gap: 4rem;
+		padding-left: 100%;
 		will-change: transform;
 	}
 	.copy {
@@ -64,10 +63,11 @@
 		color: var(--foreground);
 		white-space: nowrap;
 		padding-block: var(--space-1);
+		padding-right: 4rem;
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.track {
-			animation: roll 32s linear infinite;
+			animation: roll 22s linear infinite;
 		}
 	}
 	@keyframes roll {
@@ -75,7 +75,7 @@
 			transform: translateX(0);
 		}
 		to {
-			transform: translateX(calc(-50% - 2rem));
+			transform: translateX(-100%);
 		}
 	}
 </style>

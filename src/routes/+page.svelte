@@ -321,7 +321,7 @@
 			};
 		}
 		if (wx === 'rain') {
-			return { prediction: { rain30min: 0.72, rain60min: 0.8, rain120min: 0.2 } };
+			return { alerts: [], prediction: { rain30min: 0.72, rain60min: 0.8, rain120min: 0.2, approaching: true, etaMin: 18, source: 'nowcast+forecast' } };
 		}
 		if (wx === 'advisory') {
 			return {
