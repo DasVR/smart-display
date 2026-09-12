@@ -38,11 +38,14 @@
 	let error = $state(null);
 	let reducedMotion = $state(false);
 	let settled = $state(false);
+	let zoomedIn = $state(false);
+	let zoomFactor = $state(1);
 
 	let ctx = null;
 	let dpr = 1;
 	let animTimer = 0;
-	let introRaf = 0;
+	let settleTimer = 0;
+	let introKick = 0;
 	let gen = 0;
 	let composed = null;
 	let viewScale = 1;
@@ -52,7 +55,6 @@
 	const tileCache = new Map();
 
 	const FRAME_MS = 700;
-	const INTRO_MS = 1100;
 	const RADAR_SIZE = radarDrawSize(BASE_ZOOM);
 	const BAYER_4X4 = [
 		[0, 8, 2, 10],
@@ -109,18 +111,18 @@
 		};
 	}
 
-	function easeOutCubic(u) {
-		return 1 - (1 - u) ** 3;
-	}
-
 	function stopAnim() {
 		if (animTimer) {
 			clearInterval(animTimer);
 			animTimer = 0;
 		}
-		if (introRaf) {
-			cancelAnimationFrame(introRaf);
-			introRaf = 0;
+		if (settleTimer) {
+			clearTimeout(settleTimer);
+			settleTimer = 0;
+		}
+		if (introKick) {
+			cancelAnimationFrame(introKick);
+			introKick = 0;
 		}
 	}
 
@@ -136,14 +138,19 @@
 		}, FRAME_MS);
 	}
 
+	function introDurationMs() {
+		if (typeof getComputedStyle === 'undefined') return 1100;
+		const raw = getComputedStyle(document.documentElement).getPropertyValue('--dur-pane').trim();
+		const n = parseFloat(raw);
+		if (!Number.isFinite(n)) return 1100;
+		return raw.endsWith('ms') || !raw.endsWith('s') ? n * 1.6 : n * 1600;
+	}
+
 	function drawCurrent() {
 		if (!ctx || !canvas || !composed) return;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, width, height);
 		ctx.save();
-		ctx.beginPath();
-		ctx.arc(cx, cy, radius, 0, Math.PI * 2);
-		ctx.clip();
 		ctx.translate(cx, cy);
 		ctx.scale(viewScale, viewScale);
 		const originX = (composed.x0 - composed.fracX) * TILE_SIZE;
@@ -171,36 +178,29 @@
 	}
 
 	function playIntro() {
-		settled = false;
+		viewScale = introScale;
+		zoomFactor = cityScale / introScale;
+		drawCurrent();
+		startAnim();
 		if (reducedMotion || hasIntroduced) {
-			viewScale = cityScale;
-			hasIntroduced = true;
+			zoomedIn = true;
 			settled = true;
-			drawCurrent();
-			startAnim();
+			hasIntroduced = true;
 			return;
 		}
-		viewScale = introScale;
-		drawCurrent();
-		const t0 = performance.now();
-		const from = introScale;
-		const to = cityScale;
-		function step(now) {
-			const u = Math.min(1, (now - t0) / INTRO_MS);
-			viewScale = from + (to - from) * easeOutCubic(u);
-			drawCurrent();
-			if (u < 1) {
-				introRaf = requestAnimationFrame(step);
-				return;
-			}
-			introRaf = 0;
-			viewScale = to;
-			hasIntroduced = true;
-			settled = true;
-			drawCurrent();
-			startAnim();
-		}
-		introRaf = requestAnimationFrame(step);
+		zoomedIn = false;
+		settled = false;
+		introKick = requestAnimationFrame(() => {
+			introKick = requestAnimationFrame(() => {
+				introKick = 0;
+				zoomedIn = true;
+				hasIntroduced = true;
+				settleTimer = setTimeout(() => {
+					settled = true;
+					settleTimer = 0;
+				}, introDurationMs());
+			});
+		});
 	}
 
 	async function rebuild() {
@@ -321,6 +321,8 @@
 		const lat = Number.isFinite(rad?.lat) ? rad.lat : LARGO_LAT;
 		introScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, INTRO_GROUND_M);
 		cityScale = scaleForGroundRadius(lay.radius, lat, BASE_ZOOM, CITY_GROUND_M);
+		viewScale = introScale;
+		zoomFactor = cityScale / introScale;
 		const worldRadius = lay.radius / introScale;
 		const frac = lonLatToFractionalTile(lat, Number.isFinite(rad?.lon) ? rad.lon : LARGO_LON, BASE_ZOOM);
 		const cov = tilesCoveringRadius(frac.x, frac.y, worldRadius, BASE_ZOOM);
@@ -330,7 +332,7 @@
 			composed.y0 !== cov.y0 ||
 			composed.x1 !== cov.x1 ||
 			composed.y1 !== cov.y1;
-		if (hasIntroduced) viewScale = cityScale;
+		if (hasIntroduced) zoomedIn = true;
 		if (coverageChanged) void rebuild();
 		else drawCurrent();
 	}
@@ -361,7 +363,7 @@
 			if (!composed) return;
 			if (reducedMotion) {
 				stopAnim();
-				viewScale = cityScale;
+				zoomedIn = true;
 				settled = true;
 				hasIntroduced = true;
 				frameIndex = lastPastFrameIndex(frames);
@@ -388,9 +390,13 @@
 
 <div
 	class="radar"
-	style="--cx: {cx}px; --cy: {cy}px; --r: {radius}px"
+	style="--cx: {cx}px; --cy: {cy}px; --r: {radius}px; --zoom-in: {zoomFactor}"
 >
-	<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on Largo, Florida"></canvas>
+	<div class="map-clip">
+		<div class="map-zoom" class:city={zoomedIn}>
+			<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on Largo, Florida"></canvas>
+		</div>
+	</div>
 	{#if ditherUrl && !loading}
 		<div class="dither" style="background-image: url({ditherUrl})" aria-hidden="true"></div>
 	{/if}
@@ -430,6 +436,21 @@
 		border-radius: var(--radius-bezel-inner);
 		background: var(--abyss);
 		isolation: isolate;
+	}
+	.map-clip {
+		position: absolute;
+		inset: 0;
+		clip-path: circle(var(--r) at var(--cx) var(--cy));
+	}
+	.map-zoom {
+		position: absolute;
+		inset: 0;
+		transform-origin: var(--cx) var(--cy);
+		transform: scale(1);
+		transition: transform calc(var(--dur-pane) * 1.6) var(--ease-out);
+	}
+	.map-zoom.city {
+		transform: scale(var(--zoom-in));
 	}
 	.map {
 		position: absolute;
@@ -503,6 +524,9 @@
 		color: var(--brand);
 	}
 	@media (prefers-reduced-motion: reduce) {
+		.map-zoom {
+			transition: none;
+		}
 		.dither {
 			opacity: 0.16;
 		}
