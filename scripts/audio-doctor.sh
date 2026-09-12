@@ -62,7 +62,13 @@ echo
 echo "--- AirPlay (shairport-sync) ---"
 if command -v shairport-sync >/dev/null 2>&1; then
 	echo "binary: $(command -v shairport-sync)"
-	shairport-sync -V 2>/dev/null || true
+	ver="$(shairport-sync -V 2>/dev/null || true)"
+	echo "$ver"
+	if echo "$ver" | grep -q AirPlay2; then
+		echo "AirPlay 2: yes (Apple Music can list this box)"
+	else
+		echo "AirPlay 2: NO (Apple Music Now Playing will not show this box)"
+	fi
 else
 	echo "shairport-sync not installed"
 fi
@@ -70,6 +76,8 @@ systemctl --user status smart-display-airplay --no-pager 2>/dev/null || echo "us
 systemctl --user status smart-display-airplay-meta --no-pager 2>/dev/null || true
 systemctl is-active avahi-daemon 2>/dev/null || echo "avahi-daemon: not active"
 systemctl is-active nqptp 2>/dev/null || echo "nqptp: not active (needed for AirPlay 2)"
+echo "mDNS AirPlay services:"
+timeout 8 avahi-browse -prt _airplay._tcp 2>/dev/null || echo "avahi-browse not available or none advertised"
 echo
 
 echo "--- services ---"

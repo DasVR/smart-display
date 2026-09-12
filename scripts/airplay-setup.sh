@@ -1,20 +1,19 @@
 #!/usr/bin/env bash
-# Install and start an AirPlay speaker named "Smart Display" so Apple Music
-# can hand off audio the same way it does to a TV. Prefers AirPlay 2
-# (nqptp + shairport-sync built from source). Falls back to the distro
-# AirPlay 1 package if that build cannot run here.
+# Install and start an AirPlay 2 speaker named "Smart Display" so Apple Music
+# lists it next to an Apple TV. AirPlay 1 is not enough: current iOS Now
+# Playing sheets only show AirPlay 2 receivers.
 set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/home/das/projects/smart-display}"
 AIRPLAY_NAME="${AIRPLAY_NAME:-Smart Display}"
 BUILD_DIR="${SHAIRPORT_BUILD_DIR:-/tmp/smart-display-airplay-build}"
 
-echo "=== smart-display AirPlay setup ==="
+echo "=== smart-display AirPlay 2 setup ==="
 
-echo "[1/5] installing avahi and build deps"
+echo "[1/6] installing avahi, nqptp/shairport build deps, and mDNS tools"
 sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
-	avahi-daemon \
+	avahi-daemon avahi-utils \
 	pulseaudio-utils \
 	build-essential git autoconf automake libtool pkg-config xmltoman \
 	libpopt-dev libconfig-dev libasound2-dev libpulse-dev \
@@ -25,13 +24,22 @@ sudo apt-get install -y --no-install-recommends libpipewire-0.3-dev || true
 
 sudo systemctl enable --now avahi-daemon
 
+if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q 'Status: active'; then
+	echo "opening AirPlay / mDNS ports on ufw"
+	sudo ufw allow 5353/udp comment 'mDNS' || true
+	sudo ufw allow 7000/tcp comment 'AirPlay 2' || true
+	sudo ufw allow 319:320/udp comment 'nqptp' || true
+	sudo ufw allow 5000/tcp comment 'AirPlay audio' || true
+	sudo ufw allow 6001:6010/udp comment 'AirPlay timing' || true
+fi
+
 have_airplay2() {
 	command -v shairport-sync >/dev/null 2>&1 || return 1
 	shairport-sync -V 2>/dev/null | grep -q 'AirPlay2'
 }
 
 build_airplay2() {
-	echo "[2/5] building nqptp + shairport-sync with AirPlay 2"
+	echo "[2/6] building nqptp + shairport-sync with AirPlay 2"
 	rm -rf "$BUILD_DIR"
 	mkdir -p "$BUILD_DIR"
 
@@ -45,6 +53,7 @@ build_airplay2() {
 	)
 	sudo systemctl daemon-reload
 	sudo systemctl enable --now nqptp
+	sudo systemctl restart nqptp
 
 	git clone --depth 1 https://github.com/mikebrady/shairport-sync.git "$BUILD_DIR/shairport-sync"
 	(
@@ -63,23 +72,24 @@ build_airplay2() {
 	)
 }
 
-if [ "${SHAIRPORT_SKIP_AIRPLAY2:-0}" = "1" ]; then
-	echo "[2/5] skipping AirPlay 2 build (SHAIRPORT_SKIP_AIRPLAY2=1)"
-	sudo apt-get install -y shairport-sync
-elif have_airplay2; then
-	echo "[2/5] AirPlay 2 already present ($(command -v shairport-sync))"
-	sudo systemctl enable --now nqptp 2>/dev/null || true
+if have_airplay2; then
+	echo "[2/6] AirPlay 2 already present ($(command -v shairport-sync))"
+	sudo systemctl enable --now nqptp
+	sudo systemctl restart nqptp
 else
-	if ! build_airplay2; then
-		echo "AirPlay 2 build failed; installing distro shairport-sync (AirPlay 1)" >&2
-		sudo apt-get install -y shairport-sync
-	fi
+	build_airplay2
 fi
 
-# Distro unit runs as its own user and would collide on the mDNS name.
+if ! have_airplay2; then
+	echo "ERROR: shairport-sync is not AirPlay 2. Apple Music will not list this computer." >&2
+	echo "Install failed. Check the build log above." >&2
+	exit 1
+fi
+
+# Distro AirPlay 1 unit would collide on the mDNS name and still not show in Music.
 sudo systemctl disable --now shairport-sync.service 2>/dev/null || true
 
-echo "[3/5] writing ~/.config/shairport-sync.conf"
+echo "[3/6] writing ~/.config/shairport-sync.conf"
 mkdir -p "$HOME/.config"
 META_PIPE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/shairport-sync-metadata"
 cat > "$HOME/.config/shairport-sync.conf" <<CONF
@@ -87,11 +97,14 @@ general = {
   name = "${AIRPLAY_NAME}";
   interpolation = "basic";
   output_backend = "pa";
+  mdns_backend = "avahi";
   ignore_volume_control = "no";
 };
 
 sessioncontrol = {
   run_this_before_play_begins = "${PROJECT_DIR}/scripts/airplay-started.sh";
+  allow_session_interruption = "yes";
+  session_timeout = 120;
 };
 
 pa = {
@@ -106,7 +119,7 @@ metadata = {
 };
 CONF
 
-echo "[4/5] installing user units"
+echo "[4/6] installing user units"
 mkdir -p "$HOME/.config/systemd/user"
 cp "$PROJECT_DIR/smart-display-airplay.service" "$HOME/.config/systemd/user/"
 cp "$PROJECT_DIR/smart-display-airplay-meta.service" "$HOME/.config/systemd/user/"
@@ -114,16 +127,27 @@ chmod +x "$PROJECT_DIR/scripts/airplay-run.sh" \
 	"$PROJECT_DIR/scripts/airplay-started.sh" \
 	"$PROJECT_DIR/scripts/airplay-metadata.py"
 
-echo "[5/5] enabling AirPlay user services"
+echo "[5/6] enabling AirPlay user services"
 systemctl --user daemon-reload
 systemctl --user enable --now smart-display-airplay.service
 systemctl --user enable --now smart-display-airplay-meta.service
 systemctl --user restart smart-display-airplay.service smart-display-airplay-meta.service
 
-echo
-if command -v shairport-sync >/dev/null 2>&1 && shairport-sync -V 2>/dev/null | grep -q AirPlay2; then
-	echo "AirPlay 2 is ready. In Apple Music, tap the AirPlay icon and choose ${AIRPLAY_NAME}."
-else
-	echo "AirPlay 1 is ready (distro package). Apple Music still lists ${AIRPLAY_NAME} as a speaker."
-	echo "TV-style AirPlay 2 handoff needs the source build; re-run without SHAIRPORT_SKIP_AIRPLAY2=1."
+echo "[6/6] checking that ${AIRPLAY_NAME} is advertising on mDNS"
+sleep 3
+systemctl --user --no-pager --full status smart-display-airplay.service || true
+systemctl --no-pager --full status nqptp || true
+echo "--- avahi AirPlay browse ---"
+if command -v avahi-browse >/dev/null 2>&1; then
+	timeout 8 avahi-browse -prt _airplay._tcp || true
+	if timeout 8 avahi-browse -prt _airplay._tcp 2>/dev/null | grep -qi "${AIRPLAY_NAME}"; then
+		echo "mDNS is publishing ${AIRPLAY_NAME}."
+	else
+		echo "WARNING: avahi-browse did not see ${AIRPLAY_NAME} yet. Apple Music will stay empty until it does." >&2
+		echo "Phone and kiosk must be on the same LAN. Wait ~10s and reopen the AirPlay list." >&2
+	fi
 fi
+
+echo
+echo "AirPlay 2 is running. In Apple Music, tap the AirPlay icon and choose ${AIRPLAY_NAME}."
+echo "It appears as a speaker row under iPhone Speaker, same list as an Apple TV."

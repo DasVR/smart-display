@@ -1,16 +1,39 @@
 name: Bluetooth Audio Setup
 
-# Manual, one-off provisioning: Bluetooth A2DP speaker, AirPlay receiver,
-# default sink pick, and a doctor report. Not tied to push-to-master.
+# Installs AirPlay 2 + Bluetooth speaker audio on the kiosk. Runs on
+# workflow_dispatch and whenever these setup files land on master, so a
+# merge actually advertises the speaker instead of only updating the app.
 on:
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - 'scripts/airplay-setup.sh'
+      - 'scripts/airplay-run.sh'
+      - 'scripts/airplay-started.sh'
+      - 'scripts/airplay-metadata.py'
+      - 'scripts/speaker-audio-setup.sh'
+      - 'scripts/bluetooth-audio-setup.sh'
+      - 'scripts/bt-audio-loopback.sh'
+      - 'scripts/audio-doctor.sh'
+      - 'scripts/audio-pick-sink.mjs'
+      - 'smart-display-airplay.service'
+      - 'smart-display-airplay-meta.service'
+      - '.github/workflows/bluetooth-setup.yml'
 
 jobs:
   bluetooth-setup:
     runs-on: [self-hosted, linux, x64, kiosk]
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Sync kiosk project dir
+        run: |
+          cd /home/das/projects/smart-display
+          git fetch origin "${GITHUB_SHA}"
+          git reset --hard "${GITHUB_SHA}"
 
       - name: Run speaker-audio-setup.sh
         run: |
@@ -36,11 +59,13 @@ jobs:
           echo "--- AirPlay user units ---"
           systemctl --user status smart-display-airplay --no-pager || true
           systemctl --user status smart-display-airplay-meta --no-pager || true
-          echo "--- shairport-sync -V ---"
+          echo "--- shairport-sync -V (must include AirPlay2) ---"
           shairport-sync -V 2>/dev/null || true
           echo "--- avahi / nqptp ---"
           systemctl is-active avahi-daemon || true
           systemctl is-active nqptp || true
+          echo "--- mDNS AirPlay advertisement ---"
+          timeout 8 avahi-browse -prt _airplay._tcp || true
           echo "--- wpctl status ---"
           wpctl status || true
           echo "--- pactl sources (bluez_input should appear when a phone is connected) ---"
@@ -60,3 +85,5 @@ jobs:
           cat /home/das/.config/wireplumber/wireplumber.conf.d/51-bluez-a2dp-sink.conf || true
           echo "--- wireplumber journal ---"
           journalctl --user -u wireplumber -b --no-pager 2>&1 | tail -40 || true
+          echo "--- airplay journal ---"
+          journalctl --user -u smart-display-airplay -b --no-pager 2>&1 | tail -40 || true
