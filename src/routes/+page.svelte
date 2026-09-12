@@ -596,7 +596,6 @@
 		width: max-content;
 		max-width: 100%;
 		gap: var(--space-2);
-		margin-top: var(--space-6);
 		padding: 0;
 		min-width: 0;
 		border: 0;

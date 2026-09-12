@@ -12,6 +12,17 @@ export const BASE_ZOOM = 11;
 export const CITY_GROUND_M = 14000;
 /** Ground radius at intro start (Tampa Bay, then we push in). */
 export const INTRO_GROUND_M = 38000;
+/** Widest adaptive ground radius. Deliberately kept inside INTRO_GROUND_M
+ *  rather than past it: those tiles are already fetched for the intro
+ *  animation, so widening out to catch an approaching system costs a CSS
+ *  zoom, not the extra basemap tiles a genuinely wider fetch would need
+ *  (the tile count grows with the square of the radius — going much past
+ *  the intro bound turned a several-tile fetch into hundreds). */
+export const STORM_GROUND_M = 34000;
+
+/** RainViewer serves the same tile cell at 256px or 512px — 512 is a real
+ *  sharper raster for identical coverage, not just upscaling. */
+export const RADAR_TILE_PX = 512;
 
 export const ESRI_DARK_BASE =
 	'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile';
@@ -58,7 +69,7 @@ export function normalizeRadarPath(path) {
 export function radarTileUrl(host, path, z, x, y) {
 	const h = String(host || '').replace(/\/+$/, '');
 	const p = normalizeRadarPath(path);
-	return `${h}${p}/256/${z}/${x}/${y}/2/1_1.png`;
+	return `${h}${p}/${RADAR_TILE_PX}/${z}/${x}/${y}/2/1_1.png`;
 }
 
 /** ESRI MapServer tiles are `{z}/{y}/{x}`, not OSM `{z}/{x}/{y}`. */

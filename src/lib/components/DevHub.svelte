@@ -159,7 +159,7 @@
 	}
 	.monitor-wrap {
 		flex: 1;
-		min-height: 0;
+		min-height: min-content;
 		min-width: 0;
 		overflow: visible;
 		z-index: 1;
