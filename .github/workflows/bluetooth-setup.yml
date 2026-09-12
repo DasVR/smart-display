@@ -36,3 +36,11 @@ jobs:
             || systemctl --user status smart-display-mpris-proxy --no-pager || true
           echo "--- wpctl status (find the analog/headphone-jack sink ID here) ---"
           wpctl status || true
+          echo "--- bluetooth main.conf (confirm the Audio/Speaker class actually landed) ---"
+          cat /etc/bluetooth/main.conf || true
+          echo "--- ALSA cards (is there a real sound card at all?) ---"
+          cat /proc/asound/cards 2>/dev/null || echo "no /proc/asound/cards"
+          aplay -l 2>&1 || true
+          echo "--- PCI/USB audio hardware ---"
+          lspci -nnk 2>/dev/null | grep -iA3 audio || echo "lspci not available or no PCI audio device"
+          lsusb 2>/dev/null | grep -i audio || true
