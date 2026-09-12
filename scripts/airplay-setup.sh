@@ -15,12 +15,13 @@ sudo apt-get update
 sudo apt-get install -y --no-install-recommends \
 	avahi-daemon avahi-utils alsa-utils \
 	pulseaudio-utils \
-	build-essential git autoconf automake libtool pkg-config xmltoman \
+	build-essential git autoconf automake libtool pkg-config xmltoman xxd \
 	libpopt-dev libconfig-dev libasound2-dev libpulse-dev \
 	libavahi-client-dev libssl-dev libsoxr-dev \
-	libplist-dev libplist-utils libsodium-dev libavcodec-dev libavformat-dev \
-	libavutil-dev libswresample-dev
+	libplist-dev libplist-utils libsodium-dev uuid-dev libgcrypt-dev \
+	libavcodec-dev libavformat-dev libavutil-dev libswresample-dev
 sudo apt-get install -y --no-install-recommends libpipewire-0.3-dev || true
+sudo apt-get install -y --no-install-recommends systemd-dev || true
 if ! command -v plistutil >/dev/null 2>&1; then
 	echo "ERROR: plistutil is missing (package libplist-utils). AirPlay 2 cannot build." >&2
 	exit 1

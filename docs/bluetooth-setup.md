@@ -61,11 +61,10 @@ That runs Bluetooth setup, AirPlay 2 setup, sink picking, then
 `./scripts/audio-doctor.sh`.
 
 A dashboard deploy (`Deploy + Reboot Display`) does **not** start the
-AirPlay speaker. The `Bluetooth Audio Setup` workflow compiles
-`shairport-sync` with AirPlay 2 on the kiosk. That job needs
-`libplist-utils` (`plistutil`) or configure exits before anything is
-advertised, which is why Apple Music can still show only the phone and
-the TV after a merge.
+AirPlay speaker. Watch **Bluetooth Audio Setup** on GitHub Actions.
+When that job is green, reopen Apple Music: **Smart Display** should
+appear under iPhone Speaker, same list as the TV. If the job is red, the
+speaker is not on the network yet.
 
 **If it just added you to the `audio` group, reboot** (or fully log out
 and back in) before testing sound. PipeWire's already-running session
