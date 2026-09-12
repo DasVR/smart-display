@@ -6,13 +6,19 @@ jack), and have the dashboard automatically jump to the Music view and
 show what's playing — title, artist, album art, and time-synced lyrics
 when available.
 
-**None of this was tested against real hardware.** It was written from a
-sandboxed dev container with no Bluetooth adapter, no paired phone, and
-no speaker attached — there was nothing to test it against. Everything
-below is standard, well-documented Linux Bluetooth-audio plumbing
-(BlueZ A2DP sink role + PipeWire routing + `mpris-proxy` for AVRCP
-metadata), but treat the whole thing as a first draft to verify against
-what your host actually does, not a known-working recipe.
+This was originally written from a sandboxed dev container with no
+Bluetooth adapter and nothing to test against. It has since been run for
+real on the kiosk host (via the `bluetooth-setup` GitHub Actions workflow,
+on the self-hosted runner) and two real bugs turned up and were fixed:
+the audio-sink role config was in a `.lua` format WirePlumber 0.5 no
+longer reads at all (silently ignored, replaced with the current `.conf`
+format), and the host user wasn't in the `audio` group so PipeWire
+couldn't open any real sound card regardless of Bluetooth config (fixed
+by the script, but needs a fresh login/reboot to take effect — see
+below). Bluetooth pairing, the systemd services, and the class/timeout
+config are confirmed working on real hardware; actual phone-to-speaker
+audio still needs your own verification pass once the group change is
+live.
 
 ## How the pieces fit together
 
@@ -49,10 +55,17 @@ cd /home/das/projects/smart-display
 ./scripts/bluetooth-audio-setup.sh
 ```
 
-This installs `bluez`, `bluez-tools`, and the D-Bus Python bindings,
+This installs `bluez`, `bluez-tools`, and the D-Bus Python bindings, adds
+the current user to the `audio` group if it isn't already a member,
 configures BlueZ's device class + timeouts, writes the PipeWire
 `a2dp_sink` config, installs and enables the three systemd services
 above, and leaves the adapter powered on and discoverable.
+
+**If it just added you to the `audio` group, reboot (or fully log out and
+back in) before testing audio.** Group membership only applies to new
+sessions — PipeWire's already-running session won't pick it up on its
+own, and until it does, `wpctl status` will keep showing only a "Dummy
+Output" sink no matter how correct everything else is.
 
 ## Verifying it actually works
 
