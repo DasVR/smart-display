@@ -15,7 +15,6 @@
 		CITY_GROUND_M,
 		INTRO_GROUND_M,
 		STORM_GROUND_M,
-		RADAR_TILE_PX,
 		lonLatToFractionalTile,
 		radarTileUrl,
 		basemapTileUrl,
@@ -25,6 +24,16 @@
 		metersPerPixel,
 		radarDrawSize
 	} from '$lib/radarMap.js';
+	import {
+		RADAR_THRESHOLDS,
+		marchingSquares,
+		chaikinSmooth,
+		lerpFields,
+		lerpColor,
+		extractField,
+		fieldGridSize,
+		fieldExtent
+	} from '$lib/radarVector.js';
 	import { compassFromDeg, windTowardDeg } from '$lib/atmosphere.js';
 
 	let { data = null } = $props();
@@ -85,12 +94,12 @@
 	// motion rather than a slideshow.
 	const CROSSFADE_MS = 260;
 	const RADAR_SIZE = radarDrawSize(BASE_ZOOM);
-	// RainViewer's native cell, in the same world-pixel units sprites are
-	// placed in. A blur a bit over a third of one cell - set *inside* the
-	// pan/zoom transform below, so it scales with the view like real detail
-	// would - softens the raster's hard block edges without smearing
-	// distinct precip shapes into something the data didn't say.
-	const RADAR_SOFTEN_PX = (RADAR_SIZE / RADAR_TILE_PX) * 0.35;
+	// The precip layer is rendered as vector regions (marching squares over a
+	// small intensity grid, corner-smoothed), not a stretched bitmap - so it
+	// scales cleanly at any zoom without pixelating, and a transition can
+	// re-trace the contours through a blended grid instead of cross-fading
+	// two rasters in place.
+	const FIELD_TARGET_COLS = 72;
 	const BAYER_4X4 = [
 		[0, 8, 2, 10],
 		[12, 4, 14, 6],
@@ -286,66 +295,33 @@
 		scheduleNativeSnap(targetScale);
 	}
 
-	/** Builds a transparent-background canvas holding just the current
-	 *  frame's radar sprites (no basemap), in the same pixel grid as
-	 *  `composed.basemap`, so precipitation alpha can be sampled without the
-	 *  opaque basemap fill destroying it. */
-	function buildRadarAlphaCanvas(layer) {
-		const cols = composed.x1 - composed.x0 + 1;
-		const rows = composed.y1 - composed.y0 + 1;
-		const c = document.createElement('canvas');
-		c.width = cols * TILE_SIZE;
-		c.height = rows * TILE_SIZE;
-		const actx = c.getContext('2d', { alpha: true });
-		const k = RADAR_SIZE / TILE_SIZE;
-		for (const sprite of layer) {
-			if (!sprite.img) continue;
-			actx.drawImage(
-				sprite.img,
-				(sprite.tx * k - composed.x0) * TILE_SIZE,
-				(sprite.ty * k - composed.y0) * TILE_SIZE,
-				RADAR_SIZE,
-				RADAR_SIZE
-			);
-		}
-		return c;
-	}
-
 	/** Average precip alpha coverage across the circle currently in view,
 	 *  and just its outer edge — strong coverage right at the edge means the
-	 *  system is very likely bigger than what's on screen. */
+	 *  system is very likely bigger than what's on screen. Reads straight
+	 *  from the already-extracted intensity grid - no raster/getImageData
+	 *  work needed at assessment time. */
 	function assessPrecipCoverage() {
 		if (!composed) return null;
-		const layer = composed.radarLayers[frameIndex];
-		if (!layer) return null;
-		const alphaCanvas = buildRadarAlphaCanvas(layer);
-		const actx = alphaCanvas.getContext('2d');
-		const homeX = (composed.fracX - composed.x0) * TILE_SIZE;
-		const homeY = (composed.fracY - composed.y0) * TILE_SIZE;
-		const r = groundMForT(adaptiveT) / metersPerPixel(currentLat, BASE_ZOOM);
-		const sx = Math.max(0, Math.floor(homeX - r));
-		const sy = Math.max(0, Math.floor(homeY - r));
-		const ex = Math.min(alphaCanvas.width, Math.ceil(homeX + r));
-		const ey = Math.min(alphaCanvas.height, Math.ceil(homeY + r));
-		const w = ex - sx;
-		const h = ey - sy;
-		if (w <= 0 || h <= 0) return null;
-		const { data } = actx.getImageData(sx, sy, w, h);
-		const cx0 = homeX - sx;
-		const cy0 = homeY - sy;
-		const edgeR2 = (r * 0.72) ** 2;
-		const fullR2 = r * r;
+		const field = composed.fields[frameIndex];
+		if (!field) return null;
+		const { alpha, cols, rows } = field;
+		const homeGX = (composed.fracX - composed.x0) * TILE_SIZE / composed.fieldCellW;
+		const homeGY = (composed.fracY - composed.y0) * TILE_SIZE / composed.fieldCellH;
+		const rWorld = groundMForT(adaptiveT) / metersPerPixel(currentLat, BASE_ZOOM);
+		const rG = rWorld / ((composed.fieldCellW + composed.fieldCellH) / 2);
+		const edgeR2 = (rG * 0.72) ** 2;
+		const fullR2 = rG * rG;
 		let edgeAlpha = 0,
 			edgeCount = 0,
 			totalAlpha = 0,
 			totalCount = 0;
-		for (let y = 0; y < h; y++) {
-			const dy = y - cy0;
-			for (let x = 0; x < w; x++) {
-				const dx = x - cx0;
+		for (let y = 0; y < rows; y++) {
+			const dy = y - homeGY;
+			for (let x = 0; x < cols; x++) {
+				const dx = x - homeGX;
 				const d2 = dx * dx + dy * dy;
 				if (d2 > fullR2) continue;
-				const a = data[(y * w + x) * 4 + 3] / 255;
+				const a = alpha[y * cols + x];
 				totalAlpha += a;
 				totalCount++;
 				if (d2 >= edgeR2) {
@@ -399,28 +375,91 @@
 		return raw.endsWith('ms') || !raw.endsWith('s') ? n * 1.6 : n * 1600;
 	}
 
-	/** Draws one frame's precip sprites at `alpha`, skipped entirely at 0 so a
-	 *  fully faded-out side of a cross-fade costs nothing. */
-	function drawRadarLayer(layer, alpha) {
-		if (!layer || alpha <= 0) return;
-		ctx.globalAlpha = alpha;
-		const k = RADAR_SIZE / TILE_SIZE;
-		for (const sprite of layer) {
-			if (!sprite.img) continue;
-			ctx.drawImage(
-				sprite.img,
-				sprite.tx * k * TILE_SIZE - composed.fracX * TILE_SIZE,
-				sprite.ty * k * TILE_SIZE - composed.fracY * TILE_SIZE,
-				RADAR_SIZE,
-				RADAR_SIZE
-			);
+	/** Fills one smoothed contour polygon (in fractional grid coordinates),
+	 *  mapped into world space and rendered as a quadratic curve through
+	 *  each smoothed point's midpoint - a cheap, standard way to turn a
+	 *  polyline into the soft, rounded outline a metaball blend reads as. */
+	function fillContour(points, cellW, cellH, originX, originY, color, alpha) {
+		if (points.length < 3 || alpha <= 0) return;
+		const smoothed = chaikinSmooth(points, 2);
+		const toWorld = (p) => [originX + p[0] * cellW, originY + p[1] * cellH];
+		const world = smoothed.map(toWorld);
+		const n = world.length;
+		const midOf = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+		ctx.beginPath();
+		const firstMid = midOf(world[0], world[n - 1]);
+		ctx.moveTo(firstMid[0], firstMid[1]);
+		for (let i = 0; i < n; i++) {
+			const cur = world[i];
+			const next = world[(i + 1) % n];
+			const mid = midOf(cur, next);
+			ctx.quadraticCurveTo(cur[0], cur[1], mid[0], mid[1]);
 		}
+		ctx.closePath();
+		ctx.fillStyle = color;
+		ctx.globalAlpha = alpha;
+		ctx.fill();
 		ctx.globalAlpha = 1;
 	}
 
+	/** Fills the field's whole world-space extent with a flat color - the
+	 *  case a threshold's contour would otherwise miss entirely: when the
+	 *  intensity grid never dips below it anywhere in view (a storm filling
+	 *  the whole radar circle), there's no boundary for marching squares to
+	 *  trace, but the right picture is solid coverage, not nothing. */
+	function fillWholeField(field, cellW, cellH, originX, originY, color, alpha) {
+		ctx.fillStyle = color;
+		ctx.globalAlpha = alpha;
+		ctx.fillRect(originX, originY, field.cols * cellW, field.rows * cellH);
+		ctx.globalAlpha = 1;
+	}
+
+	/** Traces and fills every intensity band of one field as vector regions -
+	 *  no raster involved, so this scales cleanly with the view transform at
+	 *  any zoom instead of stretching a fixed-resolution bitmap. */
+	function drawField(field, cellW, cellH, originX, originY, alphaMul) {
+		if (!field) return;
+		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
+			const threshold = RADAR_THRESHOLDS[i];
+			const extent = fieldExtent(field.alpha);
+			if (extent.max < threshold) continue;
+			if (extent.min >= threshold) {
+				fillWholeField(field, cellW, cellH, originX, originY, field.colors[i], 0.85 * alphaMul);
+				continue;
+			}
+			const polys = marchingSquares(field.alpha, field.cols, field.rows, threshold);
+			for (const poly of polys) {
+				fillContour(poly, cellW, cellH, originX, originY, field.colors[i], 0.85 * alphaMul);
+			}
+		}
+	}
+
+	/** Blends two frames' intensity grids at `t` and re-traces contours
+	 *  through the blend - the shapes actually grow/shrink/merge/split
+	 *  between the two real frames, not a cross-fade of two fixed images. */
+	function drawMorph(fieldA, fieldB, t, cellW, cellH, originX, originY) {
+		if (!fieldA) return drawField(fieldB, cellW, cellH, originX, originY, 1);
+		if (!fieldB) return drawField(fieldA, cellW, cellH, originX, originY, 1);
+		const blended = lerpFields(fieldA.alpha, fieldB.alpha, t);
+		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
+			const threshold = RADAR_THRESHOLDS[i];
+			const extent = fieldExtent(blended);
+			const color = lerpColor(fieldA.colors[i], fieldB.colors[i], t);
+			if (extent.max < threshold) continue;
+			if (extent.min >= threshold) {
+				fillWholeField(fieldA, cellW, cellH, originX, originY, color, 0.85);
+				continue;
+			}
+			const polys = marchingSquares(blended, fieldA.cols, fieldA.rows, threshold);
+			for (const poly of polys) {
+				fillContour(poly, cellW, cellH, originX, originY, color, 0.85);
+			}
+		}
+	}
+
 	/** `crossfadeT` of 1 (the default) means "just the current frame", as if
-	 *  no cross-fade were in flight; `runCrossfade` drives it from 0->1 while
-	 *  blending `crossfadeFromIndex`'s frame out and the current one in. */
+	 *  no morph were in flight; `runCrossfade` drives it from 0->1 while
+	 *  blending `crossfadeFromIndex`'s field into the current one. */
 	function drawCurrent(crossfadeT = 1) {
 		if (!ctx || !canvas || !composed) return;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -433,16 +472,13 @@
 		if (composed.basemap) {
 			ctx.drawImage(composed.basemap, originX, originY);
 		}
-		const newLayer = composed.radarLayers[frameIndex];
-		const oldLayer = crossfadeFromIndex != null ? composed.radarLayers[crossfadeFromIndex] : null;
-		ctx.filter = `blur(${RADAR_SOFTEN_PX}px)`;
-		if (oldLayer) {
-			drawRadarLayer(oldLayer, 0.9 * (1 - crossfadeT));
-			drawRadarLayer(newLayer, 0.9 * crossfadeT);
+		const newField = composed.fields[frameIndex];
+		const oldField = crossfadeFromIndex != null ? composed.fields[crossfadeFromIndex] : null;
+		if (oldField) {
+			drawMorph(oldField, newField, crossfadeT, composed.fieldCellW, composed.fieldCellH, originX, originY);
 		} else {
-			drawRadarLayer(newLayer, 0.9);
+			drawField(newField, composed.fieldCellW, composed.fieldCellH, originX, originY, 1);
 		}
-		ctx.filter = 'none';
 		ctx.restore();
 	}
 
@@ -558,22 +594,48 @@
 			);
 		}
 
-		const radarLayers = [];
+		// Each frame's precip tiles get composited onto a small canvas the
+		// browser itself downsamples (imageSmoothingQuality: high does the
+		// averaging), then reduced to an intensity grid - the vector contours
+		// traced from that grid are what actually gets drawn, so resolution
+		// here only affects how finely the shapes are described, never how
+		// blocky the final render looks.
+		const worldW = cols * TILE_SIZE;
+		const worldH = rows * TILE_SIZE;
+		const { cols: fieldCols, rows: fieldRows } = fieldGridSize(worldW, worldH, FIELD_TARGET_COLS);
+		const k = RADAR_SIZE / TILE_SIZE;
+		const fields = [];
 		for (const frame of nextFrames) {
-			const layer = [];
+			const fieldCanvas = document.createElement('canvas');
+			fieldCanvas.width = fieldCols;
+			fieldCanvas.height = fieldRows;
+			const fctx = fieldCanvas.getContext('2d', { alpha: true, willReadFrequently: true });
+			fctx.imageSmoothingEnabled = true;
+			fctx.imageSmoothingQuality = 'high';
+			const sx = fieldCols / worldW;
+			const sy = fieldRows / worldH;
 			for (const t of rain.tiles) {
 				const img = await loadTile(
 					radarTileUrl(host, frame.urlTemplate, RADAR_ZOOM, t.wrappedX, t.wrappedY)
 				);
-				layer.push({ tx: t.tx, ty: t.ty, img });
+				if (!img) continue;
+				fctx.drawImage(
+					img,
+					(t.tx * k - esri.x0) * TILE_SIZE * sx,
+					(t.ty * k - esri.y0) * TILE_SIZE * sy,
+					RADAR_SIZE * sx,
+					RADAR_SIZE * sy
+				);
 			}
-			radarLayers.push(layer);
+			fields.push(extractField(fctx.getImageData(0, 0, fieldCols, fieldRows)));
 		}
 		if (my !== gen) return;
 
 		composed = {
 			basemap,
-			radarLayers,
+			fields,
+			fieldCellW: worldW / fieldCols,
+			fieldCellH: worldH / fieldRows,
 			x0: esri.x0,
 			y0: esri.y0,
 			x1: esri.x1,
