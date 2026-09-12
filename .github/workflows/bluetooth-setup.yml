@@ -44,3 +44,10 @@ jobs:
           echo "--- PCI/USB audio hardware ---"
           lspci -nnk 2>/dev/null | grep -iA3 audio || echo "lspci not available or no PCI audio device"
           lsusb 2>/dev/null | grep -i audio || true
+          echo "--- can 'das' actually access the ALSA devices? (permissions/seat) ---"
+          groups das || true
+          ls -la /dev/snd/ || true
+          loginctl user-status das --no-pager 2>&1 | head -20 || true
+          loginctl seat-status seat0 --no-pager 2>&1 | head -20 || echo "no seat0"
+          echo "--- wireplumber's own view of ALSA (any errors finding cards?) ---"
+          journalctl --user -u wireplumber -b --no-pager 2>&1 | tail -40 || true
