@@ -726,7 +726,8 @@
 			align-items: flex-start;
 		}
 		.status-cluster {
-			justify-content: flex-start;
+			justify-content: flex-end;
+			width: 100%;
 			padding-bottom: 0;
 		}
 		.weather-core {
@@ -760,10 +761,10 @@
 		}
 		.masthead {
 			flex-direction: column;
-			align-items: flex-start;
+			align-items: stretch;
 		}
 		.status-cluster {
-			justify-content: flex-start;
+			justify-content: flex-end;
 			padding-bottom: 0;
 		}
 		.view-strip {
