@@ -5,11 +5,19 @@ export const LARGO_LON = -82.7873;
 export const TILE_SIZE = 256;
 /** RainViewer radar tiles are native only through z7; z8 is a placeholder image. */
 export const RADAR_ZOOM = 7;
+/** ESRI dark basemap zoom for the settled city view (streets, not the state). */
+export const BASE_ZOOM = 11;
+
+/** Ground radius shown after the intro zoom (Largo + nearest neighbors). */
+export const CITY_GROUND_M = 14000;
+/** Ground radius at intro start (Tampa Bay, then we push in). */
+export const INTRO_GROUND_M = 38000;
 
 export const ESRI_DARK_BASE =
 	'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile';
 
 const MAX_LAT = 85.05112878;
+const EARTH_PX_Z0 = 156543.03392;
 
 /**
  * OSM / Web Mercator fractional tile coordinates at `zoom`.
@@ -23,6 +31,21 @@ export function lonLatToFractionalTile(lat, lon, zoom = RADAR_ZOOM) {
 	const y =
 		((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
 	return { x, y, n };
+}
+
+export function metersPerPixel(lat, zoom) {
+	return (EARTH_PX_Z0 * Math.cos((lat * Math.PI) / 180)) / 2 ** zoom;
+}
+
+/** CSS pixels per world pixel so `groundMeters` fills `radiusPx`. */
+export function scaleForGroundRadius(radiusPx, lat, zoom, groundMeters) {
+	const worldPx = groundMeters / metersPerPixel(lat, zoom);
+	if (!worldPx) return 1;
+	return radiusPx / worldPx;
+}
+
+export function radarDrawSize(baseZoom = BASE_ZOOM) {
+	return TILE_SIZE * 2 ** (baseZoom - RADAR_ZOOM);
 }
 
 /** Strip trailing slashes and a leftover `/256` size segment from a RainViewer path. */
@@ -44,8 +67,8 @@ export function basemapTileUrl(z, x, y) {
 }
 
 /**
- * Integer tile range covering a circle of `radiusPx` canvas pixels around a
- * fractional tile coordinate, assuming 1 world pixel = 1 CSS pixel at TILE_SIZE.
+ * Integer tile range covering a circle of `radiusPx` world pixels around a
+ * fractional tile coordinate, assuming TILE_SIZE world pixels per tile.
  */
 export function tilesCoveringRadius(fracX, fracY, radiusPx, zoom = RADAR_ZOOM) {
 	const n = 2 ** zoom;
