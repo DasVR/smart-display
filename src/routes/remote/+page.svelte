@@ -457,11 +457,13 @@
 	}
 
 	.pad {
-		display: grid;
-		grid-template-columns: 1fr 1fr 1fr;
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
 		gap: var(--space-2);
 	}
 	.key {
+		flex: 0 0 calc((100% - 2 * var(--space-2)) / 3);
 		min-height: 3rem;
 		padding: 0 var(--space-2);
 		border-radius: var(--radius-md);
@@ -566,7 +568,7 @@
 	.last { font-family: var(--font-code); }
 
 	@media (max-width: 360px) {
-		.pad { grid-template-columns: 1fr 1fr; }
+		.key { flex-basis: calc((100% - var(--space-2)) / 2); }
 		.rockers { grid-template-columns: 1fr; }
 	}
 </style>
