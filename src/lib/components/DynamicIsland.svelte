@@ -22,7 +22,7 @@
 	});
 
 	function inFly() {
-		return reducedMotion ? { duration: 0 } : { x: 10, duration: 260, easing: cubicOut };
+		return reducedMotion ? { duration: 0 } : { y: -10, duration: 260, easing: cubicOut };
 	}
 	function outFade() {
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
@@ -76,14 +76,14 @@
 		}
 	}
 
-	// The pill is one persistent capsule anchored to the right edge of the
-	// screen that spring-resizes its own bounds (like iOS's Dynamic Island)
-	// rather than being swapped out per mode. At idle it doesn't disappear —
-	// it rests as a small sliver flush against the edge, always part of the
-	// screen's chrome, and grows from that same anchor when something needs
-	// to be shown. A hidden "ghost" copy of the current content drives the
-	// target width/height via ResizeObserver, independent of whatever is
-	// mid-crossfade in the visible layer on top.
+	// The pill is one persistent capsule anchored to the top-center of the
+	// screen (like the real iPhone Dynamic Island) that spring-resizes its
+	// own bounds rather than being swapped out per mode. At idle it doesn't
+	// disappear — it rests as a small tab hanging from the top edge, always
+	// part of the screen's chrome, and grows downward from that same top
+	// anchor when something needs to be shown. A hidden "ghost" copy of the
+	// current content drives the target width/height via ResizeObserver,
+	// independent of whatever is mid-crossfade in the visible layer on top.
 	let ghostEl = $state(null);
 	let pillSize = $state({ w: 0, h: 0 });
 	let ready = $state(false);
@@ -164,42 +164,30 @@
 </div>
 
 <style>
-	/* Fixed footprint that never changes size, so the pill growing/shrinking
-	   inside it can never push OR cover the date/weather text — it reserves
-	   enough room for typical island content up front. The pill itself is
-	   absolutely positioned and anchored to this box's right edge, which
-	   bleeds past the header's padding to sit flush with the true screen
-	   edge. */
+	/* Fixed to the viewport, not the document flow, so its own resizing can
+	   never push or cover anything else on the page — it's an overlay, like
+	   the real thing sitting in the status bar. */
 	.island {
-		position: relative;
-		width: 16rem;
-		height: 2.25rem;
-		flex-shrink: 0;
-		margin-right: calc(-1 * var(--space-8));
-		overflow: visible;
+		position: fixed;
+		top: 0;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 30;
 		pointer-events: none;
 	}
-	@media (max-width: 768px) {
-		.island {
-			width: 4rem;
-		}
-	}
 	.island-pill {
-		position: absolute;
-		top: 50%;
-		right: 0;
+		position: relative;
 		isolation: isolate;
-		width: var(--pill-w, 0.5rem);
-		height: var(--pill-h, 2.25rem);
-		transform: translateY(-50%);
-		border-radius: 999px 0 0 999px;
+		width: var(--pill-w, 3rem);
+		height: var(--pill-h, 0.4rem);
+		border-radius: 0 0 999px 999px;
 		background-color: var(--abyss);
 		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
 		background-blend-mode: overlay;
 		background-size: 140px 140px;
 		box-shadow:
-			-10px 0 30px color-mix(in srgb, var(--abyss) 65%, transparent),
-			0 6px 20px color-mix(in srgb, var(--abyss) 40%, transparent);
+			0 14px 34px color-mix(in srgb, var(--abyss) 65%, transparent),
+			0 6px 18px color-mix(in srgb, var(--abyss) 40%, transparent);
 		overflow: hidden;
 		opacity: 0.5;
 		pointer-events: none;
@@ -208,8 +196,8 @@
 		opacity: 1;
 		pointer-events: auto;
 		box-shadow:
-			-16px 0 42px color-mix(in srgb, var(--abyss) 78%, transparent),
-			0 10px 28px color-mix(in srgb, var(--abyss) 55%, transparent);
+			0 20px 46px color-mix(in srgb, var(--abyss) 78%, transparent),
+			0 10px 26px color-mix(in srgb, var(--abyss) 55%, transparent);
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.island-pill.ready {
@@ -226,8 +214,8 @@
 		}
 	}
 	.nub {
-		width: 0.5rem;
-		height: 2.25rem;
+		width: 3rem;
+		height: 0.4rem;
 	}
 	.island-ghost {
 		position: absolute;

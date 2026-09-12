@@ -276,30 +276,27 @@
 
 	<div class="display-root" class:morning={mode === 'morning'} class:sleep={mode === 'sleep'}>
 		<header class="zone top">
-			<nav class="view-strip" aria-label="Views" bind:this={navEl}>
-				<span
-					class="tab-indicator"
-					class:ready={indicator.ready}
-					class:morphing={indicatorMorphing}
-					style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
-					aria-hidden="true"
-				></span>
-				{#each VIEWS as v, i}
-					<button
-						class="view-tab"
-						class:active={$currentView === v}
-						onclick={() => currentView.set(v)}
-						aria-current={$currentView === v ? 'page' : undefined}
-						bind:this={tabRefs[i]}
-					>
-						<span class="view-tab-label">{viewLabel(v)}</span>
-					</button>
-				{/each}
-			</nav>
-			<div class="masthead" class:credits-open={$currentView === 'clock'}>
-				{#if $currentView !== 'clock'}
-					<h1 class="view-title">{viewTitle}</h1>
-				{/if}
+			<div class="top-row">
+				<nav class="view-strip" aria-label="Views" bind:this={navEl}>
+					<span
+						class="tab-indicator"
+						class:ready={indicator.ready}
+						class:morphing={indicatorMorphing}
+						style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
+						aria-hidden="true"
+					></span>
+					{#each VIEWS as v, i}
+						<button
+							class="view-tab"
+							class:active={$currentView === v}
+							onclick={() => currentView.set(v)}
+							aria-current={$currentView === v ? 'page' : undefined}
+							bind:this={tabRefs[i]}
+						>
+							<span class="view-tab-label">{viewLabel(v)}</span>
+						</button>
+					{/each}
+				</nav>
 				<div class="status-cluster">
 					<p class="dateline" class:receded={islandActive}>
 						{weekday}, {month}&nbsp;{dayNum}
@@ -307,25 +304,27 @@
 							<span class="time num">{clockLabel}</span>
 						{/if}
 					</p>
-					<div class="cluster-end">
-						<p class="wxline" class:receded={islandActive}>
-							{#if weatherLoading}
-								<span class="skeleton inline"></span>
-							{:else if $weather.temp !== '--'}
-								<span class="num">{$weather.temp}°</span>
-								{$weather.desc}
-							{/if}
-						</p>
-						<DynamicIsland
-							nowPlaying={$nowPlaying}
-							notification={notif}
-							weatherData={weatherData}
-							events={$islandQueue}
-						/>
-					</div>
+					<p class="wxline" class:receded={islandActive}>
+						{#if weatherLoading}
+							<span class="skeleton inline"></span>
+						{:else if $weather.temp !== '--'}
+							<span class="num">{$weather.temp}°</span>
+							{$weather.desc}
+						{/if}
+					</p>
 				</div>
 			</div>
+			{#if $currentView !== 'clock'}
+				<h1 class="view-title">{viewTitle}</h1>
+			{/if}
 		</header>
+
+		<DynamicIsland
+			nowPlaying={$nowPlaying}
+			notification={notif}
+			weatherData={weatherData}
+			events={$islandQueue}
+		/>
 
 		<main id="main-stage" class="zone center">
 			{#if $currentView === 'clock'}
@@ -427,30 +426,23 @@
 		padding-bottom: var(--space-4);
 		overflow: visible;
 	}
-	.masthead {
+	/* Nav and the date/weather line share one row, at the same Y, with the
+	   date/weather pushed hard to the right edge — the Dynamic Island lives
+	   independently of this row now (fixed, top-center), so this is free to
+	   just be a plain left/right split. */
+	.top-row {
 		display: flex;
-		align-items: flex-end;
+		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-8);
 		width: 100%;
 		min-width: 0;
-		margin-top: var(--space-6);
-	}
-	.masthead.credits-open {
-		justify-content: flex-end;
 	}
 	.status-cluster {
 		display: flex;
 		align-items: center;
 		justify-content: flex-end;
 		flex-wrap: wrap;
-		gap: var(--space-4);
-		min-width: 0;
-		padding-bottom: var(--space-2);
-	}
-	.cluster-end {
-		display: flex;
-		align-items: center;
 		gap: var(--space-4);
 		flex-shrink: 0;
 		min-width: 0;
@@ -486,7 +478,7 @@
 		}
 	}
 	.view-title {
-		margin: 0;
+		margin: var(--space-6) 0 0;
 		font-family: var(--font-body);
 		font-size: clamp(2.25rem, 4.4vw, 3.75rem);
 		font-weight: 700;
@@ -721,7 +713,7 @@
 	}
 
 	@media (max-aspect-ratio: 4/3) {
-		.masthead {
+		.top-row {
 			flex-wrap: wrap;
 			align-items: flex-start;
 		}
@@ -759,7 +751,7 @@
 		.top {
 			padding-top: var(--space-4);
 		}
-		.masthead {
+		.top-row {
 			flex-direction: column;
 			align-items: stretch;
 		}
@@ -790,10 +782,6 @@
 		}
 		.clock-credits {
 			max-width: 100%;
-		}
-		.cluster-end {
-			flex-wrap: wrap;
-			width: 100%;
 		}
 		.bottom {
 			min-height: 0;
