@@ -106,8 +106,10 @@ describe('persist', () => {
 			envDefaults({ DISPLAY_SCHEDULE: '0', DISPLAY_OFF_AT: '21:15', DISPLAY_ON_AT: '7:05', TZ: 'America/New_York' }),
 			{
 				enabled: false,
+				wakeOnPhone: true,
 				offAt: '21:15',
 				onAt: '07:05',
+				phoneWakeAfter: '05:00',
 				timeZone: 'America/New_York'
 			}
 		);

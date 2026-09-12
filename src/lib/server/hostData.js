@@ -76,10 +76,10 @@ async function getHAToken() {
 	}
 }
 
-export async function getHAStates() {
+export async function fetchHAStates() {
+	const token = await getHAToken();
+	if (!token) return { states: [], status: 'no-auth' };
 	try {
-		const token = await getHAToken();
-		if (!token) return { entities: [], status: 'no-auth' };
 		const raw = readFileSync(HA_TOKEN_PATH, 'utf8');
 		const cfg = JSON.parse(raw);
 		const r = await fetch(`${cfg.base_url}/api/states`, {
@@ -88,18 +88,24 @@ export async function getHAStates() {
 		});
 		if (!r.ok) throw new Error(`ha states ${r.status}`);
 		const states = await r.json();
-		const summary = {
-			temperature: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('temperature'))?.state,
-			humidity: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('humidity'))?.state,
-			online: states.length,
-			lightsOn: states.filter((s) => s.entity_id.startsWith('light.') && s.state === 'on').length,
-			doorsOpen: states.filter((s) => s.entity_id.startsWith('binary_sensor.') && s.attributes?.device_class === 'door' && s.state === 'on').length
-		};
-		return { entities: states.slice(0, 40), summary, status: 'ok' };
+		return { states: Array.isArray(states) ? states : [], status: 'ok' };
 	} catch (e) {
 		console.error('ha states error:', e.message);
-		return { entities: [], summary: {}, status: 'error', error: e.message };
+		return { states: [], status: 'error', error: e.message };
 	}
+}
+
+export async function getHAStates() {
+	const { states, status, error } = await fetchHAStates();
+	if (status !== 'ok') return { entities: [], summary: {}, status, error };
+	const summary = {
+		temperature: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('temperature'))?.state,
+		humidity: states.find((s) => s.entity_id.startsWith('sensor.') && s.entity_id.includes('humidity'))?.state,
+		online: states.length,
+		lightsOn: states.filter((s) => s.entity_id.startsWith('light.') && s.state === 'on').length,
+		doorsOpen: states.filter((s) => s.entity_id.startsWith('binary_sensor.') && s.attributes?.device_class === 'door' && s.state === 'on').length
+	};
+	return { entities: states.slice(0, 40), summary, status: 'ok' };
 }
 
 export async function triggerHAView(view) {
