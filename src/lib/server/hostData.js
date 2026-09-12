@@ -4,6 +4,7 @@ import { execSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fuseRainPrediction } from '../rainModel.js';
+import { LARGO_LAT, LARGO_LON } from '../radarMap.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 
@@ -456,8 +457,8 @@ function loadStationHistory(hours = 2) {
 	}
 }
 
-const WEATHER_LAT = 27.9097;
-const WEATHER_LON = -82.7873;
+const WEATHER_LAT = LARGO_LAT;
+const WEATHER_LON = LARGO_LON;
 const RAINVIEWER_CACHE_TTL = 300_000;
 let rainViewerCache = { ts: 0, data: null };
 

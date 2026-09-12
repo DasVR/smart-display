@@ -2,10 +2,12 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { playChime } from '$lib/services/chime.js';
+	import { compactSlots } from '$lib/islandLive.js';
 
 	let {
 		nowPlaying = null,
-		events = []
+		events = [],
+		activities = []
 	} = $props();
 
 	let reducedMotion = $state(false);
@@ -27,15 +29,17 @@
 		return reducedMotion ? { duration: 0 } : { duration: 140 };
 	}
 
-	// Queued notices pop through, then now-playing. Radar / NWS pings arrive
-	// as events with a TTL so they leave the island; the weather page keeps them.
+	// Queued notices expand through, then compact Live Activities
+	// (now-playing, downed services, network) stay like iPhone's island.
 	let activeEvent = $derived(events?.[0] ?? null);
+	let slots = $derived(compactSlots(nowPlaying, activities));
 	let mode = $derived.by(() => {
 		if (activeEvent) return 'event';
-		if (nowPlaying?.playing) return 'nowplaying';
+		if (slots) return 'compact';
 		return 'idle';
 	});
 	let isIdle = $derived(mode === 'idle');
+	let isCompact = $derived(mode === 'compact');
 
 	function modeLabel(next) {
 		switch (next) {
@@ -48,8 +52,8 @@
 				if (sev === 'ok') return 'Recovered';
 				return 'Notice';
 			}
-			case 'nowplaying':
-				return 'Now playing';
+			case 'compact':
+				return '';
 			case 'idle':
 				return '';
 			default: {
@@ -75,19 +79,40 @@
 		}
 	}
 
+	function slotIcon(slot) {
+		if (!slot) return 'info';
+		if (slot.kind === 'music') return 'music';
+		if (slot.kind === 'network') return 'warn';
+		if (slot.kind === 'stack') return slot.severity === 'warn' ? 'warn' : 'error';
+		if (slot.kind === 'status') return null;
+		if (slot.kind === 'eq') return null;
+		const sev = slot.severity;
+		if (sev === 'error') return 'error';
+		if (sev === 'warn') return 'warn';
+		if (sev === 'ok') return 'ok';
+		return 'info';
+	}
+
 	function sevFor(m) {
 		if (m === 'event') return activeEvent?.severity ?? 'info';
-		if (m === 'nowplaying') return 'info';
+		if (m === 'compact') return slots?.leading?.severity ?? 'info';
 		return 'info';
 	}
 
 	let lastChimeKey = null;
 	$effect(() => {
 		let key = null;
-		if (mode === 'event') key = `event:${activeEvent?.id}`;
-		else if (mode === 'nowplaying') key = `nowplaying:${nowPlaying?.title}:${nowPlaying?.artist}`;
+		let tone = 'info';
+		if (mode === 'event') {
+			key = `event:${activeEvent?.id}`;
+			tone = sevFor('event');
+		} else if (mode === 'compact' && slots?.leading?.kind === 'music') {
+			key = `music:${nowPlaying?.title}:${nowPlaying?.artist}`;
+			tone = 'music';
+		}
 		if (key && key !== lastChimeKey) {
-			playChime(mode === 'nowplaying' ? 'music' : sevFor(mode));
+			const returning = lastChimeKey?.startsWith('event:') && key.startsWith('music:');
+			if (!returning) playChime(tone);
 		}
 		lastChimeKey = key;
 	});
@@ -117,6 +142,9 @@
 
 	$effect(() => {
 		mode;
+		slots?.leading?.id;
+		slots?.trailing?.id;
+		slots?.leading?.title;
 		if (typeof window === 'undefined') return;
 		const raf1 = requestAnimationFrame(() => requestAnimationFrame(measure));
 		return () => cancelAnimationFrame(raf1);
@@ -162,7 +190,7 @@
 	{:else if kind === 'weather'}
 		<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
 			<path
-				d="M7 16a4 4 0 0 1 .5-7.97A5.5 5.5 0 0 1 18 10a3.5 3.5 0 0 1-.5 6.97"
+				d="M7 16a4 4 0 0 1 .5-7.97A5.5 5.5 0 0 1 18 10a3.5 3.5 0 0 1 -.5 6.97"
 				stroke="currentColor"
 				stroke-width="1.8"
 				stroke-linecap="round"
@@ -170,6 +198,36 @@
 			/>
 			<path d="M9 19l-1 2m5-2l-1 2m5-2l-1 2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
 		</svg>
+	{/if}
+{/snippet}
+
+{#snippet eqBars()}
+	<span class="eq" class:still={reducedMotion} aria-hidden="true">
+		<i></i><i></i><i></i><i></i>
+	</span>
+{/snippet}
+
+{#snippet compactSide(slot, place)}
+	{#if slot?.kind === 'eq'}
+		{@render eqBars()}
+	{:else if slot?.kind === 'status'}
+		<span class="compact-status sev-{slot.severity}">{slot.title}</span>
+	{:else if slot}
+		<span class="compact-chip sev-{slot.severity}">
+			<span class="compact-glyph" class:has-art={slot.kind === 'music' && !!slot.art}>
+				{#if slot.kind === 'music' && slot.art}
+					<img src={slot.art} alt="" class="art-thumb" onload={measure} />
+				{:else}
+					{@const glyph = slotIcon(slot)}
+					{#if glyph}
+						<span class="icon compact-icon">{@render icon(glyph)}</span>
+					{/if}
+				{/if}
+			</span>
+			{#if place === 'leading' || slot.kind !== 'music'}
+				<span class="compact-title">{slot.title}</span>
+			{/if}
+		</span>
 	{/if}
 {/snippet}
 
@@ -183,20 +241,11 @@
 				{#if activeEvent?.body}<div class="sub">{activeEvent.body}</div>{/if}
 			</div>
 		</div>
-	{:else if m === 'nowplaying'}
-		<div class="slip sev-info">
-			<span class="icon-badge" class:has-art={!!nowPlaying?.art}>
-				{#if nowPlaying?.art}
-					<img src={nowPlaying.art} alt="" class="art-thumb" onload={measure} />
-				{:else}
-					<span class="icon">{@render icon('music')}</span>
-				{/if}
-			</span>
-			<div class="copy">
-				<div class="kicker">{modeLabel(m)}</div>
-				<div class="title">{nowPlaying?.title || 'Untitled'}</div>
-				<div class="sub">{nowPlaying?.artist || ''}</div>
-			</div>
+	{:else if m === 'compact'}
+		<div class="compact">
+			<div class="side leading">{@render compactSide(slots?.leading, 'leading')}</div>
+			<span class="compact-gap" aria-hidden="true"></span>
+			<div class="side trailing">{@render compactSide(slots?.trailing, 'trailing')}</div>
 		</div>
 	{:else}
 		<div class="nub" aria-hidden="true"></div>
@@ -208,6 +257,7 @@
 		class="island-pill"
 		class:ready
 		class:active={!isIdle}
+		class:compact={isCompact}
 		style="--pill-w: {pillSize.w}px; --pill-h: {pillSize.h}px"
 	>
 		<div class="island-ghost" bind:this={ghostEl} aria-hidden="true">
@@ -257,6 +307,9 @@
 			0 20px 46px color-mix(in srgb, var(--abyss) 78%, transparent),
 			0 10px 26px color-mix(in srgb, var(--abyss) 55%, transparent);
 	}
+	.island-pill.compact {
+		border-radius: 0 0 1.35rem 1.35rem;
+	}
 	@media (prefers-reduced-motion: no-preference) {
 		.island-pill.ready {
 			transition:
@@ -303,6 +356,129 @@
 		box-sizing: border-box;
 		white-space: nowrap;
 	}
+	.compact {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.7rem;
+		min-height: 3.45rem;
+		min-width: 16.5rem;
+		max-width: min(36rem, 86vw);
+		padding: 0.4rem 0.75rem 0.5rem;
+		box-sizing: border-box;
+	}
+	.compact-gap {
+		width: 0.85rem;
+		height: 1.2rem;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--foreground) 7%, transparent);
+		flex-shrink: 0;
+	}
+	.side {
+		display: flex;
+		align-items: center;
+		min-width: 0;
+	}
+	.leading {
+		justify-content: flex-start;
+		flex: 1;
+	}
+	.trailing {
+		justify-content: flex-end;
+		flex-shrink: 0;
+	}
+	.compact-chip {
+		display: flex;
+		align-items: center;
+		gap: 0.45rem;
+		min-width: 0;
+		color: var(--brand);
+	}
+	.compact-glyph {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.35rem;
+		height: 2.35rem;
+		border-radius: 999px;
+		flex-shrink: 0;
+		overflow: hidden;
+		background: color-mix(in srgb, currentColor 16%, transparent);
+	}
+	.compact-glyph.has-art {
+		background: none;
+	}
+	.compact-icon {
+		width: 1.2rem;
+		height: 1.2rem;
+	}
+	.compact-title {
+		font-family: var(--font-body);
+		font-size: 1.2rem;
+		font-weight: 600;
+		letter-spacing: -0.02em;
+		color: var(--foreground);
+		max-width: 14ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.compact-status {
+		font-family: var(--font-body);
+		font-size: 1.05rem;
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		color: var(--text-secondary);
+		padding-right: 0.15rem;
+	}
+	.eq {
+		display: flex;
+		align-items: flex-end;
+		gap: 0.18rem;
+		height: 1.35rem;
+		padding-right: 0.2rem;
+	}
+	.eq i {
+		display: block;
+		width: 0.22rem;
+		border-radius: 999px;
+		background: var(--ok);
+		transform-origin: bottom center;
+	}
+	.eq i:nth-child(1) {
+		height: 38%;
+	}
+	.eq i:nth-child(2) {
+		height: 88%;
+	}
+	.eq i:nth-child(3) {
+		height: 55%;
+	}
+	.eq i:nth-child(4) {
+		height: 72%;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.eq:not(.still) i {
+			animation: eq-bounce 0.72s ease-in-out infinite alternate;
+		}
+		.eq:not(.still) i:nth-child(2) {
+			animation-delay: 0.12s;
+		}
+		.eq:not(.still) i:nth-child(3) {
+			animation-delay: 0.24s;
+		}
+		.eq:not(.still) i:nth-child(4) {
+			animation-delay: 0.36s;
+		}
+	}
+	@keyframes eq-bounce {
+		from {
+			transform: scaleY(0.45);
+		}
+		to {
+			transform: scaleY(1);
+		}
+	}
 	.icon-badge {
 		display: flex;
 		align-items: center;
@@ -345,19 +521,26 @@
 		color: var(--text-tertiary);
 	}
 	.sev-error .kicker,
-	.sev-error .icon-badge {
+	.sev-error .icon-badge,
+	.compact-chip.sev-error,
+	.compact-status.sev-error {
 		color: var(--warn);
 	}
 	.sev-warn .kicker,
-	.sev-warn .icon-badge {
+	.sev-warn .icon-badge,
+	.compact-chip.sev-warn,
+	.compact-status.sev-warn {
 		color: var(--solve);
 	}
 	.sev-ok .kicker,
-	.sev-ok .icon-badge {
+	.sev-ok .icon-badge,
+	.compact-chip.sev-ok,
+	.compact-status.sev-ok {
 		color: var(--ok);
 	}
 	.sev-info .kicker,
-	.sev-info .icon-badge {
+	.sev-info .icon-badge,
+	.compact-chip.sev-info {
 		color: var(--brand);
 	}
 	.title {

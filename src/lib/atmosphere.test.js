@@ -143,7 +143,9 @@ describe('radar coverage', () => {
 		assert.ok(rect.x1 - rect.x0 >= circle.x1 - circle.x0);
 	});
 
-	it('pins Largo inside a z7 RainViewer tile pixel', () => {
+	it('pins 1706 Adams Cir S inside a z7 RainViewer tile pixel', () => {
+		assert.equal(LARGO_LAT, 27.90218731);
+		assert.equal(LARGO_LON, -82.7694744);
 		const home = homeTilePixel(LARGO_LAT, LARGO_LON, 7);
 		assert.ok(home.px >= 0 && home.px < TILE_SIZE);
 		assert.ok(home.py >= 0 && home.py < TILE_SIZE);

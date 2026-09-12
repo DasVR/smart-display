@@ -619,7 +619,7 @@
 >
 	<div class="map-clip">
 		<div class="map-zoom" class:city={zoomedIn} class:no-anim={suppressTransition}>
-			<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on Largo, Florida"></canvas>
+			<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on 1706 Adams Circle South, Largo"></canvas>
 		</div>
 	</div>
 	{#if ditherUrl && !loading}
@@ -653,7 +653,7 @@
 	{#if frames.length > 0 && !loading}
 		<div class="legend" aria-hidden="true">
 			<span class:future={frames[frameIndex]?.nowcast}
-				>{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'LARGO'}</span
+				>{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'HOME'}</span>
 			>
 			{#if showWind}
 				<span class="wind-read">{windCompass} {Math.round(windSpeed)} mph</span>
