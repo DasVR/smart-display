@@ -20,7 +20,10 @@ const PROFILES = {
 	info: [{ freq: 880 }],
 	ok: [{ freq: 659.25 }, { freq: 880, at: 0.11 }],
 	warn: [{ freq: 784 }, { freq: 659.25, at: 0.14 }],
-	error: [{ freq: 622.25 }, { freq: 587.33, at: 0.17 }]
+	error: [{ freq: 622.25 }, { freq: 587.33, at: 0.17 }],
+	// A brighter three-note lift for the island opening on now-playing —
+	// distinct from the severity tones since it's good news, not a notice.
+	music: [{ freq: 523.25 }, { freq: 659.25, at: 0.09 }, { freq: 783.99, at: 0.18 }]
 };
 
 function tone(context, freq, startAt, peak = 0.14, duration = 0.55) {
@@ -54,13 +57,14 @@ function tone(context, freq, startAt, peak = 0.14, duration = 0.55) {
 	osc2.stop(t0 + duration + 0.05);
 }
 
-/** Plays a short calming chime for the given island-event severity. Safe to
- *  call from anywhere (server-rendered code included) — it's a no-op without
- *  a window/AudioContext. */
-export function playChime(severity = 'info') {
+/** Plays a short calming chime for the given island-event kind (a severity —
+ *  info/ok/warn/error — or 'music' for the now-playing open). Safe to call
+ *  from anywhere (server-rendered code included) — it's a no-op without a
+ *  window/AudioContext. */
+export function playChime(kind = 'info') {
 	const context = getContext();
 	if (!context) return;
-	const notes = PROFILES[severity] || PROFILES.info;
+	const notes = PROFILES[kind] || PROFILES.info;
 	notes.forEach((n) => tone(context, n.freq, n.at || 0));
 }
 
