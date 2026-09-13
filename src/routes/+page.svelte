@@ -10,7 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
@@ -19,8 +19,15 @@
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
 	import { islandWeatherSlip, splitNwsAlerts, tickerText } from '$lib/nwsAlerts.js';
 	import { shortDateline } from '$lib/dateline.js';
+	import {
+		EMPTY_INSTALL_PROGRESS,
+		applyUpgradeEvent,
+		beginInstallProgress,
+		finishInstallProgress,
+		islandActivityForProgress
+	} from '$lib/hostUpgradeModel.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
-	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
+	import IslandStack from '$lib/components/IslandStack.svelte';
 	import SevereTicker from '$lib/components/SevereTicker.svelte';
 	import BoardWidgets from '$lib/components/BoardWidgets.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
@@ -173,9 +180,13 @@
 					});
 					currentView.set(msg.view || 'school');
 				}
+				if (msg.type === 'installProgress') {
+					installProgress.set(msg);
+				}
 				if (msg.type === 'init') {
 					if (msg.view) currentView.set(msg.view);
 					applyDisplay(msg.display);
+					if (msg.installProgress) installProgress.set(msg.installProgress);
 				}
 				if (msg.type === 'display') {
 					applyDisplay(msg);
@@ -362,10 +373,32 @@
 		if (islandPreview === 'music') {
 			nowPlaying.set({ playing: true, title: 'Night Drive', artist: 'Demo FM', art: null });
 		}
+		let installDemo = 0;
+		if (islandPreview === 'install') {
+			const pkgs = ['curl', 'linux-generic', 'libc6', 'ca-certificates', 'fwupd'];
+			let state = beginInstallProgress({ phase: 'packages', total: pkgs.length });
+			installProgress.set(state);
+			let i = 0;
+			installDemo = setInterval(() => {
+				if (i < pkgs.length) {
+					state = applyUpgradeEvent(state, { kind: 'complete', pkg: pkgs[i] });
+					installProgress.set(state);
+					i += 1;
+					return;
+				}
+				clearInterval(installDemo);
+				installProgress.set(finishInstallProgress(state));
+				setTimeout(() => {
+					installProgress.set({ ...EMPTY_INSTALL_PROGRESS });
+					clearIslandActivity('update');
+				}, 1800);
+			}, 700);
+		}
 		return () => {
 			clearInterval(clock);
 			clearInterval(music);
 			clearInterval(wx);
+			clearInterval(installDemo);
 			clearTimeout(reconnectTimer);
 			stopSystemWatch();
 			window.removeEventListener('keydown', handleKey);
@@ -447,8 +480,18 @@
 		if (!override || override.notify) return weatherData;
 		return { ...(weatherData || {}), ...override };
 	});
-	let islandActive = $derived($islandQueue.length > 0 || $nowPlaying?.playing || $islandActivities.length > 0);
+	let islandActive = $derived(
+		$islandQueue.length > 0 ||
+			$nowPlaying?.playing ||
+			$islandActivities.length > 0 ||
+			Boolean($installProgress?.active)
+	);
 	let showChromeTicker = $derived(Boolean(tickerPulse) && $currentView !== 'weather');
+
+	$effect(() => {
+		const activity = islandActivityForProgress($installProgress);
+		if (activity) setIslandActivity('update', activity);
+	});
 
 	$effect(() => {
 		wxForIsland;
@@ -515,7 +558,12 @@
 		></div>
 	{/if}
 
-	<DynamicIsland nowPlaying={$nowPlaying} events={$islandQueue} activities={$islandActivities} />
+	<IslandStack
+		nowPlaying={$nowPlaying}
+		events={$islandQueue}
+		activities={$islandActivities}
+		progress={$installProgress}
+	/>
 
 	<div
 		class="display-root"

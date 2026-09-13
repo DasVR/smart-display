@@ -46,10 +46,10 @@ The kiosk also raises some of these itself:
 - volume changes from `/remote` (keycap pitch follows the slider, island
   says `Volume 72%` / `Muted`)
 - night schedule edits (`Nights 22:30 to 06:00`)
-- apt or firmware updates waiting (`Package updates` / `Firmware update`,
-  with a live activity until they are applied)
-- apt, dpkg, unattended-upgrades, or fwupd actually applying
-  (`Installing packages` / `Installing firmware`)
+- apt or firmware updates waiting (`Package updates` / `Firmware update`)
+- the box then applies them (`Installing packages` / `Installing firmware`)
+  on a smaller metaball under the island, with a progress bar and a
+  matrix of beads that fill as each package completes
 - `/var/run/reboot-required` after a kernel or firmware write
   (`Restart needed`)
 - local Ollama going idle (`Agent finished`, source `Ollama`)

@@ -29,6 +29,15 @@ if [ -n "${GITHUB_SHA:-}" ] && [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
 	exit 1
 fi
 
+if [ -f scripts/sudoers.d/smart-display-host-upgrade ]; then
+	chmod +x scripts/host-upgrade.sh || true
+	if sudo visudo -cf scripts/sudoers.d/smart-display-host-upgrade >/dev/null 2>&1; then
+		sudo install -m 440 scripts/sudoers.d/smart-display-host-upgrade /etc/sudoers.d/smart-display-host-upgrade
+	else
+		echo "WARN: host-upgrade sudoers file failed visudo; package installs stay manual"
+	fi
+fi
+
 echo "[2/5] installing deps (npm ci via lockfile)"
 "$NPM" ci --no-audit --no-fund
 

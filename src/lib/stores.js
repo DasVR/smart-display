@@ -31,6 +31,19 @@ export const gitContext = writable({
 
 export const islandQueue = writable([]);
 export const islandActivities = writable([]);
+export const installProgress = writable({
+	type: 'installProgress',
+	active: false,
+	phase: 'idle',
+	title: '',
+	current: '',
+	lastCompleted: '',
+	completed: [],
+	done: 0,
+	total: 0,
+	percent: 0,
+	error: ''
+});
 
 let islandEventSeq = 0;
 

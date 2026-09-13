@@ -7,6 +7,7 @@ import { formatSpeakerReport, parseWpctlStatus, pickSpeakerSink } from './audioS
 import { readHdmiStamp } from './displayPower.js';
 import { getGitContext, getNowPlaying, getTelemetry } from './hostData.js';
 import { getHostUpdates } from './hostUpdates.js';
+import { getInstallProgress } from './hostUpgrade.js';
 
 const AIRPLAY_UNITS = {
 	unit: 'smart-display-airplay.service',
@@ -344,6 +345,7 @@ export async function getKioskStatus() {
 			ahead: git.ahead || 0,
 			behind: git.behind || 0
 		},
-		updates
+		updates,
+		installProgress: getInstallProgress()
 	};
 }
