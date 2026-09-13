@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fuseRainPrediction } from '../rainModel.js';
 import { LARGO_LAT, LARGO_LON } from '../radarMap.js';
+import { applyMeshToCurrent, backyardToSample, estimateAt } from '../ambientMesh.js';
+import { fetchAmbientStations } from './ambientStations.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import { fetchLyrics, lookupTrackDuration } from './lyrics.js';
@@ -374,6 +376,7 @@ export function saveStationData(raw) {
 			winddir: tryParseNum(raw.winddir ?? raw.windDir),
 			windspeedmph: tryParseNum(raw.windspeedmph ?? raw.windSpeed ?? raw.windspeed),
 			windgustmph: tryParseNum(raw.windgustmph ?? raw.windGust ?? raw.windgust),
+			baromrelin: tryParseNum(raw.baromrelin),
 			baromabsin: tryParseNum(raw.baromabsin ?? raw.barometer ?? raw.pressure),
 			rainin: tryParseNum(raw.rainin ?? raw.hourlyrainin ?? raw.dailyrainin ?? raw.rain),
 			dailyrainin: tryParseNum(raw.dailyrainin ?? raw.dailyrain),
@@ -509,15 +512,23 @@ export async function getWeather(hours = 48) {
 			`&minutely_15=precipitation,rain,weather_code,wind_speed_10m,wind_direction_10m` +
 			`&daily=sunrise,sunset,uv_index_max` +
 			`&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch&timezone=America/New_York&forecast_days=${days}`;
-		const [openMeteo, radarMeta, alerts] = await Promise.all([
+		const [openMeteo, radarMeta, alerts, nearby] = await Promise.all([
 			fetch(openMeteoUrl, { signal: AbortSignal.timeout(8000) }).then((r) => r.json()),
 			getRainViewer(),
-			getNWSAlerts()
+			getNWSAlerts(),
+			fetchAmbientStations(WEATHER_LAT, WEATHER_LON).catch(() => [])
 		]);
 
 		const station = loadStation();
 		const stationHistory = loadStationHistory(2);
 		const stationFresh = station && Date.now() - station.ts < 10 * 60 * 1000;
+		const home = { lat: WEATHER_LAT, lon: WEATHER_LON };
+		const meshSamples = [...(nearby || [])];
+		if (stationFresh) {
+			const yard = backyardToSample(station, home);
+			if (yard) meshSamples.push(yard);
+		}
+		const mesh = estimateAt(meshSamples, home, Date.now());
 
 		const current = openMeteo?.current || {};
 		const hourlyRaw = openMeteo?.hourly || {};
@@ -567,41 +578,27 @@ export async function getWeather(hours = 48) {
 			nowMs: Date.now()
 		});
 
-		const currentOut = stationFresh
-			? {
-					temp: station.tempf ?? current.temperature_2m,
-					feelsLike: current.apparent_temperature,
-					humidity: station.humidity ?? current.relative_humidity_2m,
-					precipitation: current.precipitation,
-					rain: station.rainin ?? current.rain,
-					showers: current.showers,
-					weatherCode: current.weather_code,
-					desc: wmoLabel(current.weather_code),
-					cloudCover: current.cloud_cover,
-					windSpeed: station.windspeedmph ?? current.wind_speed_10m,
-					windDirection: station.winddir ?? current.wind_direction_10m,
-					windGusts: station.windgustmph ?? current.wind_gusts_10m,
-					pressure: station.baromabsin ?? current.pressure_msl,
-					isDay: current.is_day,
-					uv: station.uv,
-					solar: station.solarradiation
-				}
-			: {
-					temp: current.temperature_2m,
-					feelsLike: current.apparent_temperature,
-					humidity: current.relative_humidity_2m,
-					precipitation: current.precipitation,
-					rain: current.rain,
-					showers: current.showers,
-					weatherCode: current.weather_code,
-					desc: wmoLabel(current.weather_code),
-					cloudCover: current.cloud_cover,
-					windSpeed: current.wind_speed_10m,
-					windDirection: current.wind_direction_10m,
-					windGusts: current.wind_gusts_10m,
-					pressure: current.pressure_msl,
-					isDay: current.is_day
-				};
+		const currentOut = applyMeshToCurrent(
+			{
+				temp: current.temperature_2m,
+				feelsLike: current.apparent_temperature,
+				humidity: current.relative_humidity_2m,
+				precipitation: current.precipitation,
+				rain: current.rain,
+				showers: current.showers,
+				weatherCode: current.weather_code,
+				desc: wmoLabel(current.weather_code),
+				cloudCover: current.cloud_cover,
+				windSpeed: current.wind_speed_10m,
+				windDirection: current.wind_direction_10m,
+				windGusts: current.wind_gusts_10m,
+				pressure: current.pressure_msl,
+				isDay: current.is_day,
+				uv: stationFresh ? station.uv : null,
+				solar: stationFresh ? station.solarradiation : null
+			},
+			mesh
+		);
 
 		const radarFrames = [];
 		if (radarMeta?.radar?.past) {
@@ -626,6 +623,7 @@ export async function getWeather(hours = 48) {
 			alerts,
 			prediction,
 			station: stationFresh ? station : null,
+			mesh,
 			fetchedAt: new Date().toISOString()
 		};
 	} catch (e) {
@@ -645,6 +643,7 @@ export async function getWeather(hours = 48) {
 				etaMin: null,
 				approaching: false
 			},
+			mesh: { method: 'none', stationCount: 0 },
 			error: e.message
 		};
 	}

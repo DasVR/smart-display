@@ -1,8 +1,8 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 4 · Variety 4
+	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4
 	Full-bleed rectangular Largo radar: ESRI z11, RainViewer z7 stretched,
-	Tampa Bay intro zoom, wind vane at home. Tokens only. No other views restyled.
+	Tampa Bay intro zoom, home mark only. Tokens only. No other views restyled.
 -->
 <script>
 	import { onMount, untrack } from 'svelte';
@@ -22,7 +22,8 @@
 		lastPastFrameIndex,
 		scaleForGroundRadius,
 		metersPerPixel,
-		radarDrawSize
+		radarDrawSize,
+		BASEMAP_GAP_FILL
 	} from '$lib/radarMap.js';
 	import {
 		RADAR_THRESHOLDS,
@@ -34,7 +35,6 @@
 		fieldGridSize,
 		fieldExtent
 	} from '$lib/radarVector.js';
-	import { compassFromDeg, windTowardDeg } from '$lib/atmosphere.js';
 
 	let { data = null } = $props();
 
@@ -50,7 +50,6 @@
 	let loading = $state(true);
 	let error = $state(null);
 	let reducedMotion = $state(false);
-	let settled = $state(false);
 	let zoomedIn = $state(false);
 	let zoomFactor = $state(1);
 	let suppressTransition = $state(false);
@@ -58,7 +57,6 @@
 	let ctx = null;
 	let dpr = 1;
 	let animTimer = 0;
-	let settleTimer = 0;
 	let introKick = 0;
 	let zoomAssessTimer = 0;
 	let nativeSnapTimer = 0;
@@ -106,21 +104,6 @@
 		[3, 11, 1, 9],
 		[15, 7, 13, 5]
 	];
-
-	// Ring screen positions stay at fixed fractions of the container; the km
-	// labels track the actual current ground radius so they stay honest once
-	// the adaptive zoom pulls back to show an approaching system.
-	let ringLabels = $derived([
-		{ r: radius * (5 / 14), km: Math.round((adaptiveGroundM * (5 / 14)) / 1000) },
-		{ r: radius * (9 / 14), km: Math.round((adaptiveGroundM * (9 / 14)) / 1000) },
-		{ r: radius, km: Math.round(adaptiveGroundM / 1000) }
-	]);
-
-	let windFrom = $derived(Number(data?.current?.windDirection));
-	let windSpeed = $derived(Number(data?.current?.windSpeed) || 0);
-	let windToward = $derived(Number.isFinite(windFrom) ? windTowardDeg(windFrom) : 0);
-	let windCompass = $derived(compassFromDeg(windFrom));
-	let showWind = $derived(Number.isFinite(windFrom) && windSpeed >= 0.4);
 
 	function makeBayerDataUrl() {
 		const c = document.createElement('canvas');
@@ -172,10 +155,6 @@
 		if (animTimer) {
 			clearInterval(animTimer);
 			animTimer = 0;
-		}
-		if (settleTimer) {
-			clearTimeout(settleTimer);
-			settleTimer = 0;
 		}
 		if (introKick) {
 			cancelAnimationFrame(introKick);
@@ -463,7 +442,8 @@
 	function drawCurrent(crossfadeT = 1) {
 		if (!ctx || !canvas || !composed) return;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-		ctx.clearRect(0, 0, width, height);
+		ctx.fillStyle = BASEMAP_GAP_FILL;
+		ctx.fillRect(0, 0, width, height);
 		ctx.save();
 		ctx.translate(cx, cy);
 		ctx.scale(viewScale, viewScale);
@@ -490,7 +470,6 @@
 		startZoomAssess();
 		if (reducedMotion) {
 			zoomedIn = true;
-			settled = true;
 			hasIntroduced = true;
 			return;
 		}
@@ -499,16 +478,11 @@
 			return;
 		}
 		zoomedIn = false;
-		settled = false;
 		introKick = requestAnimationFrame(() => {
 			introKick = requestAnimationFrame(() => {
 				introKick = 0;
 				zoomedIn = true;
 				hasIntroduced = true;
-				settleTimer = setTimeout(() => {
-					settled = true;
-					settleTimer = 0;
-				}, introDurationMs());
 			});
 		});
 	}
@@ -579,7 +553,9 @@
 		const basemap = document.createElement('canvas');
 		basemap.width = cols * TILE_SIZE;
 		basemap.height = rows * TILE_SIZE;
-		const bctx = basemap.getContext('2d', { alpha: true });
+		const bctx = basemap.getContext('2d', { alpha: false });
+		bctx.fillStyle = BASEMAP_GAP_FILL;
+		bctx.fillRect(0, 0, basemap.width, basemap.height);
 		bctx.imageSmoothingEnabled = true;
 		bctx.imageSmoothingQuality = 'high';
 		for (const t of esri.tiles) {
@@ -652,16 +628,16 @@
 	function resize() {
 		if (!canvas || !canvas.parentElement) return;
 		const rect = canvas.parentElement.getBoundingClientRect();
-		const nextW = Math.floor(rect.width);
-		const nextH = Math.floor(rect.height);
+		const nextW = Math.max(1, Math.ceil(rect.width));
+		const nextH = Math.max(1, Math.ceil(rect.height));
 		if (nextW <= 0 || nextH <= 0) return;
 		dpr = Math.min(window.devicePixelRatio || 1, 2);
 		width = nextW;
 		height = nextH;
-		canvas.width = Math.floor(nextW * dpr);
-		canvas.height = Math.floor(nextH * dpr);
-		canvas.style.width = `${nextW}px`;
-		canvas.style.height = `${nextH}px`;
+		canvas.width = Math.ceil(nextW * dpr);
+		canvas.height = Math.ceil(nextH * dpr);
+		canvas.style.width = '100%';
+		canvas.style.height = '100%';
 		ctx = canvas.getContext('2d', { alpha: true });
 		// Browsers default 2D canvas scaling to a cheap, blocky filter; the
 		// precip sprites get stretched well past their native size (RainViewer
@@ -725,7 +701,6 @@
 			if (reducedMotion) {
 				stopAnim();
 				zoomedIn = true;
-				settled = true;
 				hasIntroduced = true;
 				frameIndex = lastPastFrameIndex(frames);
 				drawCurrent();
@@ -761,24 +736,7 @@
 	{#if ditherUrl && !loading}
 		<div class="dither" style="background-image: url({ditherUrl})" aria-hidden="true"></div>
 	{/if}
-	<svg class="rings" aria-hidden="true">
-		{#each ringLabels as ring (ring.km)}
-			<circle class="ring" cx={cx} cy={cy} r={ring.r} />
-			{#if settled}
-				<text class="ring-label" text-anchor="middle" x={cx} y={cy - ring.r + 14}
-					>{ring.km} km</text
-				>
-			{/if}
-		{/each}
-		{#if showWind}
-			<g class="vane" transform="translate({cx} {cy}) rotate({windToward})">
-				<line class="vane-shaft" x1="0" y1="10" x2="0" y2={-Math.max(36, radius * 0.28)} />
-				<polygon
-					class="vane-head"
-					points="0,{-(Math.max(36, radius * 0.28) + 10)} -6,{-(Math.max(36, radius * 0.28) - 6)} 6,{-(Math.max(36, radius * 0.28) - 6)}"
-				/>
-			</g>
-		{/if}
+	<svg class="home-mark" aria-hidden="true">
 		<circle class="mark" cx={cx} cy={cy} r="3.5" />
 	</svg>
 	{#if loading}
@@ -788,12 +746,9 @@
 	{/if}
 	{#if frames.length > 0 && !loading}
 		<div class="legend" aria-hidden="true">
-			<span class:future={frames[frameIndex]?.nowcast}
-				>{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'HOME'}</span>
-			>
-			{#if showWind}
-				<span class="wind-read">{windCompass} {Math.round(windSpeed)} mph</span>
-			{/if}
+			<span class:future={frames[frameIndex]?.nowcast}>
+				{frames[frameIndex]?.nowcast ? 'NOWCAST' : 'HOME'}
+			</span>
 		</div>
 	{/if}
 </div>
@@ -807,7 +762,7 @@
 		min-height: 0;
 		overflow: hidden;
 		border-radius: var(--radius-bezel-inner);
-		background: var(--abyss);
+		background: var(--radar-fill, #2c2c2c);
 		isolation: isolate;
 	}
 	.map-clip {
@@ -844,7 +799,7 @@
 		mix-blend-mode: overlay;
 		opacity: 0.28;
 	}
-	.rings {
+	.home-mark {
 		position: absolute;
 		inset: 0;
 		width: 100%;
@@ -852,28 +807,9 @@
 		pointer-events: none;
 		overflow: visible;
 	}
-	.ring {
-		fill: none;
-		stroke: color-mix(in srgb, var(--foreground) 12%, transparent);
-		stroke-width: 1.5;
-	}
-	.ring-label {
-		fill: var(--text-tertiary);
-		font-family: var(--font-display);
-		font-size: var(--text-sm);
-		font-style: normal;
-	}
 	.mark {
 		fill: var(--radar-marker);
 		stroke: none;
-	}
-	.vane-shaft {
-		stroke: color-mix(in srgb, var(--scan) 80%, var(--foreground));
-		stroke-width: 2;
-		stroke-linecap: round;
-	}
-	.vane-head {
-		fill: var(--scan);
 	}
 	.legend {
 		position: absolute;
@@ -893,10 +829,6 @@
 	}
 	.legend span.future {
 		color: var(--brand);
-	}
-	.wind-read {
-		color: var(--scan);
-		font-style: normal;
 	}
 	.overlay {
 		position: absolute;

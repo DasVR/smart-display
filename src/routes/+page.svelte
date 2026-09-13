@@ -307,7 +307,11 @@
 				/* nowcast sample is optional */
 			}
 			const cur = weatherData?.current || {};
-			weather.set({ temp: cur.temp ?? '--', desc: cur.desc ?? '--' });
+			const t = Number(cur.temp);
+			weather.set({
+				temp: Number.isFinite(t) ? Math.round(t) : (cur.temp ?? '--'),
+				desc: cur.desc ?? '--'
+			});
 			weatherDetail.set(weatherData);
 			rainPrediction.set(
 				weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0, source: 'forecast' }
@@ -1018,8 +1022,8 @@
 		background: linear-gradient(
 			90deg,
 			transparent,
-			color-mix(in srgb, var(--abyss) 42%, transparent) 18%,
-			color-mix(in srgb, var(--abyss) 78%, transparent) 55%
+			color-mix(in srgb, var(--abyss) 28%, transparent) 22%,
+			color-mix(in srgb, var(--abyss) 58%, transparent) 62%
 		);
 	}
 	.bottom {

@@ -141,6 +141,8 @@ describe('radar coverage', () => {
 		const circle = tilesCoveringRadius(frac.x, frac.y, Math.min(halfW, halfH), 11);
 		assert.ok(rect.tiles.length >= circle.tiles.length);
 		assert.ok(rect.x1 - rect.x0 >= circle.x1 - circle.x0);
+		assert.ok(rect.x1 >= Math.floor(frac.x + halfW / TILE_SIZE) + 1);
+		assert.ok(rect.y1 >= Math.floor(frac.y + halfH / TILE_SIZE) + 1);
 	});
 
 	it('pins 1706 Adams Cir S inside a z7 RainViewer tile pixel', () => {

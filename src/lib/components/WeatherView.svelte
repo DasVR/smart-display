@@ -1,151 +1,71 @@
 <script>
-	import { compassFromDeg, fmtSunTime } from '$lib/atmosphere.js';
 	import { isExtremeAlert, tickerText } from '$lib/nwsAlerts.js';
 	import SevereTicker from './SevereTicker.svelte';
 
 	let { data } = $props();
 
-	function fmtTime(iso) {
-		if (!iso) return '--';
-		const d = new Date(iso);
-		return d.toLocaleTimeString('en-US', { hour: 'numeric', hour12: true });
-	}
-
-	function fmtDay(iso) {
-		if (!iso) return '';
-		const d = new Date(iso);
-		const today = new Date();
-		if (d.toDateString() === today.toDateString()) return 'Today';
-		const tomorrow = new Date(today);
-		tomorrow.setDate(today.getDate() + 1);
-		if (d.toDateString() === tomorrow.toDateString()) return 'Tmrw';
-		return d.toLocaleDateString('en-US', { weekday: 'short' });
-	}
-
-	function nextPrecipHours(hourly) {
-		if (!hourly?.length) return [];
-		const now = new Date();
-		return hourly
-			.filter((h) => new Date(h.time) >= now)
-			.slice(0, 12)
-			.map((h) => ({
-				label: fmtTime(h.time),
-				prob: h.precipitation_probability ?? 0,
-				temp: h.temp,
-				desc: h.weather_code
-			}));
-	}
-
-	let precipHours = $derived(nextPrecipHours(data?.hourly));
 	let alerts = $derived(data?.alerts || []);
 	let extremeCopy = $derived(tickerText(alerts.filter((a) => isExtremeAlert(a))));
-	let pred = $derived(data?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0 });
+	let pred = $derived(data?.prediction || {});
 	let current = $derived(data?.current || {});
-	let sun = $derived(data?.sun || {});
-	let windCompass = $derived(compassFromDeg(current.windDirection));
+	let mesh = $derived(current.mesh || data?.mesh || {});
 
-	function rainClass(score) {
-		if (score >= 0.6) return 'high';
-		if (score >= 0.35) return 'med';
-		return 'low';
-	}
+	let displayTemp = $derived.by(() => {
+		const t = Number(current.temp);
+		return Number.isFinite(t) ? Math.round(t) : '--';
+	});
+	let displayFeels = $derived.by(() => {
+		const t = Number(current.feelsLike);
+		return Number.isFinite(t) ? Math.round(t) : '--';
+	});
+	let displayHumidity = $derived.by(() => {
+		const h = Number(current.humidity);
+		return Number.isFinite(h) ? Math.round(h) : '--';
+	});
+	let displayPressure = $derived.by(() => {
+		const p = Number(current.pressure);
+		return Number.isFinite(p) ? Math.round(p) : '--';
+	});
 
-	function predWord(p) {
-		if (pred.etaMin != null && pred.etaMin <= 120 && p.val >= 0.35) {
-			if (pred.etaMin <= 5) return 'arriving';
-			return `in ${pred.etaMin} min`;
+	let rainLine = $derived.by(() => {
+		if (pred.etaMin != null && pred.etaMin <= 120 && (pred.approaching || pred.rain60min >= 0.2)) {
+			if (pred.etaMin <= 5) return 'Rain arriving';
+			return `Rain in ${pred.etaMin} min`;
 		}
-		if (p.val >= 0.6) return 'likely';
-		if (p.val >= 0.35) return 'maybe';
-		return 'clear';
-	}
+		return '';
+	});
+
+	let meshLine = $derived.by(() => {
+		const n = Number(mesh.stationCount) || 0;
+		if (n <= 0) return '';
+		return n === 1 ? '1 nearby station' : `${n} nearby stations`;
+	});
 </script>
 
 <div class="weather-view">
-	<header class="weather-header">
-		<div class="left">
-			<div class="big-temp">{current.temp ?? '--'}°</div>
-			<div class="condition">
-				<div class="desc">{current.desc ?? '--'}</div>
-				<div class="feels">Feels like {current.feelsLike ?? '--'}° · Humidity {current.humidity ?? '--'}%</div>
-			</div>
-		</div>
-		<div class="meta">
-			<div class="meta-row">
-				<span class="label">Wind</span>
-				{windCompass}
-				{current.windSpeed ?? '--'} mph
-				{#if Number.isFinite(Number(current.windDirection))}
-					<span class="from">from {Math.round(Number(current.windDirection))}°</span>
-				{/if}
-			</div>
-			<div class="meta-row"><span class="label">Gusts</span> {current.windGusts ?? '--'} mph</div>
-			<div class="meta-row">
-				<span class="label">Sun</span>
-				{fmtSunTime(sun.sunrise)} / {fmtSunTime(sun.sunset)}
-			</div>
-			<div class="meta-row"><span class="label">Pressure</span> {current.pressure ?? '--'} hPa</div>
-			<div class="meta-row"><span class="label">Clouds</span> {current.cloudCover ?? '--'}%</div>
-		</div>
-	</header>
+	<div class="hero">
+		<div class="big-temp">{displayTemp}°</div>
+	</div>
+	<div class="detail">
+		<div class="desc">{current.desc ?? '--'}</div>
+		<div class="feels">Feels {displayFeels}° · {displayHumidity}%</div>
+		<div class="pressure">{displayPressure} hPa</div>
+		{#if rainLine}
+			<div class="rain-line">{rainLine}</div>
+		{/if}
+		{#if meshLine}
+			<div class="mesh">{meshLine}</div>
+		{/if}
+	</div>
 
 	{#if extremeCopy}
-		<SevereTicker text={extremeCopy} />
-	{/if}
-
-	<section class="predictions">
-		{#each [{ label: '30 min', val: pred.rain30min }, { label: '60 min', val: pred.rain60min }, { label: '120 min', val: pred.rain120min }] as p, i}
-			<div class="pred-card {rainClass(p.val)}" style="--i: {i}">
-				<span class="pred-label">{p.label}</span>
-				<span class="pred-val">{Math.round(p.val * 100)}%</span>
-				<span class="pred-word">{predWord(p)}</span>
-			</div>
-		{/each}
-	</section>
-
-	<section class="chart-block">
-		<h3 class="section-title">12h Precipitation Probability</h3>
-		{#if precipHours.length > 0}
-			<div class="chart" aria-hidden="true">
-				{#each precipHours as h, i}
-					<div class="bar-wrap" style="--i: {i}">
-						<div class="bar" class:warn={h.prob >= 60} class:med={h.prob >= 30 && h.prob < 60} style="height: {Math.max(8, Math.min(100, h.prob))}%"></div>
-						<span class="bar-label">{h.label}</span>
-					</div>
-				{/each}
-			</div>
-		{:else}
-			<div class="empty">No forecast data</div>
-		{/if}
-	</section>
-
-	{#if data?.station}
-		<section class="station">
-			<h3 class="section-title">Backyard Station</h3>
-			<div class="station-grid">
-				<div class="station-item">
-					<span class="station-label">Temp</span>
-					<span class="station-val num">{data.station.tempf}°</span>
-				</div>
-				<div class="station-item">
-					<span class="station-label">Humidity</span>
-					<span class="station-val num">{data.station.humidity}%</span>
-				</div>
-				<div class="station-item">
-					<span class="station-label">Wind</span>
-					<span class="station-val num">{data.station.windspeedmph} mph</span>
-				</div>
-				<div class="station-item">
-					<span class="station-label">Rain/hr</span>
-					<span class="station-val num">{data.station.rainin}″</span>
-				</div>
-			</div>
-		</section>
+		<div class="ticker-slot">
+			<SevereTicker text={extremeCopy} />
+		</div>
 	{/if}
 
 	{#if alerts.length > 0}
 		<section class="alerts">
-			<h3 class="section-title">NWS Alerts</h3>
 			{#each alerts as a}
 				<div class="alert-card" class:extreme={isExtremeAlert(a)} data-severity={a.severity?.toLowerCase()}>
 					<div class="alert-title">{a.event}</div>
@@ -159,42 +79,37 @@
 
 <style>
 	.weather-view {
+		position: relative;
 		height: 100%;
 		width: 100%;
 		min-height: 0;
 		min-width: 0;
-		padding: var(--space-8);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-6);
-		overflow-y: auto;
+		overflow: hidden;
 		box-sizing: border-box;
 	}
-	.weather-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: flex-end;
-		gap: var(--space-6);
-		flex-shrink: 0;
-	}
-	.left {
-		display: flex;
-		align-items: flex-end;
-		gap: var(--space-5);
+	.hero {
+		position: absolute;
+		top: 50%;
+		left: var(--space-6);
+		transform: translateY(-50%);
 	}
 	.big-temp {
 		font-family: var(--font-display);
-		font-size: clamp(64px, 7vw, 120px);
+		font-size: clamp(88px, 9vw, 148px);
 		font-weight: 700;
-		line-height: 0.9;
-		letter-spacing: -0.04em;
+		line-height: 0.85;
+		letter-spacing: -0.05em;
 		color: var(--foreground);
 	}
-	.condition {
+	.detail {
+		position: absolute;
+		top: calc(50% + 4.35rem);
+		left: var(--space-6);
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-1);
-		padding-bottom: var(--space-2);
+		align-items: flex-start;
+		gap: 0.12em;
+		max-width: 18rem;
 	}
 	.desc {
 		font-family: var(--font-display);
@@ -202,143 +117,40 @@
 		font-weight: 600;
 		color: var(--brand);
 	}
-	.feels {
+	.feels,
+	.pressure {
 		font-size: var(--text-lg);
 		color: var(--text-secondary);
 	}
-	.meta {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-		text-align: right;
-		font-size: var(--text-lg);
-		color: var(--text-secondary);
-	}
-	.meta-row .label {
-		color: var(--text-tertiary);
-		margin-right: var(--space-2);
-	}
-	.meta-row .from {
-		color: var(--text-tertiary);
-		margin-left: var(--space-1);
-	}
-	.predictions {
-		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: var(--space-4);
-		flex-shrink: 0;
-	}
-	.pred-card {
-		padding: var(--space-4);
-		border-radius: var(--radius-bezel-inner);
-		background: var(--shell-fill);
-		border: 1px solid var(--hairline);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-	.pred-card.high {
-		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
-	}
-	.pred-card.med {
-		border-color: color-mix(in srgb, var(--brand) 40%, transparent);
-	}
-	.pred-label {
-		font-size: var(--text-sm);
+	.pressure {
 		color: var(--text-tertiary);
 	}
-	.pred-val {
-		font-family: var(--font-display);
-		font-size: var(--text-3xl);
-		font-weight: 700;
-		color: var(--foreground);
-	}
-	.pred-card.high .pred-val {
-		color: var(--warn);
-	}
-	.pred-card.med .pred-val {
-		color: var(--brand);
-	}
-	.pred-word {
-		font-size: var(--text-sm);
-		color: var(--text-secondary);
-		text-transform: uppercase;
-		letter-spacing: 0.08em;
-	}
-	.section-title {
-		margin: 0 0 var(--space-3) 0;
+	.rain-line {
 		font-family: var(--font-display);
 		font-size: var(--text-lg);
-		color: var(--text-tertiary);
 		font-weight: 600;
+		color: var(--scan);
+		margin-top: var(--space-2);
 	}
-	.chart-block {
-		flex-shrink: 0;
-	}
-	.chart {
-		display: flex;
-		align-items: flex-end;
-		gap: var(--space-2);
-		height: 120px;
-		padding-bottom: var(--space-6);
-		border-bottom: 1px solid var(--hairline);
-	}
-	.bar-wrap {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: flex-end;
-		gap: var(--space-1);
-		min-width: 0;
-	}
-	.bar {
-		width: 100%;
-		min-height: 4px;
-		border-radius: var(--radius-sm);
-		background: linear-gradient(180deg, var(--brand) 0%, color-mix(in srgb, var(--brand) 30%, transparent) 100%);
-		transition: height 0.4s var(--ease-fluid);
-		transform-origin: bottom;
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.pred-card {
-			animation: today-arrive 480ms var(--spring-smooth) both;
-			animation-delay: calc(var(--i, 0) * 90ms);
-		}
-		.bar-wrap {
-			animation: today-arrive 420ms var(--spring-smooth) both;
-			animation-delay: calc(var(--i, 0) * 35ms);
-		}
-		.bar {
-			animation: bar-grow 480ms var(--spring-bouncy) both;
-			animation-delay: calc(var(--i, 0) * 35ms + 120ms);
-		}
-	}
-	@keyframes bar-grow {
-		from {
-			transform: scaleY(0);
-		}
-		to {
-			transform: scaleY(1);
-		}
-	}
-	.bar-label {
-		font-size: var(--text-xs);
+	.mesh {
+		font-size: var(--text-sm);
 		color: var(--text-tertiary);
-		white-space: nowrap;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
 	}
-	.bar.warn {
-		background: linear-gradient(180deg, var(--warn) 0%, color-mix(in srgb, var(--warn) 30%, transparent) 100%);
-	}
-	.bar.med {
-		background: linear-gradient(180deg, var(--brand) 0%, color-mix(in srgb, var(--brand) 30%, transparent) 100%);
+	.ticker-slot {
+		position: absolute;
+		top: var(--space-5);
+		left: var(--space-6);
+		right: var(--space-6);
 	}
 	.alerts {
-		flex-shrink: 0;
-	}
-	.empty {
-		font-size: var(--text-lg);
-		color: var(--text-tertiary);
+		position: absolute;
+		left: var(--space-6);
+		right: var(--space-6);
+		bottom: var(--space-5);
+		max-height: 28%;
+		overflow: hidden;
 	}
 	.alert-card {
 		padding: var(--space-4);
@@ -350,33 +162,6 @@
 	.alert-card.extreme {
 		background: color-mix(in srgb, var(--warn) 18%, transparent);
 		border-color: color-mix(in srgb, var(--warn) 48%, transparent);
-	}
-	.station {
-		flex-shrink: 0;
-	}
-	.station-grid {
-		display: grid;
-		grid-template-columns: repeat(4, minmax(0, 1fr));
-		gap: var(--space-3);
-	}
-	.station-item {
-		padding: var(--space-3);
-		border-radius: var(--radius-bezel-inner);
-		background: var(--shell-fill);
-		border: 1px solid var(--hairline);
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-	}
-	.station-label {
-		font-size: var(--text-sm);
-		color: var(--text-tertiary);
-	}
-	.station-val {
-		font-family: var(--font-display);
-		font-size: var(--text-xl);
-		font-weight: 700;
-		color: var(--foreground);
 	}
 	.alert-title {
 		font-family: var(--font-display);
@@ -395,17 +180,5 @@
 		font-size: var(--text-base);
 		color: var(--text-secondary);
 		line-height: 1.4;
-	}
-	@media (max-width: 768px) {
-		.weather-header {
-			flex-direction: column;
-			align-items: flex-start;
-		}
-		.meta {
-			text-align: left;
-		}
-		.predictions {
-			grid-template-columns: 1fr;
-		}
 	}
 </style>
