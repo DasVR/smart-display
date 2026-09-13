@@ -37,6 +37,15 @@ describe('compact slots', () => {
 		assert.equal(slots.trailing.kind, 'eq');
 	});
 
+	it('keeps a paused AirPlay track in the island', () => {
+		const slots = compactSlots(
+			{ playing: false, paused: true, title: 'My Way', artist: 'Limp Bizkit', source: 'airplay' },
+			[]
+		);
+		assert.equal(slots.leading.kind, 'music');
+		assert.equal(slots.leading.title, 'My Way');
+	});
+
 	it('keeps a single ongoing activity up as a compact Live Activity', () => {
 		const slots = compactSlots(null, [activity('hermes')]);
 		assert.equal(slots.leading.title, 'hermes');

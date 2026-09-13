@@ -52,3 +52,21 @@ test('airplay metadata parser clears playing on session end', () => {
 	const xml = item('73736e63', '70626567') + item('73736e63', '70656e64');
 	assert.equal(parse(xml).playing, false);
 });
+
+test('airplay metadata parser keeps the session through a flush', () => {
+	const xml = item('73736e63', '70626567') + item('73736e63', '70666c73');
+	const state = parse(xml);
+	assert.equal(state.playing, true);
+});
+
+test('airplay metadata parser reads duration and progress', () => {
+	const xml =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('636f7265', '61736172', 'Limp Bizkit') +
+		item('636f7265', '6173746d', '273000') +
+		item('73736e63', '70726772', '0/441000/12039300');
+	const state = parse(xml);
+	assert.equal(state.title, 'My Way');
+	assert.equal(state.length, 273);
+	assert.equal(state.position, 10);
+});

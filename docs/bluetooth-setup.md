@@ -144,6 +144,13 @@ Re-run `scripts/airplay-setup.sh` (or wait for **Bluetooth Audio Setup**
 after this lands on master), then close and reopen the AirPlay list so
 iOS drops the cached Docker records.
 
+Crackling or waves of static on the analog speakers is usually the
+Pulse compatibility layer stuffing frames. Setup now uses the native
+PipeWire backend when the AirPlay 2 build has it, SoX interpolation,
+and a slightly larger output buffer. The Music view also reads AirPlay
+progress (`prgr` / `astm`) so the time bar and lyrics can move with
+the song instead of sitting at 0:00.
+
 ## Known gaps
 
 - **This cloud environment has no Bluetooth adapter and no speakers.**

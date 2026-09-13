@@ -36,10 +36,12 @@ export function readAirplayNowPlaying(file = airplayStatePath(), now = Date.now(
 }
 
 export function mergeNowPlaying(mpris, airplay) {
-	const airplayLive = Boolean(airplay?.playing && !airplay.stale);
-	if (airplayLive) {
+	const airplaySession = Boolean(airplay && !airplay.stale && (airplay.playing || airplay.title));
+	if (airplaySession) {
+		const playing = Boolean(airplay.playing);
 		return {
-			playing: true,
+			playing,
+			paused: Boolean(airplay.paused || (!playing && airplay.title)),
 			artist: airplay.artist || 'Unknown artist',
 			title: airplay.title || 'Unknown title',
 			album: airplay.album || '',
@@ -50,7 +52,7 @@ export function mergeNowPlaying(mpris, airplay) {
 		};
 	}
 	if (mpris && (mpris.playing || mpris.title)) {
-		return { ...mpris, source: mpris.source || 'mpris' };
+		return { ...mpris, paused: Boolean(!mpris.playing && mpris.title), source: mpris.source || 'mpris' };
 	}
 	return { playing: false };
 }
