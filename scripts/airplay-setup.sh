@@ -31,11 +31,12 @@ sudo systemctl enable --now avahi-daemon
 
 if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q 'Status: active'; then
 	echo "opening AirPlay / mDNS ports on ufw"
-	sudo ufw allow 5353/udp comment 'mDNS' || true
-	sudo ufw allow 7000/tcp comment 'AirPlay 2' || true
-	sudo ufw allow 319:320/udp comment 'nqptp' || true
-	sudo ufw allow 5000/tcp comment 'AirPlay audio' || true
-	sudo ufw allow 6001:6010/udp comment 'AirPlay timing' || true
+	# Earlier setups opened 3278:3289 by typo. AirPlay 2 uses 32768:60999.
+	sudo ufw delete allow 3278:3289/udp >/dev/null 2>&1 || true
+	while IFS=$'\t' read -r spec comment; do
+		[ -n "$spec" ] || continue
+		sudo ufw allow "$spec" comment "$comment" || true
+	done < <(node "$PROJECT_DIR/scripts/airplay-lan.mjs" ufw)
 fi
 
 have_airplay2() {
@@ -107,6 +108,23 @@ fi
 # Distro AirPlay 1 unit would collide on the mDNS name and still not show in Music.
 sudo systemctl disable --now shairport-sync.service 2>/dev/null || true
 
+LAN_IFACES="$(node "$PROJECT_DIR/scripts/airplay-lan.mjs" print | tr -d '\n')"
+LAN_IFACE="${LAN_IFACES%%,*}"
+if [ -n "$LAN_IFACES" ]; then
+	echo "pinning Avahi + AirPlay to LAN (${LAN_IFACES})"
+	AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
+	if [ -f "$AVAHI_CONF" ]; then
+		tmp="$(mktemp)"
+		cp "$AVAHI_CONF" "$tmp"
+		node "$PROJECT_DIR/scripts/airplay-lan.mjs" avahi "$LAN_IFACES" "$tmp"
+		sudo cp "$tmp" "$AVAHI_CONF"
+		rm -f "$tmp"
+		sudo systemctl restart avahi-daemon
+	fi
+else
+	echo "WARNING: no LAN interface found; AirPlay will advertise on every iface including Docker." >&2
+fi
+
 echo "[3/6] writing ~/.config/shairport-sync.conf"
 mkdir -p "$HOME/.config"
 META_PIPE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/shairport-sync-metadata"
@@ -117,10 +135,12 @@ general = {
   output_backend = "pulseaudio";
   mdns_backend = "avahi";
   ignore_volume_control = "no";
+$( [ -n "$LAN_IFACE" ] && printf '  interface = "%s";\n' "$LAN_IFACE" )
 };
 
 sessioncontrol = {
   run_this_before_play_begins = "${PROJECT_DIR}/scripts/airplay-started.sh";
+  wait_for_completion = "no";
   allow_session_interruption = "yes";
   session_timeout = 120;
 };
@@ -157,9 +177,14 @@ systemctl --user --no-pager --full status smart-display-airplay.service || true
 systemctl --no-pager --full status nqptp || true
 echo "--- avahi AirPlay browse ---"
 if command -v avahi-browse >/dev/null 2>&1; then
-	timeout 8 avahi-browse -prt _airplay._tcp || true
-	if timeout 8 avahi-browse -prt _airplay._tcp 2>/dev/null | grep -qi "${AIRPLAY_NAME}"; then
+	browse="$(timeout 8 avahi-browse -prt _airplay._tcp 2>/dev/null || true)"
+	echo "$browse"
+	decoded="$(printf '%s\n' "$browse" | sed 's/\\032/ /g')"
+	if echo "$decoded" | grep -qi "${AIRPLAY_NAME}"; then
 		echo "mDNS is publishing ${AIRPLAY_NAME}."
+		if echo "$decoded" | grep -i "${AIRPLAY_NAME}" | grep -Eq ';veth|;docker|;br-|;lo;'; then
+			echo "WARNING: ${AIRPLAY_NAME} is still advertised on Docker/loopback. iPhone can see the name and still fail to connect." >&2
+		fi
 	else
 		echo "WARNING: avahi-browse did not see ${AIRPLAY_NAME} yet. Apple Music will stay empty until it does." >&2
 		echo "Phone and kiosk must be on the same LAN. Wait ~10s and reopen the AirPlay list." >&2
