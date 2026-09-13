@@ -5,6 +5,8 @@ import {
 	fetchLyrics,
 	lyricsFromHit,
 	parseLRC,
+	parseMusixmatchRichSync,
+	parseTTML,
 	pickBestLyricsHit,
 	pickItunesDuration,
 	scoreLyricsHit
@@ -56,6 +58,60 @@ test('parseLRC reads enhanced word clocks', () => {
 	assert.equal(lines[0].words.length, 3);
 	assert.equal(lines[0].words[1].text, 'can');
 	assert.equal(lines[0].words[1].time, 12.4);
+});
+
+test('parseTTML reads Apple Music-style word spans', () => {
+	const ttml = `<p begin="00:01.230" end="00:04.500">` +
+		`<span begin="00:01.230" end="00:01.540">You</span> ` +
+		`<span begin="00:01.600" end="00:01.900">can</span> ` +
+		`<span begin="00:01.950" end="00:02.400">take</span></p>`;
+	const lines = parseTTML(ttml);
+	assert.equal(lines.length, 1);
+	assert.equal(lines[0].time, 1.23);
+	assert.equal(lines[0].text, 'You can take');
+	assert.equal(lines[0].words.length, 3);
+	assert.equal(lines[0].words[1].text, 'can');
+	assert.equal(lines[0].words[1].time, 1.6);
+});
+
+test('parseTTML handles HH:MM:SS.mmm and keeps a spanless <p> as an instrumental marker', () => {
+	const ttml =
+		'<p begin="00:00:12.000" end="00:00:14.000">Hello</p>' +
+		'<p begin="00:00:20.000" end="00:00:26.000"></p>';
+	const lines = parseTTML(ttml);
+	assert.equal(lines.length, 2);
+	assert.equal(lines[0].time, 12);
+	assert.equal(lines[0].text, 'Hello');
+	assert.equal(lines[0].words, undefined);
+	assert.equal(lines[1].time, 20);
+	assert.equal(lines[1].text, '');
+});
+
+test('parseMusixmatchRichSync converts chunk offsets to absolute word times', () => {
+	const body = [
+		{
+			ts: 12.0,
+			te: 16.0,
+			x: 'You can take it all',
+			l: [
+				{ c: 'You ', o: 0 },
+				{ c: 'can ', o: 0.4 },
+				{ c: 'take ', o: 0.8 },
+				{ c: 'it ', o: 1.3 },
+				{ c: 'all', o: 1.6 }
+			]
+		},
+		{ ts: 20.0, te: 24.0, x: '', l: [] }
+	];
+	const lines = parseMusixmatchRichSync(body);
+	assert.equal(lines.length, 2);
+	assert.equal(lines[0].time, 12);
+	assert.equal(lines[0].text, 'You can take it all');
+	assert.equal(lines[0].words.length, 5);
+	assert.equal(lines[0].words[2].text, 'take');
+	assert.ok(Math.abs(lines[0].words[2].time - 12.8) < 1e-9);
+	assert.equal(lines[1].text, '', 'an empty line stays a blank instrumental marker');
+	assert.equal(lines[1].words, undefined);
 });
 
 test('scoreLyricsHit rejects a same-title different-artist match', () => {

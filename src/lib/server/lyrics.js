@@ -70,6 +70,87 @@ export function parseLRC(text) {
 	return lines.sort((a, b) => a.time - b.time);
 }
 
+/** Converts a TTML/SMPTE-ish timecode - plain seconds ("12.34" / "12.34s"),
+ *  "MM:SS.mmm", or "HH:MM:SS.mmm" - to seconds. Returns null if unparsable. */
+function parseTimecode(value) {
+	if (value == null) return null;
+	const str = String(value).trim();
+	if (!str) return null;
+	const secondsOnly = str.match(/^(\d+(?:\.\d+)?)s?$/);
+	if (secondsOnly) return parseFloat(secondsOnly[1]);
+	const parts = str.split(':');
+	if (parts.length < 2 || parts.length > 3) return null;
+	const nums = parts.map((p) => parseFloat(p));
+	if (nums.some((n) => Number.isNaN(n))) return null;
+	return nums.reduce((acc, n) => acc * 60 + n, 0);
+}
+
+function xmlAttr(attrsText, name) {
+	const m = String(attrsText || '').match(new RegExp(`${name}\\s*=\\s*"([^"]*)"`, 'i'));
+	return m ? m[1] : null;
+}
+
+function stripMarkup(html) {
+	return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const TTML_P_TAG = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
+const TTML_SPAN_TAG = /<span\b([^>]*)>([\s\S]*?)<\/span>/gi;
+
+/** Parses Apple Music-style TTML (word/syllable spans inside timed <p>
+ *  lines, e.g. `<span begin="00:01.230" end="00:01.540">word</span>`) into
+ *  the same `{time, text, words}` shape `parseLRC` produces, so the lyrics
+ *  UI doesn't need to know which source a line came from. A <p> with no
+ *  spans and no text (an empty timed line) is kept as an instrumental
+ *  marker, matching LRC's bare-timestamp convention. */
+export function parseTTML(text) {
+	const lines = [];
+	TTML_P_TAG.lastIndex = 0;
+	let m;
+	while ((m = TTML_P_TAG.exec(String(text || ''))) !== null) {
+		const [, pAttrs, inner] = m;
+		const begin = parseTimecode(xmlAttr(pAttrs, 'begin'));
+		if (begin == null) continue;
+		const words = [];
+		TTML_SPAN_TAG.lastIndex = 0;
+		let sm;
+		while ((sm = TTML_SPAN_TAG.exec(inner)) !== null) {
+			const [, sAttrs, sInner] = sm;
+			const wordBegin = parseTimecode(xmlAttr(sAttrs, 'begin'));
+			const wordText = stripMarkup(sInner);
+			if (wordBegin == null || !wordText) continue;
+			words.push({ time: wordBegin, text: wordText });
+		}
+		const lineText = words.length ? words.map((w) => w.text).join(' ') : stripMarkup(inner);
+		lines.push({ time: begin, text: lineText, ...(words.length ? { words } : {}) });
+	}
+	return lines.sort((a, b) => a.time - b.time);
+}
+
+/** Parses Musixmatch's rich-sync shape - an array of
+ *  `{ ts, te, x, l: [{ c, o }] }` lines, where `ts` is the line's start
+ *  time and each chunk's `o` is an offset in seconds from `ts` - into the
+ *  same `{time, text, words}` shape as `parseLRC`/`parseTTML`. */
+export function parseMusixmatchRichSync(body) {
+	const rows = Array.isArray(body) ? body : [];
+	const lines = [];
+	for (const row of rows) {
+		const ts = Number(row?.ts);
+		if (!Number.isFinite(ts)) continue;
+		const chunks = Array.isArray(row?.l) ? row.l : [];
+		const words = [];
+		for (const chunk of chunks) {
+			const text = String(chunk?.c || '').trim();
+			if (!text) continue;
+			words.push({ time: ts + (Number(chunk?.o) || 0), text });
+		}
+		const lineText =
+			typeof row?.x === 'string' && row.x.trim() ? row.x.trim() : words.map((w) => w.text).join(' ');
+		lines.push({ time: ts, text: lineText, ...(words.length ? { words } : {}) });
+	}
+	return lines.sort((a, b) => a.time - b.time);
+}
+
 export function scoreLyricsHit(hit, { artist, title, album, duration } = {}) {
 	if (!hit) return 0;
 	const wantTitle = normalizeLyricText(title);
