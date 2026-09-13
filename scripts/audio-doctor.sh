@@ -80,8 +80,8 @@ echo "mDNS AirPlay services:"
 browse="$(timeout 8 avahi-browse -prt _airplay._tcp 2>/dev/null || true)"
 if [ -n "$browse" ]; then
 	echo "$browse"
-	if echo "$browse" | grep -E 'Smart\\032Display|Smart Display' | grep -Eq ';veth|;docker0|;br-'; then
-		echo "WARNING: Smart Display is advertised on Docker interfaces."
+	if echo "$browse" | sed 's/\\032/ /g' | grep -i 'Smart Display' | grep -Eq ';veth|;docker|;br-|;lo;'; then
+		echo "WARNING: Smart Display is advertised on Docker or loopback interfaces."
 		echo "iPhone can see the name and still fail to connect. Re-run scripts/airplay-setup.sh."
 	fi
 else

@@ -130,10 +130,19 @@ sheet as `Arriq's Bedroom TV`, under iPhone Speaker. If that sheet is
 empty besides the phone and the TV, the kiosk is not advertising AirPlay
 2 yet (dashboard deploy does not start it).
 
-If the name appears but tapping it does nothing, Avahi was publishing on
-Docker veths as well as Wi-Fi. `scripts/airplay-setup.sh` pins mDNS to
-the LAN interface (`wlp3s0` on this box, `192.168.1.99`). Re-run that
-script (or wait for **Bluetooth Audio Setup**) and try again.
+If the name appears but tapping it never connects, two things on this
+box were breaking the handshake:
+
+1. Avahi published Smart Display on every Docker veth (`172.x` and
+   `fe80::`) as well as Wi-Fi. iOS can pick an address the phone cannot
+   reach. Setup now pins mDNS to the default-route interface (`wlp3s0`,
+   `192.168.1.99`) and IPv4 only.
+2. ufw was open on `3278:3289/udp` (a typo). AirPlay 2 needs
+   `32768:60999` UDP/TCP plus 7000/tcp and nqptp 319:320/udp.
+
+Re-run `scripts/airplay-setup.sh` (or wait for **Bluetooth Audio Setup**
+after this lands on master), then close and reopen the AirPlay list so
+iOS drops the cached Docker records.
 
 ## Known gaps
 
