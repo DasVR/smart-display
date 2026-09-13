@@ -1,4 +1,5 @@
 import { hostUpdateChanges } from '../hostUpdatesModel.js';
+import { formatDaysLabel } from './displaySchedule.js';
 
 export const NOTIFY_SEVERITIES = new Set(['info', 'ok', 'warn', 'error']);
 export const NOTIFY_EVENTS = new Set(['done', 'install', 'update']);
@@ -77,10 +78,12 @@ export function volumeNotify({ volume = 0, muted = false } = {}) {
 	};
 }
 
-export function scheduleNotify({ enabled, offAt, onAt } = {}) {
+export function scheduleNotify({ enabled, offAt, onAt, days } = {}) {
+	const dayBit = formatDaysLabel(days);
+	const when = `Nights ${offAt || ''} to ${onAt || ''}`.replace(/\s+/g, ' ').trim();
 	return {
 		type: 'notify',
-		title: enabled ? `Nights ${offAt || ''} to ${onAt || ''}`.trim() : 'Auto nights off',
+		title: enabled ? (dayBit ? `${when} · ${dayBit}` : when) : 'Auto nights off',
 		body: enabled ? 'Panel will follow this schedule' : 'Night schedule paused',
 		severity: 'ok',
 		source: 'Remote',

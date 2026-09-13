@@ -5,17 +5,22 @@ import { after, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+	ALL_DAYS,
 	crossedMinute,
 	desiredHdmi,
 	envDefaults,
+	formatDaysLabel,
 	formatHHMM,
 	isQuietHours,
 	loadSchedule,
 	minutesOfDay,
+	nightOwnerWeekday,
+	normalizeDays,
 	normalizeSchedule,
 	parseHHMM,
 	saveSchedule,
-	scheduledAction
+	scheduledAction,
+	weekdayInZone
 } from '../src/lib/server/displaySchedule.js';
 
 const tmpDirs = [];
@@ -110,7 +115,8 @@ describe('persist', () => {
 				offAt: '21:15',
 				onAt: '07:05',
 				phoneWakeAfter: '05:00',
-				timeZone: 'America/New_York'
+				timeZone: 'America/New_York',
+				days: ALL_DAYS
 			}
 		);
 		const file = path.join(tmpDir(), 'display-schedule.json');
@@ -118,6 +124,9 @@ describe('persist', () => {
 		assert.equal(saved.offAt, '09:05');
 		assert.equal(JSON.parse(readFileSync(file, 'utf8')).enabled, false);
 		assert.deepEqual(loadSchedule(file, {}), saved);
+		const withDays = saveSchedule(file, { ...saved, days: ['fri', 'sat'] });
+		assert.deepEqual(withDays.days, [5, 6]);
+		assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).days, [5, 6]);
 	});
 
 	test('falls back when the file is junk', () => {
@@ -129,6 +138,69 @@ describe('persist', () => {
 	test('keeps previous times when a patch is invalid', () => {
 		const next = normalizeSchedule({ offAt: 'nope' }, { offAt: '22:30', onAt: '06:00', enabled: true });
 		assert.equal(next.offAt, '22:30');
+	});
+});
+
+describe('scheduled days', () => {
+	const fridayNight = {
+		enabled: true,
+		offAt: '22:30',
+		onAt: '06:00',
+		timeZone: 'UTC',
+		days: [5]
+	};
+
+	test('parses names, numbers, and env lists', () => {
+		assert.deepEqual(normalizeDays('fri,sat'), [5, 6]);
+		assert.deepEqual(normalizeDays(['Monday', 3, '3', 'nope']), [1, 3]);
+		assert.deepEqual(normalizeDays([]), []);
+		assert.equal(formatDaysLabel([5, 6]), 'Fri Sat');
+		assert.equal(formatDaysLabel(ALL_DAYS), '');
+		assert.equal(formatDaysLabel([]), 'no days');
+		assert.deepEqual(
+			envDefaults({ DISPLAY_SCHEDULE_DAYS: 'sun,mon,tue,wed,thu' }).days,
+			[0, 1, 2, 3, 4]
+		);
+	});
+
+	test('overnight mornings belong to the night that started yesterday', () => {
+		assert.equal(weekdayInZone(new Date('2026-09-11T22:30:00Z'), 'UTC'), 5);
+		assert.equal(weekdayInZone(new Date('2026-09-12T02:00:00Z'), 'UTC'), 6);
+		assert.equal(nightOwnerWeekday(new Date('2026-09-11T22:30:00Z'), fridayNight), 5);
+		assert.equal(nightOwnerWeekday(new Date('2026-09-12T02:00:00Z'), fridayNight), 5);
+		assert.equal(nightOwnerWeekday(new Date('2026-09-12T06:00:00Z'), fridayNight), 5);
+		assert.equal(nightOwnerWeekday(new Date('2026-09-12T22:30:00Z'), fridayNight), 6);
+	});
+
+	test('quiet hours only run on selected nights', () => {
+		assert.equal(isQuietHours(new Date('2026-09-11T22:30:00Z'), fridayNight), true);
+		assert.equal(isQuietHours(new Date('2026-09-12T02:00:00Z'), fridayNight), true);
+		assert.equal(isQuietHours(new Date('2026-09-12T06:00:00Z'), fridayNight), false);
+		assert.equal(isQuietHours(new Date('2026-09-12T22:30:00Z'), fridayNight), false);
+		assert.equal(desiredHdmi(new Date('2026-09-12T22:30:00Z'), fridayNight), 'on');
+		assert.equal(
+			isQuietHours(new Date('2026-09-11T23:00:00Z'), { ...fridayNight, days: [] }),
+			false
+		);
+	});
+
+	test('ticks skip off and on when that night is not selected', () => {
+		assert.equal(
+			scheduledAction(22 * 60 + 29, 22 * 60 + 30, fridayNight, new Date('2026-09-11T22:30:00Z')),
+			'off'
+		);
+		assert.equal(
+			scheduledAction(5 * 60 + 59, 6 * 60, fridayNight, new Date('2026-09-12T06:00:00Z')),
+			'on'
+		);
+		assert.equal(
+			scheduledAction(22 * 60 + 29, 22 * 60 + 30, fridayNight, new Date('2026-09-12T22:30:00Z')),
+			null
+		);
+		assert.equal(
+			scheduledAction(5 * 60 + 59, 6 * 60, fridayNight, new Date('2026-09-13T06:00:00Z')),
+			null
+		);
 	});
 });
 

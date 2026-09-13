@@ -6,7 +6,8 @@ import {
 	agentFinishedNotify,
 	parseAirplayConnectedPayload,
 	parseBtConnectedPayload,
-	parseNotifyPayload
+	parseNotifyPayload,
+	scheduleNotify
 } from '../src/lib/server/notifyPayload.js';
 
 test('parseNotifyPayload requires a title unless event is done', () => {
@@ -86,4 +87,16 @@ test('event install and update fill titles', () => {
 		parseNotifyPayload({ event: 'update', severity: 'ok' }).notify.title,
 		'Packages updated'
 	);
+});
+
+test('scheduleNotify names the window and selected nights', () => {
+	assert.equal(
+		scheduleNotify({ enabled: true, offAt: '22:30', onAt: '06:00' }).title,
+		'Nights 22:30 to 06:00'
+	);
+	assert.equal(
+		scheduleNotify({ enabled: true, offAt: '22:30', onAt: '06:00', days: [5, 6] }).title,
+		'Nights 22:30 to 06:00 · Fri Sat'
+	);
+	assert.equal(scheduleNotify({ enabled: false, offAt: '22:30', onAt: '06:00' }).title, 'Auto nights off');
 });
