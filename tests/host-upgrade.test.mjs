@@ -103,6 +103,31 @@ test('createHostUpgrade streams apt lines and finishes', async () => {
 	assert.equal(finishInstallProgress(beginInstallProgress({ total: 1 })).percent, 100);
 });
 
+test('createHostUpgrade still starts when dpkg already holds the lock', () => {
+	const calls = [];
+	const upgrade = createHostUpgrade({
+		bootAt: 0,
+		bootGraceMs: 0,
+		doneHoldMs: 20,
+		resetCache: () => {},
+		runList: () => 'curl/noble 1 [upgradable from: 0]\n',
+		spawn: (bin, args) => {
+			calls.push([bin, ...args].join(' '));
+			const proc = new EventEmitter();
+			proc.stdout = new EventEmitter();
+			proc.stderr = new EventEmitter();
+			queueMicrotask(() => proc.emit('close', 0));
+			return proc;
+		}
+	});
+	const started = upgrade.maybeStart(
+		assembleHostUpdates({ packages: 2, packagesInstalling: true }),
+		{ force: true }
+	);
+	assert.equal(started, true);
+	assert.equal(calls.length, 1);
+});
+
 test('createHostUpgrade waits for boot grace and does not spawn apt-get update', () => {
 	const calls = [];
 	const upgrade = createHostUpgrade({

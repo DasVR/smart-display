@@ -49,20 +49,25 @@ async function poll() {
 async function pollUpdates() {
 	if (destroyed) return;
 	try {
-		if (get(installProgress)?.active) {
-			/* WS / demo progress already owns the island slot */
+		if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('island') === 'install') {
+			/* preview walkthrough owns the slot */
 		} else {
 			const r = await fetch('/api/updates');
 			if (r.ok) {
-				const activity = islandActivityForUpdates(await r.json());
-				if (activity) setIslandActivity('update', activity);
-				else clearIslandActivity('update');
+				const data = await r.json();
+				if (data.progress) installProgress.set(data.progress);
+				if (!data.progress?.active) {
+					const activity = islandActivityForUpdates(data);
+					if (activity) setIslandActivity('update', activity);
+					else clearIslandActivity('update');
+				}
 			}
 		}
 	} catch {
 		/* updates endpoint is optional in dev */
 	}
-	if (!destroyed) updatesTimer = setTimeout(pollUpdates, UPDATES_POLL_MS);
+	const delay = get(installProgress)?.active ? 450 : UPDATES_POLL_MS;
+	if (!destroyed) updatesTimer = setTimeout(pollUpdates, delay);
 }
 
 /** Call once (e.g. from the root layout's onMount). Returns a cleanup function. */
