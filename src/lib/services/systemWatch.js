@@ -1,4 +1,5 @@
-import { pushIslandEvent } from '$lib/stores.js';
+import { pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+import { islandActivityForUpdates } from '$lib/hostUpdatesModel.js';
 
 /**
  * Polls host telemetry independent of whichever view is mounted, so the
@@ -8,9 +9,11 @@ import { pushIslandEvent } from '$lib/stores.js';
  */
 
 const POLL_MS = 6000;
+const UPDATES_POLL_MS = 15000;
 
 let prevContainers = null;
 let timer = 0;
+let updatesTimer = 0;
 let destroyed = false;
 
 function diffContainers(containers) {
@@ -42,13 +45,30 @@ async function poll() {
 	if (!destroyed) timer = setTimeout(poll, POLL_MS);
 }
 
+async function pollUpdates() {
+	if (destroyed) return;
+	try {
+		const r = await fetch('/api/updates');
+		if (r.ok) {
+			const activity = islandActivityForUpdates(await r.json());
+			if (activity) setIslandActivity('update', activity);
+			else clearIslandActivity('update');
+		}
+	} catch {
+		/* updates endpoint is optional in dev */
+	}
+	if (!destroyed) updatesTimer = setTimeout(pollUpdates, UPDATES_POLL_MS);
+}
+
 /** Call once (e.g. from the root layout's onMount). Returns a cleanup function. */
 export function startSystemWatch() {
 	destroyed = false;
 	prevContainers = null;
 	poll();
+	pollUpdates();
 	return () => {
 		destroyed = true;
 		clearTimeout(timer);
+		clearTimeout(updatesTimer);
 	};
 }

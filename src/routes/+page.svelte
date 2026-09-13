@@ -97,6 +97,24 @@
 		}
 	}
 
+	let lastVolumeKey = '';
+	function announceVolume(msg) {
+		if (!msg || typeof msg.volume !== 'number') return;
+		const pct = msg.muted ? 0 : Math.round(msg.volume * 100);
+		const key = msg.muted ? 'mute' : `v${pct}`;
+		if (key === lastVolumeKey) return;
+		lastVolumeKey = key;
+		pushIslandEvent({
+			title: msg.muted ? 'Muted' : `Volume ${pct}%`,
+			body: '',
+			severity: 'info',
+			ttl: 2500,
+			source: 'Volume',
+			kind: 'volume',
+			muted: Boolean(msg.muted)
+		});
+	}
+
 	function connect() {
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		ws = new WebSocket(`${proto}//${location.host}/ws`);
@@ -134,8 +152,13 @@
 						body: msg.body || '',
 						severity: msg.severity || 'info',
 						ttl: msg.ttl || 9000,
-						source: msg.source || ''
+						source: msg.source || '',
+						kind: msg.kind || 'notice',
+						muted: Boolean(msg.muted)
 					});
+				}
+				if (msg.type === 'volume') {
+					announceVolume(msg);
 				}
 				if (msg.type === 'trigger' && msg.event === 'morning') {
 					mode = 'morning';
