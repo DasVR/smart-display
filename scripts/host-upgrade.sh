@@ -21,6 +21,7 @@ fi
 exec /usr/bin/apt-get -yq --with-new-pkgs \
 	-o Dpkg::Options::=--force-confold \
 	-o Dpkg::Options::=--force-confdef \
+	-o Dpkg::Lock::Timeout=45 \
 	-o APT::Status-Fd=2 \
 	-o Dpkg::Use-Pty=0 \
 	upgrade

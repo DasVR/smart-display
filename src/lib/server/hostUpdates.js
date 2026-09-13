@@ -9,6 +9,7 @@ import {
 	parseFwupdProcessList,
 	parseFwupdText,
 	parseLockHolder,
+	parsePgrepHit,
 	parseRebootPkgs,
 	parseUpdateNotifier
 } from '../hostUpdatesModel.js';
@@ -57,7 +58,7 @@ function probeInstalling({ run }) {
 	let packagesInstalling = parseLockHolder(lockText);
 	if (!packagesInstalling) {
 		for (const name of ['apt-get', 'dpkg', 'unattended-upgr', 'unattended-upgrade']) {
-			if (run('pgrep', ['-x', name], LOCK_MS)) {
+			if (parsePgrepHit(run('pgrep', ['-x', name], LOCK_MS))) {
 				packagesInstalling = true;
 				break;
 			}
@@ -108,8 +109,7 @@ export function getHostUpdates(io = {}) {
 	const reboot = probeReboot({ exists, read });
 	const ttl = Number.isFinite(io.ttlMs) ? io.ttlMs : APT_TTL_MS;
 	const cached = state.cache;
-	const canUseCache =
-		cached && !force && (now - cached.at < ttl || installing.packagesInstalling);
+	const canUseCache = cached && !force && now - cached.at < ttl;
 	if (!canUseCache) {
 		const apt = probeApt({ run, exists, read });
 		const firmware = probeFirmware({ run });

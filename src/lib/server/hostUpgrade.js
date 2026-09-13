@@ -8,7 +8,6 @@ import {
 	applyUpgradeEvent,
 	beginInstallProgress,
 	finishInstallProgress,
-	mirrorExternalInstall,
 	parseUpgradeLine
 } from '../hostUpgradeModel.js';
 import { parseAptListNames } from '../hostUpdatesModel.js';
@@ -16,6 +15,7 @@ import { parseAptListNames } from '../hostUpdatesModel.js';
 const BOOT_GRACE_MS = 8_000;
 const FAIL_BACKOFF_MS = 30 * 60 * 1000;
 const DONE_HOLD_MS = 4200;
+const STALL_MS = 90_000;
 
 function defaultScript() {
 	return process.env.HOST_UPGRADE_BIN || scriptPath('host-upgrade.sh');
@@ -39,6 +39,7 @@ export function createHostUpgrade(io = {}) {
 	let plan = { packages: 0, firmware: 0, firmwareNames: [] };
 	let lastFailAt = 0;
 	let doneTimer = 0;
+	let stallTimer = 0;
 	let listener = io.onChange || (() => {});
 
 	function publish(next) {
@@ -47,10 +48,25 @@ export function createHostUpgrade(io = {}) {
 	}
 
 	function ourJob() {
-		return Boolean(child) || (progress.active && progress.phase !== 'idle' && progress.percent !== -1);
+		return Boolean(child);
+	}
+
+	function clearStall() {
+		clearTimeout(stallTimer);
+		stallTimer = 0;
+	}
+
+	let settled = false;
+	function settle(fn) {
+		if (settled) return;
+		settled = true;
+		clearStall();
+		child = null;
+		fn();
 	}
 
 	function finishSoon(next) {
+		clearStall();
 		publish(next);
 		clearTimeout(doneTimer);
 		doneTimer = setTimeout(() => {
@@ -58,6 +74,25 @@ export function createHostUpgrade(io = {}) {
 			queue = [];
 			publish({ ...EMPTY_INSTALL_PROGRESS });
 		}, io.doneHoldMs ?? DONE_HOLD_MS);
+	}
+
+	function armStall() {
+		clearStall();
+		const ms = io.stallMs ?? STALL_MS;
+		if (!(ms > 0)) return;
+		stallTimer = setTimeout(() => {
+			const proc = child;
+			try {
+				if (proc && typeof proc.kill === 'function') proc.kill('SIGTERM');
+			} catch {
+				/* already gone */
+			}
+			settle(() => {
+				lastFailAt = now();
+				queue = [];
+				finishSoon(finishInstallProgress(progress, { error: 'Install stalled' }));
+			});
+		}, ms);
 	}
 
 	function defaultList() {
@@ -106,9 +141,12 @@ export function createHostUpgrade(io = {}) {
 		}
 
 		child = proc;
-		let settled = false;
+		settled = false;
 		let errText = '';
 		const feed = lineSplitter((line) => {
+			if (!/Waiting for (?:cache )?lock|Could not get lock|Unable to acquire the dpkg frontend lock/i.test(line)) {
+				armStall();
+			}
 			const event = parseUpgradeLine(line);
 			if (event) publish(applyUpgradeEvent(progress, event));
 		});
@@ -117,13 +155,6 @@ export function createHostUpgrade(io = {}) {
 			errText += String(chunk || '');
 			feed(chunk);
 		});
-
-		const settle = (fn) => {
-			if (settled) return;
-			settled = true;
-			child = null;
-			fn();
-		};
 
 		proc.on('error', (error) => {
 			settle(() => {
@@ -155,6 +186,7 @@ export function createHostUpgrade(io = {}) {
 				finishSoon(finishInstallProgress(progress));
 			});
 		});
+		armStall();
 	}
 
 	function spawnEnv() {
@@ -191,11 +223,7 @@ export function createHostUpgrade(io = {}) {
 		if (child || ourJob()) return false;
 		if (opts.lockHeld) return false;
 		if (!snapshot.available) {
-			if (snapshot.installing) {
-				publish(mirrorExternalInstall(snapshot));
-				return false;
-			}
-			if (progress.active && progress.percent === -1 && !child) {
+			if (progress.active && !child) {
 				publish({ ...EMPTY_INSTALL_PROGRESS });
 			}
 			return false;
@@ -216,6 +244,7 @@ export function createHostUpgrade(io = {}) {
 			if (child && typeof child.kill === 'function') child.kill();
 			child = null;
 			queue = [];
+			clearStall();
 			clearTimeout(doneTimer);
 			publish({ ...EMPTY_INSTALL_PROGRESS });
 		},
