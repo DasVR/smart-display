@@ -1,6 +1,5 @@
 import { createServer } from 'http';
 import { existsSync, readFileSync } from 'node:fs';
-import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { handler } from '../build/handler.js';
@@ -17,14 +16,15 @@ import {
 	fetchHAStates
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
+import { getHostUpdates } from './lib/server/hostUpdates.js';
 import { getKioskStatus } from './lib/server/kioskStatus.js';
 import {
 	agentFinishedNotify,
+	hostUpdateNotifies,
 	parseAirplayConnectedPayload,
 	parseBtConnectedPayload,
 	parseNotifyPayload,
-	scheduleNotify,
-	updateAvailableNotify
+	scheduleNotify
 } from './lib/server/notifyPayload.js';
 import { airplayArtPath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -107,32 +107,24 @@ async function pollOllama() {
 }
 setInterval(pollOllama, 500);
 
-const GIT_FETCH_MS = 5 * 60 * 1000;
-let lastGitBehind = 0;
+const HOST_UPDATES_POLL_MS = 15_000;
+let lastHostUpdates = null;
 
-function fetchGitUpstream() {
-	const cwd = process.env.GIT_STATUS_DIR || PROJECT_ROOT;
+function pollHostUpdates() {
 	try {
-		execFileSync('git', ['-C', cwd, 'fetch', 'origin', 'master'], {
-			timeout: 20_000,
-			stdio: ['ignore', 'ignore', 'ignore']
-		});
+		const next = getHostUpdates();
+		if (lastHostUpdates) {
+			for (const msg of hostUpdateNotifies(lastHostUpdates, next)) {
+				broadcast(msg);
+			}
+		}
+		lastHostUpdates = next;
 	} catch {
-		/* offline or no credentials: keep the last known origin/master */
+		/* probe failed; try again next tick */
 	}
 }
-
-function pollGitUpstream() {
-	fetchGitUpstream();
-	const git = getGitContext();
-	const behind = Number(git.behind) || 0;
-	if (behind > 0 && lastGitBehind === 0) {
-		broadcast(updateAvailableNotify(behind));
-	}
-	lastGitBehind = behind;
-}
-setTimeout(pollGitUpstream, 20_000);
-setInterval(pollGitUpstream, GIT_FETCH_MS);
+setTimeout(pollHostUpdates, 8_000);
+setInterval(pollHostUpdates, HOST_UPDATES_POLL_MS);
 
 function displaySnapshot() {
 	return {
@@ -471,6 +463,11 @@ const server = createServer(async (req, res) => {
 
 	if (req.method === 'GET' && req.url === '/api/git') {
 		json(res, getGitContext());
+		return;
+	}
+
+	if (req.method === 'GET' && req.url === '/api/updates') {
+		json(res, getHostUpdates());
 		return;
 	}
 

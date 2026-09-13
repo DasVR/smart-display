@@ -30,10 +30,6 @@ if [ -n "${GITHUB_SHA:-}" ] && [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
 fi
 
 echo "[2/5] installing deps (npm ci via lockfile)"
-curl -sS -m 2 -X POST http://127.0.0.1:3000/api/notify \
-	-H 'Content-Type: application/json' \
-	-d '{"event":"install","source":"Deploy","title":"Installing packages","body":"npm ci"}' \
-	>/dev/null 2>&1 || true
 "$NPM" ci --no-audit --no-fund
 
 echo "[3/5] building (adapter-node)"
@@ -46,10 +42,6 @@ for _ in 1 2 3 4 5 6 7 8; do
 	curl -sf -o /dev/null http://127.0.0.1:3000/api/display && break
 	sleep 1
 done
-curl -sS -m 2 -X POST http://127.0.0.1:3000/api/notify \
-	-H 'Content-Type: application/json' \
-	-d "{\"event\":\"update\",\"severity\":\"ok\",\"source\":\"Deploy\",\"title\":\"Display updated\",\"body\":\"${HEAD_SHA:0:7}\"}" \
-	>/dev/null 2>&1 || true
 
 echo "[5/5] restarting kiosk (cage + chromium)"
 kiosk_ok=0

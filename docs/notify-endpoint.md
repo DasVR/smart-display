@@ -38,7 +38,7 @@ Content-Type: application/json
   - `done` fills `{source} finished` (Cursor, Claude Code, Hermes, Ollama
     each get their own pencil-scribble finish sound)
   - `install` fills `{source} installing` / `Installing packages`
-  - `update` fills `Update available`, or `Display updated` when severity
+  - `update` fills `Package updates`, or `Packages updated` when severity
     is `ok`
 
 The kiosk also raises some of these itself:
@@ -46,10 +46,16 @@ The kiosk also raises some of these itself:
 - volume changes from `/remote` (keycap pitch follows the slider, island
   says `Volume 72%` / `Muted`)
 - night schedule edits (`Nights 22:30 to 06:00`)
-- `npm ci` during deploy (`Installing packages`, then `Display updated`)
-- git fetch every 5 minutes (`Update available` live activity while the
-  box is behind `origin/master`)
+- apt or firmware updates waiting (`Package updates` / `Firmware update`,
+  with a live activity until they are applied)
+- apt, dpkg, unattended-upgrades, or fwupd actually applying
+  (`Installing packages` / `Installing firmware`)
+- `/var/run/reboot-required` after a kernel or firmware write
+  (`Restart needed`)
 - local Ollama going idle (`Agent finished`, source `Ollama`)
+
+It does not chime for dashboard deploys (`npm ci`) or for git being
+behind `origin/master`. Those are not OS updates.
 
 ```bash
 curl -X POST http://<display-host>:3000/api/notify \
@@ -70,7 +76,6 @@ Or from this repo:
 ```bash
 DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-done.sh "Claude Code"
 DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-done.sh Cursor "PR checks green"
-DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-notify.sh install npm "npm ci"
 DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-notify.sh done Hermes
 ```
 
@@ -116,11 +121,8 @@ paths that work today:
 DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-done.sh Hermes
 ```
 
-**Installing packages** from a script:
-
-```bash
-DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-notify.sh install npm "npm ci"
-```
+The box watches apt and fwupd on its own. A hook is only needed if some
+other tool should announce an install the kiosk cannot see.
 
 ## Known gaps
 

@@ -199,13 +199,13 @@ const PROFILES = {
 		{ kind: 'tap', tone: 0.42, peak: 0.16 },
 		{ kind: 'tap', at: 0.08, tone: 0.58, peak: 0.16 }
 	],
-	// Package install / deploy busy: even pencil ticks while work is in flight.
+	// apt / fwupd applying packages or firmware.
 	install: [
 		{ kind: 'tap', tone: 0.4, peak: 0.15 },
 		{ kind: 'tap', at: 0.09, tone: 0.4, peak: 0.15 },
 		{ kind: 'tap', at: 0.18, tone: 0.4, peak: 0.15 }
 	],
-	// Git says the box is behind origin/master.
+	// OS package or firmware updates are waiting.
 	update: [
 		{ kind: 'tap', tone: 0.32, peak: 0.18 },
 		{ kind: 'tap', at: 0.11, tone: 0.22, peak: 0.18 }

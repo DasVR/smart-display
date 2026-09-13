@@ -80,10 +80,10 @@ test('event install and update fill titles', () => {
 		'npm installing'
 	);
 	assert.equal(parseNotifyPayload({ event: 'install' }).notify.kind, 'install');
-	assert.equal(parseNotifyPayload({ event: 'update' }).notify.title, 'Update available');
+	assert.equal(parseNotifyPayload({ event: 'update' }).notify.title, 'Package updates');
 	assert.equal(parseNotifyPayload({ event: 'update' }).notify.severity, 'warn');
 	assert.equal(
 		parseNotifyPayload({ event: 'update', severity: 'ok' }).notify.title,
-		'Display updated'
+		'Packages updated'
 	);
 });
