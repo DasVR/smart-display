@@ -41,7 +41,8 @@ import {
 	minutesOfDay,
 	normalizeSchedule,
 	saveSchedule,
-	scheduledAction
+	scheduledAction,
+	daysEqual
 } from './lib/server/displaySchedule.js';
 import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
 
@@ -234,7 +235,7 @@ async function tickSchedule() {
 		if (desired) await applyHdmi(desired, { reason: 'schedule' });
 		return;
 	}
-	const action = scheduledAction(lastTickMinutes, curr, schedule);
+	const action = scheduledAction(lastTickMinutes, curr, schedule, now);
 	lastTickMinutes = curr;
 	if (action) await applyHdmi(action, { reason: 'schedule' });
 }
@@ -244,7 +245,8 @@ function patchSchedule(input) {
 		enabled: schedule.enabled,
 		offAt: schedule.offAt,
 		onAt: schedule.onAt,
-		wakeOnPhone: schedule.wakeOnPhone
+		wakeOnPhone: schedule.wakeOnPhone,
+		days: schedule.days
 	};
 	const wasEnabled = schedule.enabled;
 	schedule = saveSchedule(SCHEDULE_PATH, normalizeSchedule(input, schedule));
@@ -254,7 +256,8 @@ function patchSchedule(input) {
 		prev.enabled !== schedule.enabled ||
 		prev.offAt !== schedule.offAt ||
 		prev.onAt !== schedule.onAt ||
-		prev.wakeOnPhone !== schedule.wakeOnPhone;
+		prev.wakeOnPhone !== schedule.wakeOnPhone ||
+		!daysEqual(prev.days, schedule.days);
 	if (changed) broadcast(scheduleNotify(schedule));
 	if (wasEnabled && !schedule.enabled && hdmiState === 'off') {
 		applyHdmi('on');
@@ -331,6 +334,7 @@ const server = createServer(async (req, res) => {
 				if (data.onAt) next.onAt = data.onAt;
 				if (data.timeZone) next.timeZone = data.timeZone;
 				if (data.phoneWakeAfter) next.phoneWakeAfter = data.phoneWakeAfter;
+				if (Array.isArray(data.days) || typeof data.days === 'string') next.days = data.days;
 				if (data.schedule && typeof data.schedule === 'object') Object.assign(next, data.schedule);
 				const changedSchedule =
 					data.enabled !== undefined ||
@@ -339,6 +343,7 @@ const server = createServer(async (req, res) => {
 					data.onAt ||
 					data.timeZone ||
 					data.phoneWakeAfter ||
+					data.days !== undefined ||
 					data.schedule;
 				if (changedSchedule) {
 					json(res, { ok: true, ...patchSchedule(next) });
@@ -557,6 +562,7 @@ server.listen(port, '0.0.0.0', () => {
 	console.log(`smart-display running on :${port}`);
 	console.log(
 		`display schedule ${schedule.enabled ? 'on' : 'off'} ${schedule.offAt}->${schedule.onAt} ${schedule.timeZone}` +
+			` days ${schedule.days.join(',')}` +
 			` phone-wake ${schedule.wakeOnPhone ? 'on' : 'off'} after ${schedule.phoneWakeAfter}`
 	);
 	setTimeout(tickSchedule, 2500);

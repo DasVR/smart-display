@@ -1,7 +1,7 @@
 <!--
 	Hallmark design scores
 	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 4 · Restraint 4 · Variety 4
-	Phone remote: power, channel pad, night tray. Not a settings dump.
+	Phone remote: power, channel pad, night schedule. Not a settings dump.
 -->
 <script>
 	import '../../app.css';
@@ -17,6 +17,16 @@
 		{ id: 'music', label: 'Music' },
 		{ id: 'weather', label: 'Weather' }
 	];
+	const weekDays = [
+		{ id: 0, short: 'S', name: 'Sunday' },
+		{ id: 1, short: 'M', name: 'Monday' },
+		{ id: 2, short: 'T', name: 'Tuesday' },
+		{ id: 3, short: 'W', name: 'Wednesday' },
+		{ id: 4, short: 'T', name: 'Thursday' },
+		{ id: 5, short: 'F', name: 'Friday' },
+		{ id: 6, short: 'S', name: 'Saturday' }
+	];
+	const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 	let ws = $state(null);
 	let status = $state('connecting');
@@ -28,7 +38,8 @@
 	let onAt = $state('06:00');
 	let phone = $state({ entity: '', label: '', on: false, status: 'idle', wakeWindow: false });
 	let saveTimer = 0;
-	let nightOpen = $state(true);
+	let nightTab = $state('times');
+	let days = $state([0, 1, 2, 3, 4, 5, 6]);
 	let volume = $state(0.6);
 	let muted = $state(false);
 	let volumeError = $state('');
@@ -59,6 +70,11 @@
 		if (typeof schedule.wakeOnPhone === 'boolean') wakeOnPhone = schedule.wakeOnPhone;
 		if (schedule.offAt) offAt = schedule.offAt;
 		if (schedule.onAt) onAt = schedule.onAt;
+		if (Array.isArray(schedule.days)) {
+			days = [...new Set(schedule.days.map((day) => Number(day)).filter((day) => day >= 0 && day <= 6))].sort(
+				(a, b) => a - b
+			);
+		}
 		if (display.phone) phone = { ...phone, ...display.phone };
 	}
 
@@ -73,11 +89,11 @@
 			const r = await fetch('/api/display', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ enabled: autoNights, wakeOnPhone, offAt, onAt })
+				body: JSON.stringify({ enabled: autoNights, wakeOnPhone, offAt, onAt, days })
 			});
 			const data = await r.json();
 			applyDisplay(data);
-			lastAction = autoNights ? `nights ${offAt} to ${onAt}` : 'auto nights off';
+			lastAction = autoNights ? nightSummaryText() : 'auto nights off';
 			playChime('schedule');
 		} catch (e) {
 			lastAction = e.message || 'save failed';
@@ -210,6 +226,32 @@
 	function toggleMute() {
 		playChime(muted ? 'unmute' : 'mute');
 		saveVolume({ muted: !muted });
+	}
+
+	function daysLabel(selected = days) {
+		if (!selected.length) return 'no days';
+		if (selected.length === 7) return '';
+		return selected.map((day) => dayNames[day]).join(' ');
+	}
+
+	function nightSummaryText() {
+		if (!autoNights) return 'manual';
+		const dayBit = daysLabel();
+		const when = `${offAt} to ${onAt}`;
+		return dayBit ? `${when} · ${dayBit}` : when;
+	}
+
+	function toggleDay(day) {
+		if (days.includes(day)) days = days.filter((item) => item !== day);
+		else days = [...days, day].sort((a, b) => a - b);
+		queueSave();
+		playChime('tap');
+	}
+
+	function setNightTab(tab) {
+		if (nightTab === tab) return;
+		nightTab = tab;
+		playChime('tap');
 	}
 
 	function phoneNote() {
@@ -389,20 +431,38 @@
 		{/if}
 	</section>
 
-	<section class="block night-block" aria-label="Night">
-		<button
-			class="night-toggle"
-			onclick={() => {
-				nightOpen = !nightOpen;
-				playChime('tap');
-			}}
-			aria-expanded={nightOpen}
-		>
+	<section
+		class="block night-block"
+		aria-label="Night schedule"
+		ontouchstart={(e) => e.stopPropagation()}
+		ontouchend={(e) => e.stopPropagation()}
+	>
+		<header class="night-head">
 			<span>Night</span>
-			<span class="night-summary">{autoNights ? `${offAt} to ${onAt}` : 'manual'}</span>
-		</button>
-		{#if nightOpen}
-			<div class="night-body">
+			<span class="night-summary">{nightSummaryText()}</span>
+		</header>
+		<div class="night-tabs" role="tablist" aria-label="Schedule">
+			<button
+				class="night-tab"
+				class:on={nightTab === 'times'}
+				role="tab"
+				aria-selected={nightTab === 'times'}
+				onclick={() => setNightTab('times')}
+			>
+				Times
+			</button>
+			<button
+				class="night-tab"
+				class:on={nightTab === 'days'}
+				role="tab"
+				aria-selected={nightTab === 'days'}
+				onclick={() => setNightTab('days')}
+			>
+				Days
+			</button>
+		</div>
+		<div class="night-body">
+			{#if nightTab === 'times'}
 				<div class="rockers">
 					<button
 						class="rocker"
@@ -440,8 +500,33 @@
 					</label>
 				</div>
 				<p class="note">{phoneNote()}</p>
-			</div>
-		{/if}
+			{:else}
+				<p class="kicker">Off on these nights</p>
+				<div class="day-pad" class:disabled={!autoNights} role="group" aria-label="Nights the panel turns off">
+					{#each weekDays as day}
+						<button
+							class="day-key"
+							class:on={days.includes(day.id)}
+							aria-pressed={days.includes(day.id)}
+							aria-label={day.name}
+							disabled={!autoNights}
+							onclick={() => toggleDay(day.id)}
+						>
+							{day.short}
+						</button>
+					{/each}
+				</div>
+				<p class="note">
+					{#if !days.length}
+						No nights selected. The panel stays on.
+					{:else if days.length === 7}
+						Every night.
+					{:else}
+						Overnight mornings follow the night that started the evening before.
+					{/if}
+				</p>
+			{/if}
+		</div>
 	</section>
 
 	{#if lastAction && lastAction !== 'connected'}
@@ -471,6 +556,7 @@
 		box-sizing: border-box;
 		user-select: none;
 		-webkit-user-select: none;
+		overflow-x: clip;
 	}
 	.bar {
 		display: flex;
@@ -596,20 +682,23 @@
 	.step,
 	.key,
 	.rocker,
-	.night-toggle {
+	.night-tab,
+	.day-key {
 		transition: transform 280ms var(--spring-bouncy);
 	}
 	.step:focus-visible,
 	.key:focus-visible,
 	.rocker:focus-visible,
-	.night-toggle:focus-visible {
+	.night-tab:focus-visible,
+	.day-key:focus-visible {
 		outline: 2px solid var(--brand);
 		outline-offset: 2px;
 	}
 	.step:active,
 	.key:active,
 	.rocker:active,
-	.night-toggle:active {
+	.night-tab:active,
+	.day-key:active {
 		transform: scale(0.94);
 		transition-duration: 90ms;
 	}
@@ -750,34 +839,66 @@
 	}
 
 	.night-block {
-		margin-top: auto;
+		flex-shrink: 0;
+		min-height: min-content;
 		border: 1px solid var(--hairline);
 		border-radius: var(--radius-md);
 		background: var(--abyss-2);
 		padding: var(--space-3);
 		gap: var(--space-3);
+		touch-action: manipulation;
 	}
-	.night-toggle {
+	.night-head {
 		display: flex;
 		align-items: baseline;
 		justify-content: space-between;
 		gap: var(--space-3);
 		width: 100%;
-		padding: 0;
-		border: 0;
-		background: transparent;
+		min-width: 0;
 		color: var(--foreground);
-		font-family: var(--font-body);
 		font-size: var(--text-base);
 		font-weight: 700;
-		cursor: pointer;
-		text-align: left;
+	}
+	.night-head span:first-child {
+		flex-shrink: 0;
 	}
 	.night-summary {
 		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-tertiary);
 		font-variant-numeric: tabular-nums;
+		text-align: right;
+		overflow-wrap: anywhere;
+		min-width: 0;
+	}
+	.night-tabs {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-2);
+	}
+	.night-tab {
+		min-height: 2.75rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		color: var(--text-secondary);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+	.night-tab.on {
+		color: var(--foreground);
+		background: color-mix(in srgb, var(--abyss-2) 88%, var(--foreground));
+		border-color: color-mix(in srgb, var(--foreground) 22%, transparent);
+	}
+	.night-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		min-height: 8.75rem;
+		min-width: 0;
 	}
 	.rockers {
 		display: grid;
@@ -805,16 +926,21 @@
 		grid-template-columns: 1fr 1fr;
 		gap: var(--space-2);
 	}
-	.times.disabled { opacity: 0.45; }
+	.times.disabled,
+	.day-pad.disabled { opacity: 0.45; }
 	.times label {
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
+		min-width: 0;
 		font-size: var(--text-sm);
 		font-weight: 600;
 		color: var(--text-tertiary);
 	}
 	.times input[type='time'] {
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
 		min-height: 2.75rem;
 		padding: 0 var(--space-3);
 		border-radius: var(--radius-md);
@@ -824,6 +950,33 @@
 		font-family: var(--font-body);
 		font-size: var(--text-lg);
 		font-weight: 600;
+		color-scheme: dark;
+	}
+	.day-pad {
+		display: grid;
+		grid-template-columns: repeat(7, minmax(0, 1fr));
+		gap: var(--space-1);
+	}
+	.day-key {
+		min-width: 0;
+		min-height: 2.75rem;
+		padding: 0;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		color: var(--text-secondary);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 700;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+	.day-key.on {
+		color: var(--ok);
+		border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+	}
+	.day-key:disabled {
+		cursor: not-allowed;
 	}
 	.note,
 	.last {

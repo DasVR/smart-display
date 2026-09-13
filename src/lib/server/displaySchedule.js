@@ -1,16 +1,104 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+export const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+export const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+const DAY_INDEX = {
+	sun: 0,
+	mon: 1,
+	tue: 2,
+	wed: 3,
+	thu: 4,
+	fri: 5,
+	sat: 6
+};
+
 export const DEFAULT_SCHEDULE = {
 	enabled: true,
 	wakeOnPhone: true,
 	offAt: '22:30',
 	onAt: '06:00',
 	phoneWakeAfter: '05:00',
-	timeZone: 'America/New_York'
+	timeZone: 'America/New_York',
+	days: [...ALL_DAYS]
 };
 
 const HHMM = /^(\d{1,2}):([0-5]\d)$/;
+
+export function parseDay(value) {
+	if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 6) {
+		return value;
+	}
+	const raw = String(value ?? '')
+		.trim()
+		.toLowerCase();
+	if (/^[0-6]$/.test(raw)) return Number(raw);
+	return DAY_INDEX[raw.slice(0, 3)] ?? null;
+}
+
+export function normalizeDays(input, fallback = ALL_DAYS) {
+	const fallbackDays = Array.isArray(fallback)
+		? [...new Set(fallback.map(parseDay).filter((day) => day != null))].sort((a, b) => a - b)
+		: [...ALL_DAYS];
+	if (input == null) return fallbackDays;
+	let list = input;
+	if (typeof input === 'string') list = input.split(/[\s,]+/).filter(Boolean);
+	if (!Array.isArray(list)) return fallbackDays;
+	if (list.length === 0) return [];
+	const out = [];
+	for (const item of list) {
+		const day = parseDay(item);
+		if (day == null || out.includes(day)) continue;
+		out.push(day);
+	}
+	out.sort((a, b) => a - b);
+	return out.length ? out : fallbackDays;
+}
+
+export function daysEqual(a, b) {
+	const left = normalizeDays(a, []);
+	const right = normalizeDays(b, []);
+	return left.length === right.length && left.every((day, i) => day === right[i]);
+}
+
+export function formatDaysLabel(days) {
+	const normalized = days == null ? [...ALL_DAYS] : normalizeDays(days, []);
+	if (normalized.length === 7) return '';
+	if (normalized.length === 0) return 'no days';
+	return normalized.map((day) => DAY_LABELS[day]).join(' ');
+}
+
+export function weekdayInZone(date = new Date(), timeZone = DEFAULT_SCHEDULE.timeZone) {
+	const parts = new Intl.DateTimeFormat('en-US', {
+		timeZone,
+		weekday: 'short'
+	}).formatToParts(date);
+	const raw = (parts.find((part) => part.type === 'weekday')?.value || '').slice(0, 3).toLowerCase();
+	return DAY_INDEX[raw] ?? 0;
+}
+
+/** Which night owns this instant. Overnight mornings belong to the previous weekday. */
+export function nightOwnerWeekday(date, schedule = DEFAULT_SCHEDULE) {
+	const tz = schedule.timeZone || DEFAULT_SCHEDULE.timeZone;
+	const off = parseHHMM(schedule.offAt);
+	const on = parseHHMM(schedule.onAt);
+	const weekday = weekdayInZone(date, tz);
+	if (off == null || on == null || off <= on) return weekday;
+	const current = minutesOfDay(date, tz);
+	if (current <= on) return (weekday + 6) % 7;
+	return weekday;
+}
+
+export function scheduledDays(schedule = DEFAULT_SCHEDULE) {
+	return schedule?.days == null ? [...ALL_DAYS] : normalizeDays(schedule.days, ALL_DAYS);
+}
+
+export function isNightScheduled(date, schedule = DEFAULT_SCHEDULE) {
+	const days = scheduledDays(schedule);
+	if (!days.length) return false;
+	return days.includes(nightOwnerWeekday(date, schedule));
+}
 
 export function parseHHMM(value) {
 	const match = String(value ?? '').trim().match(HHMM);
@@ -44,6 +132,7 @@ export function minutesOfDay(date = new Date(), timeZone = DEFAULT_SCHEDULE.time
 
 export function isQuietHours(date, schedule = DEFAULT_SCHEDULE) {
 	if (!schedule?.enabled) return false;
+	if (!isNightScheduled(date, schedule)) return false;
 	const off = parseHHMM(schedule.offAt);
 	const on = parseHHMM(schedule.onAt);
 	if (off == null || on == null || off === on) return false;
@@ -79,13 +168,14 @@ export function crossedMinute(prevMinutes, currMinutes, target) {
 	return target > prevMinutes || target <= currMinutes;
 }
 
-export function scheduledAction(prevMinutes, currMinutes, schedule = DEFAULT_SCHEDULE) {
+export function scheduledAction(prevMinutes, currMinutes, schedule = DEFAULT_SCHEDULE, date = new Date()) {
 	if (!schedule?.enabled) return null;
 	const off = parseHHMM(schedule.offAt);
 	const on = parseHHMM(schedule.onAt);
 	if (off == null || on == null || off === on) return null;
 	const offHit = crossedMinute(prevMinutes, currMinutes, off);
 	const onHit = crossedMinute(prevMinutes, currMinutes, on);
+	if (!isNightScheduled(date, schedule)) return null;
 	if (offHit && onHit) return currMinutes === on ? 'on' : 'off';
 	if (offHit) return 'off';
 	if (onHit) return 'on';
@@ -103,6 +193,7 @@ export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 	} catch {
 		timeZone = fallback.timeZone || DEFAULT_SCHEDULE.timeZone;
 	}
+	const fallbackDays = fallback.days == null ? ALL_DAYS : fallback.days;
 	return {
 		enabled: base.enabled !== false,
 		wakeOnPhone: base.wakeOnPhone !== false,
@@ -112,7 +203,8 @@ export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 			phoneWakeAfter == null
 				? fallback.phoneWakeAfter || DEFAULT_SCHEDULE.phoneWakeAfter
 				: formatHHMM(phoneWakeAfter),
-		timeZone
+		timeZone,
+		days: normalizeDays(base.days, fallbackDays)
 	};
 }
 
@@ -125,6 +217,7 @@ export function envDefaults(env = process.env) {
 	if (env.DISPLAY_PHONE_WAKE_AFTER) seed.phoneWakeAfter = env.DISPLAY_PHONE_WAKE_AFTER;
 	if (env.DISPLAY_TZ) seed.timeZone = env.DISPLAY_TZ;
 	else if (env.TZ) seed.timeZone = env.TZ;
+	if (env.DISPLAY_SCHEDULE_DAYS) seed.days = env.DISPLAY_SCHEDULE_DAYS;
 	return normalizeSchedule(seed);
 }
 
