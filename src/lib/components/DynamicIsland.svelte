@@ -2,12 +2,14 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { playChime } from '$lib/services/chime.js';
+	import { chimeKindForEvent } from '$lib/chimeKind.js';
 	import { compactSlots } from '$lib/islandLive.js';
 
 	let {
 		nowPlaying = null,
 		events = [],
-		activities = []
+		activities = [],
+		anchored = false
 	} = $props();
 
 	let reducedMotion = $state(false);
@@ -68,6 +70,11 @@
 			case 'event': {
 				if (activeEvent?.kind === 'briefing') return 'bell';
 				if (activeEvent?.kind === 'weather' || activeEvent?.kind === 'severe-weather') return 'weather';
+				if (activeEvent?.kind === 'volume') return 'music';
+				if (activeEvent?.kind === 'schedule') return 'bell';
+				if (activeEvent?.kind === 'install') return 'info';
+				if (activeEvent?.kind === 'update') return 'warn';
+				if (activeEvent?.kind === 'done') return 'ok';
 				const sev = activeEvent?.severity;
 				if (sev === 'error') return 'error';
 				if (sev === 'warn') return 'warn';
@@ -105,7 +112,7 @@
 		let tone = 'info';
 		if (mode === 'event') {
 			key = `event:${activeEvent?.id}`;
-			tone = activeEvent?.kind === 'severe-weather' ? 'severe' : sevFor('event');
+			tone = chimeKindForEvent(activeEvent || {});
 		} else if (mode === 'compact' && slots?.leading?.kind === 'music') {
 			key = `music:${nowPlaying?.title}:${nowPlaying?.artist}`;
 			tone = 'music';
@@ -252,7 +259,7 @@
 	{/if}
 {/snippet}
 
-<div class="island" data-mode={mode}>
+<div class="island" class:anchored data-mode={mode}>
 	<div
 		class="island-pill"
 		class:ready
@@ -281,6 +288,13 @@
 		transform: translateX(-50%);
 		z-index: 30;
 		pointer-events: none;
+	}
+	.island.anchored {
+		position: relative;
+		top: auto;
+		left: auto;
+		transform: none;
+		z-index: auto;
 	}
 	.island-pill {
 		position: relative;

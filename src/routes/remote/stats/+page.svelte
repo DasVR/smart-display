@@ -6,10 +6,12 @@
 <script>
 	import '../../../app.css';
 	import { onMount } from 'svelte';
+	import { islandActivityForUpdates } from '$lib/hostUpdatesModel.js';
 
 	let data = $state(null);
 	let status = $state('reading');
 	let error = $state('');
+	let updates = $derived(updatesView(data?.updates));
 
 	function serviceOk(item) {
 		return Boolean(item?.status);
@@ -42,6 +44,12 @@
 		const list = bluetooth?.connected || [];
 		if (!list.length) return 'none connected';
 		return list.map((d) => d.name || d.address).join(', ');
+	}
+
+	function updatesView(snapshot) {
+		const activity = islandActivityForUpdates(snapshot);
+		if (!activity) return { title: 'Up to date', body: '', warn: false };
+		return { title: activity.title, body: activity.body, warn: true };
 	}
 
 	async function refresh(signal) {
@@ -202,15 +210,24 @@
 			</ul>
 		</section>
 
-		<section class="card" aria-label="Git">
-			<p class="kicker">Git</p>
-			<p class="value">{data.git?.branch || 'unknown'}</p>
-			<p class="meta">
-				{data.git?.sha || ''}
-				{#if data.git?.dirty}
-					<span> · dirty</span>
+		<section class="pair" aria-label="Updates and git">
+			<div class="card">
+				<p class="kicker">Updates</p>
+				<p class="value" class:warn={updates.warn}>{updates.title}</p>
+				{#if updates.body}
+					<p class="meta">{updates.body}</p>
 				{/if}
-			</p>
+			</div>
+			<div class="card" aria-label="Git">
+				<p class="kicker">Git</p>
+				<p class="value">{data.git?.branch || 'unknown'}</p>
+				<p class="meta">
+					{data.git?.sha || ''}
+					{#if data.git?.dirty}
+						<span> · dirty</span>
+					{/if}
+				</p>
+			</div>
 		</section>
 	{/if}
 </div>

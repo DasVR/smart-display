@@ -7,7 +7,7 @@
 	import '../../app.css';
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
-	import { primeAudio, playChime } from '$lib/services/chime.js';
+	import { primeAudio, playChime, playVolumeTick } from '$lib/services/chime.js';
 
 	const current = writable('clock');
 	const views = [
@@ -78,6 +78,7 @@
 			const data = await r.json();
 			applyDisplay(data);
 			lastAction = autoNights ? `nights ${offAt} to ${onAt}` : 'auto nights off';
+			playChime('schedule');
 		} catch (e) {
 			lastAction = e.message || 'save failed';
 		}
@@ -175,8 +176,14 @@
 		}
 	}
 
+	let lastVolumeTickAt = 0;
 	function queueVolume(next) {
 		volume = next;
+		const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+		if (now - lastVolumeTickAt > 32) {
+			lastVolumeTickAt = now;
+			playVolumeTick(next);
+		}
 		clearTimeout(volumeTimer);
 		volumeTimer = setTimeout(() => saveVolume({ volume: next }), 120);
 	}
@@ -201,7 +208,7 @@
 	}
 
 	function toggleMute() {
-		playChime('tap');
+		playChime(muted ? 'unmute' : 'mute');
 		saveVolume({ muted: !muted });
 	}
 

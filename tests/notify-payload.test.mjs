@@ -21,6 +21,7 @@ test('event done fills Cursor / Claude Code / Agent titles', () => {
 		body: '',
 		severity: 'ok',
 		source: 'Cursor',
+		kind: 'done',
 		ttl: DEFAULT_NOTIFY_TTL
 	});
 	assert.equal(
@@ -70,4 +71,19 @@ test('agentFinishedNotify is the Ollama idle island event', () => {
 	assert.equal(msg.source, 'Ollama');
 	assert.equal(msg.severity, 'ok');
 	assert.equal(msg.ttl, DEFAULT_NOTIFY_TTL);
+	assert.equal(msg.kind, 'done');
+});
+
+test('event install and update fill titles', () => {
+	assert.equal(
+		parseNotifyPayload({ event: 'install', source: 'npm' }).notify.title,
+		'npm installing'
+	);
+	assert.equal(parseNotifyPayload({ event: 'install' }).notify.kind, 'install');
+	assert.equal(parseNotifyPayload({ event: 'update' }).notify.title, 'Package updates');
+	assert.equal(parseNotifyPayload({ event: 'update' }).notify.severity, 'warn');
+	assert.equal(
+		parseNotifyPayload({ event: 'update', severity: 'ok' }).notify.title,
+		'Packages updated'
+	);
 });

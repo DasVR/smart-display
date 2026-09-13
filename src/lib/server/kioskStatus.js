@@ -6,6 +6,8 @@ import path from 'node:path';
 import { formatSpeakerReport, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import { readHdmiStamp } from './displayPower.js';
 import { getGitContext, getNowPlaying, getTelemetry } from './hostData.js';
+import { getHostUpdates } from './hostUpdates.js';
+import { getInstallProgress } from './hostUpgrade.js';
 
 const AIRPLAY_UNITS = {
 	unit: 'smart-display-airplay.service',
@@ -317,6 +319,7 @@ export async function getKioskStatus() {
 	const speakers = probeSpeakers(env);
 	const pipewire = probePipewire(env);
 	const git = getGitContext();
+	const updates = getHostUpdates();
 	const local = localServices(airplay, bluetooth, speakers, pipewire);
 	const remote = Array.isArray(telemetry.services)
 		? telemetry.services.filter((s) => !/^Speakers\b/i.test(s.name))
@@ -338,7 +341,11 @@ export async function getKioskStatus() {
 			branch: git.branch,
 			sha: git.sha,
 			dirty: git.dirty,
-			message: git.message
-		}
+			message: git.message,
+			ahead: git.ahead || 0,
+			behind: git.behind || 0
+		},
+		updates,
+		installProgress: getInstallProgress()
 	};
 }

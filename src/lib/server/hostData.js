@@ -288,6 +288,17 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 	}
 }
 
+/** Parse `git status -sb` tracking, e.g. `## master...origin/master [behind 2]`. */
+export function parseGitAheadBehind(statusSb = '') {
+	const line = String(statusSb).split('\n')[0] || '';
+	const ahead = /ahead (\d+)/.exec(line);
+	const behind = /behind (\d+)/.exec(line);
+	return {
+		ahead: ahead ? parseInt(ahead[1], 10) : 0,
+		behind: behind ? parseInt(behind[1], 10) : 0
+	};
+}
+
 export function getGitContext() {
 	const cwd = process.env.GIT_STATUS_DIR || process.cwd();
 	const opts = `git -C ${JSON.stringify(cwd)}`;
@@ -296,6 +307,7 @@ export function getGitContext() {
 	const shortSha = run(`${opts} rev-parse --short HEAD 2>/dev/null`);
 	const dirtyRaw = run(`${opts} status --porcelain 2>/dev/null`);
 	const aheadBehind = run(`${opts} status -sb 2>/dev/null`);
+	const tracking = parseGitAheadBehind(aheadBehind || '');
 	const files = dirtyRaw
 		? dirtyRaw
 				.split('\n')
@@ -316,6 +328,8 @@ export function getGitContext() {
 		sha: shortSha || '',
 		dirty: Boolean(dirtyRaw),
 		status: aheadBehind || '',
+		ahead: tracking.ahead,
+		behind: tracking.behind,
 		changed: dirtyRaw ? dirtyRaw.split('\n').filter(Boolean).length : 0,
 		files,
 		commitFiles

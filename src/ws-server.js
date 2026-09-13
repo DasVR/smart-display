@@ -16,12 +16,20 @@ import {
 	fetchHAStates
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
+import { getHostUpdates } from './lib/server/hostUpdates.js';
+import {
+	getInstallProgress,
+	maybeStartHostUpgrade,
+	setInstallProgressListener
+} from './lib/server/hostUpgrade.js';
 import { getKioskStatus } from './lib/server/kioskStatus.js';
 import {
 	agentFinishedNotify,
+	hostUpdateNotifies,
 	parseAirplayConnectedPayload,
 	parseBtConnectedPayload,
-	parseNotifyPayload
+	parseNotifyPayload,
+	scheduleNotify
 } from './lib/server/notifyPayload.js';
 import { airplayArtPath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -103,6 +111,26 @@ async function pollOllama() {
 	}
 }
 setInterval(pollOllama, 500);
+
+const HOST_UPDATES_POLL_MS = 15_000;
+let lastHostUpdates = null;
+
+function pollHostUpdates() {
+	try {
+		const next = getHostUpdates();
+		if (lastHostUpdates) {
+			for (const msg of hostUpdateNotifies(lastHostUpdates, next)) {
+				broadcast(msg);
+			}
+		}
+		lastHostUpdates = next;
+		maybeStartHostUpgrade(next);
+	} catch {
+		/* probe failed; try again next tick */
+	}
+}
+setTimeout(pollHostUpdates, 8_000);
+setInterval(pollHostUpdates, HOST_UPDATES_POLL_MS);
 
 function displaySnapshot() {
 	return {
@@ -212,10 +240,22 @@ async function tickSchedule() {
 }
 
 function patchSchedule(input) {
+	const prev = {
+		enabled: schedule.enabled,
+		offAt: schedule.offAt,
+		onAt: schedule.onAt,
+		wakeOnPhone: schedule.wakeOnPhone
+	};
 	const wasEnabled = schedule.enabled;
 	schedule = saveSchedule(SCHEDULE_PATH, normalizeSchedule(input, schedule));
 	lastTickMinutes = null;
 	broadcast({ type: 'display', ...displaySnapshot() });
+	const changed =
+		prev.enabled !== schedule.enabled ||
+		prev.offAt !== schedule.offAt ||
+		prev.onAt !== schedule.onAt ||
+		prev.wakeOnPhone !== schedule.wakeOnPhone;
+	if (changed) broadcast(scheduleNotify(schedule));
 	if (wasEnabled && !schedule.enabled && hdmiState === 'off') {
 		applyHdmi('on');
 		return displaySnapshot();
@@ -325,7 +365,9 @@ const server = createServer(async (req, res) => {
 			try {
 				const data = JSON.parse(body || '{}');
 				const result = applyVolumePayload(data);
-				if (result.ok) broadcast({ type: 'volume', volume: result.volume, muted: result.muted });
+				if (result.ok) {
+					broadcast({ type: 'volume', volume: result.volume, muted: result.muted });
+				}
 				json(res, result, volumeHttpStatus(result));
 			} catch {
 				json(res, { ok: false, error: 'invalid payload' }, 400);
@@ -430,6 +472,13 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && req.url === '/api/updates') {
+		const snapshot = getHostUpdates();
+		maybeStartHostUpgrade(snapshot);
+		json(res, { ...snapshot, progress: getInstallProgress() });
+		return;
+	}
+
 	if (req.method === 'GET' && req.url === '/api/ha/states') {
 		json(res, await getHAStates());
 		return;
@@ -454,6 +503,10 @@ function broadcast(data) {
 	});
 }
 
+setInstallProgressListener((progress) => {
+	broadcast({ ...progress, type: 'installProgress' });
+});
+
 wss.on('connection', (ws, req) => {
 	const isRemote = req.headers['x-remote'] === 'phone' || req.url?.includes('remote');
 	ws.isRemote = isRemote;
@@ -465,7 +518,8 @@ wss.on('connection', (ws, req) => {
 			ts: Date.now(),
 			power: ollamaPowerState,
 			display: displaySnapshot(),
-			audio: audioSnapshot()
+			audio: audioSnapshot(),
+			installProgress: getInstallProgress()
 		})
 	);
 
