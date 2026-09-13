@@ -166,10 +166,11 @@ the song instead of sitting at 0:00.
 ## Volume
 
 `/remote` has a volume slider and mute button that call `GET`/`POST
-/api/volume`, backed by `wpctl get-volume`/`set-volume`/`set-mute` on
-`@DEFAULT_AUDIO_SINK@` (see `src/lib/server/audioVolume.js`). AirPlay and
-Bluetooth volume from the phone still reach PipeWire directly and are
-independent of this slider.
+/api/volume` (see `src/lib/server/audioVolume.js`). The API aims `wpctl`
+at the same analog/USB/headphone sink the stats page reports, not
+whatever PipeWire currently marks default (often Dummy or HDMI on this
+box). AirPlay and Bluetooth volume from the phone still reach PipeWire
+directly and stay independent of this slider.
 
 ## Crackling / static on Bluetooth or the speakers
 

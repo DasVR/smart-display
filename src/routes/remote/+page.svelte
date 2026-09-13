@@ -31,8 +31,15 @@
 	let nightOpen = $state(true);
 	let volume = $state(0.6);
 	let muted = $state(false);
-	let volumeError = $state(false);
+	let volumeError = $state('');
 	let volumeTimer = 0;
+
+	function applyAudio(audio) {
+		if (!audio || typeof audio.volume !== 'number') return;
+		volume = audio.volume;
+		muted = Boolean(audio.muted);
+		volumeError = '';
+	}
 
 	function pickHost() {
 		const h = location.host;
@@ -113,15 +120,15 @@
 				if (msg.type === 'init' || msg.type === 'navigate') {
 					current.set(msg.view || 'clock');
 				}
-				if (msg.type === 'init') applyDisplay(msg.display);
+				if (msg.type === 'init') {
+					applyDisplay(msg.display);
+					applyAudio(msg.audio);
+				}
 				if (msg.type === 'display') applyDisplay(msg);
 				if (msg.type === 'trigger' && msg.event === 'hdmi_off') hdmi = 'off';
 				if (msg.type === 'trigger' && msg.event === 'hdmi_on') hdmi = 'on';
 				if (msg.type === 'pong') status = 'connected';
-				if (msg.type === 'volume') {
-					volume = msg.volume;
-					muted = msg.muted;
-				}
+				if (msg.type === 'volume') applyAudio(msg);
 			} catch {
 				/* ignore */
 			}
@@ -159,14 +166,12 @@
 			const r = await fetch('/api/volume');
 			const data = await r.json();
 			if (data.ok) {
-				volume = data.volume;
-				muted = data.muted;
-				volumeError = false;
-			} else {
-				volumeError = true;
+				applyAudio(data);
+				return;
 			}
+			volumeError = data.error || 'Volume control unavailable';
 		} catch {
-			volumeError = true;
+			volumeError = 'Volume control unavailable';
 		}
 	}
 
@@ -185,14 +190,13 @@
 			});
 			const data = await r.json();
 			if (data.ok) {
-				volume = data.volume;
-				muted = data.muted;
-				volumeError = false;
-			} else {
-				volumeError = true;
+				applyAudio(data);
+				lastAction = data.muted ? 'muted' : `${Math.round((data.volume ?? volume) * 100)}%`;
+				return;
 			}
+			volumeError = data.error || 'Volume control unavailable';
 		} catch {
-			volumeError = true;
+			volumeError = 'Volume control unavailable';
 		}
 	}
 
@@ -211,11 +215,25 @@
 
 	let touchStartX = 0;
 	let touchStartY = 0;
+	let swipeArmed = false;
+	function isVolumeGesture(target) {
+		return Boolean(target?.closest?.('.volume-block'));
+	}
 	function touchStart(e) {
+		if (isVolumeGesture(e.target)) {
+			swipeArmed = false;
+			return;
+		}
+		swipeArmed = true;
 		touchStartX = e.changedTouches[0].screenX;
 		touchStartY = e.changedTouches[0].screenY;
 	}
 	function touchEnd(e) {
+		if (!swipeArmed || isVolumeGesture(e.target)) {
+			swipeArmed = false;
+			return;
+		}
+		swipeArmed = false;
 		const dx = e.changedTouches[0].screenX - touchStartX;
 		const dy = e.changedTouches[0].screenY - touchStartY;
 		if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
@@ -323,7 +341,12 @@
 		</div>
 	</section>
 
-	<section class="block volume-block" aria-label="Volume">
+	<section
+		class="block volume-block"
+		aria-label="Volume"
+		ontouchstart={(e) => e.stopPropagation()}
+		ontouchend={(e) => e.stopPropagation()}
+	>
 		<p class="kicker">Volume</p>
 		<div class="volume-row">
 			<button
@@ -349,13 +372,13 @@
 				min="0"
 				max="1"
 				step="0.01"
-				value={volume}
-				oninput={(e) => queueVolume(Number(e.target.value))}
+				bind:value={volume}
+				oninput={(e) => queueVolume(Number(e.currentTarget.value))}
 			/>
 			<span class="volume-pct">{Math.round((muted ? 0 : volume) * 100)}%</span>
 		</div>
 		{#if volumeError}
-			<p class="note">Volume control unavailable</p>
+			<p class="note">{volumeError}</p>
 		{/if}
 	</section>
 
@@ -623,6 +646,9 @@
 		border-radius: var(--radius-md);
 		background: var(--abyss-2);
 		padding: var(--space-3);
+		touch-action: auto;
+		user-select: auto;
+		-webkit-user-select: auto;
 	}
 	.volume-row {
 		display: flex;
@@ -666,28 +692,43 @@
 	}
 	.volume-slider {
 		flex: 1;
+		height: 2.75rem;
+		margin: 0;
 		appearance: none;
+		-webkit-appearance: none;
+		background: transparent;
+		outline: none;
+		touch-action: none;
+		user-select: auto;
+		-webkit-user-select: auto;
+	}
+	.volume-slider::-webkit-slider-runnable-track {
 		height: 0.4rem;
 		border-radius: 999px;
 		background: var(--shell-fill);
-		outline: none;
-		touch-action: manipulation;
 	}
 	.volume-slider::-webkit-slider-thumb {
+		-webkit-appearance: none;
 		appearance: none;
 		width: 1.5rem;
 		height: 1.5rem;
+		margin-top: -0.55rem;
 		border-radius: 50%;
 		background: var(--foreground);
 		border: 1px solid var(--hairline);
 		cursor: pointer;
 	}
+	.volume-slider::-moz-range-track {
+		height: 0.4rem;
+		border-radius: 999px;
+		background: var(--shell-fill);
+	}
 	.volume-slider::-moz-range-thumb {
 		width: 1.5rem;
 		height: 1.5rem;
+		border: 1px solid var(--hairline);
 		border-radius: 50%;
 		background: var(--foreground);
-		border: 1px solid var(--hairline);
 		cursor: pointer;
 	}
 	.volume-pct {

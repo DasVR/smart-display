@@ -30,17 +30,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Sync kiosk project dir
+      - name: Sync kiosk project dir and install audio
         run: |
-          cd /home/das/projects/smart-display
-          git fetch origin "${GITHUB_SHA}"
-          git reset --hard "${GITHUB_SHA}"
-
-      - name: Run speaker-audio-setup.sh
-        run: |
-          cd /home/das/projects/smart-display
-          chmod +x scripts/speaker-audio-setup.sh
-          ./scripts/speaker-audio-setup.sh
+          flock -w 600 /tmp/smart-display-kiosk.lock bash -ceu '
+            cd /home/das/projects/smart-display
+            git fetch origin "$1"
+            git reset --hard "$1"
+            chmod +x scripts/speaker-audio-setup.sh
+            ./scripts/speaker-audio-setup.sh
+          ' -- "${GITHUB_SHA}"
 
       - name: Diagnostics (adapter, services, audio sinks, AirPlay)
         if: always()

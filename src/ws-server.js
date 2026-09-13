@@ -24,7 +24,7 @@ import {
 	parseNotifyPayload
 } from './lib/server/notifyPayload.js';
 import { airplayArtPath } from './lib/server/audioNowPlaying.js';
-import { getVolume, setVolume, setMute } from './lib/server/audioVolume.js';
+import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
 	desiredHdmi,
 	isPhoneWakeWindow,
@@ -52,6 +52,20 @@ let lastPhoneSensor = null;
 function json(res, data, status = 200) {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
 	res.end(JSON.stringify(data));
+}
+
+function reqPath(req) {
+	try {
+		return decodeURIComponent(new URL(req.url, 'http://local').pathname);
+	} catch {
+		return String(req.url || '').split('?')[0];
+	}
+}
+
+function audioSnapshot() {
+	const result = getVolume();
+	if (!result.ok) return null;
+	return { volume: result.volume, muted: result.muted };
 }
 
 function handleAudioConnected(req, res, parse, from) {
@@ -298,28 +312,21 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
-	if (req.method === 'GET' && req.url === '/api/volume') {
-		json(res, getVolume());
+	if (req.method === 'GET' && reqPath(req) === '/api/volume') {
+		const result = getVolume();
+		json(res, result, volumeHttpStatus(result));
 		return;
 	}
 
-	if (req.method === 'POST' && req.url === '/api/volume') {
+	if (req.method === 'POST' && reqPath(req) === '/api/volume') {
 		let body = '';
 		req.on('data', (chunk) => (body += chunk));
 		req.on('end', () => {
 			try {
 				const data = JSON.parse(body || '{}');
-				let result;
-				if (typeof data.muted === 'boolean') {
-					result = setMute(data.muted);
-				} else if (typeof data.volume === 'number') {
-					result = setVolume(data.volume);
-				} else {
-					json(res, { ok: false, error: 'expected { volume } or { muted }' }, 400);
-					return;
-				}
+				const result = applyVolumePayload(data);
 				if (result.ok) broadcast({ type: 'volume', volume: result.volume, muted: result.muted });
-				json(res, result, result.ok ? 200 : 500);
+				json(res, result, volumeHttpStatus(result));
 			} catch {
 				json(res, { ok: false, error: 'invalid payload' }, 400);
 			}
@@ -457,7 +464,8 @@ wss.on('connection', (ws, req) => {
 			view: currentView,
 			ts: Date.now(),
 			power: ollamaPowerState,
-			display: displaySnapshot()
+			display: displaySnapshot(),
+			audio: audioSnapshot()
 		})
 	);
 
