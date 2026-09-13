@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 
 import { scriptPath } from './displayPower.js';
@@ -13,7 +13,7 @@ import {
 } from '../hostUpgradeModel.js';
 import { parseAptListNames } from '../hostUpdatesModel.js';
 
-const BOOT_GRACE_MS = 120_000;
+const BOOT_GRACE_MS = 8_000;
 const FAIL_BACKOFF_MS = 30 * 60 * 1000;
 const DONE_HOLD_MS = 4200;
 
@@ -60,11 +60,24 @@ export function createHostUpgrade(io = {}) {
 		}, io.doneHoldMs ?? DONE_HOLD_MS);
 	}
 
-	function listPackageCount() {
-		if (typeof io.runList === 'function') {
-			const names = parseAptListNames(io.runList() || '');
-			if (names.length) return names.length;
+	function defaultList() {
+		try {
+			const result = spawnSync('apt', ['-qq', 'list', '--upgradable'], {
+				encoding: 'utf8',
+				timeout: 10_000
+			});
+			return `${result.stdout || ''}\n${result.stderr || ''}`;
+		} catch {
+			return '';
 		}
+	}
+
+	function listPackageCount() {
+		let raw = '';
+		if (typeof io.runList === 'function') raw = io.runList() || '';
+		else if (!io.spawn) raw = defaultList();
+		const names = parseAptListNames(raw);
+		if (names.length) return names.length;
 		return Number(plan.packages) || 0;
 	}
 
@@ -175,20 +188,18 @@ export function createHostUpgrade(io = {}) {
 
 	function maybeStart(snapshot, opts = {}) {
 		if (!snapshot) return false;
-		if (child) return false;
+		if (child || ourJob()) return false;
 		if (opts.lockHeld) return false;
-		if (snapshot.installing && !ourJob()) {
-			publish(mirrorExternalInstall(snapshot));
-			return false;
-		}
-		if (snapshot.installing) return false;
 		if (!snapshot.available) {
+			if (snapshot.installing) {
+				publish(mirrorExternalInstall(snapshot));
+				return false;
+			}
 			if (progress.active && progress.percent === -1 && !child) {
 				publish({ ...EMPTY_INSTALL_PROGRESS });
 			}
 			return false;
 		}
-		if (ourJob()) return false;
 		if (now() - bootAt < (io.bootGraceMs ?? BOOT_GRACE_MS) && !opts.force) return false;
 		if (lastFailAt && now() - lastFailAt < (io.failBackoffMs ?? FAIL_BACKOFF_MS) && !opts.force) {
 			return false;

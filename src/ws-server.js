@@ -473,7 +473,9 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && req.url === '/api/updates') {
-		json(res, { ...getHostUpdates(), progress: getInstallProgress() });
+		const snapshot = getHostUpdates();
+		maybeStartHostUpgrade(snapshot);
+		json(res, { ...snapshot, progress: getInstallProgress() });
 		return;
 	}
 

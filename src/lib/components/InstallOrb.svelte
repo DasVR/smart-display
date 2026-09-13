@@ -1,12 +1,11 @@
 <!--
 	Hallmark design scores
-	Philosophy 4 · Hierarchy 5 · Execution 4 · Specificity 5 · Restraint 4 · Variety 5
-	Satellite to the Dynamic Island: smaller abyss pill, matrix beads, progress.
+	Philosophy 4 · Hierarchy 5 · Execution 5 · Specificity 5 · Restraint 5 · Variety 4
+	Satellite mass under the Dynamic Island. Beads and bar, no overlay grid.
 -->
 <script>
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
-	import DotMatrix from '$lib/components/DotMatrix.svelte';
 	import { installBeads } from '$lib/hostUpgradeModel.js';
 
 	let { progress = null } = $props();
@@ -15,7 +14,12 @@
 	let percent = $derived(Number(progress?.percent));
 	let indeterminate = $derived(active && !(percent >= 0));
 	let beads = $derived(installBeads(percent, progress?.total || 0));
-	let label = $derived(progress?.current || progress?.lastCompleted || '');
+	let label = $derived(
+		progress?.error ||
+			progress?.current ||
+			progress?.lastCompleted ||
+			(indeterminate ? 'Waiting for apt' : '')
+	);
 	let count = $derived.by(() => {
 		const total = Number(progress?.total) || 0;
 		const done = Number(progress?.done) || 0;
@@ -38,11 +42,8 @@
 		aria-live="polite"
 		aria-label={progress?.title || 'Installing'}
 	>
-		<div class="neck" aria-hidden="true"></div>
 		<div class="pill">
-			<DotMatrix opacity={0.2} />
 			<div class="row">
-				<span class="kicker">{progress?.title || 'Installing packages'}</span>
 				{#if count}
 					<span class="count">{count}</span>
 				{/if}
@@ -65,34 +66,21 @@
 <style>
 	.orb {
 		position: relative;
-		margin-top: -0.35rem;
+		margin-top: -0.9rem;
 		z-index: 0;
 		pointer-events: none;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 	}
-	.neck {
-		width: 2.6rem;
-		height: 1.05rem;
-		margin-bottom: -0.45rem;
-		background: var(--abyss);
-		filter: url(#island-goo);
-	}
 	.pill {
 		position: relative;
 		isolation: isolate;
 		width: 13.2rem;
 		max-width: min(13.2rem, 72vw);
-		padding: 0.42rem 0.8rem 0.48rem;
-		border-radius: 1.15rem;
+		padding: 0.55rem 0.85rem 0.52rem;
+		border-radius: 1.2rem;
 		background-color: var(--abyss);
-		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/%3E%3C/svg%3E");
-		background-blend-mode: overlay;
-		background-size: 140px 140px;
-		box-shadow:
-			0 10px 24px color-mix(in srgb, var(--abyss) 70%, transparent),
-			0 4px 12px color-mix(in srgb, var(--abyss) 40%, transparent);
 		overflow: hidden;
 		color: var(--foreground);
 	}
@@ -100,23 +88,7 @@
 		position: relative;
 		z-index: 1;
 		display: flex;
-		align-items: baseline;
-		justify-content: space-between;
-		gap: 0.5rem;
-	}
-	.kicker {
-		margin: 0;
-		font-family: var(--font-body);
-		font-size: 0.92rem;
-		font-weight: 600;
-		letter-spacing: -0.02em;
-		color: var(--brand);
-	}
-	.ok .kicker {
-		color: var(--ok);
-	}
-	.err .kicker {
-		color: var(--warn);
+		justify-content: flex-end;
 	}
 	.count {
 		font-family: var(--font-code);
@@ -124,12 +96,18 @@
 		font-weight: 500;
 		color: var(--text-tertiary);
 	}
+	.ok .count {
+		color: var(--ok);
+	}
+	.err .count {
+		color: var(--warn);
+	}
 	.beads {
 		position: relative;
 		z-index: 1;
 		display: flex;
 		gap: 0.18rem;
-		margin-top: 0.32rem;
+		margin-top: 0.28rem;
 	}
 	.beads i {
 		width: 0.38rem;
@@ -194,5 +172,8 @@
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
+	}
+	.err .current {
+		color: var(--warn);
 	}
 </style>
