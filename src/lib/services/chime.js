@@ -19,41 +19,49 @@ function getContext() {
 // notes are a much shorter, percussive bandpass click for tactile feedback
 // (button/tab presses) where a sustained tone would feel sluggish.
 const PROFILES = {
-	info: [{ freq: 880 }],
-	ok: [{ freq: 659.25 }, { freq: 880, at: 0.11 }],
-	warn: [{ freq: 784 }, { freq: 659.25, at: 0.14 }],
-	error: [{ freq: 622.25 }, { freq: 587.33, at: 0.17 }],
+	info: [{ freq: 880, peak: 0.19 }],
+	ok: [{ freq: 659.25, peak: 0.19 }, { freq: 880, at: 0.11, peak: 0.19 }],
+	warn: [{ freq: 784, peak: 0.2 }, { freq: 659.25, at: 0.14, peak: 0.2 }],
+	error: [{ freq: 622.25, peak: 0.2 }, { freq: 587.33, at: 0.17, peak: 0.2 }],
 	// A brighter three-note lift for the island opening on now-playing —
 	// distinct from the severity tones since it's good news, not a notice.
-	music: [{ freq: 523.25 }, { freq: 659.25, at: 0.09 }, { freq: 783.99, at: 0.18 }],
+	music: [
+		{ freq: 523.25, peak: 0.19 },
+		{ freq: 659.25, at: 0.09, peak: 0.19 },
+		{ freq: 783.99, at: 0.18, peak: 0.19 }
+	],
 	// A fuller ascending three-note lift for a genuine completion (bigger
 	// than `ok`, which is reserved for the quieter island-event severity).
-	success: [{ freq: 587.33 }, { freq: 739.99, at: 0.09 }, { freq: 987.77, at: 0.18 }],
+	success: [
+		{ freq: 587.33, peak: 0.21 },
+		{ freq: 739.99, at: 0.09, peak: 0.21 },
+		{ freq: 987.77, at: 0.18, peak: 0.21 }
+	],
 	// An urgent alternating alarm for extreme weather (tornado/hurricane
 	// warnings) - louder and more insistent than `error`, since these are
 	// the one alert category that genuinely deserves to interrupt.
 	severe: [
-		{ freq: 587.33, peak: 0.22 },
-		{ freq: 466.16, at: 0.24, peak: 0.22 },
-		{ freq: 587.33, at: 0.48, peak: 0.22 },
-		{ freq: 466.16, at: 0.72, peak: 0.22 }
+		{ freq: 587.33, peak: 0.3 },
+		{ freq: 466.16, at: 0.24, peak: 0.3 },
+		{ freq: 587.33, at: 0.48, peak: 0.3 },
+		{ freq: 466.16, at: 0.72, peak: 0.3 }
 	],
 	// A single quiet click for any button/tab tap - present on almost every
 	// interaction, so it has to stay small and out of the way.
-	tap: [{ freq: 1600, kind: 'tick', dur: 0.05, peak: 0.07 }],
+	tap: [{ freq: 1600, kind: 'tick', dur: 0.05, peak: 0.1 }],
 	// Quick two-note blips for moving through the nav in either direction -
 	// pitch rises going forward through the tab order, falls going back.
 	'swap-next': [
-		{ freq: 660, kind: 'tick', dur: 0.07, peak: 0.08 },
-		{ freq: 880, kind: 'tick', at: 0.045, dur: 0.09, peak: 0.09 }
+		{ freq: 660, kind: 'tick', dur: 0.07, peak: 0.11 },
+		{ freq: 880, kind: 'tick', at: 0.045, dur: 0.09, peak: 0.12 }
 	],
 	'swap-prev': [
-		{ freq: 880, kind: 'tick', dur: 0.07, peak: 0.08 },
-		{ freq: 660, kind: 'tick', at: 0.045, dur: 0.09, peak: 0.09 }
+		{ freq: 880, kind: 'tick', dur: 0.07, peak: 0.11 },
+		{ freq: 660, kind: 'tick', at: 0.045, dur: 0.09, peak: 0.12 }
 	]
 };
 
-function tone(context, freq, startAt, peak = 0.14, duration = 0.55) {
+function tone(context, freq, startAt, peak = 0.19, duration = 0.55) {
 	const osc = context.createOscillator();
 	const osc2 = context.createOscillator();
 	const gain = context.createGain();
@@ -87,7 +95,7 @@ function tone(context, freq, startAt, peak = 0.14, duration = 0.55) {
 /** A short, percussive bandpass click - for frequent tactile feedback
  *  (taps, tab swaps) where `tone`'s 0.55s sustained sine would feel slow
  *  and pile up under quick repeated presses. */
-function tick(context, freq, startAt, peak = 0.08, duration = 0.06) {
+function tick(context, freq, startAt, peak = 0.1, duration = 0.06) {
 	const osc = context.createOscillator();
 	const gain = context.createGain();
 	const filter = context.createBiquadFilter();

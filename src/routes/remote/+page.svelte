@@ -29,6 +29,10 @@
 	let phone = $state({ entity: '', label: '', on: false, status: 'idle', wakeWindow: false });
 	let saveTimer = 0;
 	let nightOpen = $state(true);
+	let volume = $state(0.6);
+	let muted = $state(false);
+	let volumeError = $state(false);
+	let volumeTimer = 0;
 
 	function pickHost() {
 		const h = location.host;
@@ -114,6 +118,10 @@
 				if (msg.type === 'trigger' && msg.event === 'hdmi_off') hdmi = 'off';
 				if (msg.type === 'trigger' && msg.event === 'hdmi_on') hdmi = 'on';
 				if (msg.type === 'pong') status = 'connected';
+				if (msg.type === 'volume') {
+					volume = msg.volume;
+					muted = msg.muted;
+				}
 			} catch {
 				/* ignore */
 			}
@@ -144,6 +152,53 @@
 
 	function togglePower() {
 		send({ type: 'trigger', event: hdmi === 'off' ? 'hdmi_on' : 'hdmi_off' });
+	}
+
+	async function fetchVolume() {
+		try {
+			const r = await fetch('/api/volume');
+			const data = await r.json();
+			if (data.ok) {
+				volume = data.volume;
+				muted = data.muted;
+				volumeError = false;
+			} else {
+				volumeError = true;
+			}
+		} catch {
+			volumeError = true;
+		}
+	}
+
+	function queueVolume(next) {
+		volume = next;
+		clearTimeout(volumeTimer);
+		volumeTimer = setTimeout(() => saveVolume({ volume: next }), 120);
+	}
+
+	async function saveVolume(payload) {
+		try {
+			const r = await fetch('/api/volume', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(payload)
+			});
+			const data = await r.json();
+			if (data.ok) {
+				volume = data.volume;
+				muted = data.muted;
+				volumeError = false;
+			} else {
+				volumeError = true;
+			}
+		} catch {
+			volumeError = true;
+		}
+	}
+
+	function toggleMute() {
+		playChime('tap');
+		saveVolume({ muted: !muted });
 	}
 
 	function phoneNote() {
@@ -179,6 +234,7 @@
 
 	onMount(() => {
 		connect();
+		fetchVolume();
 		const ping = setInterval(() => {
 			if (status === 'connected' && ws?.readyState === 1) {
 				ws.send(JSON.stringify({ type: 'ping' }));
@@ -265,6 +321,42 @@
 				</button>
 			{/each}
 		</div>
+	</section>
+
+	<section class="block volume-block" aria-label="Volume">
+		<p class="kicker">Volume</p>
+		<div class="volume-row">
+			<button
+				class="mute-toggle"
+				class:muted
+				onclick={toggleMute}
+				aria-pressed={muted}
+				aria-label={muted ? 'Unmute' : 'Mute'}
+			>
+				<svg viewBox="0 0 24 24" aria-hidden="true">
+					<path d="M4 9v6h4l5 5V4L8 9H4z" />
+					{#if muted}
+						<path d="M16 9l5 6M21 9l-5 6" />
+					{:else}
+						<path d="M16.5 8.5a5 5 0 0 1 0 7" />
+						<path d="M19 6a8.5 8.5 0 0 1 0 12" />
+					{/if}
+				</svg>
+			</button>
+			<input
+				class="volume-slider"
+				type="range"
+				min="0"
+				max="1"
+				step="0.01"
+				value={volume}
+				oninput={(e) => queueVolume(Number(e.target.value))}
+			/>
+			<span class="volume-pct">{Math.round((muted ? 0 : volume) * 100)}%</span>
+		</div>
+		{#if volumeError}
+			<p class="note">Volume control unavailable</p>
+		{/if}
 	</section>
 
 	<section class="block night-block" aria-label="Night">
@@ -524,6 +616,89 @@
 		background: color-mix(in srgb, var(--abyss-2) 88%, var(--foreground));
 		color: var(--foreground);
 		border-color: color-mix(in srgb, var(--foreground) 22%, transparent);
+	}
+
+	.volume-block {
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-md);
+		background: var(--abyss-2);
+		padding: var(--space-3);
+	}
+	.volume-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+	}
+	.mute-toggle {
+		flex-shrink: 0;
+		width: 2.75rem;
+		height: 2.75rem;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		color: var(--foreground);
+		display: grid;
+		place-items: center;
+		cursor: pointer;
+		touch-action: manipulation;
+		transition: transform 280ms var(--spring-bouncy), color 180ms var(--spring-smooth);
+	}
+	.mute-toggle svg {
+		width: 1.4rem;
+		height: 1.4rem;
+		fill: none;
+		stroke: currentColor;
+		stroke-width: 1.8;
+		stroke-linecap: round;
+		stroke-linejoin: round;
+	}
+	.mute-toggle:active {
+		transform: scale(0.92);
+		transition-duration: 90ms;
+	}
+	.mute-toggle:focus-visible {
+		outline: 2px solid var(--brand);
+		outline-offset: 2px;
+	}
+	.mute-toggle.muted {
+		color: var(--warn);
+		border-color: color-mix(in srgb, var(--warn) 40%, transparent);
+	}
+	.volume-slider {
+		flex: 1;
+		appearance: none;
+		height: 0.4rem;
+		border-radius: 999px;
+		background: var(--shell-fill);
+		outline: none;
+		touch-action: manipulation;
+	}
+	.volume-slider::-webkit-slider-thumb {
+		appearance: none;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 50%;
+		background: var(--foreground);
+		border: 1px solid var(--hairline);
+		cursor: pointer;
+	}
+	.volume-slider::-moz-range-thumb {
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: 50%;
+		background: var(--foreground);
+		border: 1px solid var(--hairline);
+		cursor: pointer;
+	}
+	.volume-pct {
+		flex-shrink: 0;
+		min-width: 3ch;
+		text-align: right;
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary);
 	}
 
 	.night-block {

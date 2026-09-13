@@ -45,5 +45,10 @@ if [ -z "$source_name" ]; then
 fi
 
 unload_loopbacks
-pactl load-module module-loopback source="$source_name" sink=@DEFAULT_SINK@ latency_msec=50 >/dev/null
+# 50ms was too tight for this host: the loopback buffer would occasionally
+# starve (visible as `pw-top`/`pactl` xrun counters climbing) and that
+# underrun is exactly what a crackle/static burst sounds like. 100ms gives
+# the ring buffer enough slack to absorb normal scheduling jitter, at the
+# cost of a bit more latency than a phone user would notice.
+pactl load-module module-loopback source="$source_name" sink=@DEFAULT_SINK@ latency_msec=100 >/dev/null
 echo "bt-audio-loopback: $source_name -> @DEFAULT_SINK@"

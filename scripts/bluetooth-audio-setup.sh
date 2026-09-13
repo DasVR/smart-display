@@ -53,7 +53,13 @@ cat > ~/.config/wireplumber/wireplumber.conf.d/51-bluez-a2dp-sink.conf <<'CONF'
 monitor.bluez.properties = {
   bluez5.roles = [ a2dp_sink ]
   bluez5.hfphsp-backend = "none"
-  bluez5.enable-sbc-xq = true
+  # SBC-XQ needs a higher, steadier Bluetooth throughput than plain SBC. On
+  # this adapter that extra demand was the crackle/static culprit: any
+  # radio contention (AVRCP metadata polling, a busy 2.4GHz room) starved
+  # the stream and the underrun came out as bursts of static. Plain SBC
+  # trades a little audio quality for a link that doesn't need to sustain
+  # peak bandwidth, which is what actually stopped the crackling.
+  bluez5.enable-sbc-xq = false
   bluez5.enable-msbc = false
   bluez5.auto-connect = [ a2dp_sink ]
 }
@@ -61,6 +67,21 @@ CONF
 cat > ~/.config/wireplumber/wireplumber.conf.d/51-bluez-no-headset.conf <<'CONF'
 wireplumber.settings = {
   bluetooth.autoswitch-to-headset-profile = false
+}
+CONF
+
+echo "[4b/7] widening PipeWire's buffer so normal scheduling jitter doesn't underrun"
+# The same static/crackle was also happening on the wired speakers, not
+# just Bluetooth, which points at PipeWire's audio graph running too close
+# to the edge (an xrun) rather than anything Bluetooth-specific. Raising
+# the minimum quantum gives every sink more buffer to absorb jitter, at
+# the cost of a few milliseconds of extra latency.
+mkdir -p ~/.config/pipewire/pipewire.conf.d
+cat > ~/.config/pipewire/pipewire.conf.d/99-buffer-stability.conf <<'CONF'
+context.properties = {
+  default.clock.rate = 48000
+  default.clock.min-quantum = 1024
+  default.clock.max-quantum = 2048
 }
 CONF
 
