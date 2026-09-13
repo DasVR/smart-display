@@ -47,12 +47,21 @@ export function mergeNowPlaying(mpris, airplay) {
 			album: airplay.album || '',
 			art: airplay.art || '',
 			position: Number(airplay.position) || 0,
+			positionAt: Number(airplay.positionAt) || 0,
 			length: Number(airplay.length) || 0,
+			updatedAt: Number(airplay.updatedAt) || 0,
 			source: 'airplay'
 		};
 	}
 	if (mpris && (mpris.playing || mpris.title)) {
-		return { ...mpris, paused: Boolean(!mpris.playing && mpris.title), source: mpris.source || 'mpris' };
+		return {
+			...mpris,
+			paused: Boolean(!mpris.playing && mpris.title),
+			position: Number(mpris.position) || 0,
+			positionAt: Number(mpris.positionAt) || 0,
+			length: Number(mpris.length) || 0,
+			source: mpris.source || 'mpris'
+		};
 	}
 	return { playing: false };
 }

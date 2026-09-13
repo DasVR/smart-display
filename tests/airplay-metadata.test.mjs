@@ -69,4 +69,6 @@ test('airplay metadata parser reads duration and progress', () => {
 	assert.equal(state.title, 'My Way');
 	assert.equal(state.length, 273);
 	assert.equal(state.position, 10);
+	assert.equal(typeof state.positionAt, 'number');
+	assert.ok(state.positionAt > 0);
 });

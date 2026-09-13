@@ -7,7 +7,7 @@ import { fuseRainPrediction } from '../rainModel.js';
 import { LARGO_LAT, LARGO_LON } from '../radarMap.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
-import { fetchLyrics } from './lyrics.js';
+import { fetchLyrics, lookupTrackDuration } from './lyrics.js';
 
 function run(cmd) {
 	try {
@@ -249,7 +249,8 @@ function readMprisNowPlaying() {
 		title,
 		album,
 		art,
-		position: parseFloat(posStr),
+		position: parseFloat(posStr) || 0,
+		positionAt: Date.now(),
 		length
 	};
 }
@@ -261,6 +262,16 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			return { playing: false };
 		}
 		if (skipLyrics) return merged;
+		let duration = Number(merged.length) || 0;
+		if (
+			!duration &&
+			merged.artist &&
+			merged.title &&
+			merged.artist !== 'Unknown artist' &&
+			merged.title !== 'Unknown title'
+		) {
+			duration = await lookupTrackDuration(merged.artist, merged.title, { album: merged.album || '' });
+		}
 		const lyrics =
 			merged.artist &&
 			merged.title &&
@@ -268,10 +279,10 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			merged.title !== 'Unknown title'
 				? await fetchLyrics(merged.artist, merged.title, {
 						album: merged.album || '',
-						duration: merged.length || 0
+						duration
 					})
 				: null;
-		return { ...merged, lyrics };
+		return { ...merged, length: merged.length || duration || 0, lyrics };
 	} catch {
 		return { playing: false };
 	}
