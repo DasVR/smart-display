@@ -306,7 +306,11 @@
 				/* nowcast sample is optional */
 			}
 			const cur = weatherData?.current || {};
-			weather.set({ temp: cur.temp ?? '--', desc: cur.desc ?? '--' });
+			const t = Number(cur.temp);
+			weather.set({
+				temp: Number.isFinite(t) ? Math.round(t) : (cur.temp ?? '--'),
+				desc: cur.desc ?? '--'
+			});
 			weatherDetail.set(weatherData);
 			rainPrediction.set(
 				weatherData?.prediction || { rain30min: 0, rain60min: 0, rain120min: 0, source: 'forecast' }

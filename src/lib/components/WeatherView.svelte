@@ -43,8 +43,10 @@
 </script>
 
 <div class="weather-view">
-	<div class="readout">
+	<div class="hero">
 		<div class="big-temp">{displayTemp}°</div>
+	</div>
+	<div class="detail">
 		<div class="desc">{current.desc ?? '--'}</div>
 		<div class="feels">Feels {displayFeels}° · {displayHumidity}%</div>
 		<div class="pressure">{displayPressure} hPa</div>
@@ -57,7 +59,9 @@
 	</div>
 
 	{#if extremeCopy}
-		<SevereTicker text={extremeCopy} />
+		<div class="ticker-slot">
+			<SevereTicker text={extremeCopy} />
+		</div>
 	{/if}
 
 	{#if alerts.length > 0}
@@ -75,24 +79,19 @@
 
 <style>
 	.weather-view {
+		position: relative;
 		height: 100%;
 		width: 100%;
 		min-height: 0;
 		min-width: 0;
-		padding: var(--space-8) var(--space-8) var(--space-8) var(--space-6);
-		display: flex;
-		flex-direction: column;
-		justify-content: center;
-		gap: var(--space-6);
 		overflow: hidden;
 		box-sizing: border-box;
 	}
-	.readout {
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		gap: var(--space-2);
-		max-width: 18rem;
+	.hero {
+		position: absolute;
+		top: 50%;
+		left: var(--space-6);
+		transform: translateY(-50%);
 	}
 	.big-temp {
 		font-family: var(--font-display);
@@ -102,12 +101,21 @@
 		letter-spacing: -0.05em;
 		color: var(--foreground);
 	}
+	.detail {
+		position: absolute;
+		top: calc(50% + 4.35rem);
+		left: var(--space-6);
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.12em;
+		max-width: 18rem;
+	}
 	.desc {
 		font-family: var(--font-display);
 		font-size: var(--text-2xl);
 		font-weight: 600;
 		color: var(--brand);
-		margin-top: var(--space-2);
 	}
 	.feels,
 	.pressure {
@@ -130,8 +138,17 @@
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
 	}
+	.ticker-slot {
+		position: absolute;
+		top: var(--space-5);
+		left: var(--space-6);
+		right: var(--space-6);
+	}
 	.alerts {
-		flex-shrink: 0;
+		position: absolute;
+		left: var(--space-6);
+		right: var(--space-6);
+		bottom: var(--space-5);
 		max-height: 28%;
 		overflow: hidden;
 	}
