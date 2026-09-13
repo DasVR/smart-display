@@ -1,55 +1,43 @@
 <script>
 	import { onMount } from 'svelte';
-	let loading = $state(true);
-	let track = $state(null);
-	let error = $state(null);
+	import { nowPlaying } from '$lib/stores.js';
+
 	let artFailed = $state(false);
 	let lastArtUrl = null;
-
-	// Smoothly interpolated playback position so the progress bar and the
-	// lyrics highlight move continuously between the 3s polls, instead of
-	// jumping every time fetchNowPlaying() resolves.
 	let displayPosition = $state(0);
-	let lastFetchTime = 0;
+	let lastSyncTime = 0;
+	let lastSyncPosition = 0;
 	let raf = 0;
 
+	let track = $derived($nowPlaying);
+	let hasTrack = $derived(Boolean(track?.title || track?.playing));
+
+	$effect(() => {
+		const next = track;
+		if (!next) return;
+		if (next.art !== lastArtUrl) {
+			lastArtUrl = next.art;
+			artFailed = false;
+		}
+		const pos = Number(next.position) || 0;
+		displayPosition = pos;
+		lastSyncPosition = pos;
+		lastSyncTime = Date.now();
+	});
+
 	function tick() {
-		if (track?.playing && track.length) {
-			const elapsed = (Date.now() - lastFetchTime) / 1000;
-			displayPosition = Math.min(track.position + elapsed, track.length);
+		if (track?.playing) {
+			const elapsed = (Date.now() - lastSyncTime) / 1000;
+			const next = lastSyncPosition + elapsed;
+			displayPosition = track.length ? Math.min(next, track.length) : next;
 		}
 		raf = requestAnimationFrame(tick);
 	}
 
 	onMount(() => {
-		fetchNowPlaying();
-		const t = setInterval(fetchNowPlaying, 3000);
 		raf = requestAnimationFrame(tick);
-		return () => {
-			clearInterval(t);
-			cancelAnimationFrame(raf);
-		};
+		return () => cancelAnimationFrame(raf);
 	});
-
-	async function fetchNowPlaying() {
-		try {
-			const r = await fetch('/api/nowplaying');
-			if (!r.ok) throw new Error('player failed');
-			track = await r.json();
-			lastFetchTime = Date.now();
-			displayPosition = track.position || 0;
-			if (track.art !== lastArtUrl) {
-				lastArtUrl = track.art;
-				artFailed = false;
-			}
-			error = null;
-		} catch (e) {
-			error = 'no active media player';
-			track = null;
-		} finally {
-			loading = false;
-		}
-	}
 
 	function fmtTime(sec) {
 		if (!sec || isNaN(sec)) return '0:00';
@@ -85,17 +73,13 @@
 </script>
 
 <div class="music-view">
-	<div class="header">
-		<div class="sub">{track?.playing ? 'Now playing' : 'Idle'}</div>
-	</div>
-
-	{#if loading}
+	{#if !track}
 		<div class="player-body">
 			<div class="skeleton art-skeleton"></div>
 			<div class="skeleton title-skeleton"></div>
 			<div class="skeleton bar-skeleton"></div>
 		</div>
-	{:else if error || !track || !track.playing}
+	{:else if !hasTrack}
 		<div class="empty">
 			<p class="empty-title">Nothing playing</p>
 			<p class="empty-copy">AirPlay from Apple Music, connect Bluetooth, or start a track here.</p>
@@ -157,29 +141,11 @@
 	.music-view {
 		width: 100%;
 		height: 100%;
-		display: flex;
-		flex-direction: column;
-		padding: var(--space-2) 0 var(--space-4);
-		gap: var(--space-8);
 		min-width: 0;
 		min-height: 0;
-		box-sizing: border-box;
-	}
-
-	.header {
 		display: flex;
-		justify-content: flex-end;
-		align-items: flex-end;
-		gap: var(--space-4);
-		border-bottom: 1px solid var(--hairline);
-		padding-bottom: var(--space-6);
-		min-width: 0;
-	}
-	.sub {
-		font-family: var(--font-body);
-		font-size: var(--text-lg);
-		color: var(--text-secondary);
-		flex-shrink: 0;
+		flex-direction: column;
+		box-sizing: border-box;
 	}
 
 	.player-body {
@@ -188,37 +154,33 @@
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: var(--space-8);
+		gap: var(--space-6);
 		min-width: 0;
 		min-height: 0;
+		overflow: hidden;
 	}
 	.player-body.with-lyrics {
-		flex-direction: row;
-		align-items: center;
-		justify-content: center;
+		display: grid;
+		grid-template-columns: minmax(18rem, 0.92fr) minmax(0, 1.15fr);
+		align-items: stretch;
+		justify-content: stretch;
 		gap: var(--space-8);
-		overflow: hidden;
+		padding: 0 var(--space-2);
 	}
 	.player-main {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
-		gap: var(--space-4);
-		flex-shrink: 0;
+		gap: var(--space-3);
 		min-width: 0;
 		min-height: 0;
 		max-height: 100%;
-		overflow-y: auto;
-		scrollbar-width: none;
-	}
-	.player-main::-webkit-scrollbar {
-		display: none;
 	}
 
 	.album-art {
-		width: clamp(260px, 36vh, 460px);
-		height: clamp(260px, 36vh, 460px);
+		width: min(42vh, 420px);
+		height: min(42vh, 420px);
 		flex-shrink: 0;
 		aspect-ratio: 1;
 		border-radius: var(--radius-lg);
@@ -261,10 +223,10 @@
 		z-index: 2;
 	}
 
-	.track-info { text-align: center; min-width: 0; }
+	.track-info { text-align: center; min-width: 0; max-width: 100%; }
 	.track-title {
 		font-family: var(--font-body);
-		font-size: clamp(1.75rem, 3.4vw, 3.5rem);
+		font-size: clamp(1.5rem, 3vw, 2.75rem);
 		font-weight: 600;
 		font-style: normal;
 		color: var(--foreground);
@@ -273,32 +235,33 @@
 	}
 	.track-artist {
 		font-family: var(--font-body);
-		font-size: var(--text-xl);
+		font-size: var(--text-lg);
 		color: var(--text-secondary);
 		margin-top: var(--space-2);
+		overflow-wrap: anywhere;
 	}
 
 	.times {
 		display: flex;
 		justify-content: space-between;
-		width: min(540px, 70vw);
+		width: min(540px, 100%);
 		font-family: var(--font-code);
 		font-size: var(--text-lg);
 		color: var(--text-tertiary);
 	}
 	.with-lyrics .album-art {
-		width: clamp(160px, 22vh, 300px);
-		height: clamp(160px, 22vh, 300px);
+		width: min(26vh, 280px);
+		height: min(26vh, 280px);
 	}
 	.with-lyrics .track-title {
-		font-size: clamp(1.5rem, 2.4vw, 2.25rem);
+		font-size: clamp(1.25rem, 2.1vw, 2rem);
 	}
 	.with-lyrics .times,
 	.with-lyrics .progress {
-		width: min(420px, 34vw);
+		width: min(100%, 22rem);
 	}
 	.progress {
-		width: min(540px, 70vw);
+		width: min(540px, 100%);
 		height: 2px;
 		background: var(--hairline);
 		border-radius: 0;
@@ -316,7 +279,8 @@
 	.controls {
 		display: flex;
 		align-items: center;
-		gap: var(--space-8);
+		gap: var(--space-6);
+		flex-shrink: 0;
 	}
 	.controls button {
 		background: none;
@@ -326,7 +290,7 @@
 		font-size: var(--text-lg);
 		letter-spacing: 0.04em;
 		cursor: pointer;
-		padding: var(--space-4);
+		padding: var(--space-3) var(--space-4);
 		transition:
 			color 220ms var(--spring-smooth),
 			transform 220ms var(--spring-smooth),
@@ -335,16 +299,12 @@
 	.controls button:hover { color: var(--accent); }
 	.controls button:active { transform: scale(0.98); }
 	.controls button.play {
-		width: clamp(80px, 10vh, 120px);
-		height: clamp(80px, 10vh, 120px);
-		border-radius: 50%;
+		min-width: 5.5rem;
+		border-radius: 999px;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent-border);
 		color: var(--accent-strong);
-		font-size: var(--text-xl);
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		font-size: var(--text-lg);
 	}
 	.controls button.play:hover { background: var(--accent); color: var(--abyss); }
 
@@ -352,7 +312,6 @@
 		flex: 1;
 		min-width: 0;
 		min-height: 0;
-		max-width: min(46rem, 44vw);
 		height: 100%;
 		overflow-y: auto;
 		scrollbar-width: none;
@@ -365,14 +324,14 @@
 		display: none;
 	}
 	.lyrics-panel.synced {
-		padding: 30vh var(--space-4);
-		mask-image: linear-gradient(to bottom, transparent, var(--foreground) 22%, var(--foreground) 78%, transparent);
-		-webkit-mask-image: linear-gradient(to bottom, transparent, var(--foreground) 22%, var(--foreground) 78%, transparent);
+		padding: 18vh var(--space-4);
+		mask-image: linear-gradient(to bottom, transparent, var(--foreground) 18%, var(--foreground) 82%, transparent);
+		-webkit-mask-image: linear-gradient(to bottom, transparent, var(--foreground) 18%, var(--foreground) 82%, transparent);
 	}
 	.lyric-line {
 		margin: 0;
 		font-family: var(--font-body);
-		font-size: var(--text-2xl);
+		font-size: clamp(1.15rem, 2.2vw, 1.85rem);
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1.35;
@@ -430,7 +389,7 @@
 		text-wrap: pretty;
 	}
 
-	.art-skeleton { width: clamp(260px, 36vh, 460px); height: clamp(260px, 36vh, 460px); border-radius: var(--radius-lg); }
+	.art-skeleton { width: min(42vh, 420px); height: min(42vh, 420px); border-radius: var(--radius-lg); }
 	.title-skeleton { width: 340px; height: 44px; }
 	.bar-skeleton { width: min(540px, 70vw); height: 2px; border-radius: 0; }
 
@@ -448,24 +407,16 @@
 	}
 
 	@media (max-width: 768px) {
-		.music-view {
-			padding: var(--space-4);
-			gap: var(--space-6);
-		}
-		.header {
-			flex-wrap: wrap;
-		}
 		.player-body.with-lyrics {
-			flex-direction: column;
-			overflow: visible;
+			grid-template-columns: 1fr;
+			overflow: auto;
 		}
 		.with-lyrics .times,
 		.with-lyrics .progress {
-			width: min(540px, 70vw);
+			width: min(540px, 90%);
 		}
 		.lyrics-panel {
-			max-width: 100%;
-			max-height: 30vh;
+			max-height: 28vh;
 		}
 		.lyrics-panel.synced {
 			padding: var(--space-4);

@@ -108,6 +108,11 @@ fi
 # Distro AirPlay 1 unit would collide on the mDNS name and still not show in Music.
 sudo systemctl disable --now shairport-sync.service 2>/dev/null || true
 
+OUTPUT_BACKEND="pulseaudio"
+if shairport-sync -V 2>/dev/null | grep -q PipeWire; then
+	OUTPUT_BACKEND="pipewire"
+fi
+
 LAN_IFACES="$(node "$PROJECT_DIR/scripts/airplay-lan.mjs" print | tr -d '\n')"
 LAN_IFACE="${LAN_IFACES%%,*}"
 if [ -n "$LAN_IFACES" ]; then
@@ -131,10 +136,13 @@ META_PIPE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/shairport-sync-metadata"
 cat > "$HOME/.config/shairport-sync.conf" <<CONF
 general = {
   name = "${AIRPLAY_NAME}";
-  interpolation = "basic";
-  output_backend = "pulseaudio";
+  interpolation = "soxr";
+  output_backend = "${OUTPUT_BACKEND}";
   mdns_backend = "avahi";
   ignore_volume_control = "no";
+  drift_tolerance_in_seconds = 0.010;
+  audio_backend_buffer_desired_length_in_seconds = 0.35;
+  disable_standby_mode = "auto";
 $( [ -n "$LAN_IFACE" ] && printf '  interface = "%s";\n' "$LAN_IFACE" )
 };
 
@@ -149,11 +157,16 @@ pulseaudio = {
   application_name = "Shairport Sync";
 };
 
+pipewire = {
+  application_name = "Shairport Sync";
+};
+
 metadata = {
   enabled = "yes";
   include_cover_art = "yes";
   pipe_name = "${META_PIPE}";
   pipe_timeout = 5000;
+  progress_interval = 1.0;
 };
 CONF
 

@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import re
+import select
 import sys
 import time
 
@@ -29,8 +30,12 @@ ITEM_RE = re.compile(
 	re.I | re.S,
 )
 
+FRAMES = 44100
+RTP_MOD = 2**32
+
 state = {
 	"playing": False,
+	"paused": False,
 	"title": "",
 	"artist": "",
 	"album": "",
@@ -63,36 +68,99 @@ def write_state():
 	os.replace(tmp, STATE_PATH)
 
 
+def rtp_delta(start, end):
+	return (int(end) - int(start)) % RTP_MOD
+
+
+def parse_int(data):
+	if not data:
+		return None
+	text = data.decode("utf-8", errors="ignore").strip()
+	if text.isdigit():
+		return int(text)
+	if len(data) in (1, 2, 4, 8):
+		return int.from_bytes(data, "big", signed=False)
+	return None
+
+
+def apply_progress(data):
+	text = data.decode("utf-8", errors="replace").strip()
+	parts = text.split("/")
+	if len(parts) != 3:
+		return False
+	try:
+		start, current, end = (int(part) for part in parts)
+	except ValueError:
+		return False
+	length = rtp_delta(start, end) / FRAMES
+	position = rtp_delta(start, current) / FRAMES
+	if length <= 0:
+		return False
+	state["length"] = length
+	state["position"] = min(position, length)
+	return True
+
+
 def apply_item(typ, code, data):
 	changed = False
-	if typ in ("ssnc", "core"):
-		if code == "pbeg":
-			state["playing"] = True
-			changed = True
-		elif code in ("pend", "pfls"):
+	if typ not in ("ssnc", "core"):
+		return False
+	if code == "pbeg":
+		state["playing"] = True
+		state["paused"] = False
+		changed = True
+	elif code == "pend":
+		state["playing"] = False
+		state["paused"] = False
+		changed = True
+	elif code == "pfls":
+		# Flush fires on skip/seek. Audio is still the AirPlay session.
+		changed = True
+	elif code == "prsm":
+		state["playing"] = True
+		state["paused"] = False
+		changed = True
+	elif code == "prgr":
+		changed = apply_progress(data)
+	elif code in ("phbt", "phb0"):
+		changed = state["playing"]
+	elif code == "caps":
+		status = parse_int(data)
+		if status == 3:
 			state["playing"] = False
+			state["paused"] = True
 			changed = True
-		elif code == "prsm":
+		elif status == 2:
 			state["playing"] = True
+			state["paused"] = False
 			changed = True
-		elif code == "minm":
-			state["title"] = data.decode("utf-8", errors="replace")
-			state["playing"] = True
+	elif code == "minm":
+		title = data.decode("utf-8", errors="replace")
+		if title != state["title"]:
+			state["position"] = 0
+		state["title"] = title
+		state["playing"] = True
+		state["paused"] = False
+		changed = True
+	elif code == "asar":
+		state["artist"] = data.decode("utf-8", errors="replace")
+		changed = True
+	elif code == "asal":
+		state["album"] = data.decode("utf-8", errors="replace")
+		changed = True
+	elif code == "astm":
+		millis = parse_int(data)
+		if millis and millis > 0:
+			state["length"] = millis / 1000.0
 			changed = True
-		elif code == "asar":
-			state["artist"] = data.decode("utf-8", errors="replace")
-			changed = True
-		elif code == "asal":
-			state["album"] = data.decode("utf-8", errors="replace")
-			changed = True
-		elif code == "PICT" and data:
-			art_dir = os.path.dirname(ART_PATH)
-			if art_dir:
-				os.makedirs(art_dir, exist_ok=True)
-			with open(ART_PATH, "wb") as handle:
-				handle.write(data)
-			state["art"] = f"{ART_URL}?t={int(time.time())}"
-			changed = True
+	elif code == "PICT" and data:
+		art_dir = os.path.dirname(ART_PATH)
+		if art_dir:
+			os.makedirs(art_dir, exist_ok=True)
+		with open(ART_PATH, "wb") as handle:
+			handle.write(data)
+		state["art"] = f"{ART_URL}?t={int(time.time())}"
+		changed = True
 	return changed
 
 
@@ -141,7 +209,12 @@ def main():
 			continue
 		try:
 			while True:
-				chunk = pipe.read(4096)
+				ready, _, _ = select.select([pipe], [], [], 1.0)
+				if not ready:
+					if state["playing"] or state["title"]:
+						write_state()
+					continue
+				chunk = os.read(pipe.fileno(), 4096)
 				if not chunk:
 					break
 				buf += chunk

@@ -7,6 +7,7 @@ import { fuseRainPrediction } from '../rainModel.js';
 import { LARGO_LAT, LARGO_LON } from '../radarMap.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
+import { fetchLyrics } from './lyrics.js';
 
 function run(cmd) {
 	try {
@@ -227,54 +228,8 @@ export async function getCalendar(days = 3) {
 	}
 }
 
-// Free, keyless synced-lyrics lookup (lrclib.net) — works for whatever's
-// actually playing via MPRIS/playerctl, regardless of source app (Apple
-// Music, Spotify, anything). Cached per artist+title: long TTL on a hit
-// since lyrics never change, short TTL on a miss so a bad match (e.g. a
-// title playerctl hasn't fully populated yet) gets retried soon.
-const LYRICS_HIT_TTL = 6 * 60 * 60 * 1000;
-const LYRICS_MISS_TTL = 90 * 1000;
-const lyricsCache = new Map();
-
-function parseLRC(text) {
-	const timeTag = /\[(\d+):(\d+(?:\.\d+)?)\]/g;
-	const lines = [];
-	for (const raw of text.split('\n')) {
-		const matches = [...raw.matchAll(timeTag)];
-		if (!matches.length) continue;
-		const content = raw.replace(timeTag, '').trim();
-		for (const m of matches) {
-			lines.push({ time: parseInt(m[1], 10) * 60 + parseFloat(m[2]), text: content });
-		}
-	}
-	return lines.sort((a, b) => a.time - b.time);
-}
-
-async function fetchLyrics(artist, title, durationSec) {
-	const key = `${artist}|${title}`.toLowerCase();
-	const cached = lyricsCache.get(key);
-	if (cached && Date.now() - cached.fetchedAt < cached.ttl) return cached.lines;
-	try {
-		const params = new URLSearchParams({ artist_name: artist, track_name: title });
-		if (durationSec) params.set('duration', String(Math.round(durationSec)));
-		const r = await fetch(`https://lrclib.net/api/get?${params}`, {
-			signal: AbortSignal.timeout(4000)
-		});
-		if (!r.ok) throw new Error(`lrclib ${r.status}`);
-		const d = await r.json();
-		const lines = d.syncedLyrics
-			? parseLRC(d.syncedLyrics)
-			: d.plainLyrics
-				? [{ time: 0, text: d.plainLyrics }]
-				: null;
-		lyricsCache.set(key, { lines, fetchedAt: Date.now(), ttl: lines ? LYRICS_HIT_TTL : LYRICS_MISS_TTL });
-		return lines;
-	} catch (e) {
-		console.error('lyrics fetch error:', e.message);
-		lyricsCache.set(key, { lines: null, fetchedAt: Date.now(), ttl: LYRICS_MISS_TTL });
-		return null;
-	}
-}
+// Free, keyless synced-lyrics lookup (lrclib.net). Matching lives in lyrics.js
+// so a same-title hit for the wrong artist never reaches the Music view.
 
 function readMprisNowPlaying() {
 	const status = run('playerctl status 2>/dev/null') || 'Not available';
@@ -311,7 +266,10 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			merged.title &&
 			merged.artist !== 'Unknown artist' &&
 			merged.title !== 'Unknown title'
-				? await fetchLyrics(merged.artist, merged.title, merged.length)
+				? await fetchLyrics(merged.artist, merged.title, {
+						album: merged.album || '',
+						duration: merged.length || 0
+					})
 				: null;
 		return { ...merged, lyrics };
 	} catch {

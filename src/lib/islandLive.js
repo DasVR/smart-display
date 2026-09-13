@@ -42,16 +42,17 @@ function compactPeer(list) {
 export function compactSlots(nowPlaying, activities) {
 	const list = Array.isArray(activities) ? activities.filter(Boolean) : [];
 	const ranked = [...list].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
-	const music = nowPlaying?.playing
-		? {
-				id: 'music',
-				kind: 'music',
-				title: nowPlaying.title || 'Untitled',
-				body: nowPlaying.artist || '',
-				art: nowPlaying.art || '',
-				severity: 'info'
-			}
-		: null;
+	const music =
+		nowPlaying?.playing || nowPlaying?.paused
+			? {
+					id: 'music',
+					kind: 'music',
+					title: nowPlaying.title || 'Untitled',
+					body: nowPlaying.artist || '',
+					art: nowPlaying.art || '',
+					severity: 'info'
+				}
+			: null;
 
 	if (music && ranked[0]) {
 		return { leading: music, trailing: compactPeer(ranked) };

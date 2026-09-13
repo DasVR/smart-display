@@ -4,6 +4,7 @@ After=smart-display-airplay.service
 
 [Service]
 Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 ExecStart=/usr/bin/python3 /home/das/projects/smart-display/scripts/airplay-metadata.py
 Restart=on-failure
 RestartSec=3

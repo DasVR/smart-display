@@ -10,6 +10,17 @@ import {
 	readAirplayNowPlaying
 } from '../src/lib/server/audioNowPlaying.js';
 
+test('mergeNowPlaying keeps an AirPlay title after a flush/pause', () => {
+	const merged = mergeNowPlaying(
+		{ playing: false },
+		{ playing: false, paused: true, title: 'My Way', artist: 'Limp Bizkit', album: 'Chocolate Starfish' }
+	);
+	assert.equal(merged.source, 'airplay');
+	assert.equal(merged.title, 'My Way');
+	assert.equal(merged.playing, false);
+	assert.equal(merged.paused, true);
+});
+
 test('mergeNowPlaying prefers live AirPlay over idle MPRIS', () => {
 	const merged = mergeNowPlaying(
 		{ playing: false },
