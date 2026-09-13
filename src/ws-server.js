@@ -1,5 +1,6 @@
 import { createServer } from 'http';
 import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { handler } from '../build/handler.js';
@@ -21,7 +22,9 @@ import {
 	agentFinishedNotify,
 	parseAirplayConnectedPayload,
 	parseBtConnectedPayload,
-	parseNotifyPayload
+	parseNotifyPayload,
+	scheduleNotify,
+	updateAvailableNotify
 } from './lib/server/notifyPayload.js';
 import { airplayArtPath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -103,6 +106,33 @@ async function pollOllama() {
 	}
 }
 setInterval(pollOllama, 500);
+
+const GIT_FETCH_MS = 5 * 60 * 1000;
+let lastGitBehind = 0;
+
+function fetchGitUpstream() {
+	const cwd = process.env.GIT_STATUS_DIR || PROJECT_ROOT;
+	try {
+		execFileSync('git', ['-C', cwd, 'fetch', 'origin', 'master'], {
+			timeout: 20_000,
+			stdio: ['ignore', 'ignore', 'ignore']
+		});
+	} catch {
+		/* offline or no credentials: keep the last known origin/master */
+	}
+}
+
+function pollGitUpstream() {
+	fetchGitUpstream();
+	const git = getGitContext();
+	const behind = Number(git.behind) || 0;
+	if (behind > 0 && lastGitBehind === 0) {
+		broadcast(updateAvailableNotify(behind));
+	}
+	lastGitBehind = behind;
+}
+setTimeout(pollGitUpstream, 20_000);
+setInterval(pollGitUpstream, GIT_FETCH_MS);
 
 function displaySnapshot() {
 	return {
@@ -212,10 +242,22 @@ async function tickSchedule() {
 }
 
 function patchSchedule(input) {
+	const prev = {
+		enabled: schedule.enabled,
+		offAt: schedule.offAt,
+		onAt: schedule.onAt,
+		wakeOnPhone: schedule.wakeOnPhone
+	};
 	const wasEnabled = schedule.enabled;
 	schedule = saveSchedule(SCHEDULE_PATH, normalizeSchedule(input, schedule));
 	lastTickMinutes = null;
 	broadcast({ type: 'display', ...displaySnapshot() });
+	const changed =
+		prev.enabled !== schedule.enabled ||
+		prev.offAt !== schedule.offAt ||
+		prev.onAt !== schedule.onAt ||
+		prev.wakeOnPhone !== schedule.wakeOnPhone;
+	if (changed) broadcast(scheduleNotify(schedule));
 	if (wasEnabled && !schedule.enabled && hdmiState === 'off') {
 		applyHdmi('on');
 		return displaySnapshot();
@@ -325,7 +367,9 @@ const server = createServer(async (req, res) => {
 			try {
 				const data = JSON.parse(body || '{}');
 				const result = applyVolumePayload(data);
-				if (result.ok) broadcast({ type: 'volume', volume: result.volume, muted: result.muted });
+				if (result.ok) {
+					broadcast({ type: 'volume', volume: result.volume, muted: result.muted });
+				}
 				json(res, result, volumeHttpStatus(result));
 			} catch {
 				json(res, { ok: false, error: 'invalid payload' }, 400);

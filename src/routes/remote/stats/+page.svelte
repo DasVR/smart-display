@@ -210,6 +210,9 @@
 				{#if data.git?.dirty}
 					<span> · dirty</span>
 				{/if}
+				{#if data.git?.behind}
+					<span> · {data.git.behind} behind</span>
+				{/if}
 			</p>
 		</section>
 	{/if}

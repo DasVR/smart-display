@@ -1,4 +1,4 @@
-import { pushIslandEvent } from '$lib/stores.js';
+import { pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 
 /**
  * Polls host telemetry independent of whichever view is mounted, so the
@@ -8,9 +8,11 @@ import { pushIslandEvent } from '$lib/stores.js';
  */
 
 const POLL_MS = 6000;
+const GIT_POLL_MS = 15000;
 
 let prevContainers = null;
 let timer = 0;
+let gitTimer = 0;
 let destroyed = false;
 
 function diffContainers(containers) {
@@ -42,13 +44,39 @@ async function poll() {
 	if (!destroyed) timer = setTimeout(poll, POLL_MS);
 }
 
+async function pollGit() {
+	if (destroyed) return;
+	try {
+		const r = await fetch('/api/git');
+		if (r.ok) {
+			const data = await r.json();
+			const behind = Number(data?.behind) || 0;
+			if (behind > 0) {
+				setIslandActivity('update', {
+					kind: 'update',
+					title: 'Update available',
+					body: behind === 1 ? '1 commit behind' : `${behind} commits behind`,
+					severity: 'warn'
+				});
+			} else {
+				clearIslandActivity('update');
+			}
+		}
+	} catch {
+		/* git endpoint is optional */
+	}
+	if (!destroyed) gitTimer = setTimeout(pollGit, GIT_POLL_MS);
+}
+
 /** Call once (e.g. from the root layout's onMount). Returns a cleanup function. */
 export function startSystemWatch() {
 	destroyed = false;
 	prevContainers = null;
 	poll();
+	pollGit();
 	return () => {
 		destroyed = true;
 		clearTimeout(timer);
+		clearTimeout(gitTimer);
 	};
 }

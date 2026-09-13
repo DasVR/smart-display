@@ -41,9 +41,17 @@ let islandEventSeq = 0;
  *  itself plays a chime per distinct event it actually shows — not here —
  *  so a queued event that never surfaces (superseded before its turn) never
  *  makes a sound for something the user never saw. */
-export function pushIslandEvent({ title, body = '', severity = 'info', ttl = 9000, source = '', kind = 'notice' }) {
+export function pushIslandEvent({
+	title,
+	body = '',
+	severity = 'info',
+	ttl = 9000,
+	source = '',
+	kind = 'notice',
+	muted = false
+}) {
 	const id = ++islandEventSeq;
-	islandQueue.update((q) => [...q, { id, title, body, severity, source, kind }]);
+	islandQueue.update((q) => [...q, { id, title, body, severity, source, kind, muted }]);
 	setTimeout(() => {
 		islandQueue.update((q) => q.filter((e) => e.id !== id));
 	}, ttl);

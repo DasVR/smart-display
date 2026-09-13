@@ -338,7 +338,9 @@ export async function getKioskStatus() {
 			branch: git.branch,
 			sha: git.sha,
 			dirty: git.dirty,
-			message: git.message
+			message: git.message,
+			ahead: git.ahead || 0,
+			behind: git.behind || 0
 		}
 	};
 }

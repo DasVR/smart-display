@@ -25,15 +25,31 @@ Content-Type: application/json
 }
 ```
 
-- `title` (optional if `event` is `done`, otherwise required, ≤120 chars).
+- `title` (optional if `event` is `done`, `install`, or `update`, otherwise
+  required, ≤120 chars).
 - `body` (optional, ≤240 chars).
 - `severity` — one of `info` (default), `ok`, `warn`, `error`. Drives the
-  accent color and the chime's pitch/mood. `event: "done"` defaults to `ok`.
+  accent color. `event: "done"` defaults to `ok`, `install` to `info`,
+  `update` to `warn`.
 - `source` (optional, ≤40 chars) — shown in place of the generic severity
   label, e.g. `"Claude Code"`, `"Cursor"`, `"Hermes"`.
 - `ttl` — how long it stays up, in ms (clamped 1000–30000, default 9000).
-- `event` (optional) — `done` fills in `{source} finished` when title is
-  omitted, so agents can ping without composing copy.
+- `event` (optional):
+  - `done` fills `{source} finished` (Cursor, Claude Code, Hermes, Ollama
+    each get their own pencil-scribble finish sound)
+  - `install` fills `{source} installing` / `Installing packages`
+  - `update` fills `Update available`, or `Display updated` when severity
+    is `ok`
+
+The kiosk also raises some of these itself:
+
+- volume changes from `/remote` (keycap pitch follows the slider, island
+  says `Volume 72%` / `Muted`)
+- night schedule edits (`Nights 22:30 to 06:00`)
+- `npm ci` during deploy (`Installing packages`, then `Display updated`)
+- git fetch every 5 minutes (`Update available` live activity while the
+  box is behind `origin/master`)
+- local Ollama going idle (`Agent finished`, source `Ollama`)
 
 ```bash
 curl -X POST http://<display-host>:3000/api/notify \
@@ -54,6 +70,8 @@ Or from this repo:
 ```bash
 DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-done.sh "Claude Code"
 DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-done.sh Cursor "PR checks green"
+DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-notify.sh install npm "npm ci"
+DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-notify.sh done Hermes
 ```
 
 Local Ollama runs do not need a hook. When the GPU handoff returns from
@@ -92,8 +110,17 @@ paths that work today:
 - a git `post-commit` hook that does the same
 - any Cloud Agent / wrap-up script that can `curl` `/api/notify`
 
-**Hermes agent (or anything else)** — same request, any severity/source
-you want. The endpoint doesn't care who's calling it.
+**Hermes agent** — same helper, source `Hermes`:
+
+```bash
+DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-done.sh Hermes
+```
+
+**Installing packages** from a script:
+
+```bash
+DISPLAY_HOST=http://<display-host>:3000 ./hooks/display-notify.sh install npm "npm ci"
+```
 
 ## Known gaps
 

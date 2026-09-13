@@ -5,6 +5,10 @@
 // bursts rather than sustained tones, which is what makes them read as
 // paper/keyboard rather than a notification chime.
 
+import { volumeTickPitch } from '../chimeKind.js';
+
+export { chimeKindForEvent, volumeTickPitch } from '../chimeKind.js';
+
 let ctx;
 let noiseBuffer;
 
@@ -185,15 +189,45 @@ const PROFILES = {
 	'swap-prev': [
 		{ kind: 'key', at: 0, pitch: 0.65, peak: 0.13 },
 		{ kind: 'key', at: 0.055, pitch: 0.35, peak: 0.14 }
-	]
+	],
+	// Volume confirmation on the island (drag ticks use playVolumeTick).
+	volume: [{ kind: 'key', pitch: 0.55, peak: 0.14 }],
+	mute: [{ kind: 'key', pitch: 0.12, peak: 0.15 }],
+	unmute: [{ kind: 'key', pitch: 0.78, peak: 0.15 }],
+	// Night schedule saved: two paper taps, not the same pair as `ok`.
+	schedule: [
+		{ kind: 'tap', tone: 0.42, peak: 0.16 },
+		{ kind: 'tap', at: 0.08, tone: 0.58, peak: 0.16 }
+	],
+	// Package install / deploy busy: even pencil ticks while work is in flight.
+	install: [
+		{ kind: 'tap', tone: 0.4, peak: 0.15 },
+		{ kind: 'tap', at: 0.09, tone: 0.4, peak: 0.15 },
+		{ kind: 'tap', at: 0.18, tone: 0.4, peak: 0.15 }
+	],
+	// Git says the box is behind origin/master.
+	update: [
+		{ kind: 'tap', tone: 0.32, peak: 0.18 },
+		{ kind: 'tap', at: 0.11, tone: 0.22, peak: 0.18 }
+	],
+	// Distinct finish scribbles so Cursor / Claude / Hermes / Ollama don't
+	// all collapse into the same `ok` double-tap.
+	'done-cursor': [{ kind: 'scribble', dir: 1, peak: 0.2, dur: 0.2 }],
+	'done-claude': [
+		{ kind: 'tap', tone: 0.55, peak: 0.16 },
+		{ kind: 'scribble', at: 0.08, dir: 1, peak: 0.19, dur: 0.18 }
+	],
+	'done-hermes': [
+		{ kind: 'tap', tone: 0.48, peak: 0.16 },
+		{ kind: 'tap', at: 0.07, tone: 0.62, peak: 0.16 },
+		{ kind: 'scribble', at: 0.14, dir: 1, peak: 0.18, dur: 0.16 }
+	],
+	'done-ollama': [{ kind: 'scribble', dir: 1, peak: 0.17, dur: 0.18 }]
 };
 
-/** Plays a short tactile sound for the given kind: a severity (info/ok/
- *  warn/error), 'music' for the now-playing island opening, 'success' for
- *  a bigger completion, 'severe' for extreme weather, or 'tap'/'swap-next'/
- *  'swap-prev' for UI feedback (keycap clicks).
- *  Safe to call from anywhere (server-rendered code included) — it's a
- *  no-op without a window/AudioContext. */
+/** Plays a short tactile sound for the given kind. Safe to call from
+ *  anywhere (server-rendered code included) — it's a no-op without a
+ *  window/AudioContext. */
 export function playChime(kind = 'info') {
 	const context = getContext();
 	if (!context) return;
@@ -204,6 +238,13 @@ export function playChime(kind = 'info') {
 		else if (h.kind === 'scribble') scribble(context, { at, peak: h.peak, dir: h.dir, dur: h.dur });
 		else paperTap(context, { at, peak: h.peak, tone: h.tone, dur: h.dur });
 	});
+}
+
+/** A keycap whose pitch follows the slider (0 quiet/low, 1 bright/high). */
+export function playVolumeTick(level) {
+	const context = getContext();
+	if (!context) return;
+	keyClick(context, { peak: 0.12, pitch: volumeTickPitch(level) });
 }
 
 /** Unlocks the AudioContext on the first real user gesture, since browsers
