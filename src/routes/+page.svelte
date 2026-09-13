@@ -491,6 +491,12 @@
 	$effect(() => {
 		const activity = islandActivityForProgress($installProgress);
 		if (activity) setIslandActivity('update', activity);
+		else if (!$installProgress?.active) {
+			const list = $islandActivities;
+			if (list.some((a) => a.id === 'update' && a.kind === 'install')) {
+				clearIslandActivity('update');
+			}
+		}
 	});
 
 	$effect(() => {

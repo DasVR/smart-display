@@ -56,11 +56,9 @@ async function pollUpdates() {
 			if (r.ok) {
 				const data = await r.json();
 				if (data.progress) installProgress.set(data.progress);
-				if (!data.progress?.active) {
-					const activity = islandActivityForUpdates(data);
-					if (activity) setIslandActivity('update', activity);
-					else clearIslandActivity('update');
-				}
+				const activity = islandActivityForUpdates(data);
+				if (activity) setIslandActivity('update', activity);
+				else clearIslandActivity('update');
 			}
 		}
 	} catch {
