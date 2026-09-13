@@ -19,6 +19,7 @@
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
 	import { islandWeatherSlip, splitNwsAlerts, tickerText } from '$lib/nwsAlerts.js';
 	import { shortDateline } from '$lib/dateline.js';
+	import { demoNowPlaying } from '$lib/musicDemo.js';
 	import {
 		EMPTY_INSTALL_PROGRESS,
 		applyUpgradeEvent,
@@ -345,14 +346,15 @@
 	onMount(() => {
 		const preview = new URLSearchParams(window.location.search);
 		const islandPreview = preview.get('island');
+		const musicDemo = islandPreview === 'music' || preview.get('demo') === 'music';
 		connect();
 		fetchWeather();
-		if (islandPreview !== 'music') fetchNowPlaying();
+		if (!musicDemo) fetchNowPlaying();
 		const stopSystemWatch = startSystemWatch();
 		const clock = setInterval(() => {
 			time = new Date();
 		}, 1000);
-		const music = islandPreview === 'music' ? 0 : setInterval(fetchNowPlaying, 4000);
+		const music = musicDemo ? 0 : setInterval(fetchNowPlaying, 1000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });
@@ -370,8 +372,9 @@
 				source: 'Cursor'
 			});
 		}
-		if (islandPreview === 'music') {
-			nowPlaying.set({ playing: true, title: 'Night Drive', artist: 'Demo FM', art: null });
+		if (musicDemo) {
+			if (preview.get('demo') === 'music') currentView.set('music');
+			nowPlaying.set(demoNowPlaying());
 		}
 		let installDemo = 0;
 		if (islandPreview === 'install') {
@@ -620,7 +623,7 @@
 			{#if showChromeTicker}
 				<SevereTicker text={tickerPulse} />
 			{/if}
-			{#if $currentView !== 'clock'}
+			{#if $currentView !== 'clock' && $currentView !== 'music'}
 				<h1 class="view-title">{viewTitle}</h1>
 			{/if}
 		</header>

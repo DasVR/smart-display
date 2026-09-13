@@ -41,6 +41,7 @@ state = {
 	"album": "",
 	"art": "",
 	"position": 0,
+	"positionAt": 0,
 	"length": 0,
 	"source": "airplay",
 	"updatedAt": 0,
@@ -55,6 +56,11 @@ def decode_tag(raw):
 		except Exception:
 			return text
 	return text
+
+
+def stamp_position():
+	# Sample time for the position field. Heartbeats must not call this.
+	state["positionAt"] = int(time.time() * 1000)
 
 
 def write_state():
@@ -98,6 +104,7 @@ def apply_progress(data):
 		return False
 	state["length"] = length
 	state["position"] = min(position, length)
+	stamp_position()
 	return True
 
 
@@ -108,6 +115,7 @@ def apply_item(typ, code, data):
 	if code == "pbeg":
 		state["playing"] = True
 		state["paused"] = False
+		stamp_position()
 		changed = True
 	elif code == "pend":
 		state["playing"] = False
@@ -119,6 +127,7 @@ def apply_item(typ, code, data):
 	elif code == "prsm":
 		state["playing"] = True
 		state["paused"] = False
+		stamp_position()
 		changed = True
 	elif code == "prgr":
 		changed = apply_progress(data)
@@ -133,11 +142,13 @@ def apply_item(typ, code, data):
 		elif status == 2:
 			state["playing"] = True
 			state["paused"] = False
+			stamp_position()
 			changed = True
 	elif code == "minm":
 		title = data.decode("utf-8", errors="replace")
 		if title != state["title"]:
 			state["position"] = 0
+			stamp_position()
 		state["title"] = title
 		state["playing"] = True
 		state["paused"] = False
@@ -211,6 +222,10 @@ def main():
 			while True:
 				ready, _, _ = select.select([pipe], [], [], 1.0)
 				if not ready:
+					# Keep updatedAt fresh so the dashboard knows the session
+					# is live. Do not stamp positionAt: the last prgr sample
+					# is still the clock origin, and rewriting it here would
+					# rewind lyrics every second.
 					if state["playing"] or state["title"]:
 						write_state()
 					continue

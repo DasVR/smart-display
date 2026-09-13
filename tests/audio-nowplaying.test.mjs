@@ -31,6 +31,23 @@ test('mergeNowPlaying prefers live AirPlay over idle MPRIS', () => {
 	assert.equal(merged.playing, true);
 });
 
+test('mergeNowPlaying keeps the AirPlay sample timestamp', () => {
+	const merged = mergeNowPlaying(
+		{ playing: false, position: 3, positionAt: 50 },
+		{
+			playing: true,
+			title: 'Daylight',
+			position: 12.4,
+			positionAt: 1_700_000_000_123,
+			updatedAt: 1_700_000_001_000,
+			length: 237
+		}
+	);
+	assert.equal(merged.position, 12.4);
+	assert.equal(merged.positionAt, 1_700_000_000_123);
+	assert.equal(merged.length, 237);
+});
+
 test('mergeNowPlaying keeps a playing Bluetooth/MPRIS track', () => {
 	const merged = mergeNowPlaying(
 		{ playing: true, title: 'BT track', artist: 'Phone' },
