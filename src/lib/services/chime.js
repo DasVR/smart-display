@@ -1,9 +1,12 @@
-// Soft, synthesized notification tones for Dynamic Island events. No audio
-// files, no external generation step — just a couple of gently-filtered
-// oscillators per severity, tuned to read as calm and distinct rather than
-// like a system alert.
+// Tactile, physical-feeling UI sounds — a pencil tapping paper, a mechanical
+// keycap bottoming out — instead of synth beeps. Everything here is still
+// generated on the fly from noise + oscillators (no audio files, no external
+// generation step); the "instruments" are just built from filtered noise
+// bursts rather than sustained tones, which is what makes them read as
+// paper/keyboard rather than a notification chime.
 
 let ctx;
+let noiseBuffer;
 
 function getContext() {
 	if (typeof window === 'undefined') return null;
@@ -14,125 +17,192 @@ function getContext() {
 	return ctx;
 }
 
-// Each profile is a short sequence of notes. `tone` notes are the original
-// soft two-partial tones (sine + detuned triangle through a lowpass); `tick`
-// notes are a much shorter, percussive bandpass click for tactile feedback
-// (button/tab presses) where a sustained tone would feel sluggish.
+/** A couple of seconds of white noise, generated once and reused as the
+ *  source for every paper/key sound — cheaper than building a fresh buffer
+ *  per hit, and there's no audible seam since each hit only ever plays a
+ *  short randomly-offset slice of it. */
+function getNoiseBuffer(context) {
+	if (noiseBuffer && noiseBuffer.sampleRate === context.sampleRate) return noiseBuffer;
+	const length = context.sampleRate * 2;
+	const buffer = context.createBuffer(1, length, context.sampleRate);
+	const data = buffer.getChannelData(0);
+	for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
+	noiseBuffer = buffer;
+	return buffer;
+}
+
+function noiseSource(context) {
+	const buffer = getNoiseBuffer(context);
+	const src = context.createBufferSource();
+	src.buffer = buffer;
+	// A random start offset, used when the source is played, so back-to-back
+	// hits (a nav swipe, a fast tap) never sound like the exact same grain
+	// of noise repeating.
+	src.randomOffset = Math.random() * (buffer.duration - 0.3);
+	return src;
+}
+
+/** A soft pencil/fingertip tap on paper: band-limited noise with a fast
+ *  attack and a short, slightly papery decay. `tone` (0..1) shifts the
+ *  filter up for a brighter "tap" or down for a duller "thump". */
+function paperTap(context, { at = 0, peak = 0.16, tone = 0.5, dur = 0.09 } = {}) {
+	const t0 = context.currentTime + at;
+	const src = noiseSource(context);
+	const band = context.createBiquadFilter();
+	const hp = context.createBiquadFilter();
+	const gain = context.createGain();
+
+	const centerFreq = 900 + tone * 2200 + (Math.random() * 200 - 100);
+	band.type = 'bandpass';
+	band.frequency.value = centerFreq;
+	band.Q.value = 0.9;
+	hp.type = 'highpass';
+	hp.frequency.value = 300;
+
+	gain.gain.setValueAtTime(0, t0);
+	gain.gain.linearRampToValueAtTime(peak, t0 + 0.006);
+	gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+	src.connect(band);
+	band.connect(hp);
+	hp.connect(gain);
+	gain.connect(context.destination);
+
+	src.start(t0, src.randomOffset);
+	src.stop(t0 + dur + 0.02);
+}
+
+/** A quick noise sweep with a rising or falling filter — a pencil scribble
+ *  or a page flick, used for the bigger "something finished" moments where
+ *  a single tap would feel too small. `dir` is 1 for a rising scribble, -1
+ *  for a falling one. */
+function scribble(context, { at = 0, peak = 0.16, dir = 1, dur = 0.22 } = {}) {
+	const t0 = context.currentTime + at;
+	const src = noiseSource(context);
+	const band = context.createBiquadFilter();
+	const gain = context.createGain();
+
+	const from = dir > 0 ? 700 : 3200;
+	const to = dir > 0 ? 3200 : 700;
+	band.type = 'bandpass';
+	band.Q.value = 1.1;
+	band.frequency.setValueAtTime(from, t0);
+	band.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+
+	gain.gain.setValueAtTime(0, t0);
+	gain.gain.linearRampToValueAtTime(peak, t0 + 0.015);
+	gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+	src.connect(band);
+	band.connect(gain);
+	gain.connect(context.destination);
+
+	src.start(t0, src.randomOffset);
+	src.stop(t0 + dur + 0.02);
+}
+
+/** A mechanical keycap press: a short bright "click" transient (the switch
+ *  actuating) layered under a slightly-delayed lower "thock" (the keycap
+ *  bottoming out on the plate) — the two-part sound real keyboard switches
+ *  make. `pitch` (0..1) picks a keycap size/material, low pitch reading as
+ *  a bigger cap (spacebar-ish), high pitch as a small one. */
+function keyClick(context, { at = 0, peak = 0.14, pitch = 0.5 } = {}) {
+	const t0 = context.currentTime + at;
+	const jitter = 1 + (Math.random() * 0.06 - 0.03);
+
+	// Click: the switch actuating.
+	const clickSrc = noiseSource(context);
+	const clickFilter = context.createBiquadFilter();
+	const clickGain = context.createGain();
+	clickFilter.type = 'highpass';
+	clickFilter.frequency.value = (2600 + pitch * 1800) * jitter;
+	clickGain.gain.setValueAtTime(0, t0);
+	clickGain.gain.linearRampToValueAtTime(peak, t0 + 0.002);
+	clickGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.02);
+	clickSrc.connect(clickFilter);
+	clickFilter.connect(clickGain);
+	clickGain.connect(context.destination);
+	clickSrc.start(t0, clickSrc.randomOffset);
+	clickSrc.stop(t0 + 0.03);
+
+	// Thock: the cap bottoming out, a beat later and an octave or so lower.
+	const thockAt = t0 + 0.008;
+	const thockSrc = noiseSource(context);
+	const thockFilter = context.createBiquadFilter();
+	const thockGain = context.createGain();
+	thockFilter.type = 'bandpass';
+	thockFilter.frequency.value = (500 + pitch * 700) * jitter;
+	thockFilter.Q.value = 2.2;
+	thockGain.gain.setValueAtTime(0, thockAt);
+	thockGain.gain.linearRampToValueAtTime(peak * 0.85, thockAt + 0.004);
+	thockGain.gain.exponentialRampToValueAtTime(0.0001, thockAt + 0.05);
+	thockSrc.connect(thockFilter);
+	thockFilter.connect(thockGain);
+	thockGain.connect(context.destination);
+	thockSrc.start(thockAt, thockSrc.randomOffset);
+	thockSrc.stop(thockAt + 0.06);
+}
+
+// Each profile is a short sequence of hits. `kind` picks which "instrument"
+// plays the hit: `key` for a keycap press (nav taps/swipes — the most
+// frequent interaction, so it's the one that should feel like typing),
+// `tap` for a paper tap (ambient/notification severities), or `scribble`
+// for a fast pencil sweep (bigger completions).
 const PROFILES = {
-	info: [{ freq: 880, peak: 0.19 }],
-	ok: [{ freq: 659.25, peak: 0.19 }, { freq: 880, at: 0.11, peak: 0.19 }],
-	warn: [{ freq: 784, peak: 0.2 }, { freq: 659.25, at: 0.14, peak: 0.2 }],
-	error: [{ freq: 622.25, peak: 0.2 }, { freq: 587.33, at: 0.17, peak: 0.2 }],
-	// A brighter three-note lift for the island opening on now-playing —
-	// distinct from the severity tones since it's good news, not a notice.
+	info: [{ kind: 'tap', tone: 0.55, peak: 0.17 }],
+	ok: [{ kind: 'tap', tone: 0.5, peak: 0.16 }, { kind: 'tap', at: 0.1, tone: 0.7, peak: 0.17 }],
+	warn: [{ kind: 'tap', tone: 0.35, peak: 0.19 }, { kind: 'tap', at: 0.12, tone: 0.3, peak: 0.19 }],
+	error: [{ kind: 'tap', tone: 0.2, peak: 0.2, dur: 0.12 }, { kind: 'tap', at: 0.14, tone: 0.15, peak: 0.2, dur: 0.14 }],
+	// A little three-tap flourish for the island opening on now-playing —
+	// brighter and quicker than the severity taps since it's good news.
 	music: [
-		{ freq: 523.25, peak: 0.19 },
-		{ freq: 659.25, at: 0.09, peak: 0.19 },
-		{ freq: 783.99, at: 0.18, peak: 0.19 }
+		{ kind: 'tap', tone: 0.5, peak: 0.16 },
+		{ kind: 'tap', at: 0.08, tone: 0.65, peak: 0.17 },
+		{ kind: 'tap', at: 0.16, tone: 0.8, peak: 0.18 }
 	],
-	// A fuller ascending three-note lift for a genuine completion (bigger
-	// than `ok`, which is reserved for the quieter island-event severity).
-	success: [
-		{ freq: 587.33, peak: 0.21 },
-		{ freq: 739.99, at: 0.09, peak: 0.21 },
-		{ freq: 987.77, at: 0.18, peak: 0.21 }
-	],
-	// An urgent alternating alarm for extreme weather (tornado/hurricane
-	// warnings) - louder and more insistent than `error`, since these are
-	// the one alert category that genuinely deserves to interrupt.
+	// A quick rising scribble for a genuine completion — bigger than `ok`,
+	// which is reserved for the quieter island-event severity.
+	success: [{ kind: 'scribble', dir: 1, peak: 0.19 }],
+	// An urgent, fast alternating tap-tap for extreme weather (tornado/
+	// hurricane warnings) — louder and more insistent than `error`, since
+	// this is the one alert category that genuinely deserves to interrupt.
 	severe: [
-		{ freq: 587.33, peak: 0.3 },
-		{ freq: 466.16, at: 0.24, peak: 0.3 },
-		{ freq: 587.33, at: 0.48, peak: 0.3 },
-		{ freq: 466.16, at: 0.72, peak: 0.3 }
+		{ kind: 'tap', tone: 0.25, peak: 0.28, dur: 0.1 },
+		{ kind: 'tap', at: 0.16, tone: 0.2, peak: 0.28, dur: 0.1 },
+		{ kind: 'tap', at: 0.32, tone: 0.25, peak: 0.28, dur: 0.1 },
+		{ kind: 'tap', at: 0.48, tone: 0.2, peak: 0.28, dur: 0.1 }
 	],
-	// A single quiet click for any button/tab tap - present on almost every
-	// interaction, so it has to stay small and out of the way.
-	tap: [{ freq: 1600, kind: 'tick', dur: 0.05, peak: 0.1 }],
-	// Quick two-note blips for moving through the nav in either direction -
-	// pitch rises going forward through the tab order, falls going back.
+	// A single keycap press for any button/tab tap - present on almost
+	// every interaction, so it has to stay small and out of the way.
+	tap: [{ kind: 'key', pitch: 0.5, peak: 0.13 }],
+	// Two-key blips for moving through the nav in either direction - pitch
+	// rises going forward through the tab order, falls going back, the way
+	// adjacent keys on a board read as a rising or falling run.
 	'swap-next': [
-		{ freq: 660, kind: 'tick', dur: 0.07, peak: 0.11 },
-		{ freq: 880, kind: 'tick', at: 0.045, dur: 0.09, peak: 0.12 }
+		{ kind: 'key', at: 0, pitch: 0.35, peak: 0.13 },
+		{ kind: 'key', at: 0.055, pitch: 0.65, peak: 0.14 }
 	],
 	'swap-prev': [
-		{ freq: 880, kind: 'tick', dur: 0.07, peak: 0.11 },
-		{ freq: 660, kind: 'tick', at: 0.045, dur: 0.09, peak: 0.12 }
+		{ kind: 'key', at: 0, pitch: 0.65, peak: 0.13 },
+		{ kind: 'key', at: 0.055, pitch: 0.35, peak: 0.14 }
 	]
 };
 
-function tone(context, freq, startAt, peak = 0.19, duration = 0.55) {
-	const osc = context.createOscillator();
-	const osc2 = context.createOscillator();
-	const gain = context.createGain();
-	const filter = context.createBiquadFilter();
-
-	filter.type = 'lowpass';
-	filter.frequency.value = 2400;
-
-	osc.type = 'sine';
-	osc.frequency.value = freq;
-	osc2.type = 'triangle';
-	osc2.frequency.value = freq;
-	osc2.detune.value = 6;
-
-	const t0 = context.currentTime + startAt;
-	gain.gain.setValueAtTime(0, t0);
-	gain.gain.linearRampToValueAtTime(peak, t0 + 0.03);
-	gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
-
-	osc.connect(filter);
-	osc2.connect(filter);
-	filter.connect(gain);
-	gain.connect(context.destination);
-
-	osc.start(t0);
-	osc2.start(t0);
-	osc.stop(t0 + duration + 0.05);
-	osc2.stop(t0 + duration + 0.05);
-}
-
-/** A short, percussive bandpass click - for frequent tactile feedback
- *  (taps, tab swaps) where `tone`'s 0.55s sustained sine would feel slow
- *  and pile up under quick repeated presses. */
-function tick(context, freq, startAt, peak = 0.1, duration = 0.06) {
-	const osc = context.createOscillator();
-	const gain = context.createGain();
-	const filter = context.createBiquadFilter();
-
-	filter.type = 'bandpass';
-	filter.frequency.value = freq;
-	filter.Q.value = 5;
-
-	osc.type = 'square';
-	osc.frequency.value = freq;
-
-	const t0 = context.currentTime + startAt;
-	gain.gain.setValueAtTime(0, t0);
-	gain.gain.linearRampToValueAtTime(peak, t0 + 0.004);
-	gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
-
-	osc.connect(filter);
-	filter.connect(gain);
-	gain.connect(context.destination);
-
-	osc.start(t0);
-	osc.stop(t0 + duration + 0.02);
-}
-
-/** Plays a short calming chime for the given kind: a severity (info/ok/
- *  warn/error), 'music' for the now-playing open, 'success' for a bigger
- *  completion, 'severe' for extreme weather, or 'tap'/'swap-next'/
- *  'swap-prev' for tactile UI feedback.
+/** Plays a short tactile sound for the given kind: a severity (info/ok/
+ *  warn/error), 'music' for the now-playing island opening, 'success' for
+ *  a bigger completion, 'severe' for extreme weather, or 'tap'/'swap-next'/
+ *  'swap-prev' for UI feedback (keycap clicks).
  *  Safe to call from anywhere (server-rendered code included) — it's a
  *  no-op without a window/AudioContext. */
 export function playChime(kind = 'info') {
 	const context = getContext();
 	if (!context) return;
-	const notes = PROFILES[kind] || PROFILES.info;
-	notes.forEach((n) => {
-		if (n.kind === 'tick') tick(context, n.freq, n.at || 0, n.peak, n.dur);
-		else tone(context, n.freq, n.at || 0, n.peak ?? 0.14, n.dur ?? 0.55);
+	const hits = PROFILES[kind] || PROFILES.info;
+	hits.forEach((h) => {
+		const at = h.at || 0;
+		if (h.kind === 'key') keyClick(context, { at, peak: h.peak, pitch: h.pitch });
+		else if (h.kind === 'scribble') scribble(context, { at, peak: h.peak, dir: h.dir, dur: h.dur });
+		else paperTap(context, { at, peak: h.peak, tone: h.tone, dur: h.dur });
 	});
 }
 
