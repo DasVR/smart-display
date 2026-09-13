@@ -23,7 +23,8 @@
 		EMPTY_INSTALL_PROGRESS,
 		applyUpgradeEvent,
 		beginInstallProgress,
-		finishInstallProgress
+		finishInstallProgress,
+		islandActivityForProgress
 	} from '$lib/hostUpgradeModel.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import IslandStack from '$lib/components/IslandStack.svelte';
@@ -387,7 +388,10 @@
 				}
 				clearInterval(installDemo);
 				installProgress.set(finishInstallProgress(state));
-				setTimeout(() => installProgress.set({ ...EMPTY_INSTALL_PROGRESS }), 1800);
+				setTimeout(() => {
+					installProgress.set({ ...EMPTY_INSTALL_PROGRESS });
+					clearIslandActivity('update');
+				}, 1800);
 			}, 700);
 		}
 		return () => {
@@ -483,6 +487,11 @@
 			Boolean($installProgress?.active)
 	);
 	let showChromeTicker = $derived(Boolean(tickerPulse) && $currentView !== 'weather');
+
+	$effect(() => {
+		const activity = islandActivityForProgress($installProgress);
+		if (activity) setIslandActivity('update', activity);
+	});
 
 	$effect(() => {
 		wxForIsland;

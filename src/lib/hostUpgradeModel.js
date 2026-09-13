@@ -81,6 +81,21 @@ export function installPhaseTitle(phase = 'packages') {
 	return 'Installing packages';
 }
 
+/** Compact Dynamic Island Live Activity while the satellite orb shows progress. */
+export function islandActivityForProgress(progress) {
+	if (!progress?.active) return null;
+	const total = Number(progress.total) || 0;
+	const done = Number(progress.done) || 0;
+	const body =
+		total > 0 ? `${done}/${total}` : progress.current || progress.lastCompleted || '';
+	return {
+		kind: 'install',
+		title: progress.title || installPhaseTitle(progress.phase),
+		body,
+		severity: progress.phase === 'error' ? 'warn' : progress.phase === 'done' ? 'ok' : 'info'
+	};
+}
+
 export function applyUpgradeEvent(prev = EMPTY_INSTALL_PROGRESS, event = null) {
 	const next = {
 		...EMPTY_INSTALL_PROGRESS,

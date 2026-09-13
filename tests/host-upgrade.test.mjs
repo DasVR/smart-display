@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import {
+	EMPTY_INSTALL_PROGRESS,
 	applyUpgradeEvent,
 	beginInstallProgress,
 	finishInstallProgress,
 	installBeads,
+	islandActivityForProgress,
 	parseUpgradeLine
 } from '../src/lib/hostUpgradeModel.js';
 import { parseAptListNames } from '../src/lib/hostUpdatesModel.js';
@@ -48,6 +50,19 @@ test('installBeads fill by percent, empty when unknown', () => {
 	assert.deepEqual(installBeads(-1, 0, 4), [false, false, false, false]);
 	assert.equal(installBeads(50, 8, 8).filter(Boolean).length, 4);
 	assert.equal(installBeads(100, 40, 16).filter(Boolean).length, 16);
+});
+
+test('islandActivityForProgress keeps a compact island while the orb is busy', () => {
+	assert.equal(islandActivityForProgress({ ...EMPTY_INSTALL_PROGRESS }), null);
+	let state = beginInstallProgress({ phase: 'packages', total: 5 });
+	state = applyUpgradeEvent(state, { kind: 'complete', pkg: 'curl' });
+	assert.deepEqual(islandActivityForProgress(state), {
+		kind: 'install',
+		title: 'Installing packages',
+		body: '1/5',
+		severity: 'info'
+	});
+	assert.equal(islandActivityForProgress(finishInstallProgress(state)).severity, 'ok');
 });
 
 test('parseAptListNames reads the package before the slash', () => {

@@ -36,6 +36,10 @@
 		align-items: center;
 		pointer-events: none;
 	}
+	.stack :global(.island),
+	.stack :global(.island.anchored) {
+		z-index: 2;
+	}
 	.stack :global(.island-pill.active),
 	.stack :global(.orb) {
 		pointer-events: auto;

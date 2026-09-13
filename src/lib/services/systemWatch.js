@@ -1,4 +1,5 @@
-import { pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+import { get } from 'svelte/store';
+import { pushIslandEvent, setIslandActivity, clearIslandActivity, installProgress } from '$lib/stores.js';
 import { islandActivityForUpdates } from '$lib/hostUpdatesModel.js';
 
 /**
@@ -48,11 +49,15 @@ async function poll() {
 async function pollUpdates() {
 	if (destroyed) return;
 	try {
-		const r = await fetch('/api/updates');
-		if (r.ok) {
-			const activity = islandActivityForUpdates(await r.json());
-			if (activity) setIslandActivity('update', activity);
-			else clearIslandActivity('update');
+		if (get(installProgress)?.active) {
+			/* WS / demo progress already owns the island slot */
+		} else {
+			const r = await fetch('/api/updates');
+			if (r.ok) {
+				const activity = islandActivityForUpdates(await r.json());
+				if (activity) setIslandActivity('update', activity);
+				else clearIslandActivity('update');
+			}
 		}
 	} catch {
 		/* updates endpoint is optional in dev */

@@ -1,3 +1,5 @@
+import { islandActivityForProgress } from './hostUpgradeModel.js';
+
 /** Pure apt / fwupd snapshot helpers. Safe to import from the kiosk UI. */
 
 export const EMPTY_HOST_UPDATES = {
@@ -168,10 +170,24 @@ export function assembleHostUpdates({
 }
 
 /** Persistent Dynamic Island Live Activity, or null when the box is current.
- *  Installing itself is the satellite orb under the island, not a Live Activity. */
+ *  Installing also keeps a compact island; the satellite orb carries progress. */
 export function islandActivityForUpdates(snapshot) {
 	if (!snapshot) return null;
-	if (snapshot.installing) return null;
+	if (snapshot.progress?.active) return islandActivityForProgress(snapshot.progress);
+	if (snapshot.installing) {
+		const firmwareOnly = snapshot.firmwareInstalling && !snapshot.packagesInstalling;
+		const both = snapshot.firmwareInstalling && snapshot.packagesInstalling;
+		return {
+			kind: 'install',
+			title: firmwareOnly ? 'Installing firmware' : both ? 'Installing updates' : 'Installing packages',
+			body: both
+				? 'Packages and firmware'
+				: firmwareOnly
+					? snapshot.firmwareNames?.[0] || ''
+					: packageUpdateBody(snapshot),
+			severity: 'info'
+		};
+	}
 	if (snapshot.rebootRequired) {
 		return {
 			kind: 'update',

@@ -117,8 +117,21 @@ test('islandActivityForUpdates names packages, firmware, install, reboot', () =>
 		'Firmware update'
 	);
 	assert.equal(
-		islandActivityForUpdates(assembleHostUpdates({ packagesInstalling: true })),
-		null
+		islandActivityForUpdates(assembleHostUpdates({ packagesInstalling: true })).kind,
+		'install'
+	);
+	assert.equal(
+		islandActivityForUpdates({
+			...assembleHostUpdates({ packages: 3 }),
+			progress: {
+				active: true,
+				phase: 'packages',
+				title: 'Installing packages',
+				done: 2,
+				total: 5
+			}
+		}).body,
+		'2/5'
 	);
 	assert.equal(
 		islandActivityForUpdates(assembleHostUpdates({ rebootRequired: true, rebootPkgs: ['linux'] }))

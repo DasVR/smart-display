@@ -65,7 +65,7 @@
 <style>
 	.orb {
 		position: relative;
-		margin-top: -0.6rem;
+		margin-top: -0.35rem;
 		z-index: 0;
 		pointer-events: none;
 		display: flex;
@@ -148,10 +148,10 @@
 	.track {
 		position: relative;
 		z-index: 1;
-		height: 0.14rem;
+		height: 0.22rem;
 		margin-top: 0.38rem;
 		border-radius: 999px;
-		background: color-mix(in srgb, var(--foreground) 10%, transparent);
+		background: color-mix(in srgb, var(--foreground) 12%, transparent);
 		overflow: hidden;
 	}
 	.fill {
