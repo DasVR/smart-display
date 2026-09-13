@@ -43,7 +43,7 @@
 		gap: var(--space-2);
 		width: 100%;
 		height: 100%;
-		opacity: 0.72;
+		opacity: 0.85;
 	}
 	.wave {
 		flex: 1;
@@ -57,7 +57,7 @@
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.wave {
-			transition: transform 180ms var(--spring-smooth);
+			transition: transform 110ms linear;
 		}
 	}
 	.link {

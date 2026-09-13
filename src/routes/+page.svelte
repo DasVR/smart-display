@@ -941,7 +941,11 @@
 		flex-direction: column;
 		align-items: stretch;
 		gap: var(--space-3);
-		padding-bottom: var(--space-8);
+		/* Lifted well clear of the screen's bottom edge so the equator ticks
+		   and the ambient trough (waveform, connection status) stay visible
+		   above physical objects — a record player, a stand lip — sitting in
+		   front of the panel. */
+		padding-bottom: calc(var(--space-8) + var(--floor-clearance));
 	}
 	.equator {
 		display: flex;
@@ -1062,6 +1066,7 @@
 		}
 		.bottom {
 			min-height: 0;
+			padding-bottom: calc(var(--space-6) + max(var(--floor-clearance) * 0.5, env(safe-area-inset-bottom)));
 		}
 	}
 </style>

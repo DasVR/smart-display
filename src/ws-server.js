@@ -24,6 +24,7 @@ import {
 	parseNotifyPayload
 } from './lib/server/notifyPayload.js';
 import { airplayArtPath } from './lib/server/audioNowPlaying.js';
+import { getVolume, setVolume, setMute } from './lib/server/audioVolume.js';
 import {
 	desiredHdmi,
 	isPhoneWakeWindow,
@@ -292,6 +293,35 @@ const server = createServer(async (req, res) => {
 				json(res, { ok: true, ...displaySnapshot() });
 			} catch {
 				json(res, { error: 'invalid payload' }, 400);
+			}
+		});
+		return;
+	}
+
+	if (req.method === 'GET' && req.url === '/api/volume') {
+		json(res, getVolume());
+		return;
+	}
+
+	if (req.method === 'POST' && req.url === '/api/volume') {
+		let body = '';
+		req.on('data', (chunk) => (body += chunk));
+		req.on('end', () => {
+			try {
+				const data = JSON.parse(body || '{}');
+				let result;
+				if (typeof data.muted === 'boolean') {
+					result = setMute(data.muted);
+				} else if (typeof data.volume === 'number') {
+					result = setVolume(data.volume);
+				} else {
+					json(res, { ok: false, error: 'expected { volume } or { muted }' }, 400);
+					return;
+				}
+				if (result.ok) broadcast({ type: 'volume', volume: result.volume, muted: result.muted });
+				json(res, result, result.ok ? 200 : 500);
+			} catch {
+				json(res, { ok: false, error: 'invalid payload' }, 400);
 			}
 		});
 		return;

@@ -154,6 +154,34 @@ iOS drops the cached Docker records.
   music might come out of the panel if that is the only real sink.
 - **No Continuity / iPhone-to-Mac Handoff.** AirPlay speaker handoff is
   the Linux equivalent.
-- **No volume slider** on the dashboard yet. AirPlay volume from the
-  phone still reaches PipeWire.
 - **Multiple phones:** one A2DP stream at a time is realistic.
+
+## Volume
+
+`/remote` has a volume slider and mute button that call `GET`/`POST
+/api/volume`, backed by `wpctl get-volume`/`set-volume`/`set-mute` on
+`@DEFAULT_AUDIO_SINK@` (see `src/lib/server/audioVolume.js`). AirPlay and
+Bluetooth volume from the phone still reach PipeWire directly and are
+independent of this slider.
+
+## Crackling / static on Bluetooth or the speakers
+
+Two things fixed intermittent bursts of static:
+
+1. SBC-XQ (`bluez5.enable-sbc-xq`) demands a higher, steadier Bluetooth
+   bitrate than plain SBC. Any radio contention (AVRCP metadata polling,
+   a busy 2.4GHz room) starved the stream and the underrun came out as
+   static. It's now off in
+   `~/.config/wireplumber/wireplumber.conf.d/51-bluez-a2dp-sink.conf`.
+2. The same crackling also happened on the wired speakers, which pointed
+   at PipeWire's audio graph running too close to the edge (an xrun)
+   rather than anything Bluetooth-specific.
+   `~/.config/pipewire/pipewire.conf.d/99-buffer-stability.conf` raises
+   the minimum quantum so normal scheduling jitter doesn't underrun.
+   `scripts/bt-audio-loopback.sh`'s loopback latency also went from 50ms
+   to 100ms for the same reason.
+
+Both configs are written by `scripts/bluetooth-audio-setup.sh`; re-run it
+(or `scripts/speaker-audio-setup.sh`) and restart `wireplumber` /
+`pipewire` / `pipewire-pulse` to pick them up. If crackling comes back,
+check `pw-top` for climbing xrun counts before assuming it's Bluetooth.

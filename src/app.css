@@ -82,6 +82,9 @@
 	--space-7: 1.75rem;
 	--space-8: 2rem;
 	--grid: 0.5rem;
+	/* Extra clearance under the bottom trough so it clears a record player or
+	   other object sitting in front of the panel's lower edge. */
+	--floor-clearance: 4.5rem;
 
 	--text-sm: 0.875rem;
 	--text-base: 1rem;
