@@ -17,6 +17,11 @@ import {
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
+import {
+	getInstallProgress,
+	maybeStartHostUpgrade,
+	setInstallProgressListener
+} from './lib/server/hostUpgrade.js';
 import { getKioskStatus } from './lib/server/kioskStatus.js';
 import {
 	agentFinishedNotify,
@@ -119,6 +124,7 @@ function pollHostUpdates() {
 			}
 		}
 		lastHostUpdates = next;
+		maybeStartHostUpgrade(next);
 	} catch {
 		/* probe failed; try again next tick */
 	}
@@ -467,7 +473,7 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && req.url === '/api/updates') {
-		json(res, getHostUpdates());
+		json(res, { ...getHostUpdates(), progress: getInstallProgress() });
 		return;
 	}
 
@@ -495,6 +501,10 @@ function broadcast(data) {
 	});
 }
 
+setInstallProgressListener((progress) => {
+	broadcast({ ...progress, type: 'installProgress' });
+});
+
 wss.on('connection', (ws, req) => {
 	const isRemote = req.headers['x-remote'] === 'phone' || req.url?.includes('remote');
 	ws.isRemote = isRemote;
@@ -506,7 +516,8 @@ wss.on('connection', (ws, req) => {
 			ts: Date.now(),
 			power: ollamaPowerState,
 			display: displaySnapshot(),
-			audio: audioSnapshot()
+			audio: audioSnapshot(),
+			installProgress: getInstallProgress()
 		})
 	);
 

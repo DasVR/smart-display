@@ -117,8 +117,8 @@ test('islandActivityForUpdates names packages, firmware, install, reboot', () =>
 		'Firmware update'
 	);
 	assert.equal(
-		islandActivityForUpdates(assembleHostUpdates({ packagesInstalling: true })).kind,
-		'install'
+		islandActivityForUpdates(assembleHostUpdates({ packagesInstalling: true })),
+		null
 	);
 	assert.equal(
 		islandActivityForUpdates(assembleHostUpdates({ rebootRequired: true, rebootPkgs: ['linux'] }))

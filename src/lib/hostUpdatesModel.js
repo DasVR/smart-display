@@ -24,11 +24,18 @@ export function parseAptCheck(text = '') {
 }
 
 export function parseAptListUpgradable(text = '') {
-	let packages = 0;
+	const names = parseAptListNames(text);
+	return { packages: names.length, security: 0 };
+}
+
+export function parseAptListNames(text = '') {
+	const names = [];
 	for (const line of String(text || '').split('\n')) {
-		if (/\[upgradable from:/i.test(line)) packages += 1;
+		if (!/\[upgradable from:/i.test(line)) continue;
+		const name = line.split('/')[0].trim();
+		if (name) names.push(name);
 	}
-	return { packages, security: 0 };
+	return names;
 }
 
 export function parseUpdateNotifier(text = '') {
@@ -160,23 +167,11 @@ export function assembleHostUpdates({
 	};
 }
 
-/** Persistent Dynamic Island Live Activity, or null when the box is current. */
+/** Persistent Dynamic Island Live Activity, or null when the box is current.
+ *  Installing itself is the satellite orb under the island, not a Live Activity. */
 export function islandActivityForUpdates(snapshot) {
 	if (!snapshot) return null;
-	if (snapshot.installing) {
-		const firmwareOnly = snapshot.firmwareInstalling && !snapshot.packagesInstalling;
-		const both = snapshot.firmwareInstalling && snapshot.packagesInstalling;
-		return {
-			kind: 'install',
-			title: firmwareOnly ? 'Installing firmware' : both ? 'Installing updates' : 'Installing packages',
-			body: both
-				? 'Packages and firmware'
-				: firmwareOnly
-					? snapshot.firmwareNames?.[0] || ''
-					: packageUpdateBody(snapshot),
-			severity: 'info'
-		};
-	}
+	if (snapshot.installing) return null;
 	if (snapshot.rebootRequired) {
 		return {
 			kind: 'update',

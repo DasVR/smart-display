@@ -8,7 +8,8 @@
 	let {
 		nowPlaying = null,
 		events = [],
-		activities = []
+		activities = [],
+		anchored = false
 	} = $props();
 
 	let reducedMotion = $state(false);
@@ -258,7 +259,7 @@
 	{/if}
 {/snippet}
 
-<div class="island" data-mode={mode}>
+<div class="island" class:anchored data-mode={mode}>
 	<div
 		class="island-pill"
 		class:ready
@@ -287,6 +288,13 @@
 		transform: translateX(-50%);
 		z-index: 30;
 		pointer-events: none;
+	}
+	.island.anchored {
+		position: relative;
+		top: auto;
+		left: auto;
+		transform: none;
+		z-index: auto;
 	}
 	.island-pill {
 		position: relative;
