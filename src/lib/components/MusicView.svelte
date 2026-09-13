@@ -152,7 +152,7 @@
 							>
 								{#if line.words?.length}
 									{#each line.words as word, w (w)}
-										<span class="lyric-word" class:sung={wordSung(i, w)}>{word.text}</span>
+										{#if w > 0}{' '}{/if}<span class="lyric-word" class:sung={wordSung(i, w)}>{word.text}</span>
 									{/each}
 								{:else}
 									{line.text || '♪'}
@@ -408,7 +408,6 @@
 	}
 	.lyric-word {
 		display: inline;
-		margin-right: 0.28em;
 		opacity: 0.42;
 		transition: opacity 90ms linear;
 	}
