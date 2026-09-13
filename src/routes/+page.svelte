@@ -484,7 +484,7 @@
 		windDir={atm.windRad}
 	/>
 
-	{#if $currentView === 'music' && $nowPlaying?.playing && $nowPlaying?.art}
+	{#if $currentView === 'music' && $nowPlaying?.art && ($nowPlaying?.playing || $nowPlaying?.title)}
 		<div
 			class="music-ambient"
 			style="background-image: linear-gradient(color-mix(in srgb, var(--abyss) 80%, transparent), color-mix(in srgb, var(--abyss) 80%, transparent)), url({$nowPlaying.art})"
@@ -847,19 +847,26 @@
 			transform: translateY(-1px);
 		}
 	}
-	.clock-pane,
-	.music-pane {
+	.clock-pane {
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
 		justify-content: flex-end;
 		align-items: flex-start;
-	}
-	.clock-pane {
 		pointer-events: none;
 	}
 	.music-pane {
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+		justify-content: stretch;
+		align-items: stretch;
 		pointer-events: auto;
+	}
+	.music-pane :global(.music-view) {
+		flex: 1;
+		min-height: 0;
+		width: 100%;
 	}
 	.clock-credits {
 		min-width: 0;
@@ -1052,9 +1059,12 @@
 			min-height: 420px;
 			width: 100%;
 		}
-		.clock-pane,
-		.music-pane {
+		.clock-pane {
 			justify-content: flex-start;
+			min-height: 14rem;
+		}
+		.music-pane {
+			justify-content: stretch;
 			min-height: 14rem;
 		}
 		.clock-credits {
