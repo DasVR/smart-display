@@ -26,6 +26,8 @@ export const RADAR_TILE_PX = 512;
 
 export const ESRI_DARK_BASE =
 	'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile';
+/** Fill behind ESRI tiles so a short edge never flashes abyss black. */
+export const BASEMAP_GAP_FILL = '#2c2c2c';
 
 const MAX_LAT = 85.05112878;
 const EARTH_PX_Z0 = 156543.03392;
@@ -81,14 +83,15 @@ export function basemapTileUrl(z, x, y) {
  * Integer tile range covering an axis-aligned rectangle of `halfWpx` × `halfHpx`
  * world pixels around a fractional tile coordinate.
  */
-export function tilesCoveringRect(fracX, fracY, halfWpx, halfHpx, zoom = RADAR_ZOOM) {
+export function tilesCoveringRect(fracX, fracY, halfWpx, halfHpx, zoom = RADAR_ZOOM, overscan = 1) {
 	const n = 2 ** zoom;
+	const pad = Math.max(0, Number(overscan) || 0);
 	const padX = halfWpx / TILE_SIZE;
 	const padY = halfHpx / TILE_SIZE;
-	const x0 = Math.floor(fracX - padX);
-	const x1 = Math.floor(fracX + padX);
-	const y0 = Math.max(0, Math.floor(fracY - padY));
-	const y1 = Math.min(n - 1, Math.floor(fracY + padY));
+	const x0 = Math.floor(fracX - padX) - pad;
+	const x1 = Math.floor(fracX + padX) + pad;
+	const y0 = Math.max(0, Math.floor(fracY - padY) - pad);
+	const y1 = Math.min(n - 1, Math.floor(fracY + padY) + pad);
 	const tiles = [];
 	for (let ty = y0; ty <= y1; ty++) {
 		for (let tx = x0; tx <= x1; tx++) {

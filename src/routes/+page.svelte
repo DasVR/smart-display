@@ -1009,8 +1009,8 @@
 		background: linear-gradient(
 			90deg,
 			transparent,
-			color-mix(in srgb, var(--abyss) 42%, transparent) 18%,
-			color-mix(in srgb, var(--abyss) 78%, transparent) 55%
+			color-mix(in srgb, var(--abyss) 28%, transparent) 22%,
+			color-mix(in srgb, var(--abyss) 58%, transparent) 62%
 		);
 	}
 	.bottom {
