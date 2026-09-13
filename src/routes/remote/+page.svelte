@@ -178,6 +178,16 @@
 		send({ type: 'trigger', event: hdmi === 'off' ? 'hdmi_on' : 'hdmi_off' });
 	}
 
+	async function fetchDisplay() {
+		try {
+			const r = await fetch('/api/display');
+			const data = await r.json();
+			applyDisplay(data);
+		} catch {
+			/* ws init will retry */
+		}
+	}
+
 	async function fetchVolume() {
 		try {
 			const r = await fetch('/api/volume');
@@ -301,6 +311,7 @@
 
 	onMount(() => {
 		connect();
+		fetchDisplay();
 		fetchVolume();
 		const ping = setInterval(() => {
 			if (status === 'connected' && ws?.readyState === 1) {
@@ -973,6 +984,7 @@
 	}
 	.day-key.on {
 		color: var(--ok);
+		background: color-mix(in srgb, var(--ok) 14%, var(--shell-fill));
 		border-color: color-mix(in srgb, var(--ok) 35%, transparent);
 	}
 	.day-key:disabled {
