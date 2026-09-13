@@ -36,6 +36,7 @@ if command -v ufw >/dev/null 2>&1 && sudo ufw status 2>/dev/null | grep -q 'Stat
 	sudo ufw allow 319:320/udp comment 'nqptp' || true
 	sudo ufw allow 5000/tcp comment 'AirPlay audio' || true
 	sudo ufw allow 6001:6010/udp comment 'AirPlay timing' || true
+	sudo ufw allow 3278:3289/udp comment 'AirPlay 2 timing' || true
 fi
 
 have_airplay2() {
@@ -107,6 +108,23 @@ fi
 # Distro AirPlay 1 unit would collide on the mDNS name and still not show in Music.
 sudo systemctl disable --now shairport-sync.service 2>/dev/null || true
 
+LAN_IFACES="$(node "$PROJECT_DIR/scripts/airplay-lan.mjs" print | tr -d '\n')"
+LAN_IFACE="${LAN_IFACES%%,*}"
+if [ -n "$LAN_IFACES" ]; then
+	echo "pinning Avahi + AirPlay to LAN (${LAN_IFACES})"
+	AVAHI_CONF="/etc/avahi/avahi-daemon.conf"
+	if [ -f "$AVAHI_CONF" ]; then
+		tmp="$(mktemp)"
+		cp "$AVAHI_CONF" "$tmp"
+		node "$PROJECT_DIR/scripts/airplay-lan.mjs" avahi "$LAN_IFACES" "$tmp"
+		sudo cp "$tmp" "$AVAHI_CONF"
+		rm -f "$tmp"
+		sudo systemctl restart avahi-daemon
+	fi
+else
+	echo "WARNING: no LAN interface found; AirPlay will advertise on every iface including Docker." >&2
+fi
+
 echo "[3/6] writing ~/.config/shairport-sync.conf"
 mkdir -p "$HOME/.config"
 META_PIPE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/shairport-sync-metadata"
@@ -117,10 +135,12 @@ general = {
   output_backend = "pulseaudio";
   mdns_backend = "avahi";
   ignore_volume_control = "no";
+$( [ -n "$LAN_IFACE" ] && printf '  interface = "%s";\n' "$LAN_IFACE" )
 };
 
 sessioncontrol = {
   run_this_before_play_begins = "${PROJECT_DIR}/scripts/airplay-started.sh";
+  wait_for_completion = "no";
   allow_session_interruption = "yes";
   session_timeout = 120;
 };

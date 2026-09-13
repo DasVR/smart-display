@@ -6,6 +6,8 @@ Wants=avahi-daemon.service nqptp.service pipewire-pulse.service
 [Service]
 Type=simple
 Environment=DASHBOARD_URL=http://localhost:3000
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=PULSE_RUNTIME_PATH=/run/user/%U/pulse
 ExecStart=/home/das/projects/smart-display/scripts/airplay-run.sh
 Restart=always
 RestartSec=3

@@ -130,6 +130,11 @@ sheet as `Arriq's Bedroom TV`, under iPhone Speaker. If that sheet is
 empty besides the phone and the TV, the kiosk is not advertising AirPlay
 2 yet (dashboard deploy does not start it).
 
+If the name appears but tapping it does nothing, Avahi was publishing on
+Docker veths as well as Wi-Fi. `scripts/airplay-setup.sh` pins mDNS to
+the LAN interface (`wlp3s0` on this box, `192.168.1.99`). Re-run that
+script (or wait for **Bluetooth Audio Setup**) and try again.
+
 ## Known gaps
 
 - **This cloud environment has no Bluetooth adapter and no speakers.**

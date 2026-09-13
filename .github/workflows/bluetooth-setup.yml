@@ -12,6 +12,7 @@ on:
       - 'scripts/airplay-run.sh'
       - 'scripts/airplay-started.sh'
       - 'scripts/airplay-metadata.py'
+      - 'scripts/airplay-lan.mjs'
       - 'scripts/speaker-audio-setup.sh'
       - 'scripts/bluetooth-audio-setup.sh'
       - 'scripts/bt-audio-loopback.sh'

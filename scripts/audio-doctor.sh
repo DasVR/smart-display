@@ -77,7 +77,16 @@ systemctl --user status smart-display-airplay-meta --no-pager 2>/dev/null || tru
 systemctl is-active avahi-daemon 2>/dev/null || echo "avahi-daemon: not active"
 systemctl is-active nqptp 2>/dev/null || echo "nqptp: not active (needed for AirPlay 2)"
 echo "mDNS AirPlay services:"
-timeout 8 avahi-browse -prt _airplay._tcp 2>/dev/null || echo "avahi-browse not available or none advertised"
+browse="$(timeout 8 avahi-browse -prt _airplay._tcp 2>/dev/null || true)"
+if [ -n "$browse" ]; then
+	echo "$browse"
+	if echo "$browse" | grep -E 'Smart\\032Display|Smart Display' | grep -Eq ';veth|;docker0|;br-'; then
+		echo "WARNING: Smart Display is advertised on Docker interfaces."
+		echo "iPhone can see the name and still fail to connect. Re-run scripts/airplay-setup.sh."
+	fi
+else
+	echo "avahi-browse not available or none advertised"
+fi
 echo
 
 echo "--- services ---"
