@@ -37,9 +37,17 @@ test('parseLRC applies offset and skips id3 tags', () => {
 	const lines = parseLRC(
 		'[ti:My Way]\n[ar:Limp Bizkit]\n[length:04:33]\n[offset:-200]\n[00:12.00]You can take it all\n[00:16.00]'
 	);
-	assert.equal(lines.length, 1);
+	assert.equal(lines.length, 2);
 	assert.equal(lines[0].text, 'You can take it all');
 	assert.equal(lines[0].time, 11.8);
+});
+
+test('parseLRC keeps a bare timestamp as a blank instrumental marker', () => {
+	const lines = parseLRC('[00:12.00]You can take it all\n[00:16.00]\n[00:24.00]Just do not mess with me');
+	assert.equal(lines.length, 3);
+	assert.equal(lines[1].text, '');
+	assert.equal(lines[1].time, 16);
+	assert.equal(lines[1].words, undefined);
 });
 
 test('parseLRC reads enhanced word clocks', () => {

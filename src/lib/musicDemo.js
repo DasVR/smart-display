@@ -52,9 +52,13 @@ const DEMO_LYRICS = [
 		{ time: 18.5, text: 'way' },
 		{ time: 18.9, text: 'home' }
 	]},
-	{ time: 21.0, text: 'Radio humming in the dark' },
-	{ time: 25.2, text: 'Every mile a quieter spark' },
-	{ time: 29.4, text: 'Hold this note until the dawn' }
+	// A bare timed marker with no text - an instrumental break in the demo,
+	// same as a real LRC file's blank-line convention. The three-dot
+	// indicator's opacity rises across this whole gap.
+	{ time: 19.6, text: '' },
+	{ time: 27.0, text: 'Radio humming in the dark' },
+	{ time: 31.2, text: 'Every mile a quieter spark' },
+	{ time: 35.4, text: 'Hold this note until the dawn' }
 ];
 
 /** Local preview payload for `?demo=music` / `?island=music`. */

@@ -56,7 +56,9 @@ export function parseLRC(text) {
 		const content = raw.replace(TIME_TAG, '');
 		const words = parseEnhancedWords(content, offsetSec);
 		const lineText = content.replace(WORD_TAG, '').replace(/\s+/g, ' ').trim();
-		if (!lineText && !words.length) continue;
+		// A bare timestamp with no lyric content is how LRC marks an
+		// instrumental break - kept (not skipped) so the UI can show a
+		// "waiting for the next line" indicator instead of nothing.
 		for (const m of matches) {
 			lines.push({
 				time: parseClock(m[1], m[2]) + offsetSec,
