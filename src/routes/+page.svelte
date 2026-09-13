@@ -14,6 +14,7 @@
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
+	import { refreshNowPlaying } from '$lib/services/nowPlayingSync.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
@@ -322,16 +323,6 @@
 		}
 	}
 
-	async function fetchNowPlaying() {
-		try {
-			const r = await fetch('/api/nowplaying');
-			if (!r.ok) return;
-			nowPlaying.set(await r.json());
-		} catch {
-			/* playerctl is optional */
-		}
-	}
-
 	function handleKey(e) {
 		if (e.altKey && (e.key === 'y' || e.key === 'Y')) {
 			toggleGpuLowPower();
@@ -353,12 +344,12 @@
 		const musicDemo = islandPreview === 'music' || preview.get('demo') === 'music';
 		connect();
 		fetchWeather();
-		if (!musicDemo) fetchNowPlaying();
+		if (!musicDemo) refreshNowPlaying();
 		const stopSystemWatch = startSystemWatch();
 		const clock = setInterval(() => {
 			time = new Date();
 		}, 1000);
-		const music = musicDemo ? 0 : setInterval(fetchNowPlaying, 1000);
+		const music = musicDemo ? 0 : setInterval(refreshNowPlaying, 1000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });

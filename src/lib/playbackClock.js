@@ -49,3 +49,51 @@ export function activeWordIndex(words, position) {
 export function lyricsAreSynced(lines) {
 	return Array.isArray(lines) && lines.some((line) => Number(line?.time) > 0);
 }
+
+/** How far (0..1) `position` has swept through `words[index]`, for a smooth
+ *  left-to-right fill within the word instead of an instant per-word snap —
+ *  the "letter by letter" sweep Apple Music does. The word's span runs to
+ *  the next word's clock, or to `lineEndTime` (the next line's start) for a
+ *  line's last word, falling back to a short default so a lone word still
+ *  animates instead of filling instantly. */
+export function wordProgress(words, index, position, lineEndTime) {
+	if (!Array.isArray(words) || index < 0 || index >= words.length) return 0;
+	const start = Number(words[index].time) || 0;
+	const next = index + 1 < words.length ? Number(words[index + 1].time) : Number(lineEndTime) || 0;
+	const span = next > start ? next - start : 0.6;
+	const t = Number(position) || 0;
+	return Math.min(1, Math.max(0, (t - start) / span));
+}
+
+// A gap at least this long between one line's clock and the next reads as
+// an instrumental break rather than just an unhurried lyric.
+const INSTRUMENTAL_GAP_SEC = 5;
+
+/** The {start, end} span of an instrumental break at `lines[index]`, or
+ *  null if that slot isn't one. Only a line the lyrics source stamped with
+ *  no text (a blank timed marker - what LRC instrumental cues look like)
+ *  counts; a real lyric line followed by a long rest keeps showing its own
+ *  text instead of turning into dots. */
+export function instrumentalGap(lines, index) {
+	if (!Array.isArray(lines) || index < 0 || index >= lines.length) return null;
+	const line = lines[index];
+	const next = lines[index + 1];
+	if (!next || line.text) return null;
+	const start = Number(line.time) || 0;
+	const end = Number(next.time) || 0;
+	if (end - start < INSTRUMENTAL_GAP_SEC) return null;
+	return { start, end };
+}
+
+/** Opacity (0..1) for the three-dot instrumental indicator at `lines[index]`
+ *  given the current playback `position` - rises gradually across the gap
+ *  and reaches full brightness right as the break ends, rather than
+ *  snapping in like a lyric line does. */
+export function instrumentalDotsOpacity(lines, index, position) {
+	const gap = instrumentalGap(lines, index);
+	if (!gap) return 0;
+	const t = Number(position) || 0;
+	if (t <= gap.start) return 0;
+	if (t >= gap.end) return 1;
+	return (t - gap.start) / (gap.end - gap.start);
+}

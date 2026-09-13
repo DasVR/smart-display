@@ -4,9 +4,12 @@
 	import {
 		activeLyricIndex as indexForTime,
 		activeWordIndex,
+		instrumentalDotsOpacity,
 		livePlaybackPosition,
-		lyricsAreSynced
+		lyricsAreSynced,
+		wordProgress
 	} from '$lib/playbackClock.js';
+	import { nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
 
 	let artFailed = $state(false);
 	let lastArtUrl = null;
@@ -22,6 +25,16 @@
 	let plainLyrics = $derived(!synced && track?.lyrics?.[0]?.text ? track.lyrics[0].text : null);
 	let activeLyricIndex = $derived(indexForTime(synced, displayPosition));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
+	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, displayPosition));
+	// Fraction (0..1) the way through the currently-singing word, for a
+	// smooth left-to-right sweep within the word rather than an instant
+	// per-word snap - the "letter by letter" look Apple Music has.
+	let activeWordFill = $derived.by(() => {
+		const words = synced?.[activeLyricIndex]?.words;
+		if (!words?.length || activeWordIdx < 0) return 0;
+		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex + 1]?.time);
+	});
+	let instrumentalOpacity = $derived(instrumentalDotsOpacity(synced, activeLyricIndex, displayPosition));
 
 	$effect(() => {
 		const next = track;
@@ -76,13 +89,15 @@
 	}
 
 	function send(action) {
-		fetch('/api/player/' + action, { method: 'POST' }).catch(() => {});
+		fetch('/api/player/' + action, { method: 'POST' })
+			.then(nudgeNowPlaying)
+			.catch(() => {});
 	}
 
 	function wordSung(line, wordIndex) {
 		if (line < activeLyricIndex) return true;
 		if (line !== activeLyricIndex) return false;
-		return wordIndex <= activeWordIndex(synced?.[line]?.words, displayPosition);
+		return wordIndex < activeWordIdx;
 	}
 </script>
 
@@ -102,6 +117,14 @@
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics)}>
 			<div class="player-main">
 				<div class="art-slot">
+					<!-- A purely decorative "more where this came from" stack behind
+					     the current album - the audio backends here (playerctl/
+					     AirPlay) don't expose an actual upcoming-track queue, so
+					     this doesn't claim to show real next-up art, just depth. -->
+					<div class="album-stack" aria-hidden="true">
+						<div class="stack-card stack-2"></div>
+						<div class="stack-card stack-1"></div>
+					</div>
 					<div class="album-art" class:playing={track.playing}>
 						{#if track.art && !artFailed}
 							<img
@@ -152,10 +175,29 @@
 							>
 								{#if line.words?.length}
 									{#each line.words as word, w (w)}
-										{#if w > 0}{' '}{/if}<span class="lyric-word" class:sung={wordSung(i, w)}>{word.text}</span>
+										{#if w > 0}{' '}{/if}<span
+											class="lyric-word"
+											class:sung={wordSung(i, w)}
+											class:filling={i === activeLyricIndex && w === activeWordIdx}
+											style={i === activeLyricIndex && w === activeWordIdx
+												? `--wp: ${activeWordFill}`
+												: undefined}
+										>{word.text}</span>
 									{/each}
+								{:else if line.text}
+									{line.text}
 								{:else}
-									{line.text || '♪'}
+									<span
+										class="lyric-dots"
+										aria-hidden="true"
+										style="opacity: {i === activeLyricIndex
+											? instrumentalOpacity
+											: i < activeLyricIndex
+												? 1
+												: 0}"
+									>
+										<span class="dot"></span><span class="dot"></span><span class="dot"></span>
+									</span>
 								{/if}
 							</p>
 						{/each}
@@ -221,6 +263,32 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
+		position: relative;
+	}
+	.album-stack {
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+	}
+	.stack-card {
+		position: absolute;
+		left: 50%;
+		top: 50%;
+		width: min(88%, 37vh, 380px);
+		aspect-ratio: 1;
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--hairline);
+		background: linear-gradient(160deg, var(--abyss-3) 0%, var(--abyss-1) 100%);
+		box-shadow: var(--elevation-2);
+	}
+	.stack-card.stack-1 {
+		transform: translate(-50%, -50%) translate(16px, 20px) rotate(5deg) scale(0.94);
+		opacity: 0.75;
+	}
+	.stack-card.stack-2 {
+		transform: translate(-50%, -50%) translate(30px, 38px) rotate(9deg) scale(0.88);
+		opacity: 0.45;
 	}
 	.album-art {
 		width: auto;
@@ -236,6 +304,7 @@
 		align-items: center;
 		justify-content: center;
 		position: relative;
+		z-index: 1;
 		overflow: hidden;
 		box-shadow: var(--elevation-3);
 	}
@@ -304,6 +373,9 @@
 	}
 	.with-lyrics .album-art {
 		max-width: min(100%, 28vh, 280px);
+	}
+	.with-lyrics .stack-card {
+		width: min(88%, 24vh, 250px);
 	}
 	.with-lyrics .track-title {
 		font-size: clamp(1.25rem, 2.1vw, 2rem);
@@ -414,6 +486,50 @@
 	.lyric-line.active .lyric-word.sung,
 	.lyric-line.past .lyric-word {
 		opacity: 1;
+	}
+	/* The word currently being sung fills left-to-right in real time - a
+	   sub-letter-resolution sweep via a hard-stop gradient clipped to the
+	   text, rather than the binary sung/unsung flip the other words get. */
+	.lyric-word.filling {
+		opacity: 1;
+		color: transparent;
+		background-image: linear-gradient(
+			to right,
+			var(--foreground) 0%,
+			var(--foreground) calc(var(--wp, 0) * 100%),
+			color-mix(in srgb, var(--foreground) 42%, transparent) calc(var(--wp, 0) * 100%),
+			color-mix(in srgb, var(--foreground) 42%, transparent) 100%
+		);
+		background-clip: text;
+		-webkit-background-clip: text;
+		transition: none;
+	}
+	.lyric-dots {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35em;
+		transition: opacity 200ms linear;
+	}
+	.dot {
+		width: 0.4em;
+		height: 0.4em;
+		border-radius: 50%;
+		background: currentColor;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.lyric-line.active .dot {
+			animation: dot-breathe 1.2s ease-in-out infinite;
+		}
+		.lyric-line.active .dot:nth-child(2) {
+			animation-delay: 0.15s;
+		}
+		.lyric-line.active .dot:nth-child(3) {
+			animation-delay: 0.3s;
+		}
+	}
+	@keyframes dot-breathe {
+		0%, 100% { transform: scale(0.75); }
+		50% { transform: scale(1); }
 	}
 	.lyric-line.plain-block {
 		font-size: var(--text-lg);

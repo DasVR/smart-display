@@ -4,8 +4,11 @@ import assert from 'node:assert/strict';
 import {
 	activeLyricIndex,
 	activeWordIndex,
+	instrumentalDotsOpacity,
+	instrumentalGap,
 	livePlaybackPosition,
-	lyricsAreSynced
+	lyricsAreSynced,
+	wordProgress
 } from '../src/lib/playbackClock.js';
 
 test('livePlaybackPosition holds still when paused', () => {
@@ -69,4 +72,55 @@ test('activeWordIndex follows enhanced LRC word clocks', () => {
 test('lyricsAreSynced requires a timed line', () => {
 	assert.equal(lyricsAreSynced([{ time: 0, text: 'unsynced block' }]), false);
 	assert.equal(lyricsAreSynced([{ time: 12, text: 'You can take it all' }]), true);
+});
+
+test('wordProgress sweeps left-to-right across a word span', () => {
+	const words = [
+		{ time: 12, text: 'You' },
+		{ time: 12.4, text: 'can' },
+		{ time: 12.8, text: 'take' }
+	];
+	assert.equal(wordProgress(words, 0, 12, 13.4), 0);
+	assert.ok(Math.abs(wordProgress(words, 0, 12.2, 13.4) - 0.5) < 1e-9);
+	assert.equal(wordProgress(words, 0, 12.4, 13.4), 1);
+	// Last word falls back to the next line's start as its end boundary.
+	assert.ok(Math.abs(wordProgress(words, 2, 13.1, 13.4) - 0.5) < 1e-9);
+});
+
+test('wordProgress clamps to 0..1 outside the word span', () => {
+	const words = [{ time: 10, text: 'hi' }];
+	assert.equal(wordProgress(words, 0, 9, 10.6), 0);
+	assert.equal(wordProgress(words, 0, 99, 10.6), 1);
+});
+
+test('instrumentalGap only fires on a blank line with a long rest after it', () => {
+	const lines = [
+		{ time: 0, text: 'intro' },
+		{ time: 4, text: '' },
+		{ time: 20, text: 'verse' }
+	];
+	assert.deepEqual(instrumentalGap(lines, 1), { start: 4, end: 20 });
+	assert.equal(instrumentalGap(lines, 0), null, 'a real lyric line never becomes dots');
+	assert.equal(instrumentalGap(lines, 2), null, 'no next line to measure the gap against');
+});
+
+test('instrumentalGap ignores a short blank line (just a breath, not a break)', () => {
+	const lines = [
+		{ time: 0, text: '' },
+		{ time: 2, text: 'verse' }
+	];
+	assert.equal(instrumentalGap(lines, 0), null);
+});
+
+test('instrumentalDotsOpacity rises across the gap and caps at 1', () => {
+	const lines = [
+		{ time: 0, text: 'intro' },
+		{ time: 4, text: '' },
+		{ time: 20, text: 'verse' }
+	];
+	assert.equal(instrumentalDotsOpacity(lines, 1, 4), 0);
+	assert.equal(instrumentalDotsOpacity(lines, 1, 12), 0.5);
+	assert.equal(instrumentalDotsOpacity(lines, 1, 20), 1);
+	assert.equal(instrumentalDotsOpacity(lines, 1, 25), 1);
+	assert.equal(instrumentalDotsOpacity(lines, 0, 1), 0, 'a real lyric line never shows dots');
 });
