@@ -113,7 +113,14 @@ export function parseFwupdProcessList(text = '') {
 }
 
 export function parseLockHolder(text = '') {
-	return /\d/.test(String(text || ''));
+	const raw = String(text || '');
+	if (!raw.trim()) return false;
+	if (/command not found|no such file/i.test(raw) && !/:\s*\d{2,}/.test(raw)) return false;
+	return /(?:^|[\s:])\d{2,}\b/.test(raw);
+}
+
+export function parsePgrepHit(text = '') {
+	return /^\s*\d+\s*$/m.test(String(text || ''));
 }
 
 export function parseRebootPkgs(text = '') {
@@ -170,24 +177,10 @@ export function assembleHostUpdates({
 }
 
 /** Persistent Dynamic Island Live Activity, or null when the box is current.
- *  Installing also keeps a compact island; the satellite orb carries progress. */
+ *  Installing is owned by live progress, not a sticky dpkg-lock guess. */
 export function islandActivityForUpdates(snapshot) {
 	if (!snapshot) return null;
 	if (snapshot.progress?.active) return islandActivityForProgress(snapshot.progress);
-	if (snapshot.installing) {
-		const firmwareOnly = snapshot.firmwareInstalling && !snapshot.packagesInstalling;
-		const both = snapshot.firmwareInstalling && snapshot.packagesInstalling;
-		return {
-			kind: 'install',
-			title: firmwareOnly ? 'Installing firmware' : both ? 'Installing updates' : 'Installing packages',
-			body: both
-				? 'Packages and firmware'
-				: firmwareOnly
-					? snapshot.firmwareNames?.[0] || ''
-					: packageUpdateBody(snapshot),
-			severity: 'info'
-		};
-	}
 	if (snapshot.rebootRequired) {
 		return {
 			kind: 'update',

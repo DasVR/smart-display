@@ -128,6 +128,36 @@ test('createHostUpgrade still starts when dpkg already holds the lock', () => {
 	assert.equal(calls.length, 1);
 });
 
+test('createHostUpgrade kills a stalled apt so installing cannot stick', async () => {
+	let killed = false;
+	const upgrade = createHostUpgrade({
+		bootAt: 0,
+		bootGraceMs: 0,
+		doneHoldMs: 15,
+		stallMs: 20,
+		resetCache: () => {},
+		spawn: () => {
+			const proc = new EventEmitter();
+			proc.stdout = new EventEmitter();
+			proc.stderr = new EventEmitter();
+			proc.kill = () => {
+				killed = true;
+			};
+			return proc;
+		}
+	});
+	assert.equal(
+		upgrade.maybeStart(assembleHostUpdates({ packages: 1 }), { force: true }),
+		true
+	);
+	assert.equal(upgrade.getProgress().active, true);
+	await new Promise((r) => setTimeout(r, 30));
+	assert.equal(killed, true);
+	assert.equal(upgrade.getProgress().phase, 'error');
+	await new Promise((r) => setTimeout(r, 30));
+	assert.equal(upgrade.getProgress().active, false);
+});
+
 test('createHostUpgrade waits for boot grace and does not spawn apt-get update', () => {
 	const calls = [];
 	const upgrade = createHostUpgrade({

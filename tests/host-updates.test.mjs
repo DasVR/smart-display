@@ -11,6 +11,7 @@ import {
 	parseFwupdProcessList,
 	parseFwupdText,
 	parseLockHolder,
+	parsePgrepHit,
 	parseRebootPkgs,
 	parseUpdateNotifier
 } from '../src/lib/hostUpdatesModel.js';
@@ -90,6 +91,9 @@ test('parseFwupdProcessList ignores get-updates probes', () => {
 test('parseLockHolder and reboot package list', () => {
 	assert.equal(parseLockHolder('/var/lib/dpkg/lock-frontend:  4412'), true);
 	assert.equal(parseLockHolder(''), false);
+	assert.equal(parseLockHolder('fuser: command not found'), false);
+	assert.equal(parsePgrepHit('4412\n'), true);
+	assert.equal(parsePgrepHit('pgrep: unknown option'), false);
 	assert.deepEqual(parseRebootPkgs('linux-image-6.8.0-71-generic\nlibc6\n'), [
 		'linux-image-6.8.0-71-generic',
 		'libc6'
@@ -117,8 +121,12 @@ test('islandActivityForUpdates names packages, firmware, install, reboot', () =>
 		'Firmware update'
 	);
 	assert.equal(
-		islandActivityForUpdates(assembleHostUpdates({ packagesInstalling: true })).kind,
-		'install'
+		islandActivityForUpdates(assembleHostUpdates({ packagesInstalling: true })),
+		null
+	);
+	assert.equal(
+		islandActivityForUpdates(assembleHostUpdates({ packages: 3, packagesInstalling: true })).title,
+		'Package updates'
 	);
 	assert.equal(
 		islandActivityForUpdates({
@@ -237,4 +245,25 @@ test('getHostUpdates treats a held dpkg lock as installing packages', () => {
 	assert.equal(snap.packagesInstalling, true);
 	assert.equal(snap.installing, true);
 	assert.equal(snap.firmwareInstalling, false);
+});
+
+test('getHostUpdates does not treat pgrep errors as an install', () => {
+	const snap = getHostUpdates({
+		run: (bin) => {
+			if (bin === 'fuser') return 'fuser: command not found';
+			if (bin === 'lsof') return '';
+			if (bin === 'pgrep') return 'pgrep: unknown option';
+			if (String(bin).endsWith('apt-check')) return '2;0';
+			if (bin === 'fwupdmgr') return '{"Devices":[]}';
+			return '';
+		},
+		exists: (file) => String(file).endsWith('apt-check'),
+		read: () => '',
+		now: 1,
+		force: true,
+		state: { cache: null }
+	});
+	assert.equal(snap.packagesInstalling, false);
+	assert.equal(snap.installing, false);
+	assert.equal(snap.available, true);
 });
