@@ -66,6 +66,31 @@ test('mergeNowPlaying AirPlay wins over a paused leftover MPRIS player', () => {
 	assert.equal(merged.title, 'AirPlay song');
 });
 
+test('mergeNowPlaying discards MPRIS state when Bluetooth is not connected', () => {
+	const merged = mergeNowPlaying(
+		{ playing: true, title: 'Stale phone track', artist: 'Phone' },
+		{ playing: false },
+		{ bluetoothConnected: false }
+	);
+	assert.equal(merged.playing, false);
+	assert.equal(merged.title, undefined);
+});
+
+test('mergeNowPlaying still trusts MPRIS when Bluetooth is connected', () => {
+	const merged = mergeNowPlaying(
+		{ playing: true, title: 'Live phone track', artist: 'Phone' },
+		{ playing: false },
+		{ bluetoothConnected: true }
+	);
+	assert.equal(merged.playing, true);
+	assert.equal(merged.title, 'Live phone track');
+});
+
+test('mergeNowPlaying defaults to trusting MPRIS when connection state is unknown', () => {
+	const merged = mergeNowPlaying({ playing: true, title: 'Unspecified', artist: 'Phone' }, { playing: false });
+	assert.equal(merged.playing, true);
+});
+
 test('readAirplayNowPlaying treats stale files as not playing', () => {
 	const dir = mkdtempSync(path.join(os.tmpdir(), 'airplay-np-'));
 	const file = path.join(dir, 'now.json');

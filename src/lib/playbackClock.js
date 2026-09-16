@@ -97,3 +97,23 @@ export function instrumentalDotsOpacity(lines, index, position) {
 	if (t >= gap.end) return 1;
 	return (t - gap.start) / (gap.end - gap.start);
 }
+
+/** Per-dot brightness (0..1 each) for the instrumental indicator, the way
+ *  Apple Music's does it: the dots light up one at a time in sequence as the
+ *  gap elapses, rather than fading in together - and because they're keyed
+ *  off the gap's actual {start, end} span, a long instrumental break sweeps
+ *  slowly and a short one (still >= the instrumental-gap threshold) sweeps
+ *  fast, instead of every gap animating at the same fixed rate. */
+export function instrumentalDotStates(lines, index, position, dotCount = 3) {
+	const gap = instrumentalGap(lines, index);
+	if (!gap) return new Array(dotCount).fill(0);
+	const t = Number(position) || 0;
+	const progress = Math.max(0, Math.min(1, (t - gap.start) / (gap.end - gap.start)));
+	return Array.from({ length: dotCount }, (_, i) => {
+		const segStart = i / dotCount;
+		const segEnd = (i + 1) / dotCount;
+		if (progress <= segStart) return 0;
+		if (progress >= segEnd) return 1;
+		return (progress - segStart) / (segEnd - segStart);
+	});
+}
