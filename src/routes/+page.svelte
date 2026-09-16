@@ -15,6 +15,7 @@
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
 	import { refreshNowPlaying } from '$lib/services/nowPlayingSync.js';
+	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
@@ -184,6 +185,9 @@
 				}
 				if (msg.type === 'installProgress') {
 					installProgress.set(msg);
+				}
+				if (msg.type === 'audioSpectrum') {
+					applyAudioFrame(msg);
 				}
 				if (msg.type === 'init') {
 					if (msg.view) currentView.set(msg.view);
