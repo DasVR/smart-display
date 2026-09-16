@@ -218,6 +218,21 @@ export function islandActivityForUpdates(snapshot) {
 	return null;
 }
 
+/** Smooths a noisy boolean (dpkg-lock/pgrep probes can flicker within a couple
+ *  seconds of each other) so a transient false-positive/negative doesn't flip
+ *  the confirmed value. `state` is a small object the caller keeps across
+ *  polls; the same raw reading has to repeat `confirm` times in a row before
+ *  the confirmed value moves. */
+export function debounceInstalling(state = {}, raw, confirm = 2) {
+	const value = Boolean(raw);
+	const streak = state.raw === value ? (state.streak || 0) + 1 : 1;
+	state.raw = value;
+	state.streak = streak;
+	if (streak >= confirm) state.confirmed = value;
+	else if (state.confirmed === undefined) state.confirmed = false;
+	return state.confirmed;
+}
+
 export function hostUpdateChanges(prev, next) {
 	const before = prev || EMPTY_HOST_UPDATES;
 	const after = next || EMPTY_HOST_UPDATES;
