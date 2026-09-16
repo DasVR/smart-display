@@ -76,8 +76,8 @@ function reqPath(req) {
 	}
 }
 
-function audioSnapshot() {
-	const result = getVolume();
+async function audioSnapshot() {
+	const result = await getVolume();
 	if (!result.ok) return null;
 	return { volume: result.volume, muted: result.muted };
 }
@@ -122,9 +122,9 @@ const HOST_UPDATES_POLL_MS = 15_000;
 let lastHostUpdates = null;
 const installingDebounce = {};
 
-function pollHostUpdates() {
+async function pollHostUpdates() {
 	try {
-		const raw = getHostUpdates();
+		const raw = await getHostUpdates();
 		maybeStartHostUpgrade(raw);
 		// The dpkg-lock/pgrep probes behind `installing` can flicker between
 		// polls; only feed a confirmed, stable reading to change detection so
@@ -282,7 +282,7 @@ async function pollProximity() {
 		return;
 	}
 	try {
-		const devices = getBluetoothProximity();
+		const devices = await getBluetoothProximity();
 		const match = devices.find((d) => d.address === schedule.proximityDevice);
 		const distanceMeters = match?.distanceMeters ?? null;
 		const rawNear = distanceMeters != null && distanceMeters <= schedule.proximityMeters;
@@ -440,7 +440,7 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && reqPath(req) === '/api/volume') {
-		const result = getVolume();
+		const result = await getVolume();
 		json(res, result, volumeHttpStatus(result));
 		return;
 	}
@@ -448,10 +448,10 @@ const server = createServer(async (req, res) => {
 	if (req.method === 'POST' && reqPath(req) === '/api/volume') {
 		let body = '';
 		req.on('data', (chunk) => (body += chunk));
-		req.on('end', () => {
+		req.on('end', async () => {
 			try {
 				const data = JSON.parse(body || '{}');
-				const result = applyVolumePayload(data);
+				const result = await applyVolumePayload(data);
 				if (result.ok) {
 					broadcast({ type: 'volume', volume: result.volume, muted: result.muted });
 				}
@@ -555,12 +555,12 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && req.url === '/api/git') {
-		json(res, getGitContext());
+		json(res, await getGitContext());
 		return;
 	}
 
 	if (req.method === 'GET' && req.url === '/api/updates') {
-		const snapshot = getHostUpdates();
+		const snapshot = await getHostUpdates();
 		maybeStartHostUpgrade(snapshot);
 		json(res, { ...snapshot, progress: getInstallProgress() });
 		return;
@@ -598,18 +598,10 @@ wss.on('connection', (ws, req) => {
 	const isRemote = req.headers['x-remote'] === 'phone' || req.url?.includes('remote');
 	ws.isRemote = isRemote;
 	clients.add(ws);
-	ws.send(
-		JSON.stringify({
-			type: 'init',
-			view: currentView,
-			ts: Date.now(),
-			power: ollamaPowerState,
-			display: displaySnapshot(),
-			audio: audioSnapshot(),
-			installProgress: getInstallProgress()
-		})
-	);
 
+	// Listeners go on before the (now async, since audioSnapshot shells out
+	// to wpctl) init send below, so a message the client fires off right
+	// after connecting can't arrive before anything's listening for it.
 	ws.on('message', (raw) => {
 		try {
 			const msg = JSON.parse(raw.toString());
@@ -638,6 +630,22 @@ wss.on('connection', (ws, req) => {
 	});
 
 	ws.on('close', () => clients.delete(ws));
+
+	(async () => {
+		const audio = await audioSnapshot();
+		if (ws.readyState !== 1) return;
+		ws.send(
+			JSON.stringify({
+				type: 'init',
+				view: currentView,
+				ts: Date.now(),
+				power: ollamaPowerState,
+				display: displaySnapshot(),
+				audio,
+				installProgress: getInstallProgress()
+			})
+		);
+	})();
 });
 
 server.listen(port, '0.0.0.0', () => {

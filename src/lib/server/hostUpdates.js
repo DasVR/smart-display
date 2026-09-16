@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import {
 	assembleHostUpdates,
@@ -14,6 +15,8 @@ import {
 	parseUpdateNotifier
 } from '../hostUpdatesModel.js';
 
+const execFileAsync = promisify(execFile);
+
 const APT_CHECK = '/usr/lib/update-notifier/apt-check';
 const UPDATES_AVAILABLE = '/var/lib/update-notifier/updates-available';
 const DPKG_LOCK = '/var/lib/dpkg/lock-frontend';
@@ -27,16 +30,16 @@ const LOCK_MS = 2000;
 
 const GLOBAL = { cache: null };
 
-function defaultRun(bin, args = [], timeout = 3000) {
+// Async (not spawnSync) so probing apt/fwupd/dpkg-lock doesn't freeze the
+// whole server's event loop while it runs - see kioskStatus.js for the
+// fuller note. The various probes below also now run concurrently via
+// Promise.all instead of one after another.
+async function defaultRun(bin, args = [], timeout = 3000) {
 	try {
-		const result = spawnSync(bin, args, {
-			encoding: 'utf8',
-			timeout,
-			stdio: ['ignore', 'pipe', 'pipe']
-		});
-		return `${result.stdout || ''}\n${result.stderr || ''}`.trim();
-	} catch {
-		return '';
+		const { stdout, stderr } = await execFileAsync(bin, args, { encoding: 'utf8', timeout });
+		return `${stdout || ''}\n${stderr || ''}`.trim();
+	} catch (error) {
+		return `${error?.stdout || ''}\n${error?.stderr || ''}`.trim();
 	}
 }
 
@@ -53,18 +56,19 @@ export function resetHostUpdatesCache(state = GLOBAL) {
 	state.cache = null;
 }
 
-function probeInstalling({ run }) {
-	const lockText = run('fuser', [DPKG_LOCK], LOCK_MS) || run('lsof', [DPKG_LOCK], LOCK_MS);
-	let packagesInstalling = parseLockHolder(lockText);
-	if (!packagesInstalling) {
-		for (const name of ['apt-get', 'dpkg', 'unattended-upgr', 'unattended-upgrade']) {
-			if (parsePgrepHit(run('pgrep', ['-x', name], LOCK_MS))) {
-				packagesInstalling = true;
-				break;
-			}
-		}
-	}
-	const firmwareInstalling = parseFwupdProcessList(run('pgrep', ['-a', 'fwupdmgr'], LOCK_MS));
+async function probeInstalling({ run }) {
+	const [fuserText, lsofText, ...pgrepHits] = await Promise.all([
+		run('fuser', [DPKG_LOCK], LOCK_MS),
+		run('lsof', [DPKG_LOCK], LOCK_MS),
+		run('pgrep', ['-x', 'apt-get'], LOCK_MS),
+		run('pgrep', ['-x', 'dpkg'], LOCK_MS),
+		run('pgrep', ['-x', 'unattended-upgr'], LOCK_MS),
+		run('pgrep', ['-x', 'unattended-upgrade'], LOCK_MS),
+		run('pgrep', ['-a', 'fwupdmgr'], LOCK_MS)
+	]);
+	const packagesInstalling =
+		parseLockHolder(fuserText || lsofText) || pgrepHits.slice(0, 4).some((hit) => parsePgrepHit(hit));
+	const firmwareInstalling = parseFwupdProcessList(pgrepHits[4]);
 	return { packagesInstalling, firmwareInstalling };
 }
 
@@ -75,22 +79,22 @@ function probeReboot({ exists, read }) {
 	};
 }
 
-function probeApt({ run, exists, read }) {
+async function probeApt({ run, exists, read }) {
 	if (exists(APT_CHECK)) {
-		const parsed = parseAptCheck(run(APT_CHECK, [], APT_CHECK_MS));
+		const parsed = parseAptCheck(await run(APT_CHECK, [], APT_CHECK_MS));
 		if (parsed) return { ...parsed, source: 'apt-check' };
 	}
 	if (exists(UPDATES_AVAILABLE)) {
 		const parsed = parseUpdateNotifier(read(UPDATES_AVAILABLE));
 		if (parsed) return { ...parsed, source: 'update-notifier' };
 	}
-	const listed = parseAptListUpgradable(run('apt', ['-qq', 'list', '--upgradable'], APT_LIST_MS));
+	const listed = parseAptListUpgradable(await run('apt', ['-qq', 'list', '--upgradable'], APT_LIST_MS));
 	if (listed.packages > 0) return { ...listed, source: 'apt-list' };
 	return { packages: 0, security: 0, source: 'none' };
 }
 
-function probeFirmware({ run }) {
-	const raw = run('fwupdmgr', ['get-updates', '--json'], FWUPD_MS);
+async function probeFirmware({ run }) {
+	const raw = await run('fwupdmgr', ['get-updates', '--json'], FWUPD_MS);
 	const json = parseFwupdJson(raw);
 	if (json) return { count: json.count, names: json.names, source: 'fwupd' };
 	const text = parseFwupdText(raw);
@@ -98,23 +102,28 @@ function probeFirmware({ run }) {
 }
 
 /** Read cached apt lists and fwupd. Does not run `apt-get update`. */
-export function getHostUpdates(io = {}) {
+export async function getHostUpdates(io = {}) {
 	const now = io.now ?? Date.now();
 	const run = io.run || defaultRun;
 	const exists = io.exists || existsSync;
 	const read = io.read || defaultRead;
 	const force = Boolean(io.force);
 	const state = io.state || GLOBAL;
-	const installing = probeInstalling({ run });
-	const reboot = probeReboot({ exists, read });
 	const ttl = Number.isFinite(io.ttlMs) ? io.ttlMs : APT_TTL_MS;
 	const cached = state.cache;
 	const canUseCache = cached && !force && now - cached.at < ttl;
-	if (!canUseCache) {
-		const apt = probeApt({ run, exists, read });
-		const firmware = probeFirmware({ run });
-		state.cache = { at: now, apt, firmware };
-	}
+
+	const [installing, reboot] = await Promise.all([
+		probeInstalling({ run }),
+		probeReboot({ exists, read }),
+		canUseCache
+			? null
+			: Promise.all([probeApt({ run, exists, read }), probeFirmware({ run })]).then(
+					([apt, firmware]) => {
+						state.cache = { at: now, apt, firmware };
+					}
+				)
+	]);
 	const apt = state.cache?.apt || { packages: 0, security: 0, source: 'none' };
 	const firmware = state.cache?.firmware || { count: 0, names: [], source: 'none' };
 	const source =

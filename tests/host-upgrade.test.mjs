@@ -92,7 +92,7 @@ test('createHostUpgrade streams apt lines and finishes', async () => {
 			return proc;
 		}
 	});
-	const started = upgrade.maybeStart(
+	const started = await upgrade.maybeStart(
 		assembleHostUpdates({ packages: 2, security: 0 }),
 		{ force: true, now: 999999 }
 	);
@@ -103,7 +103,7 @@ test('createHostUpgrade streams apt lines and finishes', async () => {
 	assert.equal(finishInstallProgress(beginInstallProgress({ total: 1 })).percent, 100);
 });
 
-test('createHostUpgrade still starts when dpkg already holds the lock', () => {
+test('createHostUpgrade still starts when dpkg already holds the lock', async () => {
 	const calls = [];
 	const upgrade = createHostUpgrade({
 		bootAt: 0,
@@ -120,7 +120,7 @@ test('createHostUpgrade still starts when dpkg already holds the lock', () => {
 			return proc;
 		}
 	});
-	const started = upgrade.maybeStart(
+	const started = await upgrade.maybeStart(
 		assembleHostUpdates({ packages: 2, packagesInstalling: true }),
 		{ force: true }
 	);
@@ -147,7 +147,7 @@ test('createHostUpgrade kills a stalled apt so installing cannot stick', async (
 		}
 	});
 	assert.equal(
-		upgrade.maybeStart(assembleHostUpdates({ packages: 1 }), { force: true }),
+		await upgrade.maybeStart(assembleHostUpdates({ packages: 1 }), { force: true }),
 		true
 	);
 	assert.equal(upgrade.getProgress().active, true);
@@ -158,7 +158,7 @@ test('createHostUpgrade kills a stalled apt so installing cannot stick', async (
 	assert.equal(upgrade.getProgress().active, false);
 });
 
-test('createHostUpgrade waits for boot grace and does not spawn apt-get update', () => {
+test('createHostUpgrade waits for boot grace and does not spawn apt-get update', async () => {
 	const calls = [];
 	const upgrade = createHostUpgrade({
 		bootAt: 1000,
@@ -174,7 +174,7 @@ test('createHostUpgrade waits for boot grace and does not spawn apt-get update',
 		}
 	});
 	assert.equal(
-		upgrade.maybeStart(assembleHostUpdates({ packages: 3 }), { now: 2000 }),
+		await upgrade.maybeStart(assembleHostUpdates({ packages: 3 }), { now: 2000 }),
 		false
 	);
 	assert.deepEqual(calls, []);

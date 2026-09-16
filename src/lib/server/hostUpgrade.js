@@ -1,5 +1,6 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { promisify } from 'node:util';
 
 import { scriptPath } from './displayPower.js';
 import { resetHostUpdatesCache } from './hostUpdates.js';
@@ -11,6 +12,8 @@ import {
 	parseUpgradeLine
 } from '../hostUpgradeModel.js';
 import { parseAptListNames } from '../hostUpdatesModel.js';
+
+const execFileAsync = promisify(execFile);
 
 const BOOT_GRACE_MS = 8_000;
 const FAIL_BACKOFF_MS = 30 * 60 * 1000;
@@ -95,38 +98,38 @@ export function createHostUpgrade(io = {}) {
 		}, ms);
 	}
 
-	function defaultList() {
+	async function defaultList() {
 		try {
-			const result = spawnSync('apt', ['-qq', 'list', '--upgradable'], {
+			const { stdout, stderr } = await execFileAsync('apt', ['-qq', 'list', '--upgradable'], {
 				encoding: 'utf8',
 				timeout: 10_000
 			});
-			return `${result.stdout || ''}\n${result.stderr || ''}`;
-		} catch {
-			return '';
+			return `${stdout || ''}\n${stderr || ''}`;
+		} catch (error) {
+			return `${error?.stdout || ''}\n${error?.stderr || ''}`;
 		}
 	}
 
-	function listPackageCount() {
+	async function listPackageCount() {
 		let raw = '';
-		if (typeof io.runList === 'function') raw = io.runList() || '';
-		else if (!io.spawn) raw = defaultList();
+		if (typeof io.runList === 'function') raw = (await io.runList()) || '';
+		else if (!io.spawn) raw = await defaultList();
 		const names = parseAptListNames(raw);
 		if (names.length) return names.length;
 		return Number(plan.packages) || 0;
 	}
 
-	function stepTotal(step) {
+	async function stepTotal(step) {
 		if (step === 'firmware') {
 			return Number(plan.firmware) || plan.firmwareNames?.length || 0;
 		}
 		return listPackageCount();
 	}
 
-	function runStep(step) {
+	async function runStep(step) {
 		const script = io.script || defaultScript();
 		const spawnFn = io.spawn || spawn;
-		const total = stepTotal(step);
+		const total = await stepTotal(step);
 		publish(beginInstallProgress({ phase: step, total }));
 
 		let proc;
@@ -204,7 +207,7 @@ export function createHostUpgrade(io = {}) {
 		return io.now?.() ?? Date.now();
 	}
 
-	function start(snapshot) {
+	async function start(snapshot) {
 		plan = {
 			packages: Number(snapshot.packages) || 0,
 			firmware: Number(snapshot.firmware) || 0,
@@ -214,11 +217,11 @@ export function createHostUpgrade(io = {}) {
 		if (plan.packages > 0) queue.push('packages');
 		if (plan.firmware > 0) queue.push('firmware');
 		if (!queue.length) return false;
-		runStep(queue.shift());
+		await runStep(queue.shift());
 		return true;
 	}
 
-	function maybeStart(snapshot, opts = {}) {
+	async function maybeStart(snapshot, opts = {}) {
 		if (!snapshot) return false;
 		if (child || ourJob()) return false;
 		if (opts.lockHeld) return false;
@@ -256,7 +259,7 @@ export function createHostUpgrade(io = {}) {
 
 const hostUpgrade = createHostUpgrade();
 
-export function maybeStartHostUpgrade(snapshot, opts) {
+export async function maybeStartHostUpgrade(snapshot, opts) {
 	return hostUpgrade.maybeStart(snapshot, opts);
 }
 
