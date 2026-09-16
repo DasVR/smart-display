@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
-import { createAudioCapture, FFT_SIZE } from '../src/lib/server/audioCapture.js';
+import { createAudioCapture, FFT_SIZE, recordToWavFile } from '../src/lib/server/audioCapture.js';
 
 function fakeChild() {
 	const proc = new EventEmitter();
@@ -84,5 +84,42 @@ test('createAudioCapture stop() is idempotent and clears state', () => {
 	capture.stop();
 	capture.stop();
 	assert.equal(capture.active, false);
+});
+
+test('recordToWavFile resolves false when neither parec nor pw-record is installed', async () => {
+	const { done } = recordToWavFile({ outPath: '/tmp/x.wav', findBinary: () => null });
+	assert.equal(await done, false);
+});
+
+function fakeRecorderChild() {
+	const proc = fakeChild();
+	queueMicrotask(() => proc.emit('exit', 0));
+	return proc;
+}
+
+test('recordToWavFile writes straight to a file with parec, resolving true on clean exit', async () => {
+	const calls = [];
+	const { done } = recordToWavFile({
+		outPath: '/tmp/track.wav',
+		spawnFn: (bin, args) => {
+			calls.push([bin, args]);
+			return fakeRecorderChild();
+		},
+		findBinary: () => '/usr/bin/parec'
+	});
+	assert.deepEqual(calls[0][0], 'parec');
+	assert.ok(calls[0][1].includes('/tmp/track.wav'));
+	assert.ok(calls[0][1].includes('--file-format=wav'));
+	assert.equal(await done, true);
+});
+
+test('recordToWavFile.stop() ends the recording early and still resolves', async () => {
+	const { done, stop } = recordToWavFile({
+		outPath: '/tmp/track.wav',
+		spawnFn: () => fakeChild(),
+		findBinary: () => '/usr/bin/parec'
+	});
+	stop();
+	assert.equal(await done, true);
 });
 

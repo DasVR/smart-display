@@ -1,6 +1,13 @@
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
 const LYRICS_HIT_TTL = 6 * 60 * 60 * 1000;
 const LYRICS_MISS_TTL = 90 * 1000;
 const lyricsCache = new Map();
+
+const SYNCEDLYRICS_SCRIPT = fileURLToPath(
+	new URL('../../../scripts/forced_align/syncedlyrics_lookup.py', import.meta.url)
+);
 
 const LRCLIB_CLIENT = 'smart-display/1.0 (https://github.com/DasVR/smart-display)';
 const TIME_TAG = /\[(\d{1,3}):(\d{2}(?:\.\d+)?)\]/g;
@@ -294,9 +301,61 @@ export async function lookupTrackDuration(artist, title, { album = '', load } = 
 	}
 }
 
-export async function fetchLyrics(artist, title, { album = '', duration = 0, load } = {}) {
+function lyricsCacheKey(artist, title, album, rounded) {
+	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}|${rounded}`;
+}
+
+/** Second lookup tier, tried only when lrclib.net has no hit. Shells out to
+ *  `syncedlyrics_lookup.py`, a thin wrapper around the `syncedlyrics` pip
+ *  package, which aggregates several other providers (NetEase, Musixmatch,
+ *  ...) - it catches some tracks LRCLIB's own crowd-sourced database
+ *  doesn't have. Resolves to `null` (never rejects) if the package isn't
+ *  installed, nothing matched, or the lookup times out, since this is a
+ *  best-effort tier the caller should silently fall through past. */
+export function fetchSyncedLyricsFallback(artist, title, { spawnFn = spawn, pythonBin, timeoutMs = 15000 } = {}) {
+	return new Promise((resolve) => {
+		const bin = pythonBin || process.env.LYRICS_PYTHON_BIN || 'python3';
+		let child;
+		try {
+			child = spawnFn(bin, [SYNCEDLYRICS_SCRIPT, artist, title], { stdio: ['ignore', 'pipe', 'ignore'] });
+		} catch {
+			resolve(null);
+			return;
+		}
+		let out = '';
+		let settled = false;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(value);
+		};
+		const timer = setTimeout(() => {
+			try {
+				child.kill('SIGKILL');
+			} catch {
+				/* already gone */
+			}
+			finish(null);
+		}, timeoutMs);
+		child.stdout?.on('data', (chunk) => {
+			out += chunk;
+		});
+		child.on('error', () => finish(null));
+		child.on('close', () => {
+			try {
+				const parsed = JSON.parse(out);
+				finish(parsed?.synced ? parseLRC(parsed.synced) : null);
+			} catch {
+				finish(null);
+			}
+		});
+	});
+}
+
+export async function fetchLyrics(artist, title, { album = '', duration = 0, load, spawnFn, pythonBin } = {}) {
 	const rounded = Math.round(Number(duration) || 0);
-	const key = `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}|${rounded}`;
+	const key = lyricsCacheKey(artist, title, album, rounded);
 	const cached = lyricsCache.get(key);
 	if (cached && Date.now() - cached.fetchedAt < cached.ttl) return cached.lines;
 	const getJson = load || defaultLoad;
@@ -317,14 +376,36 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 			const found = await getJson(`https://lrclib.net/api/search?${search}`);
 			hit = pickBestLyricsHit(found, query);
 		}
-		const lines = lyricsFromHit(hit);
-		lyricsCache.set(key, { lines, fetchedAt: Date.now(), ttl: lines ? LYRICS_HIT_TTL : LYRICS_MISS_TTL });
+		let lines = lyricsFromHit(hit);
+		if (!lines) {
+			lines = await fetchSyncedLyricsFallback(artist, title, { spawnFn, pythonBin });
+		}
+		lyricsCache.set(key, {
+			lines,
+			plainText: hit?.plainLyrics || null,
+			fetchedAt: Date.now(),
+			ttl: lines ? LYRICS_HIT_TTL : LYRICS_MISS_TTL
+		});
 		return lines;
 	} catch (error) {
 		console.error('lyrics fetch error:', error.message);
-		lyricsCache.set(key, { lines: null, fetchedAt: Date.now(), ttl: LYRICS_MISS_TTL });
+		lyricsCache.set(key, { lines: null, plainText: null, fetchedAt: Date.now(), ttl: LYRICS_MISS_TTL });
 		return null;
 	}
+}
+
+/** Plain (unsynced) lyric text for the forced-alignment fallback in
+ *  forcedAlign.js - it needs the actual words to align against audio, even
+ *  when nothing has synced timing for the track. Reuses fetchLyrics's own
+ *  LRCLIB lookup/cache rather than querying twice. */
+export async function fetchPlainLyricsText(artist, title, opts = {}) {
+	const rounded = Math.round(Number(opts.duration) || 0);
+	const key = lyricsCacheKey(artist, title, opts.album || '', rounded);
+	const cached = lyricsCache.get(key);
+	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) {
+		await fetchLyrics(artist, title, opts);
+	}
+	return lyricsCache.get(key)?.plainText || null;
 }
 
 async function defaultLoad(url) {

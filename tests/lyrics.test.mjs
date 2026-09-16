@@ -1,8 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { EventEmitter } from 'node:events';
+
 import {
 	fetchLyrics,
+	fetchPlainLyricsText,
+	fetchSyncedLyricsFallback,
 	lyricsFromHit,
 	parseLRC,
 	parseMusixmatchRichSync,
@@ -12,6 +16,17 @@ import {
 	scoreLyricsHit,
 	synthesizeWordTiming
 } from '../src/lib/server/lyrics.js';
+
+function fakePythonChild(stdout) {
+	const proc = new EventEmitter();
+	proc.stdout = new EventEmitter();
+	proc.kill = () => proc.emit('close', null);
+	queueMicrotask(() => {
+		if (stdout != null) proc.stdout.emit('data', Buffer.from(stdout));
+		proc.emit('close', 0);
+	});
+	return proc;
+}
 
 const limpMyWay = {
 	trackName: 'My Way',
@@ -230,4 +245,82 @@ test('fetchLyrics asks LRCLIB /api/get with duration', async () => {
 	});
 	assert.match(urls[0], /duration=273/);
 	assert.equal(lines[0].text, 'You can take it all');
+});
+
+test('fetchSyncedLyricsFallback parses LRC text the python helper prints', async () => {
+	const calls = [];
+	const lines = await fetchSyncedLyricsFallback('Some Artist', 'Some Song', {
+		spawnFn: (bin, args) => {
+			calls.push([bin, args]);
+			return fakePythonChild(JSON.stringify({ synced: '[00:05.00]Hello there' }));
+		}
+	});
+	assert.deepEqual(calls[0][1].slice(1), ['Some Artist', 'Some Song']);
+	assert.equal(lines[0].text, 'Hello there');
+	assert.equal(lines[0].time, 5);
+});
+
+test('fetchSyncedLyricsFallback resolves null when nothing matched', async () => {
+	const lines = await fetchSyncedLyricsFallback('Nobody', 'Nothing', {
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
+	});
+	assert.equal(lines, null);
+});
+
+test('fetchSyncedLyricsFallback resolves null (not throw) on bad output or spawn failure', async () => {
+	const badOutput = await fetchSyncedLyricsFallback('A', 'B', {
+		spawnFn: () => fakePythonChild('not json')
+	});
+	assert.equal(badOutput, null);
+
+	const spawnThrows = await fetchSyncedLyricsFallback('A', 'B', {
+		spawnFn: () => {
+			throw new Error('no python3');
+		}
+	});
+	assert.equal(spawnThrows, null);
+});
+
+test('fetchLyrics falls back to syncedlyrics when LRCLIB has no hit', async () => {
+	const load = async (url) => {
+		if (url.includes('/api/get')) throw new Error('404');
+		if (url.includes('/api/search')) return [];
+		throw new Error('unexpected ' + url);
+	};
+	const lines = await fetchLyrics('Obscure Artist', 'Obscure Song', {
+		duration: 200,
+		load,
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: '[00:03.00]From syncedlyrics' }))
+	});
+	assert.equal(lines[0].text, 'From syncedlyrics');
+});
+
+test('fetchPlainLyricsText returns the plain lyric text LRCLIB served alongside a hit', async () => {
+	const load = async (url) => {
+		if (url.includes('/api/get')) {
+			return {
+				trackName: 'My Way',
+				artistName: 'Frank Sinatra',
+				duration: 275,
+				plainLyrics: 'And now, the end is near\nAnd so I face the final curtain'
+			};
+		}
+		throw new Error('unexpected ' + url);
+	};
+	const text = await fetchPlainLyricsText('Frank Sinatra', 'My Way', { duration: 275, load });
+	assert.equal(text, 'And now, the end is near\nAnd so I face the final curtain');
+});
+
+test('fetchPlainLyricsText returns null when there is nothing to align against', async () => {
+	const load = async (url) => {
+		if (url.includes('/api/get')) throw new Error('404');
+		if (url.includes('/api/search')) return [];
+		throw new Error('unexpected ' + url);
+	};
+	const text = await fetchPlainLyricsText('Nobody', 'Nothing', {
+		duration: 200,
+		load,
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
+	});
+	assert.equal(text, null);
 });

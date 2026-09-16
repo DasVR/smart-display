@@ -11,7 +11,8 @@ import { fetchAmbientStations } from './ambientStations.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
-import { fetchLyrics, lookupTrackDuration } from './lyrics.js';
+import { ensureAlignedLyrics, readCachedAlignment, trackFingerprint } from './forcedAlign.js';
+import { fetchLyrics, fetchPlainLyricsText, lookupTrackDuration } from './lyrics.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -290,16 +291,38 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 		) {
 			duration = await lookupTrackDuration(merged.artist, merged.title, { album: merged.album || '' });
 		}
-		const lyrics =
-			merged.artist &&
-			merged.title &&
-			merged.artist !== 'Unknown artist' &&
-			merged.title !== 'Unknown title'
-				? await fetchLyrics(merged.artist, merged.title, {
-						album: merged.album || '',
-						duration
-					})
-				: null;
+		const validTrack =
+			merged.artist && merged.title && merged.artist !== 'Unknown artist' && merged.title !== 'Unknown title';
+		let lyrics = validTrack
+			? await fetchLyrics(merged.artist, merged.title, {
+					album: merged.album || '',
+					duration
+				})
+			: null;
+		// Nothing online has synced timing for this track (LRCLIB and the
+		// syncedlyrics fallback both missed). Check whether a background
+		// forced-alignment job already finished one for it; if not, kick one
+		// off (best-effort, never blocks this response) so a *later*
+		// play-through of the same song gets word-level lyrics anyway.
+		if (validTrack && (!lyrics || lyrics.length <= 1)) {
+			const fp = trackFingerprint(merged.artist, merged.title, duration);
+			const aligned = readCachedAlignment(fp);
+			if (aligned) {
+				lyrics = aligned;
+			} else {
+				const plainLyrics = await fetchPlainLyricsText(merged.artist, merged.title, {
+					album: merged.album || '',
+					duration
+				});
+				ensureAlignedLyrics({
+					artist: merged.artist,
+					title: merged.title,
+					duration,
+					plainLyrics,
+					position: merged.position
+				});
+			}
+		}
 		return { ...merged, length: merged.length || duration || 0, lyrics };
 	} catch {
 		return { playing: false };
