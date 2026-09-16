@@ -17,6 +17,7 @@ import {
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
+import { debounceInstalling } from './lib/hostUpdatesModel.js';
 import {
 	getInstallProgress,
 	maybeStartHostUpgrade,
@@ -115,17 +116,23 @@ setInterval(pollOllama, 500);
 
 const HOST_UPDATES_POLL_MS = 15_000;
 let lastHostUpdates = null;
+const installingDebounce = {};
 
 function pollHostUpdates() {
 	try {
-		const next = getHostUpdates();
+		const raw = getHostUpdates();
+		maybeStartHostUpgrade(raw);
+		// The dpkg-lock/pgrep probes behind `installing` can flicker between
+		// polls; only feed a confirmed, stable reading to change detection so
+		// a flapping false positive doesn't spam install-start/install-end
+		// notices (and the big Dynamic Island banner that comes with them).
+		const next = { ...raw, installing: debounceInstalling(installingDebounce, raw.installing) };
 		if (lastHostUpdates) {
 			for (const msg of hostUpdateNotifies(lastHostUpdates, next)) {
 				broadcast(msg);
 			}
 		}
 		lastHostUpdates = next;
-		maybeStartHostUpgrade(next);
 	} catch {
 		/* probe failed; try again next tick */
 	}

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
 	assembleHostUpdates,
+	debounceInstalling,
 	hostUpdateChanges,
 	islandActivityForUpdates,
 	parseAptCheck,
@@ -146,6 +147,19 @@ test('islandActivityForUpdates names packages, firmware, install, reboot', () =>
 			.title,
 		'Restart needed'
 	);
+});
+
+test('debounceInstalling ignores a single flickered reading', () => {
+	const state = {};
+	assert.equal(debounceInstalling(state, false), false);
+	assert.equal(debounceInstalling(state, true), false); // one-off blip, not confirmed yet
+	assert.equal(debounceInstalling(state, false), false); // back to false before confirming
+	assert.equal(debounceInstalling(state, true), false);
+	assert.equal(debounceInstalling(state, true), true); // two in a row: confirmed
+	assert.equal(debounceInstalling(state, false), true); // one-off blip back down
+	assert.equal(debounceInstalling(state, true), true);
+	assert.equal(debounceInstalling(state, false), true);
+	assert.equal(debounceInstalling(state, false), false); // two in a row: confirmed off
 });
 
 test('hostUpdateChanges only fires on transitions', () => {
