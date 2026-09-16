@@ -46,6 +46,14 @@
 		return list.map((d) => d.name || d.address).join(', ');
 	}
 
+	function distanceLabel(bluetooth) {
+		const list = (bluetooth?.connected || []).filter((d) => d.distanceMeters != null);
+		if (!list.length) return '';
+		return list
+			.map((d) => `${d.name || d.address} · ~${d.distanceMeters}m`)
+			.join(', ');
+	}
+
 	function updatesView(snapshot) {
 		const activity = islandActivityForUpdates(snapshot);
 		if (!activity) return { title: 'Up to date', body: '', warn: false };
@@ -155,6 +163,9 @@
 				{data.bluetooth?.powered ? 'Adapter on' : 'Adapter off'}
 			</p>
 			<p class="meta">{connectedLabel(data.bluetooth)}</p>
+			{#if distanceLabel(data.bluetooth)}
+				<p class="meta">{distanceLabel(data.bluetooth)}</p>
+			{/if}
 		</section>
 
 		{#if data.nowPlaying?.title || data.nowPlaying?.playing}

@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
 	airplayHint,
 	buildAirplayStatus,
+	estimateDistanceMeters,
 	findShairportBinary,
 	parseBluetoothDevices,
+	parseBluetoothInfo,
 	parseBluetoothShow,
 	parseShairportName,
 	parseShairportVersion,
@@ -83,6 +85,27 @@ test('parseBluetoothDevices reads connected rows', () => {
 		{ address: 'AA:BB:CC:DD:EE:FF', name: '' }
 	]);
 	assert.deepEqual(parseBluetoothDevices(''), []);
+});
+
+test('parseBluetoothInfo reads RSSI and TxPower from device info', () => {
+	const info = parseBluetoothInfo(
+		'Device 00:11:22:33:44:55 (public)\n\tName: JBL Flip 6\n\tRSSI: -62\n\tTxPower: 4\n'
+	);
+	assert.deepEqual(info, { rssi: -62, txPower: 4 });
+
+	assert.deepEqual(parseBluetoothInfo('Device 00:11:22:33:44:55 (public)\n\tConnected: yes\n'), {
+		rssi: null,
+		txPower: null
+	});
+	assert.deepEqual(parseBluetoothInfo(''), { rssi: null, txPower: null });
+});
+
+test('estimateDistanceMeters applies the log-distance path loss model', () => {
+	assert.equal(estimateDistanceMeters(-59), 1);
+	assert.equal(estimateDistanceMeters(-69), 3.2);
+	assert.equal(estimateDistanceMeters(-59, { txPower: -69 }), 0.3);
+	assert.equal(estimateDistanceMeters(null), null);
+	assert.equal(estimateDistanceMeters(NaN), null);
 });
 
 test('parseSystemctlActive maps unit states', () => {
