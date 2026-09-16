@@ -134,6 +134,25 @@ export function parseBluetoothDevices(text = '') {
 	return devices;
 }
 
+export function parseBluetoothInfo(text = '') {
+	const raw = String(text || '');
+	const rssi = (raw.match(/^\s*RSSI:\s*(-?\d+)/m) || [])[1];
+	const txPower = (raw.match(/^\s*TxPower:\s*(-?\d+)/m) || [])[1];
+	return {
+		rssi: rssi === undefined ? null : Number(rssi),
+		txPower: txPower === undefined ? null : Number(txPower)
+	};
+}
+
+// Log-distance path loss model. txPower is the RSSI expected at 1 meter
+// (BLE beacons commonly calibrate to about -59 dBm); n=2 approximates
+// open-air/line-of-sight attenuation, higher values suit walls/clutter.
+export function estimateDistanceMeters(rssi, { txPower = -59, n = 2 } = {}) {
+	if (typeof rssi !== 'number' || Number.isNaN(rssi)) return null;
+	const ref = typeof txPower === 'number' && !Number.isNaN(txPower) ? txPower : -59;
+	return Number(Math.pow(10, (ref - rssi) / (10 * n)).toFixed(1));
+}
+
 export function airplayHint({
 	ready,
 	installed,
@@ -237,12 +256,21 @@ function probeAirplay(env) {
 	});
 }
 
+function probeDistance(address, env) {
+	const info = runFile('bluetoothctl', ['info', address], { env, timeout: 2000 }) || '';
+	const { rssi, txPower } = parseBluetoothInfo(info);
+	return { rssi, distanceMeters: estimateDistanceMeters(rssi, { txPower }) };
+}
+
 function probeBluetooth(env) {
 	const show = runFile('bluetoothctl', ['--timeout', '3', 'show'], { env }) || '';
 	const connectedText =
 		runFile('bluetoothctl', ['--timeout', '3', 'devices', 'Connected'], { env }) || '';
 	const adapter = parseBluetoothShow(show);
-	const connected = parseBluetoothDevices(connectedText);
+	const connected = parseBluetoothDevices(connectedText).map((device) => ({
+		...device,
+		...probeDistance(device.address, env)
+	}));
 	const agent = unitState('smart-display-bt-agent.service');
 	const watch = unitState('smart-display-bt-watch.service');
 	return {
