@@ -197,27 +197,37 @@ test('airplayHint names nqptp and Avahi when those are the missing pieces', () =
 	);
 });
 
-test('findShairportBinary prefers the AirPlay 2 path over PATH', () => {
+test('findShairportBinary prefers the AirPlay 2 path over PATH', async () => {
 	assert.equal(
-		findShairportBinary({
+		await findShairportBinary({
 			exists: (p) => p === '/usr/local/bin/shairport-sync',
 			lookup: () => '/usr/bin/shairport-sync'
 		}),
 		'/usr/local/bin/shairport-sync'
 	);
 	assert.equal(
-		findShairportBinary({
+		await findShairportBinary({
 			exists: () => false,
 			lookup: () => '/opt/shairport-sync'
 		}),
 		'/opt/shairport-sync'
 	);
 	assert.equal(
-		findShairportBinary({
+		await findShairportBinary({
 			exists: () => false,
 			lookup: () => null
 		}),
 		''
+	);
+});
+
+test('findShairportBinary awaits an async lookup too', async () => {
+	assert.equal(
+		await findShairportBinary({
+			exists: () => false,
+			lookup: async () => '/opt/async-shairport-sync'
+		}),
+		'/opt/async-shairport-sync'
 	);
 });
 

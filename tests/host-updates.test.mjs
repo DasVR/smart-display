@@ -187,7 +187,7 @@ test('hostUpdateNotifies uses apt and fwupd copy, not git', () => {
 	assert.equal(installInProgressNotify({ firmwareInstalling: true }).title, 'Installing firmware');
 });
 
-test('getHostUpdates reads apt-check and fwupd, never apt-get update', () => {
+test('getHostUpdates reads apt-check and fwupd, never apt-get update', async () => {
 	const calls = [];
 	const run = (bin, args = []) => {
 		calls.push([bin, ...args].join(' '));
@@ -199,7 +199,7 @@ test('getHostUpdates reads apt-check and fwupd, never apt-get update', () => {
 		}
 		return '';
 	};
-	const snap = getHostUpdates({
+	const snap = await getHostUpdates({
 		run,
 		exists: (file) => String(file).endsWith('apt-check'),
 		read: () => '',
@@ -220,7 +220,7 @@ test('getHostUpdates reads apt-check and fwupd, never apt-get update', () => {
 	);
 });
 
-test('getHostUpdates caches apt and firmware across cheap polls', () => {
+test('getHostUpdates caches apt and firmware across cheap polls', async () => {
 	let fw = 0;
 	const run = (bin) => {
 		if (bin === 'fwupdmgr') {
@@ -237,13 +237,13 @@ test('getHostUpdates caches apt and firmware across cheap polls', () => {
 		now: 1000,
 		state: { cache: null }
 	};
-	getHostUpdates({ ...io, force: true });
-	getHostUpdates(io);
+	await getHostUpdates({ ...io, force: true });
+	await getHostUpdates(io);
 	assert.equal(fw, 1);
 });
 
-test('getHostUpdates treats a held dpkg lock as installing packages', () => {
-	const snap = getHostUpdates({
+test('getHostUpdates treats a held dpkg lock as installing packages', async () => {
+	const snap = await getHostUpdates({
 		run: (bin) => {
 			if (bin === 'fuser') return '/var/lib/dpkg/lock-frontend:  4412';
 			if (String(bin).endsWith('apt-check')) return '2;0';
@@ -261,8 +261,8 @@ test('getHostUpdates treats a held dpkg lock as installing packages', () => {
 	assert.equal(snap.firmwareInstalling, false);
 });
 
-test('getHostUpdates does not treat pgrep errors as an install', () => {
-	const snap = getHostUpdates({
+test('getHostUpdates does not treat pgrep errors as an install', async () => {
+	const snap = await getHostUpdates({
 		run: (bin) => {
 			if (bin === 'fuser') return 'fuser: command not found';
 			if (bin === 'lsof') return '';

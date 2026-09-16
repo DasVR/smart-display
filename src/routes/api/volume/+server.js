@@ -4,7 +4,7 @@ import { applyVolumePayload, getVolume, volumeHttpStatus } from '$lib/server/aud
 export const prerender = false;
 
 export async function GET() {
-	const result = getVolume();
+	const result = await getVolume();
 	return json(result, { status: volumeHttpStatus(result) });
 }
 
@@ -15,6 +15,6 @@ export async function POST({ request }) {
 	} catch {
 		return json({ ok: false, error: 'invalid payload' }, { status: 400 });
 	}
-	const result = applyVolumePayload(data);
+	const result = await applyVolumePayload(data);
 	return json(result, { status: volumeHttpStatus(result) });
 }

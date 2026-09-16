@@ -79,9 +79,9 @@ function mockWpctl({ volumeText = 'Volume: 0.40\n', statusText = WPCTL_ANALOG_AN
 	return { calls, env, execWpctl };
 }
 
-test('getVolume reads the analog sink, not Dummy Output', () => {
+test('getVolume reads the analog sink, not Dummy Output', async () => {
 	const { calls, env, execWpctl } = mockWpctl();
-	const result = getVolume({ env, execWpctl });
+	const result = await getVolume({ env, execWpctl });
 	assert.equal(result.ok, true);
 	assert.equal(result.volume, 0.4);
 	assert.equal(result.muted, false);
@@ -92,9 +92,9 @@ test('getVolume reads the analog sink, not Dummy Output', () => {
 	);
 });
 
-test('setVolume writes the analog sink and unmutes', () => {
+test('setVolume writes the analog sink and unmutes', async () => {
 	const { calls, env, execWpctl } = mockWpctl({ volumeText: 'Volume: 0.55\n' });
-	const result = setVolume(0.55, { env, execWpctl });
+	const result = await setVolume(0.55, { env, execWpctl });
 	assert.equal(result.ok, true);
 	assert.equal(result.volume, 0.55);
 	assert.deepEqual(
@@ -107,9 +107,9 @@ test('setVolume writes the analog sink and unmutes', () => {
 	);
 });
 
-test('setMute mutes the analog sink', () => {
+test('setMute mutes the analog sink', async () => {
 	const { calls, env, execWpctl } = mockWpctl({ volumeText: 'Volume: 0.40 [MUTED]\n' });
-	const result = setMute(true, { env, execWpctl });
+	const result = await setMute(true, { env, execWpctl });
 	assert.equal(result.ok, true);
 	assert.equal(result.muted, true);
 	assert.deepEqual(
@@ -118,19 +118,19 @@ test('setMute mutes the analog sink', () => {
 	);
 });
 
-test('withVolumeIo caches the resolved sink instead of re-running status every call', () => {
+test('withVolumeIo caches the resolved sink instead of re-running status every call', async () => {
 	const { calls, env, execWpctl } = mockWpctl({ volumeText: 'Volume: 0.55\n' });
 	const state = { at: 0, resolved: null };
 	let clock = 1000;
 	const io = withVolumeIo({ env, execWpctl, state, now: () => clock });
 
-	io.setVolume(0.55);
+	await io.setVolume(0.55);
 	const statusCallsAfterFirst = calls.filter((a) => a[0] === 'status').length;
 	assert.equal(statusCallsAfterFirst, 1);
 
 	clock += 1000; // well inside the TTL
-	io.getVolume();
-	io.setMute(true);
+	await io.getVolume();
+	await io.setMute(true);
 	assert.equal(
 		calls.filter((a) => a[0] === 'status').length,
 		statusCallsAfterFirst,
@@ -138,11 +138,11 @@ test('withVolumeIo caches the resolved sink instead of re-running status every c
 	);
 
 	clock += 10_000; // past the TTL
-	io.getVolume();
+	await io.getVolume();
 	assert.equal(calls.filter((a) => a[0] === 'status').length, statusCallsAfterFirst + 1);
 });
 
-test('withVolumeIo forces a fresh resolve after a failed write', () => {
+test('withVolumeIo forces a fresh resolve after a failed write', async () => {
 	const state = { at: 0, resolved: null };
 	let fail = false;
 	const calls = [];
@@ -160,25 +160,25 @@ test('withVolumeIo forces a fresh resolve after a failed write', () => {
 	const io = withVolumeIo({ env: { PATH: '/usr/bin' }, execWpctl, state });
 
 	fail = true;
-	const result = io.setVolume(0.5);
+	const result = await io.setVolume(0.5);
 	assert.equal(result.ok, false);
 	assert.equal(state.resolved, null, 'a failed write should invalidate the cached sink');
 
 	fail = false;
 	calls.length = 0;
-	io.setVolume(0.5);
+	await io.setVolume(0.5);
 	assert.ok(
 		calls.some((a) => a[0] === 'status'),
 		'the next call should re-resolve instead of reusing the stale target'
 	);
 });
 
-test('applyVolumePayload accepts string volumes and rejects empty bodies', () => {
+test('applyVolumePayload accepts string volumes and rejects empty bodies', async () => {
 	const { env, execWpctl } = mockWpctl({ volumeText: 'Volume: 0.20\n' });
-	const ok = applyVolumePayload({ volume: '0.20' }, { env, execWpctl });
+	const ok = await applyVolumePayload({ volume: '0.20' }, { env, execWpctl });
 	assert.equal(ok.ok, true);
 	assert.equal(ok.volume, 0.2);
-	const bad = applyVolumePayload({}, { env, execWpctl });
+	const bad = await applyVolumePayload({}, { env, execWpctl });
 	assert.equal(bad.ok, false);
 	assert.equal(volumeHttpStatus(bad), 400);
 	assert.equal(volumeHttpStatus({ ok: true, volume: 0.2, muted: false }), 200);

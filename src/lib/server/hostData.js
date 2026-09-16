@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { fuseRainPrediction } from '../rainModel.js';
 import { LARGO_LAT, LARGO_LON } from '../radarMap.js';
 import { applyMeshToCurrent, backyardToSample, estimateAt } from '../ambientMesh.js';
@@ -12,9 +13,15 @@ import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import { fetchLyrics, lookupTrackDuration } from './lyrics.js';
 
-function run(cmd) {
+const execFileAsync = promisify(execFile);
+
+// Async (not execSync) so a slow shell-out here doesn't freeze the whole
+// server's event loop - every other request (including the phone remote's)
+// would otherwise queue behind it. See kioskStatus.js for the fuller note.
+async function run(cmd) {
 	try {
-		return execSync(cmd, { encoding: 'utf8', timeout: 3000 }).trim();
+		const { stdout } = await execFileAsync('/bin/sh', ['-c', cmd], { encoding: 'utf8', timeout: 3000 });
+		return stdout.trim();
 	} catch {
 		return null;
 	}
@@ -138,8 +145,8 @@ export async function triggerHAView(view) {
 /** Reports which PipeWire sink is actually live, so the dashboard can
  *  confirm the speakers wired into the headphone jack (or USB/HDMI) are
  *  recognized and selected, not silently falling back to Dummy Output. */
-function getSpeakerService() {
-	const statusText = run('wpctl status 2>/dev/null');
+async function getSpeakerService() {
+	const statusText = await run('wpctl status 2>/dev/null');
 	if (statusText === null) return { name: 'Speakers', status: false, uptime: 'n/a' };
 	const pick = pickSpeakerSink(parseWpctlStatus(statusText));
 	if (!pick) return { name: 'Speakers', status: false, uptime: 'none found' };
@@ -165,17 +172,18 @@ export async function getTelemetry() {
 		}
 	}
 
-	const services = await Promise.all([
-		check('https://dasdev.net', 'dasdev.net', '99.9%'),
-		check('https://godmode.dasdev.net', 'godmode', '100%'),
-		check('https://leadvine.dasdev.net', 'leadvine', '100%'),
-		check('https://hermes.dasdev.net', 'hermes', '100%'),
-		check('http://127.0.0.1:8123/api/', 'home assistant', '100%'),
-		check('http://localhost:3000', 'display', '100%')
+	const [services, containers] = await Promise.all([
+		Promise.all([
+			check('https://dasdev.net', 'dasdev.net', '99.9%'),
+			check('https://godmode.dasdev.net', 'godmode', '100%'),
+			check('https://leadvine.dasdev.net', 'leadvine', '100%'),
+			check('https://hermes.dasdev.net', 'hermes', '100%'),
+			check('http://127.0.0.1:8123/api/', 'home assistant', '100%'),
+			check('http://localhost:3000', 'display', '100%'),
+			getSpeakerService()
+		]),
+		run('docker ps -q 2>/dev/null | wc -l')
 	]);
-	services.push(getSpeakerService());
-
-	const containers = run('docker ps -q 2>/dev/null | wc -l') || '0';
 
 	return {
 		services,
@@ -185,7 +193,7 @@ export async function getTelemetry() {
 			cpu: cpuPct,
 			load,
 			cpus,
-			containers: parseInt(containers, 10),
+			containers: parseInt(containers || '0', 10),
 			net_rx: net.rxMbps,
 			net_tx: net.txMbps,
 			net_mbps: net.mbps
@@ -234,25 +242,27 @@ export async function getCalendar(days = 3) {
 // Free, keyless synced-lyrics lookup (lrclib.net). Matching lives in lyrics.js
 // so a same-title hit for the wrong artist never reaches the Music view.
 
-function readMprisNowPlaying() {
-	const status = run('playerctl status 2>/dev/null') || 'Not available';
+async function readMprisNowPlaying() {
+	const status = (await run('playerctl status 2>/dev/null')) || 'Not available';
 	if (!status.includes('Playing') && !status.includes('Paused')) {
 		return { playing: false };
 	}
-	const artist = run('playerctl metadata xesam:artist 2>/dev/null') || 'Unknown artist';
-	const title = run('playerctl metadata xesam:title 2>/dev/null') || 'Unknown title';
-	const album = run('playerctl metadata xesam:album 2>/dev/null') || '';
-	const art = run('playerctl metadata mpris:artUrl 2>/dev/null') || '';
-	const posStr = run('playerctl position 2>/dev/null') || '0';
-	const lenStr = run('playerctl metadata mpris:length 2>/dev/null') || '0';
-	const length = parseInt(lenStr, 10) / 1_000_000 || 0;
+	const [artist, title, album, art, posStr, lenStr] = await Promise.all([
+		run('playerctl metadata xesam:artist 2>/dev/null'),
+		run('playerctl metadata xesam:title 2>/dev/null'),
+		run('playerctl metadata xesam:album 2>/dev/null'),
+		run('playerctl metadata mpris:artUrl 2>/dev/null'),
+		run('playerctl position 2>/dev/null'),
+		run('playerctl metadata mpris:length 2>/dev/null')
+	]);
+	const length = parseInt(lenStr || '0', 10) / 1_000_000 || 0;
 	return {
 		playing: status.includes('Playing'),
-		artist,
-		title,
-		album,
-		art,
-		position: parseFloat(posStr) || 0,
+		artist: artist || 'Unknown artist',
+		title: title || 'Unknown title',
+		album: album || '',
+		art: art || '',
+		position: parseFloat(posStr || '0') || 0,
 		positionAt: Date.now(),
 		length
 	};
@@ -260,11 +270,11 @@ function readMprisNowPlaying() {
 
 export async function getNowPlaying({ skipLyrics = false } = {}) {
 	try {
-		const bluetoothConnected = isBluetoothDeviceConnected();
+		const bluetoothConnected = await isBluetoothDeviceConnected();
 		// No point shelling out to playerctl for a Bluetooth-sourced player
 		// when nothing's actually connected - mergeNowPlaying would discard
 		// the result anyway.
-		const mpris = bluetoothConnected ? readMprisNowPlaying() : null;
+		const mpris = bluetoothConnected ? await readMprisNowPlaying() : null;
 		const merged = mergeNowPlaying(mpris, readAirplayNowPlaying(), { bluetoothConnected });
 		if (!merged.playing && !merged.title) {
 			return { playing: false };
@@ -307,14 +317,17 @@ export function parseGitAheadBehind(statusSb = '') {
 	};
 }
 
-export function getGitContext() {
+export async function getGitContext() {
 	const cwd = process.env.GIT_STATUS_DIR || process.cwd();
 	const opts = `git -C ${JSON.stringify(cwd)}`;
-	const branch = run(`${opts} rev-parse --abbrev-ref HEAD 2>/dev/null`);
-	const message = run(`${opts} log -1 --pretty=%s 2>/dev/null`);
-	const shortSha = run(`${opts} rev-parse --short HEAD 2>/dev/null`);
-	const dirtyRaw = run(`${opts} status --porcelain 2>/dev/null`);
-	const aheadBehind = run(`${opts} status -sb 2>/dev/null`);
+	const [branch, message, shortSha, dirtyRaw, aheadBehind, commitFilesRaw] = await Promise.all([
+		run(`${opts} rev-parse --abbrev-ref HEAD 2>/dev/null`),
+		run(`${opts} log -1 --pretty=%s 2>/dev/null`),
+		run(`${opts} rev-parse --short HEAD 2>/dev/null`),
+		run(`${opts} status --porcelain 2>/dev/null`),
+		run(`${opts} status -sb 2>/dev/null`),
+		run(`${opts} diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null`)
+	]);
 	const tracking = parseGitAheadBehind(aheadBehind || '');
 	const files = dirtyRaw
 		? dirtyRaw
@@ -326,7 +339,6 @@ export function getGitContext() {
 					path: line.slice(3)
 				}))
 		: [];
-	const commitFilesRaw = run(`${opts} diff-tree --no-commit-id --name-only -r HEAD 2>/dev/null`);
 	const commitFiles = commitFilesRaw
 		? commitFilesRaw.split('\n').filter(Boolean).slice(0, 8)
 		: [];

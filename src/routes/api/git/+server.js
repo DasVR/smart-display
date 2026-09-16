@@ -4,5 +4,5 @@ import { getGitContext } from '$lib/server/hostData.js';
 export const prerender = false;
 
 export async function GET() {
-	return json(getGitContext());
+	return json(await getGitContext());
 }

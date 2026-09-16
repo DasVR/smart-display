@@ -1,7 +1,10 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 
 import { parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import { userSessionEnv } from './kioskStatus.js';
+
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_TARGET = '@DEFAULT_AUDIO_SINK@';
 
@@ -65,13 +68,13 @@ function wpctlError(error, fallback) {
 	return stderr || msg || fallback;
 }
 
-function defaultExec(args, env) {
-	return execFileSync('wpctl', args, {
+async function defaultExec(args, env) {
+	const { stdout } = await execFileAsync('wpctl', args, {
 		encoding: 'utf8',
 		timeout: 3000,
-		env,
-		stdio: ['ignore', 'pipe', 'pipe']
+		env
 	});
+	return stdout;
 }
 
 // The sink almost never changes between one volume tap and the next, so
@@ -89,13 +92,13 @@ export function withVolumeIo({ env, execWpctl, now, state } = {}) {
 	const cache = state || GLOBAL_TARGET_CACHE;
 	const clock = now || Date.now;
 
-	function resolveTarget() {
+	async function resolveTarget() {
 		if (cache.resolved && clock() - cache.at < TARGET_TTL_MS) {
 			return cache.resolved;
 		}
 		let statusText = '';
 		try {
-			statusText = run(volumeWpctlArgs('status'), session) || '';
+			statusText = (await run(volumeWpctlArgs('status'), session)) || '';
 		} catch {
 			statusText = '';
 		}
@@ -105,9 +108,9 @@ export function withVolumeIo({ env, execWpctl, now, state } = {}) {
 		return resolved;
 	}
 
-	function snapshotFor(resolved) {
+	async function snapshotFor(resolved) {
 		try {
-			const out = run(volumeWpctlArgs('get', resolved.target), session);
+			const out = await run(volumeWpctlArgs('get', resolved.target), session);
 			const parsed = parseWpctlVolume(out);
 			if (!parsed) return { ok: false, error: 'could not parse wpctl output' };
 			return {
@@ -121,18 +124,18 @@ export function withVolumeIo({ env, execWpctl, now, state } = {}) {
 		}
 	}
 
-	function snapshot() {
-		return snapshotFor(resolveTarget());
+	async function snapshot() {
+		return snapshotFor(await resolveTarget());
 	}
 
-	function setVolume(volume) {
+	async function setVolume(volume) {
 		const v = clampVolume(volume);
-		const resolved = resolveTarget();
+		const resolved = await resolveTarget();
 		try {
-			run(volumeWpctlArgs('set', resolved.target, v.toFixed(2)), session);
+			await run(volumeWpctlArgs('set', resolved.target, v.toFixed(2)), session);
 			if (v > 0) {
 				try {
-					run(volumeWpctlArgs('mute', resolved.target, '0'), session);
+					await run(volumeWpctlArgs('mute', resolved.target, '0'), session);
 				} catch {
 					/* keep the volume write even if unmute fails */
 				}
@@ -144,10 +147,10 @@ export function withVolumeIo({ env, execWpctl, now, state } = {}) {
 		}
 	}
 
-	function setMute(muted) {
-		const resolved = resolveTarget();
+	async function setMute(muted) {
+		const resolved = await resolveTarget();
 		try {
-			run(volumeWpctlArgs('mute', resolved.target, muted ? '1' : '0'), session);
+			await run(volumeWpctlArgs('mute', resolved.target, muted ? '1' : '0'), session);
 			return snapshotFor(resolved);
 		} catch (e) {
 			cache.resolved = null;
@@ -159,21 +162,21 @@ export function withVolumeIo({ env, execWpctl, now, state } = {}) {
 }
 
 /** Reads the speaker sink's current volume/mute state via wpctl. */
-export function getVolume(opts) {
+export async function getVolume(opts) {
 	return withVolumeIo(opts).getVolume();
 }
 
 /** Sets the speaker sink's volume (0..1.5) via wpctl. */
-export function setVolume(volume, opts) {
+export async function setVolume(volume, opts) {
 	return withVolumeIo(opts).setVolume(volume);
 }
 
 /** Sets mute on the speaker sink via wpctl. */
-export function setMute(muted, opts) {
+export async function setMute(muted, opts) {
 	return withVolumeIo(opts).setMute(muted);
 }
 
-export function applyVolumePayload(data, opts) {
+export async function applyVolumePayload(data, opts) {
 	const io = withVolumeIo(opts);
 	if (data && typeof data.muted === 'boolean' && data.volume === undefined) {
 		return io.setMute(data.muted);

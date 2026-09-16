@@ -5,7 +5,7 @@ import { getInstallProgress, maybeStartHostUpgrade } from '$lib/server/hostUpgra
 export const prerender = false;
 
 export async function GET() {
-	const snapshot = getHostUpdates();
+	const snapshot = await getHostUpdates();
 	maybeStartHostUpgrade(snapshot);
 	return json({ ...snapshot, progress: getInstallProgress() });
 }
