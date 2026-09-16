@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import { nowPlaying } from '$lib/stores.js';
+	import { bassLevel } from '$lib/services/audioReactive.js';
 	import {
 		activeLyricIndex as indexForTime,
 		activeWordIndex,
@@ -35,6 +36,10 @@
 		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex + 1]?.time);
 	});
 	let instrumentalOpacity = $derived(instrumentalDotsOpacity(synced, activeLyricIndex, displayPosition));
+	// A small, bass-driven breathing scale for the album art - subtle enough
+	// not to distract from the art itself, but enough that the cover reads
+	// as alive rather than a static image while something is playing.
+	let artPulse = $derived(track?.playing ? 1 + $bassLevel * 0.045 : 1);
 
 	$effect(() => {
 		const next = track;
@@ -116,7 +121,7 @@
 	{:else}
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics)}>
 			<div class="player-main">
-				<div class="art-slot">
+				<div class="art-slot" style="--pulse: {artPulse}">
 					<!-- A purely decorative "more where this came from" stack behind
 					     the current album - the audio backends here (playerctl/
 					     AirPlay) don't expose an actual upcoming-track queue, so
@@ -127,12 +132,14 @@
 					</div>
 					<div class="album-art" class:playing={track.playing}>
 						{#if track.art && !artFailed}
-							<img
-								class="art-image"
-								src={track.art}
-								alt=""
-								onerror={() => (artFailed = true)}
-							/>
+							{#key track.art}
+								<img
+									class="art-image"
+									src={track.art}
+									alt=""
+									onerror={() => (artFailed = true)}
+								/>
+							{/key}
 						{:else}
 							<div class="vinyl-groove"></div>
 							<div class="center-label"></div>
@@ -153,9 +160,35 @@
 				</div>
 
 				<div class="controls">
-					<button type="button" onclick={() => send('previous')}>prev</button>
-					<button type="button" class="play" onclick={() => send('play-pause')}>{track.playing ? 'pause' : 'play'}</button>
-					<button type="button" onclick={() => send('next')}>next</button>
+					<button type="button" aria-label="Previous" onclick={() => send('previous')}>
+						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<path d="M6 5v14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+							<path d="M18 6 8 12l10 6V6Z" fill="currentColor" />
+						</svg>
+					</button>
+					<button
+						type="button"
+						class="play"
+						aria-label={track.playing ? 'Pause' : 'Play'}
+						onclick={() => send('play-pause')}
+					>
+						{#if track.playing}
+							<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+								<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
+								<rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
+							</svg>
+						{:else}
+							<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+								<path d="M7 5v14l13-7L7 5Z" fill="currentColor" />
+							</svg>
+						{/if}
+					</button>
+					<button type="button" aria-label="Next" onclick={() => send('next')}>
+						<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<path d="M18 5v14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+							<path d="M6 6l10 6L6 18V6Z" fill="currentColor" />
+						</svg>
+					</button>
 				</div>
 			</div>
 
@@ -204,8 +237,10 @@
 					</div>
 				</div>
 			{:else if plainLyrics}
-				<div class="lyrics-viewport">
-					<p class="lyric-line plain-block">{plainLyrics}</p>
+				<div class="lyrics-viewport plain">
+					{#key plainLyrics}
+						<p class="lyric-line plain-block">{plainLyrics}</p>
+					{/key}
 				</div>
 			{/if}
 		</div>
@@ -283,12 +318,17 @@
 		box-shadow: var(--elevation-2);
 	}
 	.stack-card.stack-1 {
-		transform: translate(-50%, -50%) translate(16px, 20px) rotate(5deg) scale(0.94);
+		transform: translate(-50%, -50%) translate(16px, 20px) rotate(5deg) scale(calc(0.94 * var(--pulse, 1)));
 		opacity: 0.75;
 	}
 	.stack-card.stack-2 {
-		transform: translate(-50%, -50%) translate(30px, 38px) rotate(9deg) scale(0.88);
+		transform: translate(-50%, -50%) translate(30px, 38px) rotate(9deg) scale(calc(0.88 * var(--pulse, 1)));
 		opacity: 0.45;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.stack-card {
+			transition: transform 160ms var(--spring-smooth);
+		}
 	}
 	.album-art {
 		width: auto;
@@ -307,12 +347,33 @@
 		z-index: 1;
 		overflow: hidden;
 		box-shadow: var(--elevation-3);
+		transform: scale(var(--pulse, 1));
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.album-art {
+			transition: transform 160ms var(--spring-smooth);
+		}
 	}
 	.art-image {
 		width: 100%;
 		height: 100%;
 		object-fit: contain;
 		object-position: center;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.art-image {
+			animation: art-in 420ms var(--spring-smooth);
+		}
+	}
+	@keyframes art-in {
+		from {
+			opacity: 0;
+			transform: scale(0.97);
+		}
+		to {
+			opacity: 1;
+			transform: scale(1);
+		}
 	}
 	.vinyl-groove {
 		position: absolute;
@@ -409,29 +470,37 @@
 		flex-shrink: 0;
 	}
 	.controls button {
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		background: none;
 		border: none;
 		color: var(--text-secondary);
-		font-family: var(--font-body);
-		font-size: var(--text-lg);
-		letter-spacing: 0.04em;
 		cursor: pointer;
-		padding: var(--space-3) var(--space-4);
+		width: 3.25rem;
+		height: 3.25rem;
+		padding: 0;
+		border-radius: 999px;
 		transition:
 			color 220ms var(--spring-smooth),
 			transform 220ms var(--spring-smooth),
 			background 220ms var(--spring-smooth);
 	}
-	.controls button:hover { color: var(--accent); }
-	.controls button:active { transform: scale(0.98); }
+	.controls button svg {
+		width: 1.5rem;
+		height: 1.5rem;
+		display: block;
+	}
+	.controls button:hover { color: var(--accent); background: var(--shell-fill); }
+	.controls button:active { transform: scale(0.94); }
 	.controls button.play {
-		min-width: 5.5rem;
-		border-radius: 999px;
+		width: 4.25rem;
+		height: 4.25rem;
 		background: var(--accent-soft);
 		border: 1px solid var(--accent-border);
 		color: var(--accent-strong);
-		font-size: var(--text-lg);
 	}
+	.controls button.play svg { width: 1.9rem; height: 1.9rem; }
 	.controls button.play:hover { background: var(--accent); color: var(--abyss); }
 
 	.lyrics-viewport {
@@ -442,7 +511,8 @@
 		position: relative;
 		mask-image: none;
 	}
-	.lyrics-viewport.synced {
+	.lyrics-viewport.synced,
+	.lyrics-viewport.plain {
 		mask-image: linear-gradient(to bottom, transparent, var(--foreground) 16%, var(--foreground) 84%, transparent);
 		-webkit-mask-image: linear-gradient(to bottom, transparent, var(--foreground) 16%, var(--foreground) 84%, transparent);
 	}
@@ -541,6 +611,15 @@
 		padding: var(--space-4);
 		overflow-y: auto;
 		height: 100%;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.lyric-line.plain-block {
+			animation: plain-lyrics-in 320ms var(--spring-smooth);
+		}
+	}
+	@keyframes plain-lyrics-in {
+		from { opacity: 0; }
+		to { opacity: 1; }
 	}
 
 	.empty {
