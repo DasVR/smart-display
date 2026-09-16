@@ -117,3 +117,62 @@ export function createAudioCapture({ onFrame, spawnFn = spawn, findBinary = whic
 		}
 	};
 }
+
+/** One-shot capture of whatever's playing through the default sink straight
+ *  to a WAV file, for the forced-alignment fallback in forcedAlign.js -
+ *  unlike createAudioCapture() above (a live spectrum tap), this records a
+ *  full track to disk so it can be handed to Demucs/MFA afterward. Resolves
+ *  `done` to whether the recorder produced output, either because
+ *  `durationSec` elapsed or `stop()` was called early (e.g. the track
+ *  changed underneath it). `pw-record` has no monitor-source shorthand like
+ *  parec's `@DEFAULT_MONITOR@`, so on pw-record-only systems this records
+ *  the default *source* instead - fine for a wired/AirPlay setup where that
+ *  is the sink loopback, but not a guaranteed monitor tap. */
+export function recordToWavFile({ outPath, durationSec = 0, spawnFn = spawn, findBinary = which } = {}) {
+	let child = null;
+	let timer = 0;
+	const done = new Promise((resolve) => {
+		const cmd = findBinary('parec')
+			? { bin: 'parec', args: ['-d', '@DEFAULT_MONITOR@', '--file-format=wav', outPath] }
+			: findBinary('pw-record')
+				? { bin: 'pw-record', args: ['--channels=2', outPath] }
+				: null;
+		if (!cmd) {
+			resolve(false);
+			return;
+		}
+		try {
+			child = spawnFn(cmd.bin, cmd.args, { stdio: ['ignore', 'ignore', 'ignore'] });
+		} catch {
+			child = null;
+			resolve(false);
+			return;
+		}
+		child.on('error', () => {
+			child = null;
+			resolve(false);
+		});
+		child.on('exit', (code) => {
+			child = null;
+			resolve(code === 0 || code === null);
+		});
+		if (durationSec > 0) {
+			timer = setTimeout(() => stop(), durationSec * 1000);
+			// A multi-minute track-length timer shouldn't by itself keep the
+			// process (or a test run) alive if everything else has finished.
+			timer.unref?.();
+		}
+	});
+	function stop() {
+		if (timer) clearTimeout(timer);
+		timer = 0;
+		if (child) {
+			try {
+				child.kill('SIGTERM');
+			} catch {
+				/* already gone */
+			}
+		}
+	}
+	return { done, stop };
+}
