@@ -40,6 +40,44 @@ function parseEnhancedWords(content, offsetSec) {
 	return words;
 }
 
+// Plain LRC (the overwhelming majority of what lrclib.net serves) only has
+// one timestamp per line - no per-word data to drive the karaoke sweep.
+// synthesizeWordTiming() below estimates it instead of falling back to
+// highlighting the whole line at once.
+const SYNTH_MAX_SPAN_SEC = 8;
+const SYNTH_FALLBACK_WORDS_PER_SEC = 2.2;
+const SYNTH_MIN_WORD_WEIGHT = 0.5;
+
+/** Fills in an estimated `words` timing array for any line that doesn't
+ *  already have real word-level data (from enhanced LRC, TTML, or
+ *  Musixmatch rich-sync) - spreading the line's span (to the next line's
+ *  clock, or a words-per-second estimate for a trailing line) across its
+ *  words, weighted by word length so longer words get proportionally more
+ *  time than "a" or "I" do. This is an estimate, not real per-word timing,
+ *  but it's the same technique most lyric apps use for plain LRC and reads
+ *  far better than snapping the whole line on at once. */
+export function synthesizeWordTiming(lines) {
+	const list = Array.isArray(lines) ? lines : [];
+	return list.map((line, i) => {
+		if (!line || line.words?.length || !line.text) return line;
+		const tokens = line.text.split(/\s+/).filter(Boolean);
+		if (tokens.length < 2) return line;
+		const next = list[i + 1];
+		const rawSpan =
+			next && Number.isFinite(next.time) ? next.time - line.time : tokens.length / SYNTH_FALLBACK_WORDS_PER_SEC;
+		const span = Math.max(0.4, Math.min(SYNTH_MAX_SPAN_SEC, rawSpan));
+		const weights = tokens.map((t) => Math.max(SYNTH_MIN_WORD_WEIGHT, t.length));
+		const totalWeight = weights.reduce((a, b) => a + b, 0);
+		let elapsed = 0;
+		const words = tokens.map((text, idx) => {
+			const time = line.time + elapsed;
+			elapsed += (weights[idx] / totalWeight) * span;
+			return { time, text };
+		});
+		return { ...line, words };
+	});
+}
+
 export function parseLRC(text) {
 	let offsetSec = 0;
 	const lines = [];
@@ -67,7 +105,7 @@ export function parseLRC(text) {
 			});
 		}
 	}
-	return lines.sort((a, b) => a.time - b.time);
+	return synthesizeWordTiming(lines.sort((a, b) => a.time - b.time));
 }
 
 /** Converts a TTML/SMPTE-ish timecode - plain seconds ("12.34" / "12.34s"),

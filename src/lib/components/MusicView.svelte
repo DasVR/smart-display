@@ -5,7 +5,7 @@
 	import {
 		activeLyricIndex as indexForTime,
 		activeWordIndex,
-		instrumentalDotsOpacity,
+		instrumentalDotStates,
 		livePlaybackPosition,
 		lyricsAreSynced,
 		wordProgress
@@ -35,7 +35,9 @@
 		if (!words?.length || activeWordIdx < 0) return 0;
 		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex + 1]?.time);
 	});
-	let instrumentalOpacity = $derived(instrumentalDotsOpacity(synced, activeLyricIndex, displayPosition));
+	// Per-dot brightness (Apple Music-style: dots light up in sequence as the
+	// gap elapses, scaled to how long the actual instrumental section is).
+	let instrumentalDots = $derived(instrumentalDotStates(synced, activeLyricIndex, displayPosition));
 	// A small, bass-driven breathing scale for the album art - subtle enough
 	// not to distract from the art itself, but enough that the cover reads
 	// as alive rather than a static image while something is playing.
@@ -104,6 +106,12 @@
 		if (line !== activeLyricIndex) return false;
 		return wordIndex < activeWordIdx;
 	}
+
+	function dotBrightness(lineIndex, dotIndex) {
+		if (lineIndex < activeLyricIndex) return 1;
+		if (lineIndex > activeLyricIndex) return 0;
+		return instrumentalDots[dotIndex] ?? 0;
+	}
 </script>
 
 <div class="music-view">
@@ -121,7 +129,7 @@
 	{:else}
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics)}>
 			<div class="player-main">
-				<div class="art-slot" style="--pulse: {artPulse}">
+				<div class="art-slot" class:playing={track.playing} style="--pulse: {artPulse}">
 					<!-- A purely decorative "more where this came from" stack behind
 					     the current album - the audio backends here (playerctl/
 					     AirPlay) don't expose an actual upcoming-track queue, so
@@ -220,16 +228,11 @@
 								{:else if line.text}
 									{line.text}
 								{:else}
-									<span
-										class="lyric-dots"
-										aria-hidden="true"
-										style="opacity: {i === activeLyricIndex
-											? instrumentalOpacity
-											: i < activeLyricIndex
-												? 1
-												: 0}"
-									>
-										<span class="dot"></span><span class="dot"></span><span class="dot"></span>
+									<span class="lyric-dots" aria-hidden="true">
+										{#each instrumentalDots as _, d (d)}
+											{@const b = dotBrightness(i, d)}
+											<span class="dot" style="opacity: {b}; --o: {b}"></span>
+										{/each}
 									</span>
 								{/if}
 							</p>
@@ -299,6 +302,17 @@
 		align-items: center;
 		justify-content: center;
 		position: relative;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		/* A slow, subtle sway on top of the bass pulse so the cover reads as
+		   alive during quiet passages too, not just on beats. */
+		.art-slot.playing {
+			animation: art-drift 9s ease-in-out infinite;
+		}
+	}
+	@keyframes art-drift {
+		0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+		50% { transform: translate3d(0, -4px, 0) rotate(0.6deg); }
 	}
 	.album-stack {
 		position: absolute;
@@ -578,28 +592,24 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 0.35em;
-		transition: opacity 200ms linear;
 	}
+	/* Each dot's opacity is driven inline from instrumentalDotStates - they
+	   light up one at a time as the actual instrumental gap elapses, not on
+	   a fixed timer, so a long break sweeps slowly and a short one sweeps
+	   fast. The transition just smooths the per-frame opacity updates. */
 	.dot {
 		width: 0.4em;
 		height: 0.4em;
 		border-radius: 50%;
 		background: currentColor;
+		transform: scale(calc(0.75 + 0.25 * var(--o, 0)));
 	}
 	@media (prefers-reduced-motion: no-preference) {
-		.lyric-line.active .dot {
-			animation: dot-breathe 1.2s ease-in-out infinite;
+		.dot {
+			transition:
+				opacity 280ms linear,
+				transform 280ms var(--spring-smooth);
 		}
-		.lyric-line.active .dot:nth-child(2) {
-			animation-delay: 0.15s;
-		}
-		.lyric-line.active .dot:nth-child(3) {
-			animation-delay: 0.3s;
-		}
-	}
-	@keyframes dot-breathe {
-		0%, 100% { transform: scale(0.75); }
-		50% { transform: scale(1); }
 	}
 	.lyric-line.plain-block {
 		font-size: var(--text-lg);

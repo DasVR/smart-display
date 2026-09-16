@@ -35,7 +35,16 @@ export function readAirplayNowPlaying(file = airplayStatePath(), now = Date.now(
 	}
 }
 
-export function mergeNowPlaying(mpris, airplay) {
+/** `mpris` here is BlueZ's AVRCP-backed MPRIS bridge for whatever phone is
+ *  currently paired as a Bluetooth source - it's not a general desktop media
+ *  player. BlueZ doesn't reliably tear down that MPRIS object's Status
+ *  property when a phone disconnects ungracefully (it can keep reporting
+ *  the last "Playing"/"Paused" state indefinitely), so `mpris` state is only
+ *  trusted while `bluetoothConnected` confirms a device is actually there -
+ *  otherwise a paused/playing track can get stuck on screen with nothing
+ *  behind it. Defaults to `true` so callers that don't know connection
+ *  state (tests, other call sites) keep the old behavior. */
+export function mergeNowPlaying(mpris, airplay, { bluetoothConnected = true } = {}) {
 	const airplaySession = Boolean(airplay && !airplay.stale && (airplay.playing || airplay.title));
 	if (airplaySession) {
 		const playing = Boolean(airplay.playing);
@@ -53,7 +62,7 @@ export function mergeNowPlaying(mpris, airplay) {
 			source: 'airplay'
 		};
 	}
-	if (mpris && (mpris.playing || mpris.title)) {
+	if (mpris && bluetoothConnected && (mpris.playing || mpris.title)) {
 		return {
 			...mpris,
 			paused: Boolean(!mpris.playing && mpris.title),

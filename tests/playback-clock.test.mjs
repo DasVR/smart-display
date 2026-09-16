@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
 	activeLyricIndex,
 	activeWordIndex,
+	instrumentalDotStates,
 	instrumentalDotsOpacity,
 	instrumentalGap,
 	livePlaybackPosition,
@@ -123,4 +124,35 @@ test('instrumentalDotsOpacity rises across the gap and caps at 1', () => {
 	assert.equal(instrumentalDotsOpacity(lines, 1, 20), 1);
 	assert.equal(instrumentalDotsOpacity(lines, 1, 25), 1);
 	assert.equal(instrumentalDotsOpacity(lines, 0, 1), 0, 'a real lyric line never shows dots');
+});
+
+test('instrumentalDotStates lights up one dot at a time in sequence', () => {
+	// Gap: line 1 (blank, time 0) -> line 2 (time 18) = an 18s instrumental
+	// break, well over the 5s threshold.
+	const lines = [
+		{ time: -2, text: 'intro' },
+		{ time: 0, text: '' },
+		{ time: 18, text: 'verse' }
+	];
+
+	assert.deepEqual(instrumentalDotStates(lines, 1, 0), [0, 0, 0]);
+	// A third of the way through: only the first dot is lit.
+	const third = instrumentalDotStates(lines, 1, 6);
+	assert.equal(third[0], 1);
+	assert.equal(third[1], 0);
+	assert.equal(third[2], 0);
+	// Halfway through the second dot's segment (segment 2 spans 6s-12s).
+	const mid = instrumentalDotStates(lines, 1, 9);
+	assert.equal(mid[0], 1);
+	assert.ok(Math.abs(mid[1] - 0.5) < 1e-9);
+	assert.equal(mid[2], 0);
+	assert.deepEqual(instrumentalDotStates(lines, 1, 18), [1, 1, 1]);
+});
+
+test('instrumentalDotStates returns all-zero dots outside a real gap', () => {
+	const lines = [
+		{ time: 0, text: 'intro' },
+		{ time: 4, text: 'verse' }
+	];
+	assert.deepEqual(instrumentalDotStates(lines, 0, 2), [0, 0, 0]);
 });

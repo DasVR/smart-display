@@ -9,7 +9,8 @@ import {
 	parseTTML,
 	pickBestLyricsHit,
 	pickItunesDuration,
-	scoreLyricsHit
+	scoreLyricsHit,
+	synthesizeWordTiming
 } from '../src/lib/server/lyrics.js';
 
 const limpMyWay = {
@@ -58,6 +59,56 @@ test('parseLRC reads enhanced word clocks', () => {
 	assert.equal(lines[0].words.length, 3);
 	assert.equal(lines[0].words[1].text, 'can');
 	assert.equal(lines[0].words[1].time, 12.4);
+});
+
+test('parseLRC synthesizes word timing for plain (line-only) LRC', () => {
+	const lines = parseLRC('[00:10.00]You can take it all\n[00:14.00]Just do not mess with me');
+	assert.equal(lines[0].words.length, 5);
+	assert.equal(lines[0].words[0].text, 'You');
+	assert.equal(lines[0].words[0].time, 10);
+	// Words stay within the line's own span and strictly increase in time.
+	for (const w of lines[0].words) {
+		assert.ok(w.time >= 10 && w.time < 14);
+	}
+	for (let i = 1; i < lines[0].words.length; i++) {
+		assert.ok(lines[0].words[i].time > lines[0].words[i - 1].time);
+	}
+});
+
+test('synthesizeWordTiming skips single-word and blank lines', () => {
+	const lines = synthesizeWordTiming([
+		{ time: 0, text: 'Yeah' },
+		{ time: 2, text: '' },
+		{ time: 10, text: 'end' }
+	]);
+	assert.equal(lines[0].words, undefined);
+	assert.equal(lines[1].words, undefined);
+});
+
+test('synthesizeWordTiming caps the span for an unusually long gap', () => {
+	const lines = synthesizeWordTiming([
+		{ time: 0, text: 'A very short line here' },
+		{ time: 120, text: 'end' }
+	]);
+	const last = lines[0].words.at(-1);
+	assert.ok(last.time < 8, 'should not stretch across the whole 120s gap');
+});
+
+test('synthesizeWordTiming gives longer words a bigger share of the span', () => {
+	const lines = synthesizeWordTiming([
+		{ time: 0, text: 'a extraordinarily' },
+		{ time: 4, text: 'end' }
+	]);
+	const [a, extraordinarily] = lines[0].words;
+	const aSpan = extraordinarily.time - a.time;
+	const remaining = 4 - extraordinarily.time;
+	assert.ok(remaining > aSpan, '"extraordinarily" should get more time than "a"');
+});
+
+test('synthesizeWordTiming leaves already-timed words alone', () => {
+	const lines = synthesizeWordTiming([{ time: 0, text: 'You can', words: [{ time: 0, text: 'You' }, { time: 1, text: 'can' }] }]);
+	assert.equal(lines[0].words[0].time, 0);
+	assert.equal(lines[0].words[1].time, 1);
 });
 
 test('parseTTML reads Apple Music-style word spans', () => {

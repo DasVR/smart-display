@@ -8,6 +8,7 @@ import { LARGO_LAT, LARGO_LON } from '../radarMap.js';
 import { applyMeshToCurrent, backyardToSample, estimateAt } from '../ambientMesh.js';
 import { fetchAmbientStations } from './ambientStations.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
+import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import { fetchLyrics, lookupTrackDuration } from './lyrics.js';
 
@@ -259,7 +260,12 @@ function readMprisNowPlaying() {
 
 export async function getNowPlaying({ skipLyrics = false } = {}) {
 	try {
-		const merged = mergeNowPlaying(readMprisNowPlaying(), readAirplayNowPlaying());
+		const bluetoothConnected = isBluetoothDeviceConnected();
+		// No point shelling out to playerctl for a Bluetooth-sourced player
+		// when nothing's actually connected - mergeNowPlaying would discard
+		// the result anyway.
+		const mpris = bluetoothConnected ? readMprisNowPlaying() : null;
+		const merged = mergeNowPlaying(mpris, readAirplayNowPlaying(), { bluetoothConnected });
 		if (!merged.playing && !merged.title) {
 			return { playing: false };
 		}
