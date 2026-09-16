@@ -262,6 +262,14 @@ function probeDistance(address, env) {
 	return { rssi, distanceMeters: estimateDistanceMeters(rssi, { txPower }) };
 }
 
+/** Connected-device RSSI/distance only, without the rest of getKioskStatus's
+ *  probes (AirPlay, speakers, telemetry, git...) - cheap enough to poll on
+ *  its own cadence for proximity wake. */
+export function getBluetoothProximity() {
+	const env = userSessionEnv();
+	return probeBluetooth(env).connected;
+}
+
 function probeBluetooth(env) {
 	const show = runFile('bluetoothctl', ['--timeout', '3', 'show'], { env }) || '';
 	const connectedText =

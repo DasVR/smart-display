@@ -22,7 +22,7 @@ import {
 	maybeStartHostUpgrade,
 	setInstallProgressListener
 } from './lib/server/hostUpgrade.js';
-import { getKioskStatus } from './lib/server/kioskStatus.js';
+import { getKioskStatus, getBluetoothProximity } from './lib/server/kioskStatus.js';
 import {
 	agentFinishedNotify,
 	hostUpdateNotifies,
@@ -34,6 +34,7 @@ import {
 import { airplayArtPath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
+	debounceSignal,
 	desiredHdmi,
 	isPhoneWakeWindow,
 	isQuietHours,
@@ -57,6 +58,8 @@ let lastTickMinutes = null;
 let applyingHdmi = false;
 let phoneWatch = { entity: '', label: '', on: false, status: 'idle' };
 let lastPhoneSensor = null;
+let proximityWatch = { address: '', label: '', distanceMeters: null, near: false };
+const proximityDebounce = {};
 
 function json(res, data, status = 200) {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -141,7 +144,8 @@ function displaySnapshot() {
 		phone: {
 			...phoneWatch,
 			wakeWindow: isPhoneWakeWindow(new Date(), schedule)
-		}
+		},
+		proximity: proximityWatch
 	};
 }
 
@@ -223,6 +227,44 @@ function phoneLoop() {
 	pollPhone().finally(() => {
 		const wait = phoneWatch.status === 'no-auth' || phoneWatch.status === 'error' ? 60_000 : 8_000;
 		setTimeout(phoneLoop, wait);
+	});
+}
+
+/** Wakes the display when a configured Bluetooth device (calibrated from
+ *  /remote/stats, which shows live RSSI-estimated distance for every
+ *  connected device) reads inside the configured range. Unlike phone-wake,
+ *  this isn't limited to the early-morning window - it's meant to work
+ *  anytime the panel is off, like walking into the room. */
+async function handleProximityWake(source = 'ble') {
+	if (!schedule.wakeOnProximity) return { ok: false, reason: 'disabled' };
+	if (hdmiState === 'on') return { ok: true, reason: 'already-on' };
+	await handleTrigger('normal', { data: { from: source } });
+	return { ok: true, reason: 'woke' };
+}
+
+async function pollProximity() {
+	if (!schedule.wakeOnProximity || !schedule.proximityDevice) {
+		proximityWatch = { address: schedule.proximityDevice || '', label: '', distanceMeters: null, near: false };
+		return;
+	}
+	try {
+		const devices = getBluetoothProximity();
+		const match = devices.find((d) => d.address === schedule.proximityDevice);
+		const distanceMeters = match?.distanceMeters ?? null;
+		const rawNear = distanceMeters != null && distanceMeters <= schedule.proximityMeters;
+		// The same flicker-guard used for the update banner: a single noisy
+		// RSSI reading shouldn't be enough to wake the panel.
+		const near = debounceSignal(proximityDebounce, rawNear);
+		proximityWatch = { address: schedule.proximityDevice, label: match?.name || '', distanceMeters, near };
+		if (near) await handleProximityWake('poll');
+	} catch {
+		/* bluetoothctl probe failed; try again next tick */
+	}
+}
+
+function proximityLoop() {
+	pollProximity().finally(() => {
+		setTimeout(proximityLoop, 8_000);
 	});
 }
 
@@ -335,6 +377,9 @@ const server = createServer(async (req, res) => {
 				if (data.timeZone) next.timeZone = data.timeZone;
 				if (data.phoneWakeAfter) next.phoneWakeAfter = data.phoneWakeAfter;
 				if (Array.isArray(data.days) || typeof data.days === 'string') next.days = data.days;
+				if (typeof data.wakeOnProximity === 'boolean') next.wakeOnProximity = data.wakeOnProximity;
+				if (typeof data.proximityDevice === 'string') next.proximityDevice = data.proximityDevice;
+				if (data.proximityMeters !== undefined) next.proximityMeters = data.proximityMeters;
 				if (data.schedule && typeof data.schedule === 'object') Object.assign(next, data.schedule);
 				const changedSchedule =
 					data.enabled !== undefined ||
@@ -344,6 +389,9 @@ const server = createServer(async (req, res) => {
 					data.timeZone ||
 					data.phoneWakeAfter ||
 					data.days !== undefined ||
+					data.wakeOnProximity !== undefined ||
+					data.proximityDevice !== undefined ||
+					data.proximityMeters !== undefined ||
 					data.schedule;
 				if (changedSchedule) {
 					json(res, { ok: true, ...patchSchedule(next) });
@@ -568,4 +616,5 @@ server.listen(port, '0.0.0.0', () => {
 	setTimeout(tickSchedule, 2500);
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
 	setTimeout(phoneLoop, 4000);
+	setTimeout(proximityLoop, 4000);
 });
