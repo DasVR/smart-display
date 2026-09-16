@@ -24,6 +24,7 @@ import {
 	setInstallProgressListener
 } from './lib/server/hostUpgrade.js';
 import { getKioskStatus } from './lib/server/kioskStatus.js';
+import { createAudioCapture } from './lib/server/audioCapture.js';
 import {
 	agentFinishedNotify,
 	hostUpdateNotifies,
@@ -139,6 +140,32 @@ function pollHostUpdates() {
 }
 setTimeout(pollHostUpdates, 8_000);
 setInterval(pollHostUpdates, HOST_UPDATES_POLL_MS);
+
+// Taps system audio and streams live spectrum/bass frames so the waveform
+// and background shader actually track what's playing, instead of a
+// synthetic beat clock. Only runs while something is playing so an idle
+// kiosk isn't running an audio-capture subprocess for nothing.
+const AUDIO_PLAYING_POLL_MS = 3_000;
+const audioCapture = createAudioCapture({
+	onFrame: (frame) => broadcast({ type: 'audioSpectrum', ...frame })
+});
+let audioCaptureWanted = false;
+
+async function pollAudioPlaying() {
+	try {
+		const np = await getNowPlaying({ skipLyrics: true });
+		const wantsCapture = Boolean(np?.playing);
+		if (wantsCapture !== audioCaptureWanted) {
+			audioCaptureWanted = wantsCapture;
+			if (wantsCapture) audioCapture.start();
+			else audioCapture.stop();
+		}
+	} catch {
+		/* nowPlaying probe failed; try again next tick */
+	}
+}
+setInterval(pollAudioPlaying, AUDIO_PLAYING_POLL_MS);
+pollAudioPlaying();
 
 function displaySnapshot() {
 	return {
