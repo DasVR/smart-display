@@ -11,7 +11,8 @@ import {
 	setVolume,
 	volumeHttpStatus,
 	volumeTargetFromStatus,
-	volumeWpctlArgs
+	volumeWpctlArgs,
+	withVolumeIo
 } from '../src/lib/server/audioVolume.js';
 import { parseWpctlStatus } from '../src/lib/server/audioSinks.js';
 
@@ -114,6 +115,61 @@ test('setMute mutes the analog sink', () => {
 	assert.deepEqual(
 		calls.find((args) => args[0] === 'set-mute'),
 		['set-mute', '41', '1']
+	);
+});
+
+test('withVolumeIo caches the resolved sink instead of re-running status every call', () => {
+	const { calls, env, execWpctl } = mockWpctl({ volumeText: 'Volume: 0.55\n' });
+	const state = { at: 0, resolved: null };
+	let clock = 1000;
+	const io = withVolumeIo({ env, execWpctl, state, now: () => clock });
+
+	io.setVolume(0.55);
+	const statusCallsAfterFirst = calls.filter((a) => a[0] === 'status').length;
+	assert.equal(statusCallsAfterFirst, 1);
+
+	clock += 1000; // well inside the TTL
+	io.getVolume();
+	io.setMute(true);
+	assert.equal(
+		calls.filter((a) => a[0] === 'status').length,
+		statusCallsAfterFirst,
+		'cached target should be reused instead of re-resolving'
+	);
+
+	clock += 10_000; // past the TTL
+	io.getVolume();
+	assert.equal(calls.filter((a) => a[0] === 'status').length, statusCallsAfterFirst + 1);
+});
+
+test('withVolumeIo forces a fresh resolve after a failed write', () => {
+	const state = { at: 0, resolved: null };
+	let fail = false;
+	const calls = [];
+	const execWpctl = (args) => {
+		calls.push(args.slice());
+		if (args[0] === 'status') return WPCTL_ANALOG_AND_DUMMY;
+		if (args[0] === 'set-volume') {
+			if (fail) throw new Error('sink vanished');
+			return '';
+		}
+		if (args[0] === 'set-mute') return '';
+		if (args[0] === 'get-volume') return 'Volume: 0.40\n';
+		throw new Error(`unexpected wpctl ${args.join(' ')}`);
+	};
+	const io = withVolumeIo({ env: { PATH: '/usr/bin' }, execWpctl, state });
+
+	fail = true;
+	const result = io.setVolume(0.5);
+	assert.equal(result.ok, false);
+	assert.equal(state.resolved, null, 'a failed write should invalidate the cached sink');
+
+	fail = false;
+	calls.length = 0;
+	io.setVolume(0.5);
+	assert.ok(
+		calls.some((a) => a[0] === 'status'),
+		'the next call should re-resolve instead of reusing the stale target'
 	);
 });
 
