@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import {
+	ensureLyricsCached,
+	ensureTrackDurationCached,
 	fetchLyrics,
 	fetchPlainLyricsText,
 	fetchSyncedLyricsFallback,
@@ -11,6 +13,8 @@ import {
 	parseLRC,
 	parseMusixmatchRichSync,
 	parseTTML,
+	peekLyrics,
+	peekTrackDuration,
 	pickBestLyricsHit,
 	pickItunesDuration,
 	scoreLyricsHit,
@@ -323,4 +327,48 @@ test('fetchPlainLyricsText returns null when there is nothing to align against',
 		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.equal(text, null);
+});
+
+test('peekLyrics/ensureLyricsCached never block the caller on a cold cache', async () => {
+	const artist = `Peek Artist ${Date.now()}`;
+	const title = 'Peek Song';
+	const before = peekLyrics(artist, title, '', 210);
+	assert.deepEqual(before, { known: false, lines: null });
+
+	let resolveLoad;
+	const load = (url) => {
+		if (url.includes('/api/get')) {
+			return new Promise((resolve) => {
+				resolveLoad = () =>
+				resolve({ trackName: title, artistName: artist, duration: 210, syncedLyrics: '[00:01.00]hi' });
+			});
+		}
+		return Promise.reject(new Error('unexpected ' + url));
+	};
+	// Fires the lookup in the background - must return immediately either way.
+	ensureLyricsCached(artist, title, { duration: 210, load });
+	assert.deepEqual(peekLyrics(artist, title, '', 210), { known: false, lines: null });
+
+	resolveLoad();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(peekLyrics(artist, title, '', 210).known, true);
+});
+
+test('peekTrackDuration/ensureTrackDurationCached never block the caller on a cold cache', async () => {
+	const artist = `Duration Artist ${Date.now()}`;
+	const title = 'Duration Song';
+	assert.equal(peekTrackDuration(artist, title), undefined);
+
+	let resolveLoad;
+	const load = () =>
+		new Promise((resolve) => {
+			resolveLoad = () =>
+				resolve({ results: [{ trackName: title, artistName: artist, trackTimeMillis: 200000 }] });
+		});
+	ensureTrackDurationCached(artist, title, { load });
+	assert.equal(peekTrackDuration(artist, title), undefined);
+
+	resolveLoad();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(peekTrackDuration(artist, title), 200);
 });

@@ -301,6 +301,39 @@ export async function lookupTrackDuration(artist, title, { album = '', load } = 
 	}
 }
 
+const DURATION_TTL = 6 * 60 * 60 * 1000;
+const durationCache = new Map();
+const durationInFlight = new Set();
+
+function durationCacheKey(artist, title, album) {
+	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}`;
+}
+
+/** Synchronous read of a previously-resolved track duration, or `undefined`
+ *  if it hasn't been looked up yet (distinct from a confirmed 0). Exists so
+ *  getNowPlaying() can use a duration the moment it's known without ever
+ *  awaiting the iTunes lookup inline - see ensureTrackDurationCached(). */
+export function peekTrackDuration(artist, title, album = '') {
+	const cached = durationCache.get(durationCacheKey(artist, title, album));
+	if (!cached || Date.now() - cached.fetchedAt >= DURATION_TTL) return undefined;
+	return cached.duration;
+}
+
+/** Kicks off (at most once per track, de-duplicated across overlapping
+ *  polls) a background lookupTrackDuration() call and caches the result -
+ *  never awaited by the caller, so a cold cache never adds iTunes's
+ *  round-trip to a now-playing response's latency. The duration just shows
+ *  up a poll or two later via peekTrackDuration(). */
+export function ensureTrackDurationCached(artist, title, opts = {}) {
+	const key = durationCacheKey(artist, title, opts.album || '');
+	if (durationInFlight.has(key) || peekTrackDuration(artist, title, opts.album) !== undefined) return;
+	durationInFlight.add(key);
+	lookupTrackDuration(artist, title, opts)
+		.then((duration) => durationCache.set(key, { duration, fetchedAt: Date.now() }))
+		.catch(() => {})
+		.finally(() => durationInFlight.delete(key));
+}
+
 function lyricsCacheKey(artist, title, album, rounded) {
 	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}|${rounded}`;
 }
@@ -392,6 +425,35 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 		lyricsCache.set(key, { lines: null, plainText: null, fetchedAt: Date.now(), ttl: LYRICS_MISS_TTL });
 		return null;
 	}
+}
+
+const lyricsInFlight = new Set();
+
+/** Synchronous cache read: `{ known: true, lines }` once fetchLyrics() has
+ *  resolved for this exact artist/title/album/duration, or
+ *  `{ known: false, lines: null }` if it hasn't been looked up yet (or the
+ *  cache entry expired). Lets getNowPlaying() serve whatever it already
+ *  has instantly instead of awaiting a fresh LRCLIB/syncedlyrics round
+ *  trip on every cold track. */
+export function peekLyrics(artist, title, album = '', duration = 0) {
+	const rounded = Math.round(Number(duration) || 0);
+	const cached = lyricsCache.get(lyricsCacheKey(artist, title, album, rounded));
+	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) return { known: false, lines: null };
+	return { known: true, lines: cached.lines };
+}
+
+/** Kicks off (at most once per track, de-duplicated across overlapping
+ *  polls) a background fetchLyrics() call so a cache miss never blocks the
+ *  current now-playing response - the result just shows up a poll or two
+ *  later via peekLyrics(). */
+export function ensureLyricsCached(artist, title, opts = {}) {
+	const rounded = Math.round(Number(opts.duration) || 0);
+	const key = lyricsCacheKey(artist, title, opts.album || '', rounded);
+	if (lyricsInFlight.has(key) || peekLyrics(artist, title, opts.album, opts.duration).known) return;
+	lyricsInFlight.add(key);
+	fetchLyrics(artist, title, opts)
+		.catch(() => {})
+		.finally(() => lyricsInFlight.delete(key));
 }
 
 /** Plain (unsynced) lyric text for the forced-alignment fallback in

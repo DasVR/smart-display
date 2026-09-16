@@ -48,6 +48,20 @@ test('mergeNowPlaying keeps the AirPlay sample timestamp', () => {
 	assert.equal(merged.length, 237);
 });
 
+test('mergeNowPlaying passes through the seeking flag from an AirPlay flush', () => {
+	const mid = mergeNowPlaying(
+		{ playing: false },
+		{ playing: true, title: 'Daylight', position: 12.4, positionAt: 1_700_000_000_000, seeking: true }
+	);
+	assert.equal(mid.seeking, true);
+
+	const settled = mergeNowPlaying(
+		{ playing: false },
+		{ playing: true, title: 'Daylight', position: 40, positionAt: 1_700_000_005_000, seeking: false }
+	);
+	assert.equal(settled.seeking, false);
+});
+
 test('mergeNowPlaying keeps a playing Bluetooth/MPRIS track', () => {
 	const merged = mergeNowPlaying(
 		{ playing: true, title: 'BT track', artist: 'Phone' },

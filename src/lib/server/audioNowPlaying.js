@@ -59,7 +59,13 @@ export function mergeNowPlaying(mpris, airplay, { bluetoothConnected = true } = 
 			positionAt: Number(airplay.positionAt) || 0,
 			length: Number(airplay.length) || 0,
 			updatedAt: Number(airplay.updatedAt) || 0,
-			source: 'airplay'
+			source: 'airplay',
+			// True from a flush (skip/seek) until the next progress report
+			// lands - tells the client's playback clock to hold position
+			// still instead of extrapolating off a sample that's about to be
+			// stale, which is what made scrubbing look like it desynced the
+			// lyrics rather than just pausing them for a beat.
+			seeking: Boolean(airplay.seeking)
 		};
 	}
 	if (mpris && bluetoothConnected && (mpris.playing || mpris.title)) {
