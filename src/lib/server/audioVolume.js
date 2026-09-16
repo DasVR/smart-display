@@ -74,23 +74,39 @@ function defaultExec(args, env) {
 	});
 }
 
-export function withVolumeIo({ env, execWpctl } = {}) {
+// The sink almost never changes between one volume tap and the next, so
+// resolving it fresh via `wpctl status` on every single get/set (on top of
+// the get/set-volume call itself) was turning each remote volume tap into
+// 2-5 sequential wpctl spawns - the latency the phone remote was showing.
+// Cache the resolved target briefly and only force a fresh resolve when a
+// write actually fails (the sink may really have changed).
+const TARGET_TTL_MS = 5000;
+const GLOBAL_TARGET_CACHE = { at: 0, resolved: null };
+
+export function withVolumeIo({ env, execWpctl, now, state } = {}) {
 	const session = env || userSessionEnv();
 	const run = execWpctl || defaultExec;
+	const cache = state || GLOBAL_TARGET_CACHE;
+	const clock = now || Date.now;
 
 	function resolveTarget() {
+		if (cache.resolved && clock() - cache.at < TARGET_TTL_MS) {
+			return cache.resolved;
+		}
 		let statusText = '';
 		try {
 			statusText = run(volumeWpctlArgs('status'), session) || '';
 		} catch {
 			statusText = '';
 		}
-		return volumeTargetFromStatus(statusText);
+		const resolved = volumeTargetFromStatus(statusText);
+		cache.resolved = resolved;
+		cache.at = clock();
+		return resolved;
 	}
 
-	function snapshot() {
+	function snapshotFor(resolved) {
 		try {
-			const resolved = resolveTarget();
 			const out = run(volumeWpctlArgs('get', resolved.target), session);
 			const parsed = parseWpctlVolume(out);
 			if (!parsed) return { ok: false, error: 'could not parse wpctl output' };
@@ -105,10 +121,14 @@ export function withVolumeIo({ env, execWpctl } = {}) {
 		}
 	}
 
+	function snapshot() {
+		return snapshotFor(resolveTarget());
+	}
+
 	function setVolume(volume) {
 		const v = clampVolume(volume);
+		const resolved = resolveTarget();
 		try {
-			const resolved = resolveTarget();
 			run(volumeWpctlArgs('set', resolved.target, v.toFixed(2)), session);
 			if (v > 0) {
 				try {
@@ -117,18 +137,20 @@ export function withVolumeIo({ env, execWpctl } = {}) {
 					/* keep the volume write even if unmute fails */
 				}
 			}
-			return snapshot();
+			return snapshotFor(resolved);
 		} catch (e) {
+			cache.resolved = null;
 			return { ok: false, error: wpctlError(e, 'wpctl set-volume failed') };
 		}
 	}
 
 	function setMute(muted) {
+		const resolved = resolveTarget();
 		try {
-			const resolved = resolveTarget();
 			run(volumeWpctlArgs('mute', resolved.target, muted ? '1' : '0'), session);
-			return snapshot();
+			return snapshotFor(resolved);
 		} catch (e) {
+			cache.resolved = null;
 			return { ok: false, error: wpctlError(e, 'wpctl set-mute failed') };
 		}
 	}

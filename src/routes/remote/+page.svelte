@@ -148,14 +148,28 @@
 		}
 	}
 
-	function connect() {
-		if (ws) {
-			try {
-				ws.close();
-			} catch {
-				/* ignore */
-			}
+	// If the socket goes silent - a stalled NAT/WiFi handoff rather than a
+	// clean close - the browser can sit on a "connected" readyState for a
+	// long time with no onclose ever firing, so the status pill would lie.
+	// Track the last time anything arrived and watch for it going stale.
+	let lastMessageAt = 0;
+	const PONG_STALE_MS = 12_000;
+
+	function discardSocket(socket) {
+		if (!socket) return;
+		socket.onopen = null;
+		socket.onclose = null;
+		socket.onerror = null;
+		socket.onmessage = null;
+		try {
+			socket.close();
+		} catch {
+			/* ignore */
 		}
+	}
+
+	function connect() {
+		discardSocket(ws);
 		status = 'connecting';
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const url = `${proto}//${pickHost()}/ws`;
@@ -169,6 +183,7 @@
 		}
 		ws.onopen = () => {
 			status = 'connected';
+			lastMessageAt = Date.now();
 			ws.send(JSON.stringify({ type: 'ping' }));
 		};
 		ws.onclose = () => {
@@ -180,6 +195,7 @@
 			lastAction = 'ws error';
 		};
 		ws.onmessage = (e) => {
+			lastMessageAt = Date.now();
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'init' || msg.type === 'navigate') {
@@ -198,6 +214,14 @@
 				/* ignore */
 			}
 		};
+	}
+
+	function watchdogTick() {
+		if (status !== 'connected') return;
+		if (Date.now() - lastMessageAt > PONG_STALE_MS) {
+			status = 'disconnected';
+			connect();
+		}
 	}
 
 	function send(obj) {
@@ -262,7 +286,14 @@
 		volumeTimer = setTimeout(() => saveVolume({ volume: next }), 120);
 	}
 
+	// A slider drag can queue several saves in flight (server-side wpctl calls
+	// aren't instant); without sequencing, an older request that happens to
+	// resolve after a newer one would snap the slider/mute state backwards -
+	// exactly the "sometimes just doesn't work" feel. Only the response to
+	// the most recently *sent* request is allowed to apply.
+	let volumeRequestSeq = 0;
 	async function saveVolume(payload) {
+		const seq = ++volumeRequestSeq;
 		try {
 			const r = await fetch('/api/volume', {
 				method: 'POST',
@@ -270,6 +301,7 @@
 				body: JSON.stringify(payload)
 			});
 			const data = await r.json();
+			if (seq !== volumeRequestSeq) return;
 			if (data.ok) {
 				applyAudio(data);
 				lastAction = data.muted ? 'muted' : `${Math.round((data.volume ?? volume) * 100)}%`;
@@ -277,6 +309,7 @@
 			}
 			volumeError = data.error || 'Volume control unavailable';
 		} catch {
+			if (seq !== volumeRequestSeq) return;
 			volumeError = 'Volume control unavailable';
 		}
 	}
@@ -367,6 +400,7 @@
 				ws.send(JSON.stringify({ type: 'ping' }));
 			}
 		}, 5000);
+		const watchdog = setInterval(watchdogTick, 4000);
 		// Live distance readings while this page is open, for walking the room
 		// to pick a device and a threshold.
 		const nearby = setInterval(fetchNearbyDevices, 3000);
@@ -375,9 +409,10 @@
 		window.addEventListener('pointerdown', primeAudio, { once: true });
 		return () => {
 			clearInterval(ping);
+			clearInterval(watchdog);
 			clearInterval(nearby);
 			window.removeEventListener('pointerdown', primeAudio);
-			ws?.close();
+			discardSocket(ws);
 		};
 	});
 </script>
@@ -1081,6 +1116,12 @@
 		font-size: var(--text-lg);
 		font-weight: 600;
 		color-scheme: dark;
+	}
+	/* The native picker-indicator icon otherwise sits inside the same box as
+	   the "10:30 PM" text and clips the AM/PM letters on narrow widths - the
+	   field is still tappable to open the system time picker without it. */
+	.times input[type='time']::-webkit-calendar-picker-indicator {
+		display: none;
 	}
 	.day-pad {
 		display: grid;
