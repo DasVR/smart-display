@@ -53,8 +53,21 @@ test('airplay metadata parser clears playing on session end', () => {
 	assert.equal(parse(xml).playing, false);
 });
 
-test('airplay metadata parser wipes leftover title on session end', () => {
-	const xml = item('636f7265', '6d696e6d', 'Daylight') + item('73736e63', '70656e64');
+test('airplay metadata parser keeps a titled pause through stream end', () => {
+	const xml =
+		item('636f7265', '6d696e6d', 'Daylight') +
+		item('73736e63', '70726772', '0/441000/12039300') +
+		item('73736e63', '70656e64');
+	const state = parse(xml);
+	assert.equal(state.playing, false);
+	assert.equal(state.paused, true);
+	assert.equal(state.title, 'Daylight');
+	assert.ok(state.position >= 10 && state.position < 11);
+	assert.equal(state.seeking, false);
+});
+
+test('airplay metadata parser wipes an untitled stream end', () => {
+	const xml = item('73736e63', '70626567') + item('73736e63', '70656e64');
 	const state = parse(xml);
 	assert.equal(state.playing, false);
 	assert.equal(state.paused, false);
@@ -116,4 +129,27 @@ test('airplay metadata parser does not restamp the clock on a play-status while 
 	const state = parse(xml);
 	assert.equal(state.playing, true);
 	assert.equal(state.position, 10);
+});
+
+test('airplay metadata parser does not resume a paused track on a title restamp', () => {
+	const xml =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('73736e63', '63617073', String.fromCharCode(3)) +
+		item('636f7265', '6d696e6d', 'My Way');
+	const state = parse(xml);
+	assert.equal(state.playing, false);
+	assert.equal(state.paused, true);
+	assert.equal(state.title, 'My Way');
+});
+
+test('airplay metadata parser marks seeking when the title changes', () => {
+	const xml =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('73736e63', '70726772', '0/441000/12039300') +
+		item('636f7265', '6d696e6d', 'Daylight');
+	const state = parse(xml);
+	assert.equal(state.title, 'Daylight');
+	assert.equal(state.position, 0);
+	assert.equal(state.seeking, true);
+	assert.equal(state.playing, true);
 });

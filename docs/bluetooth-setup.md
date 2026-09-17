@@ -169,8 +169,9 @@ the song instead of sitting at 0:00.
 /api/volume` (see `src/lib/server/audioVolume.js`). The API aims `wpctl`
 at the same analog/USB/headphone sink the stats page reports, not
 whatever PipeWire currently marks default (often Dummy or HDMI on this
-box). AirPlay and Bluetooth volume from the phone still reach PipeWire
-directly and stay independent of this slider.
+box). AirPlay ignores the phone's volume so a session that connects at 0
+still plays at the kiosk slider. Bluetooth volume from the phone still
+reaches PipeWire directly.
 
 ## Crackling / static on Bluetooth or the speakers
 

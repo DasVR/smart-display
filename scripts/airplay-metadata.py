@@ -84,6 +84,16 @@ def freeze_position():
 	stamp_position()
 
 
+def pause_clock():
+	# Phone pause must keep title/art/position on screen. iOS often sends
+	# `pend` (stream end) instead of, or in addition to, caps=3; wiping the
+	# session made pause look like "Nothing playing".
+	freeze_position()
+	state["playing"] = False
+	state["paused"] = True
+	state["seeking"] = False
+
+
 def resume_clock():
 	# Start extrapolating from the frozen position. If we are already
 	# playing, do not restamp - that is what sent lyrics back to the last
@@ -96,9 +106,8 @@ def resume_clock():
 
 
 def clear_session():
-	# Session end (pend) must wipe metadata. Leaving a title behind made
-	# the dashboard treat a disconnected receiver as a paused track, and
-	# the idle keepalive then restamped updatedAt forever.
+	# Real teardown with no track left to show. A titled `pend` uses
+	# pause_clock instead; disconnect then drops once heartbeats stop.
 	state["playing"] = False
 	state["paused"] = False
 	state["title"] = ""
@@ -165,7 +174,13 @@ def apply_item(typ, code, data):
 		resume_clock()
 		changed = True
 	elif code == "pend":
-		clear_session()
+		# Pause and disconnect both look like stream end. Keep a titled
+		# session paused; an empty stream (pbeg with no tags, then pend)
+		# still tears down. Stale timeout handles a phone that left.
+		if state.get("title") or state.get("artist"):
+			pause_clock()
+		else:
+			clear_session()
 		changed = True
 	elif code == "pfls":
 		# Flush fires on skip/seek. Audio is still the AirPlay session, but
@@ -184,9 +199,7 @@ def apply_item(typ, code, data):
 	elif code == "caps":
 		status = parse_int(data)
 		if status == 3:
-			freeze_position()
-			state["playing"] = False
-			state["paused"] = True
+			pause_clock()
 			changed = True
 		elif status == 2:
 			resume_clock()
@@ -195,11 +208,15 @@ def apply_item(typ, code, data):
 		title = data.decode("utf-8", errors="replace")
 		if title != state["title"]:
 			state["position"] = 0
-			state["seeking"] = False
+			# Until the next `prgr` lands, treat a title change like a
+			# flush so the client will accept a start-of-track clock.
+			state["seeking"] = True
 			stamp_position()
 		state["title"] = title
-		state["playing"] = True
-		state["paused"] = False
+		# A metadata restamp must not unpause. Resume is pbeg / prsm / caps=2.
+		if not state.get("paused"):
+			state["playing"] = True
+			state["paused"] = False
 		changed = True
 	elif code == "asar":
 		state["artist"] = data.decode("utf-8", errors="replace")

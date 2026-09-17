@@ -1,4 +1,6 @@
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -76,4 +78,26 @@ test('AirPlay ufw rules include the real ephemeral range, not 3278:3289', () => 
 	const setup = readFileSync(new URL('../scripts/airplay-setup.sh', import.meta.url), 'utf8');
 	assert.match(setup, /airplay-lan\.mjs" ufw/);
 	assert.match(setup, /ufw delete allow 3278:3289\/udp/);
+	assert.match(setup, /ignore_volume_control = "yes"/);
+	assert.doesNotMatch(setup, /ignore_volume_control = "no"/);
+
+	const run = readFileSync(new URL('../scripts/airplay-run.sh', import.meta.url), 'utf8');
+	assert.match(run, /ignore_volume_control = "no"/);
+	assert.match(run, /ignore_volume_control = "yes"/);
+
+	const started = readFileSync(new URL('../scripts/airplay-started.sh', import.meta.url), 'utf8');
+	assert.match(started, /audio-pick-sink\.mjs/);
+	assert.match(started, /wpctl set-mute @DEFAULT_AUDIO_SINK@ 0/);
+	assert.match(started, /exit 0/);
+	assert.ok(started.indexOf('audio-pick-sink') < started.indexOf('exit 0'));
+});
+
+test('airplay-started.sh returns immediately so the AirPlay handshake is not delayed', () => {
+	const started = fileURLToPath(new URL('../scripts/airplay-started.sh', import.meta.url));
+	const result = spawnSync('bash', [started], {
+		encoding: 'utf8',
+		timeout: 2500,
+		env: { ...process.env, DASHBOARD_URL: 'http://127.0.0.1:1' }
+	});
+	assert.equal(result.status, 0, result.stderr || result.stdout);
 });
