@@ -32,6 +32,8 @@
 	let snapLyrics = $state(false);
 	let lastSample = null;
 	let lastEaseAt = 0;
+	let stackReady = false;
+	let lastTrackKey = '';
 	let carousel = $state({ prev: null, current: null, next: null });
 
 	let track = $derived($nowPlaying);
@@ -107,13 +109,22 @@
 		if (isPlaybackJump(lastSample, track)) snapLyrics = true;
 		displayPosition = livePlaybackPosition(track, Date.now());
 		lastSample = track;
+		const key = trackKey;
+		if (key !== lastTrackKey) {
+			lastTrackKey = key;
+			stackReady = false;
+		}
 		const target = measureLyricsOffset();
 		if (target != null) {
 			const ts = Number(now) || (typeof performance !== 'undefined' ? performance.now() : 0);
-			const dt = lastEaseAt ? Math.min(0.05, (ts - lastEaseAt) / 1000) : 0.016;
+			const dt = lastEaseAt ? Math.min(0.1, Math.max(0, (ts - lastEaseAt) / 1000)) : 0.016;
 			lastEaseAt = ts;
-			if (snapLyrics || reducedMotion) lyricsOffset = target;
-			else lyricsOffset = easeToward(lyricsOffset, target, dt, STACK_EASE_TAU_SEC);
+			if (!stackReady || snapLyrics || reducedMotion) {
+				lyricsOffset = target;
+				stackReady = true;
+			} else {
+				lyricsOffset = easeToward(lyricsOffset, target, dt, STACK_EASE_TAU_SEC);
+			}
 		}
 		raf = requestAnimationFrame(tick);
 	}

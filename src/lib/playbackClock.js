@@ -171,7 +171,7 @@ export function isPlaybackJump(prev, next, now = Date.now()) {
 
 /** Time constant for the lyric-stack lerp. After ~3τ the offset has settled
  *  (~840ms), so line changes and instrumental rests ease instead of jumping. */
-export const STACK_EASE_TAU_SEC = 0.28;
+export const STACK_EASE_TAU_SEC = 0.22;
 
 /** Exponential ease toward `target`. One rAF step; `tauSec` is the time
  *  constant (63% of the remaining gap per τ). Snaps when dt or tau is 0. */
