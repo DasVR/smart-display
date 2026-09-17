@@ -36,6 +36,10 @@ YRC_WORD_RE = re.compile(r"\((\d+),(\d+),(\d+)\)([^(]*)")
 KRC_LINE_RE = re.compile(r"^\[(\d+),(\d+)\](.*)$")
 KRC_WORD_RE = re.compile(r"<(\d+),(\d+),(\d+)>([^<]*)")
 META_LINE_RE = re.compile(r"^\s*\[(ar|ti|al|by|offset|id|language|hash):", re.I)
+CREDIT_LINE_RE = re.compile(
+	r"^(作词|作詞|作曲|编曲|編曲|制作人|製作人|歌词|歌詞|演唱|歌手|出品|produced\s*by|written\s*by|lyrics\s*by|lyricist|composer|arranger|lyrics|composer)\s*[:：]",
+	re.I,
+)
 
 
 def normalize(value: str = "") -> str:
@@ -87,6 +91,52 @@ def http_json(url, *, data=None, headers=None, timeout=6):
 	return json.loads(raw.decode("utf-8"))
 
 
+def is_track_header_line(text, want) -> bool:
+	n = normalize(text)
+	title = normalize((want or {}).get("title"))
+	artist = normalize((want or {}).get("artist"))
+	if not n or not title:
+		return False
+	if n == title:
+		return True
+	if artist and n in (f"{title} {artist}", f"{artist} {title}"):
+		return True
+	if artist and n.startswith(title) and n.endswith(artist) and len(n) > len(title) + len(artist):
+		return True
+	return False
+
+
+def drop_non_lyric_lines(lines, want=None):
+	"""Strip credit/title headers. Blank instrumental rows stay."""
+	cleaned = []
+	for line in lines or []:
+		text = str(line.get("text") or "").strip()
+		if not text:
+			cleaned.append(line)
+			continue
+		if CREDIT_LINE_RE.search(text):
+			continue
+		if not is_track_header_line(text, want or {}):
+			cleaned.append(line)
+			continue
+		n = normalize(text)
+		title = normalize((want or {}).get("title"))
+		artist = normalize((want or {}).get("artist"))
+		if artist and n != title:
+			continue
+		if float(line.get("time") or 0) < 3:
+			continue
+		cleaned.append(line)
+	return cleaned
+
+
+def timed_word(time, text, end=None):
+	word = {"time": round(time, 3), "text": text}
+	if end is not None and float(end) > float(time):
+		word["end"] = round(float(end), 3)
+	return word
+
+
 def empty_result(source=None, error=None):
 	return {
 		"source": source,
@@ -134,7 +184,7 @@ def parse_yrc(text: str):
 				offset = float(chunk.get("t") or 0) / 1000.0
 				words.append({"time": round(begin + offset, 3), "text": word})
 			line_text = " ".join(w["text"] for w in words)
-			if line_text:
+			if line_text and not CREDIT_LINE_RE.search(line_text):
 				entry = {"time": round(begin, 3), "text": line_text}
 				if len(words) >= 2:
 					entry["words"] = words
@@ -144,14 +194,19 @@ def parse_yrc(text: str):
 		if not header:
 			continue
 		begin = int(header.group(1)) / 1000.0
+		line_end = begin + int(header.group(2)) / 1000.0
 		words = []
 		for match in YRC_WORD_RE.finditer(header.group(3)):
 			word = match.group(4).strip()
 			if not word:
 				continue
-			words.append({"time": round(int(match.group(1)) / 1000.0, 3), "text": word})
+			start = int(match.group(1)) / 1000.0
+			dur = int(match.group(2)) / 1000.0
+			words.append(timed_word(start, word, start + dur))
 		line_text = " ".join(w["text"] for w in words)
-		entry = {"time": round(begin, 3), "text": line_text}
+		if CREDIT_LINE_RE.search(line_text):
+			continue
+		entry = {"time": round(begin, 3), "end": round(line_end, 3), "text": line_text}
 		if len(words) >= 2:
 			entry["words"] = words
 		if line_text or not words:
@@ -169,15 +224,20 @@ def parse_krc(text: str):
 		if not match:
 			continue
 		begin = int(match.group(1)) / 1000.0
+		line_end = begin + int(match.group(2)) / 1000.0
 		rest = match.group(3)
 		words = []
 		for wm in KRC_WORD_RE.finditer(rest):
 			word = wm.group(4).strip()
 			if not word:
 				continue
-			words.append({"time": round(begin + int(wm.group(1)) / 1000.0, 3), "text": word})
+			start = begin + int(wm.group(1)) / 1000.0
+			dur = int(wm.group(2)) / 1000.0
+			words.append(timed_word(start, word, start + dur))
 		line_text = " ".join(w["text"] for w in words) if words else KRC_WORD_RE.sub("", rest).strip()
-		entry = {"time": round(begin, 3), "text": line_text}
+		if CREDIT_LINE_RE.search(line_text):
+			continue
+		entry = {"time": round(begin, 3), "end": round(line_end, 3), "text": line_text}
 		if len(words) >= 2:
 			entry["words"] = words
 		lines.append(entry)
@@ -257,7 +317,7 @@ def fetch_netease(want):
 	)
 	yrc = ((lyric.get("yrc") or {}).get("lyric")) or ""
 	lrc = ((lyric.get("lrc") or {}).get("lyric")) or ""
-	lines = parse_yrc(yrc) if yrc else []
+	lines = drop_non_lyric_lines(parse_yrc(yrc), want) if yrc else []
 	word_level = is_word_level(lines)
 	if not word_level and not lrc:
 		return empty_result("netease-yrc", "no lyrics")
@@ -318,7 +378,7 @@ def fetch_kugou(want):
 	if downloaded.get("status") != 200 or not downloaded.get("content"):
 		return empty_result("kugou-krc", "download failed")
 	krc = decode_kugou_krc(downloaded["content"])
-	lines = parse_krc(krc)
+	lines = drop_non_lyric_lines(parse_krc(krc), want)
 	if not is_word_level(lines):
 		return empty_result("kugou-krc", "no word timing")
 	return {
@@ -434,13 +494,26 @@ def self_test():
 	)
 	assert yrc[0]["words"][0]["text"] == "Caught"
 	assert abs(yrc[0]["words"][1]["time"] - 48.4) < 1e-9
+	assert abs(yrc[0]["words"][0]["end"] - 48.4) < 1e-9
 	assert yrc[1]["text"] == "Hello there"
+	credits = parse_yrc('{"t":0,"c":[{"tx":"作词: "},{"tx":"Mike Shinoda"}]}')
+	assert credits == []
 	krc = parse_krc("[25872,4298]<0,475,0>Feeling <475,242,0>so <717,1315,0>faithless")
 	assert krc[0]["words"][1]["text"] == "so"
 	assert abs(krc[0]["words"][1]["time"] - (25.872 + 0.475)) < 1e-9
+	assert "end" in krc[0]["words"][1]
+	headered = drop_non_lyric_lines(
+		parse_krc(
+			"[100,100]<0,100,0>Numb (英雄联盟代表音乐) - Linkin Park\n"
+			"[25872,4298]<0,475,0>Feeling <475,242,0>so <717,1315,0>faithless"
+		),
+		{"artist": "Linkin Park", "title": "Numb"},
+	)
+	assert len(headered) == 1
+	assert headered[0]["text"] == "Feeling so faithless"
 	assert score_hit("Linkin Park", "Numb", 186, {"artist": "Linkin Park", "title": "Numb", "duration": 186}) >= 90
 	assert score_hit("Frank Sinatra", "My Way", 275, {"artist": "Limp Bizkit", "title": "My Way", "duration": 273}) == 0
-	print(json.dumps({"ok": True, "tests": 4}))
+	print(json.dumps({"ok": True, "tests": 6}))
 	return 0
 
 

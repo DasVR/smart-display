@@ -17,40 +17,40 @@ const DEMO_ART =
 
 const DEMO_LYRICS = [
 	{ time: 0.4, text: 'Headlights on the causeway', words: [
-		{ time: 0.4, text: 'Headlights' },
-		{ time: 1.1, text: 'on' },
-		{ time: 1.4, text: 'the' },
-		{ time: 1.6, text: 'causeway' }
+		{ time: 0.4, end: 1.1, text: 'Headlights' },
+		{ time: 1.1, end: 1.4, text: 'on' },
+		{ time: 1.4, end: 1.6, text: 'the' },
+		{ time: 1.6, end: 2.15, text: 'causeway' }
 	]},
 	{ time: 4.2, text: 'Salt air through the vents', words: [
-		{ time: 4.2, text: 'Salt' },
-		{ time: 4.6, text: 'air' },
-		{ time: 5.0, text: 'through' },
-		{ time: 5.4, text: 'the' },
-		{ time: 5.7, text: 'vents' }
+		{ time: 4.2, end: 4.6, text: 'Salt' },
+		{ time: 4.6, end: 5.0, text: 'air' },
+		{ time: 5.0, end: 5.4, text: 'through' },
+		{ time: 5.4, end: 5.7, text: 'the' },
+		{ time: 5.7, end: 6.2, text: 'vents' }
 	]},
 	{ time: 8.0, text: 'Keep the chorus low', words: [
-		{ time: 8.0, text: 'Keep' },
-		{ time: 8.4, text: 'the' },
-		{ time: 8.7, text: 'chorus' },
-		{ time: 9.3, text: 'low' }
+		{ time: 8.0, end: 8.4, text: 'Keep' },
+		{ time: 8.4, end: 8.7, text: 'the' },
+		{ time: 8.7, end: 9.3, text: 'chorus' },
+		{ time: 9.3, end: 9.8, text: 'low' }
 	]},
 	{ time: 12.2, text: 'Let the gulf take the rest', words: [
-		{ time: 12.2, text: 'Let' },
-		{ time: 12.5, text: 'the' },
-		{ time: 12.8, text: 'gulf' },
-		{ time: 13.3, text: 'take' },
-		{ time: 13.7, text: 'the' },
-		{ time: 14.0, text: 'rest' }
+		{ time: 12.2, end: 12.5, text: 'Let' },
+		{ time: 12.5, end: 12.8, text: 'the' },
+		{ time: 12.8, end: 13.3, text: 'gulf' },
+		{ time: 13.3, end: 13.7, text: 'take' },
+		{ time: 13.7, end: 14.0, text: 'the' },
+		{ time: 14.0, end: 14.6, text: 'rest' }
 	]},
 	{ time: 16.4, text: 'No map, just the long way home', words: [
-		{ time: 16.4, text: 'No' },
-		{ time: 16.7, text: 'map,' },
-		{ time: 17.3, text: 'just' },
-		{ time: 17.7, text: 'the' },
-		{ time: 18.0, text: 'long' },
-		{ time: 18.5, text: 'way' },
-		{ time: 18.9, text: 'home' }
+		{ time: 16.4, end: 16.7, text: 'No' },
+		{ time: 16.7, end: 17.3, text: 'map,' },
+		{ time: 17.3, end: 17.7, text: 'just' },
+		{ time: 17.7, end: 18.0, text: 'the' },
+		{ time: 18.0, end: 18.5, text: 'long' },
+		{ time: 18.5, end: 18.9, text: 'way' },
+		{ time: 18.9, end: 19.4, text: 'home' }
 	]},
 	// A bare timed marker with no text - an instrumental break in the demo,
 	// same as a real LRC file's blank-line convention. The three-dot

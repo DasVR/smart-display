@@ -26,6 +26,49 @@ export function normalizeLyricText(value = '') {
 		.trim();
 }
 
+// NetEase/Kugou (and some LRC dumps) stamp a header row before the song:
+// "作词: …", "Title - Artist". Those are credits, not lyrics.
+const CREDIT_LINE_RE =
+	/^(作词|作詞|作曲|编曲|編曲|制作人|製作人|歌词|歌詞|演唱|歌手|出品|produced\s*by|written\s*by|lyrics\s*by|lyricist|composer|arranger|lyrics|composer)\s*[:：]/i;
+
+function isTrackHeaderLine(text, query = {}) {
+	const n = normalizeLyricText(text);
+	const title = normalizeLyricText(query.title);
+	const artist = normalizeLyricText(query.artist);
+	if (!n || !title) return false;
+	if (n === title) return true;
+	if (artist && (n === `${title} ${artist}` || n === `${artist} ${title}`)) return true;
+	if (artist && n.startsWith(title) && n.endsWith(artist) && n.length > title.length + artist.length) {
+		return true;
+	}
+	return false;
+}
+
+/** Drops credit/title header rows so they never show as karaoke. Blank
+ *  instrumental markers stay. Exact-title-only matches only drop when they
+ *  sit at the start of the file (a chorus that repeats the title later is
+ *  a real lyric). "Title - Artist" headers drop wherever they appear. */
+export function dropNonLyricLines(lines, query = {}) {
+	const list = Array.isArray(lines) ? lines : [];
+	return list.filter((line) => {
+		const text = String(line?.text || '').trim();
+		if (!text) return true;
+		if (CREDIT_LINE_RE.test(text)) return false;
+		if (!isTrackHeaderLine(text, query)) return true;
+		const n = normalizeLyricText(text);
+		const title = normalizeLyricText(query.title);
+		const artist = normalizeLyricText(query.artist);
+		if (artist && n !== title) return false;
+		return (Number(line.time) || 0) >= 3;
+	});
+}
+
+function timedWord(time, text, end) {
+	const word = { time, text };
+	if (Number.isFinite(end) && end > time) word.end = end;
+	return word;
+}
+
 function parseClock(minutes, seconds) {
 	return parseInt(minutes, 10) * 60 + parseFloat(seconds);
 }
@@ -39,10 +82,10 @@ function parseEnhancedWords(content, offsetSec) {
 		const end = i + 1 < tags.length ? tags[i + 1].index : content.length;
 		const text = content.slice(start, end).replace(WORD_TAG, '').trim();
 		if (!text) continue;
-		words.push({
-			time: parseClock(tags[i][1], tags[i][2]) + offsetSec,
-			text
-		});
+		const time = parseClock(tags[i][1], tags[i][2]) + offsetSec;
+		const nextTime =
+			i + 1 < tags.length ? parseClock(tags[i + 1][1], tags[i + 1][2]) + offsetSec : undefined;
+		words.push(timedWord(time, text, nextTime));
 	}
 	return words;
 }
@@ -104,9 +147,9 @@ export function synthesizeWordTiming(lines) {
 		const words = tokens.map((text, idx) => {
 			const time = line.time + elapsed;
 			elapsed += (weights[idx] / totalWeight) * span;
-			return { time, text, estimated: true };
+			return { ...timedWord(time, text, line.time + elapsed), estimated: true };
 		});
-		return { ...line, words };
+		return { ...line, end: line.time + span, words };
 	});
 }
 
@@ -137,7 +180,7 @@ export function parseLRC(text) {
 			});
 		}
 	}
-	return synthesizeWordTiming(lines.sort((a, b) => a.time - b.time));
+	return dropNonLyricLines(synthesizeWordTiming(lines.sort((a, b) => a.time - b.time)));
 }
 
 /** Converts a TTML/SMPTE-ish timecode - plain seconds ("12.34" / "12.34s"),
@@ -181,6 +224,7 @@ export function parseTTML(text) {
 		const [, pAttrs, inner] = m;
 		const begin = parseTimecode(xmlAttr(pAttrs, 'begin'));
 		if (begin == null) continue;
+		const lineEnd = parseTimecode(xmlAttr(pAttrs, 'end'));
 		const words = [];
 		TTML_SPAN_TAG.lastIndex = 0;
 		let sm;
@@ -188,12 +232,18 @@ export function parseTTML(text) {
 			const [, sAttrs, sInner] = sm;
 			if (/ttm:role\s*=\s*"x-translation"/i.test(sAttrs || '')) continue;
 			const wordBegin = parseTimecode(xmlAttr(sAttrs, 'begin'));
+			const wordEnd = parseTimecode(xmlAttr(sAttrs, 'end'));
 			const wordText = stripMarkup(sInner);
 			if (wordBegin == null || !wordText) continue;
-			words.push({ time: wordBegin, text: wordText });
+			words.push(timedWord(wordBegin, wordText, wordEnd));
 		}
 		const lineText = words.length ? words.map((w) => w.text).join(' ') : stripMarkup(inner);
-		lines.push({ time: begin, text: lineText, ...(words.length ? { words } : {}) });
+		lines.push({
+			time: begin,
+			text: lineText,
+			...(lineEnd != null && lineEnd > begin ? { end: lineEnd } : {}),
+			...(words.length ? { words } : {})
+		});
 	}
 	return lines.sort((a, b) => a.time - b.time);
 }
@@ -224,7 +274,7 @@ export function parseYrc(text) {
 					words.push({ time: begin + (Number(chunk?.t) || 0) / 1000, text: word });
 				}
 				const lineText = words.map((w) => w.text).join(' ');
-				if (!lineText) continue;
+				if (!lineText || CREDIT_LINE_RE.test(lineText)) continue;
 				lines.push({ time: begin, text: lineText, ...(words.length >= 2 ? { words } : {}) });
 			} catch {
 				/* not a JSON credit line */
@@ -234,16 +284,24 @@ export function parseYrc(text) {
 		const header = row.match(/^\[(\d+),(\d+)\](.*)$/);
 		if (!header) continue;
 		const begin = Number(header[1]) / 1000;
+		const lineEnd = begin + Number(header[2]) / 1000;
 		const words = [];
 		YRC_WORD_RE.lastIndex = 0;
 		let wm;
 		while ((wm = YRC_WORD_RE.exec(header[3])) !== null) {
 			const word = wm[4].trim();
 			if (!word) continue;
-			words.push({ time: Number(wm[1]) / 1000, text: word });
+			const time = Number(wm[1]) / 1000;
+			words.push(timedWord(time, word, time + Number(wm[2]) / 1000));
 		}
 		const lineText = words.map((w) => w.text).join(' ');
-		lines.push({ time: begin, text: lineText, ...(words.length >= 2 ? { words } : {}) });
+		if (CREDIT_LINE_RE.test(lineText)) continue;
+		lines.push({
+			time: begin,
+			end: lineEnd,
+			text: lineText,
+			...(words.length >= 2 ? { words } : {})
+		});
 	}
 	return lines.sort((a, b) => a.time - b.time);
 }
@@ -255,18 +313,26 @@ export function parseKrc(text) {
 		const match = raw.match(KRC_LINE_RE);
 		if (!match) continue;
 		const begin = Number(match[1]) / 1000;
+		const lineEnd = begin + Number(match[2]) / 1000;
 		const words = [];
 		KRC_WORD_RE.lastIndex = 0;
 		let wm;
 		while ((wm = KRC_WORD_RE.exec(match[3])) !== null) {
 			const word = wm[4].trim();
 			if (!word) continue;
-			words.push({ time: begin + Number(wm[1]) / 1000, text: word });
+			const time = begin + Number(wm[1]) / 1000;
+			words.push(timedWord(time, word, time + Number(wm[2]) / 1000));
 		}
 		const lineText = words.length
 			? words.map((w) => w.text).join(' ')
 			: match[3].replace(KRC_WORD_RE, '').trim();
-		lines.push({ time: begin, text: lineText, ...(words.length >= 2 ? { words } : {}) });
+		if (CREDIT_LINE_RE.test(lineText)) continue;
+		lines.push({
+			time: begin,
+			end: lineEnd,
+			text: lineText,
+			...(words.length >= 2 ? { words } : {})
+		});
 	}
 	return lines.sort((a, b) => a.time - b.time);
 }
@@ -290,25 +356,27 @@ export function lyricsToPlainText(lines) {
 	return texts.length ? texts.join('\n') : null;
 }
 
-export function linesFromCommunityPayload(parsed) {
+export function linesFromCommunityPayload(parsed, query) {
 	if (!parsed || typeof parsed !== 'object') return null;
+	const q = query || { artist: parsed.artist, title: parsed.title };
+	let lines = null;
 	if (Array.isArray(parsed.lines) && parsed.lines.length) {
-		return parsed.wordLevel ? parsed.lines : synthesizeWordTiming(parsed.lines);
+		lines = parsed.wordLevel ? parsed.lines : synthesizeWordTiming(parsed.lines);
+	} else if (parsed.ttml) {
+		const parsedTtml = parseTTML(parsed.ttml);
+		lines = parsedTtml.length ? synthesizeWordTiming(parsedTtml) : null;
+	} else if (parsed.yrc) {
+		const parsedYrc = parseYrc(parsed.yrc);
+		lines = parsedYrc.length ? synthesizeWordTiming(parsedYrc) : null;
+	} else if (parsed.krc) {
+		const parsedKrc = parseKrc(parsed.krc);
+		lines = parsedKrc.length ? synthesizeWordTiming(parsedKrc) : null;
+	} else if (parsed.synced) {
+		lines = parseLRC(parsed.synced);
 	}
-	if (parsed.ttml) {
-		const lines = parseTTML(parsed.ttml);
-		return lines.length ? synthesizeWordTiming(lines) : null;
-	}
-	if (parsed.yrc) {
-		const lines = parseYrc(parsed.yrc);
-		return lines.length ? synthesizeWordTiming(lines) : null;
-	}
-	if (parsed.krc) {
-		const lines = parseKrc(parsed.krc);
-		return lines.length ? synthesizeWordTiming(lines) : null;
-	}
-	if (parsed.synced) return parseLRC(parsed.synced);
-	return null;
+	if (!lines) return null;
+	const cleaned = dropNonLyricLines(lines, q);
+	return cleaned.length ? cleaned : null;
 }
 
 export function parseMusixmatchRichSync(body) {
@@ -318,15 +386,24 @@ export function parseMusixmatchRichSync(body) {
 		const ts = Number(row?.ts);
 		if (!Number.isFinite(ts)) continue;
 		const chunks = Array.isArray(row?.l) ? row.l : [];
+		const te = Number(row?.te);
 		const words = [];
-		for (const chunk of chunks) {
-			const text = String(chunk?.c || '').trim();
+		for (let i = 0; i < chunks.length; i++) {
+			const text = String(chunks[i]?.c || '').trim();
 			if (!text) continue;
-			words.push({ time: ts + (Number(chunk?.o) || 0), text });
+			const time = ts + (Number(chunks[i]?.o) || 0);
+			const next = chunks[i + 1];
+			const end = next ? ts + (Number(next.o) || 0) : te;
+			words.push(timedWord(time, text, end));
 		}
 		const lineText =
 			typeof row?.x === 'string' && row.x.trim() ? row.x.trim() : words.map((w) => w.text).join(' ');
-		lines.push({ time: ts, text: lineText, ...(words.length ? { words } : {}) });
+		lines.push({
+			time: ts,
+			text: lineText,
+			...(Number.isFinite(te) && te > ts ? { end: te } : {}),
+			...(words.length ? { words } : {})
+		});
 	}
 	return lines.sort((a, b) => a.time - b.time);
 }
@@ -375,10 +452,11 @@ export function pickBestLyricsHit(hits, query) {
 	return best;
 }
 
-export function lyricsFromHit(hit) {
+export function lyricsFromHit(hit, query) {
 	if (!hit) return null;
-	if (hit.syncedLyrics) return parseLRC(hit.syncedLyrics);
-	if (hit.plainLyrics) return [{ time: 0, text: hit.plainLyrics }];
+	const q = query || { artist: hit.artistName, title: hit.trackName };
+	if (hit.syncedLyrics) return dropNonLyricLines(parseLRC(hit.syncedLyrics), q);
+	if (hit.plainLyrics) return dropNonLyricLines([{ time: 0, text: hit.plainLyrics }], q);
 	return null;
 }
 
@@ -517,7 +595,7 @@ export function fetchCommunityLyrics(
 		child.on('close', () => {
 			try {
 				const parsed = JSON.parse(out);
-				const lines = linesFromCommunityPayload(parsed);
+				const lines = linesFromCommunityPayload(parsed, { artist, title });
 				if (!lines) {
 					finish(null);
 					return;
@@ -567,9 +645,10 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 				const found = await getJson(`https://lrclib.net/api/search?${search}`);
 				hit = pickBestLyricsHit(found, query);
 			}
-			lines = lyricsFromHit(hit);
+			lines = lyricsFromHit(hit, query);
 			plainText = hit?.plainLyrics || lyricsToPlainText(lines);
 		}
+		if (lines) lines = dropNonLyricLines(lines, { artist, title });
 		lyricsCache.set(key, {
 			lines,
 			plainText,
