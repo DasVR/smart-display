@@ -1,6 +1,11 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { CREDIT_LINE_RE, dropNonLyricLines, normalizeLyricText } from '../lyricText.js';
+
+export { CREDIT_LINE_RE, dropNonLyricLines, normalizeLyricText } from '../lyricText.js';
+export { cleanLyricLines, isInstrumentalCue, isTrackHeaderLine } from '../lyricText.js';
+
 const LYRICS_HIT_TTL = 6 * 60 * 60 * 1000;
 const LYRICS_MISS_TTL = 90 * 1000;
 const lyricsCache = new Map();
@@ -14,54 +19,6 @@ const TIME_TAG = /\[(\d{1,3}):(\d{2}(?:\.\d+)?)\]/g;
 const WORD_TAG = /<(\d{1,3}):(\d{2}(?:\.\d+)?)>/g;
 const OFFSET_TAG = /\[offset:([+-]?\d+(?:\.\d+)?)\]/i;
 const META_TAG = /^\s*\[(ar|ti|al|au|by|re|ve|length|tool|offset):/i;
-
-export function normalizeLyricText(value = '') {
-	return String(value)
-		.toLowerCase()
-		.normalize('NFKD')
-		.replace(/&/g, ' and ')
-		.replace(/[^\w\s]/g, ' ')
-		.replace(/\b(feat|ft|featuring|with)\b.*$/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim();
-}
-
-// NetEase/Kugou (and some LRC dumps) stamp a header row before the song:
-// "作词: …", "Title - Artist". Those are credits, not lyrics.
-const CREDIT_LINE_RE =
-	/^(作词|作詞|作曲|编曲|編曲|制作人|製作人|歌词|歌詞|演唱|歌手|出品|produced\s*by|written\s*by|lyrics\s*by|lyricist|composer|arranger|lyrics|composer)\s*[:：]/i;
-
-function isTrackHeaderLine(text, query = {}) {
-	const n = normalizeLyricText(text);
-	const title = normalizeLyricText(query.title);
-	const artist = normalizeLyricText(query.artist);
-	if (!n || !title) return false;
-	if (n === title) return true;
-	if (artist && (n === `${title} ${artist}` || n === `${artist} ${title}`)) return true;
-	if (artist && n.startsWith(title) && n.endsWith(artist) && n.length > title.length + artist.length) {
-		return true;
-	}
-	return false;
-}
-
-/** Drops credit/title header rows so they never show as karaoke. Blank
- *  instrumental markers stay. Exact-title-only matches only drop when they
- *  sit at the start of the file (a chorus that repeats the title later is
- *  a real lyric). "Title - Artist" headers drop wherever they appear. */
-export function dropNonLyricLines(lines, query = {}) {
-	const list = Array.isArray(lines) ? lines : [];
-	return list.filter((line) => {
-		const text = String(line?.text || '').trim();
-		if (!text) return true;
-		if (CREDIT_LINE_RE.test(text)) return false;
-		if (!isTrackHeaderLine(text, query)) return true;
-		const n = normalizeLyricText(text);
-		const title = normalizeLyricText(query.title);
-		const artist = normalizeLyricText(query.artist);
-		if (artist && n !== title) return false;
-		return (Number(line.time) || 0) >= 3;
-	});
-}
 
 function timedWord(time, text, end) {
 	const word = { time, text };

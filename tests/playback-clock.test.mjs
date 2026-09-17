@@ -172,6 +172,16 @@ test('instrumentalGap ignores a short blank line (just a breath, not a break)', 
 	assert.equal(instrumentalGap(lines, 0), null);
 });
 
+test('instrumentalGap treats a source-stamped dash cue as a rest even when short', () => {
+	const lines = [
+		{ time: 10, text: 'verse' },
+		{ time: 14, text: '', instrumental: true },
+		{ time: 16, text: 'next' }
+	];
+	assert.deepEqual(instrumentalGap(lines, 1), { start: 14, end: 16 });
+	assert.equal(instrumentalGap(lines, 0), null);
+});
+
 test('instrumentalDotsOpacity rises across the gap and caps at 1', () => {
 	const lines = [
 		{ time: 0, text: 'intro' },

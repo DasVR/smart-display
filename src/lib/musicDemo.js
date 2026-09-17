@@ -52,10 +52,10 @@ const DEMO_LYRICS = [
 		{ time: 18.5, end: 18.9, text: 'way' },
 		{ time: 18.9, end: 19.4, text: 'home' }
 	]},
-	// A bare timed marker with no text - an instrumental break in the demo,
-	// same as a real LRC file's blank-line convention. The three-dot
-	// indicator's opacity rises across this whole gap.
-	{ time: 19.6, text: '' },
+	// A timed em dash / rest glyph - community files stamp these for
+	// instrumentals. cleanLyricLines turns them into a blank marker so the
+	// three-dot indicator runs across the break instead of showing "—".
+	{ time: 19.6, text: '—' },
 	{ time: 27.0, text: 'Radio humming in the dark' },
 	{ time: 31.2, text: 'Every mile a quieter spark' },
 	{ time: 35.4, text: 'Hold this note until the dawn' }

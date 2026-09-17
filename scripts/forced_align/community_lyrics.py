@@ -37,9 +37,19 @@ KRC_LINE_RE = re.compile(r"^\[(\d+),(\d+)\](.*)$")
 KRC_WORD_RE = re.compile(r"<(\d+),(\d+),(\d+)>([^<]*)")
 META_LINE_RE = re.compile(r"^\s*\[(ar|ti|al|by|offset|id|language|hash):", re.I)
 CREDIT_LINE_RE = re.compile(
-	r"^(作词|作詞|作曲|编曲|編曲|制作人|製作人|歌词|歌詞|演唱|歌手|出品|produced\s*by|written\s*by|lyrics\s*by|lyricist|composer|arranger|lyrics|composer)\s*[:：]",
+	r"^(作词|作詞|作曲|编曲|編曲|制作人|製作人|歌词|歌詞|演唱|歌手|出品)(\s*[:：]|\s+)|^(produced\s*by|written\s*by|lyrics\s*by|lyricist|composer|arranger|lyrics|composer)\s*[:：]",
 	re.I,
 )
+BREAK_GLYPH_RE = re.compile(r"[\s\-–—−‐‑‒―~～.·•、。*♪♫♩♬…]+")
+INSTRUMENTAL_NAME_RE = re.compile(
+	r"^(instrumental|interlude|intro|outro|bridge|break|inst|music|間奏|间奏|前奏|尾奏|伴奏)$",
+	re.I,
+)
+VERSION_JUNK_RE = re.compile(
+	r"^(remix|mix|edit|version|ver|radio|live|acoustic|official|video|audio|lyrics|lyric|mv|pv|ost|theme|from|cover|inst|instrumental|deluxe|remaster(?:ed)?|extended|short|long|intro|outro|interlude|bonus)$",
+	re.I,
+)
+PAREN_RE = re.compile(r"[\(\[\{【「『].*?[\)\]\}】」』]")
 
 
 def normalize(value: str = "") -> str:
@@ -91,42 +101,82 @@ def http_json(url, *, data=None, headers=None, timeout=6):
 	return json.loads(raw.decode("utf-8"))
 
 
-def is_track_header_line(text, want) -> bool:
+def core_title(text: str) -> str:
+	return normalize(PAREN_RE.sub(" ", str(text or "")))
+
+
+def is_instrumental_cue(text: str) -> bool:
+	raw = str(text or "").strip()
+	if not raw:
+		return True
+	if not BREAK_GLYPH_RE.sub("", raw):
+		return True
+	n = normalize(raw)
+	if not n:
+		return True
+	return bool(INSTRUMENTAL_NAME_RE.match(n.replace(" ", "")))
+
+
+def is_track_header_line(text, want, *, index=None, first_content_index=None) -> bool:
 	n = normalize(text)
+	core = core_title(text)
 	title = normalize((want or {}).get("title"))
+	title_core = core_title((want or {}).get("title") or "")
 	artist = normalize((want or {}).get("artist"))
 	if not n or not title:
 		return False
-	if n == title:
-		return True
-	if artist and n in (f"{title} {artist}", f"{artist} {title}"):
-		return True
-	if artist and n.startswith(title) and n.endswith(artist) and len(n) > len(title) + len(artist):
-		return True
+	matches_title = n == title or core == title or n == title_core or core == title_core
+	if matches_title:
+		if first_content_index is None:
+			return True
+		return index == first_content_index
+	if artist:
+		if n in (f"{title} {artist}", f"{artist} {title}"):
+			return True
+		if core in (f"{title} {artist}", f"{artist} {title}"):
+			return True
+		if n.startswith(title) and n.endswith(artist) and len(n) > len(title) + len(artist):
+			return True
+		if core.startswith(title_core) and core.endswith(artist) and len(core) > len(title_core) + len(artist):
+			return True
+	if n.startswith(f"{title} ") or (title_core and core.startswith(f"{title_core} ")):
+		rest = [tok for tok in n[len(title) :].split() if tok]
+		if rest and all(VERSION_JUNK_RE.match(tok) or (artist and tok == artist) for tok in rest):
+			return True
 	return False
 
 
 def drop_non_lyric_lines(lines, want=None):
-	"""Strip credit/title headers. Blank instrumental rows stay."""
-	cleaned = []
+	"""Strip credit/title headers. Dash-only rest cues become blank markers."""
+	prepared = []
 	for line in lines or []:
 		text = str(line.get("text") or "").strip()
-		if not text:
+		if text and is_instrumental_cue(text):
+			blank = dict(line)
+			blank["text"] = ""
+			blank["instrumental"] = True
+			blank.pop("words", None)
+			prepared.append(blank)
+			continue
+		prepared.append(line)
+
+	without_credits = []
+	for line in prepared:
+		text = str(line.get("text") or "").strip()
+		if not text or not CREDIT_LINE_RE.search(text):
+			without_credits.append(line)
+
+	first_content_index = next(
+		(i for i, line in enumerate(without_credits) if str(line.get("text") or "").strip()),
+		-1,
+	)
+	cleaned = []
+	for i, line in enumerate(without_credits):
+		text = str(line.get("text") or "").strip()
+		if not text or not is_track_header_line(
+			text, want or {}, index=i, first_content_index=first_content_index
+		):
 			cleaned.append(line)
-			continue
-		if CREDIT_LINE_RE.search(text):
-			continue
-		if not is_track_header_line(text, want or {}):
-			cleaned.append(line)
-			continue
-		n = normalize(text)
-		title = normalize((want or {}).get("title"))
-		artist = normalize((want or {}).get("artist"))
-		if artist and n != title:
-			continue
-		if float(line.get("time") or 0) < 3:
-			continue
-		cleaned.append(line)
 	return cleaned
 
 
@@ -511,9 +561,26 @@ def self_test():
 	)
 	assert len(headered) == 1
 	assert headered[0]["text"] == "Feeling so faithless"
+	late_title = drop_non_lyric_lines(
+		[
+			{"time": 8, "text": "Numb (英雄联盟代表音乐)"},
+			{"time": 22, "text": "I'm tired of being what you want me to be"},
+			{"time": 80, "text": "Numb"},
+		],
+		{"artist": "Linkin Park", "title": "Numb"},
+	)
+	assert [line["text"] for line in late_title] == [
+		"I'm tired of being what you want me to be",
+		"Numb",
+	]
+	dashes = drop_non_lyric_lines(
+		[{"time": 10, "text": "verse"}, {"time": 14, "text": "—"}, {"time": 16, "text": "next"}]
+	)
+	assert dashes[1]["text"] == ""
+	assert dashes[1].get("instrumental") is True
 	assert score_hit("Linkin Park", "Numb", 186, {"artist": "Linkin Park", "title": "Numb", "duration": 186}) >= 90
 	assert score_hit("Frank Sinatra", "My Way", 275, {"artist": "Limp Bizkit", "title": "My Way", "duration": 273}) == 0
-	print(json.dumps({"ok": True, "tests": 6}))
+	print(json.dumps({"ok": True, "tests": 8}))
 	return 0
 
 

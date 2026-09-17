@@ -135,7 +135,11 @@ export function instrumentalGap(lines, index) {
 	if (!next || line.text) return null;
 	const start = Number(line.time) || 0;
 	const end = Number(next.time) || 0;
-	if (end - start < INSTRUMENTAL_GAP_SEC) return null;
+	// Source-stamped rest cues (em dashes, "instrumental") count even when
+	// the next lyric is close. Bare LRC blanks still need a real gap so a
+	// two-second breath does not turn into dots.
+	const minGap = line.instrumental ? 0.5 : INSTRUMENTAL_GAP_SEC;
+	if (end - start < minGap) return null;
 	return { start, end };
 }
 

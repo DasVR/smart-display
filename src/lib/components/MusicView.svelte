@@ -12,6 +12,7 @@
 		singingLyricIndex,
 		wordProgress
 	} from '$lib/playbackClock.js';
+	import { cleanLyricLines } from '$lib/lyricText.js';
 	import { nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
 
 	let artFailed = $state(false);
@@ -28,8 +29,11 @@
 	// transition below so it plays exactly once per track change, even if
 	// the art URL is briefly empty/retried or unchanged between two tracks.
 	let trackKey = $derived(`${track?.artist ?? ''}::${track?.title ?? ''}`);
-	let synced = $derived(lyricsAreSynced(track?.lyrics) ? track.lyrics : null);
-	let plainLyrics = $derived(!synced && track?.lyrics?.[0]?.text ? track.lyrics[0].text : null);
+	let lyrics = $derived(
+		cleanLyricLines(track?.lyrics, { artist: track?.artist, title: track?.title })
+	);
+	let synced = $derived(lyricsAreSynced(lyrics) ? lyrics : null);
+	let plainLyrics = $derived(!synced && lyrics?.[0]?.text ? lyrics[0].text : null);
 	// True only while the server is still checking online sources
 	// (syncedlyrics/LRCLIB) for this track - not while a forced-alignment
 	// job might be running in the background, which can take minutes and

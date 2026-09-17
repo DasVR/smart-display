@@ -484,6 +484,43 @@ test('dropNonLyricLines keeps a later chorus that repeats the title', () => {
 	);
 });
 
+test('dropNonLyricLines strips a title header even when it starts after 3s', () => {
+	const lines = dropNonLyricLines(
+		[
+			{ time: 8, text: 'Numb (英雄联盟代表音乐)' },
+			{ time: 22, text: "I'm tired of being what you want me to be" },
+			{ time: 80, text: 'Numb' }
+		],
+		{ artist: 'Linkin Park', title: 'Numb' }
+	);
+	assert.deepEqual(
+		lines.map((line) => line.text),
+		["I'm tired of being what you want me to be", 'Numb']
+	);
+});
+
+test('dropNonLyricLines turns em-dash rest cues into instrumental markers', () => {
+	const lines = dropNonLyricLines([
+		{ time: 10, text: 'verse one' },
+		{ time: 14, text: '—' },
+		{ time: 16, text: '---' },
+		{ time: 18, text: '♪ ♪' },
+		{ time: 20, text: 'verse two' }
+	]);
+	assert.equal(lines[1].text, '');
+	assert.equal(lines[1].instrumental, true);
+	assert.equal(lines[2].text, '');
+	assert.equal(lines[3].text, '');
+	assert.equal(lines[4].text, 'verse two');
+});
+
+test('parseLRC treats a dash-only timed line as a blank rest marker', () => {
+	const lines = parseLRC('[00:12.00]You can take it all\n[00:16.00]—\n[00:24.00]Just do not mess with me');
+	assert.equal(lines[1].text, '');
+	assert.equal(lines[1].instrumental, true);
+	assert.equal(lines[1].words, undefined);
+});
+
 test('parseKrc converts word offsets into absolute times', () => {
 	const lines = parseKrc('[25872,4298]<0,475,0>Feeling <475,242,0>so <717,1315,0>faithless');
 	assert.equal(lines[0].text, 'Feeling so faithless');
