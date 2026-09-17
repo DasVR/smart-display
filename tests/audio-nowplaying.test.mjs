@@ -153,6 +153,25 @@ test('readAirplayNowPlaying returns live state', () => {
 	assert.equal(live.title, 'Cardigan');
 });
 
+test('readAirplayNowPlaying keeps a recently paused session', () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), 'airplay-np-'));
+	const file = path.join(dir, 'now.json');
+	const now = 1_700_000_000_000;
+	writeFileSync(
+		file,
+		JSON.stringify({
+			playing: false,
+			paused: true,
+			title: 'My Way',
+			updatedAt: now - 30_000
+		})
+	);
+	const paused = readAirplayNowPlaying(file, now);
+	assert.equal(paused.stale, undefined);
+	assert.equal(paused.paused, true);
+	assert.equal(mergeNowPlaying({ playing: false }, paused).title, 'My Way');
+});
+
 test('readAirplayNowPlaying treats a paused file without heartbeats as disconnected', () => {
 	const dir = mkdtempSync(path.join(os.tmpdir(), 'airplay-np-'));
 	const file = path.join(dir, 'now.json');

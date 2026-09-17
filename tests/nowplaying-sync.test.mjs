@@ -100,3 +100,54 @@ test('mergeNowPlayingSample takes a later real progress report', () => {
 	assert.equal(merged.position, 14.2);
 	assert.equal(merged.positionAt, 5_000);
 });
+
+test('mergeNowPlayingSample accepts a post-flush scrub landing behind the old clock', () => {
+	const current = { ...live, playing: true, position: 40, positionAt: 1_000, seeking: true };
+	const landed = { ...live, playing: true, position: 12, positionAt: 5_000, seeking: false };
+	const merged = mergeNowPlayingSample(current, landed, 5_000);
+	assert.equal(merged.position, 12);
+	assert.equal(merged.positionAt, 5_000);
+	assert.equal(merged.seeking, false);
+});
+
+test('mergeNowPlayingSample accepts an AirPlay scrub that skipped the flush flag', () => {
+	const current = { ...live, playing: true, source: 'airplay', position: 40, positionAt: 1_000 };
+	const scrub = { ...live, playing: true, source: 'airplay', position: 12, positionAt: 5_000 };
+	const merged = mergeNowPlayingSample(current, scrub, 5_000);
+	assert.equal(merged.position, 12);
+	assert.equal(merged.positionAt, 5_000);
+});
+
+test('mergeNowPlayingSample accepts an AirPlay skip back to the start', () => {
+	const current = { ...live, playing: true, source: 'airplay', position: 40, positionAt: 1_000 };
+	const skipStart = { ...live, playing: true, source: 'airplay', position: 0.2, positionAt: 5_000 };
+	const merged = mergeNowPlayingSample(current, skipStart, 5_000);
+	assert.equal(merged.position, 0.2);
+	assert.equal(merged.positionAt, 5_000);
+});
+
+test('mergeNowPlayingSample takes a new song clock even if the old one was ahead', () => {
+	const current = { ...live, playing: true, title: 'My Way', position: 40, positionAt: 1_000 };
+	const next = { ...live, playing: true, title: 'Daylight', position: 1.4, positionAt: 5_000 };
+	const merged = mergeNowPlayingSample(current, next, 5_000);
+	assert.equal(merged.title, 'Daylight');
+	assert.equal(merged.position, 1.4);
+	assert.equal(merged.positionAt, 5_000);
+});
+
+test('mergeNowPlayingSample takes a paused AirPlay sample instead of dropping the track', () => {
+	const current = { ...live, playing: true, source: 'airplay', position: 40, positionAt: 1_000 };
+	const paused = {
+		...live,
+		playing: false,
+		paused: true,
+		source: 'airplay',
+		position: 44.2,
+		positionAt: 5_200
+	};
+	const merged = mergeNowPlayingSample(current, paused, 5_200);
+	assert.equal(merged.playing, false);
+	assert.equal(merged.paused, true);
+	assert.equal(merged.title, 'Daylight');
+	assert.equal(merged.position, 44.2);
+});

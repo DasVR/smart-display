@@ -3,7 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 export const AIRPLAY_STALE_MS = 12_000;
-export const AIRPLAY_PAUSED_STALE_MS = 12_000;
+/** Pause often stops AirPlay heartbeats (`pend` looks like stream end).
+ *  12s made a phone pause drop the kiosk session. A titled pause can sit
+ *  this long before we treat silence as a disconnect. */
+export const AIRPLAY_PAUSED_STALE_MS = 300_000;
 
 function runtimeDir() {
 	return process.env.XDG_RUNTIME_DIR || `/run/user/${typeof process.getuid === 'function' ? process.getuid() : 1000}`;
