@@ -4,11 +4,12 @@
 	import { nowPlaying } from '$lib/stores.js';
 	import { bassLevel } from '$lib/services/audioReactive.js';
 	import {
-		activeLyricIndex as indexForTime,
+		activeLyricIndex as startedIndexForTime,
 		activeWordIndex,
 		instrumentalDotStates,
 		livePlaybackPosition,
 		lyricsAreSynced,
+		singingLyricIndex,
 		wordProgress
 	} from '$lib/playbackClock.js';
 	import { nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
@@ -34,7 +35,12 @@
 	// job might be running in the background, which can take minutes and
 	// isn't something a "loading" indicator should promise is imminent.
 	let lyricsPending = $derived(Boolean(track?.lyricsPending) && !synced && !plainLyrics);
-	let activeLyricIndex = $derived(indexForTime(synced, displayPosition));
+	// Last line whose start clock has been reached. Used for scroll + "past"
+	// styling so a rest after the last word does not jump the viewport.
+	let startedLyricIndex = $derived(startedIndexForTime(synced, displayPosition));
+	// Line currently being sung. -1 after the last word finishes and before
+	// the next line starts, so the stack goes dark across the instrumental.
+	let activeLyricIndex = $derived(singingLyricIndex(synced, displayPosition));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
 	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, displayPosition));
 	// Fraction (0..1) the way through the currently-singing word, for a
@@ -43,11 +49,11 @@
 	let activeWordFill = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return 0;
-		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex + 1]?.time);
+		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex]?.end);
 	});
 	// Per-dot brightness (Apple Music-style: dots light up in sequence as the
 	// gap elapses, scaled to how long the actual instrumental section is).
-	let instrumentalDots = $derived(instrumentalDotStates(synced, activeLyricIndex, displayPosition));
+	let instrumentalDots = $derived(instrumentalDotStates(synced, startedLyricIndex, displayPosition));
 	// A small, bass-driven breathing scale for the album art - subtle enough
 	// not to distract from the art itself, but enough that the cover reads
 	// as alive rather than a static image while something is playing.
@@ -86,7 +92,7 @@
 	});
 
 	$effect(() => {
-		const idx = activeLyricIndex;
+		const idx = startedLyricIndex;
 		const viewport = lyricsViewport;
 		if (!viewport || idx < 0) {
 			lyricsOffset = 0;
@@ -132,14 +138,22 @@
 	}
 
 	function wordSung(line, wordIndex) {
-		if (line < activeLyricIndex) return true;
-		if (line !== activeLyricIndex) return false;
+		if (startedLyricIndex < 0) return false;
+		if (line < startedLyricIndex) return true;
+		if (line > startedLyricIndex) return false;
+		if (activeLyricIndex < 0) return true;
 		return wordIndex < activeWordIdx;
 	}
 
+	function lineIsPast(lineIndex) {
+		if (startedLyricIndex < 0) return false;
+		if (lineIndex < startedLyricIndex) return true;
+		return lineIndex === startedLyricIndex && activeLyricIndex < 0;
+	}
+
 	function dotBrightness(lineIndex, dotIndex) {
-		if (lineIndex < activeLyricIndex) return 1;
-		if (lineIndex > activeLyricIndex) return 0;
+		if (lineIndex < startedLyricIndex) return 1;
+		if (lineIndex > startedLyricIndex) return 0;
 		return instrumentalDots[dotIndex] ?? 0;
 	}
 </script>
@@ -242,7 +256,7 @@
 							<p
 								class="lyric-line"
 								class:active={i === activeLyricIndex}
-								class:past={i < activeLyricIndex}
+								class:past={lineIsPast(i)}
 								data-lyric={i}
 							>
 								{#if line.words?.length}

@@ -7,8 +7,11 @@ import {
 	instrumentalDotStates,
 	instrumentalDotsOpacity,
 	instrumentalGap,
+	lineSungThrough,
 	livePlaybackPosition,
 	lyricsAreSynced,
+	singingLyricIndex,
+	wordEndTime,
 	wordProgress
 } from '../src/lib/playbackClock.js';
 
@@ -92,8 +95,56 @@ test('wordProgress sweeps left-to-right across a word span', () => {
 	assert.equal(wordProgress(words, 0, 12, 13.4), 0);
 	assert.ok(Math.abs(wordProgress(words, 0, 12.2, 13.4) - 0.5) < 1e-9);
 	assert.equal(wordProgress(words, 0, 12.4, 13.4), 1);
-	// Last word falls back to the next line's start as its end boundary.
+	// Last word with a nearby next-line clock still uses that tight bound.
 	assert.ok(Math.abs(wordProgress(words, 2, 13.1, 13.4) - 0.5) < 1e-9);
+});
+
+test('wordProgress finishes a last word at its own end instead of the next line', () => {
+	const words = [
+		{ time: 12, text: 'You' },
+		{ time: 12.4, text: 'can' },
+		{ time: 12.8, end: 13.1, text: 'take' }
+	];
+	assert.ok(Math.abs(wordProgress(words, 2, 12.95, 40) - 0.5) < 1e-9);
+	assert.equal(wordProgress(words, 2, 13.1, 40), 1);
+	assert.equal(wordProgress(words, 2, 20, 40), 1);
+});
+
+test('wordProgress does not stretch the last word across a long instrumental', () => {
+	const words = [
+		{ time: 12, text: 'You' },
+		{ time: 12.4, text: 'can' },
+		{ time: 12.8, text: 'take' }
+	];
+	// No end clock, next line at 40s. Last word should finish ~0.6s after it starts.
+	assert.equal(wordEndTime(words, 2, 40), 13.4);
+	assert.equal(wordProgress(words, 2, 13.4, 40), 1);
+	assert.equal(wordProgress(words, 2, 20, 40), 1);
+});
+
+test('singingLyricIndex goes dark after the last word and stays dark until the next line', () => {
+	const lines = [
+		{
+			time: 1,
+			text: 'one line',
+			words: [
+				{ time: 1, end: 1.3, text: 'one' },
+				{ time: 1.3, end: 1.8, text: 'line' }
+			]
+		},
+		{
+			time: 8,
+			text: 'two',
+			words: [{ time: 8, end: 8.4, text: 'two' }]
+		}
+	];
+	assert.equal(singingLyricIndex(lines, 0), -1);
+	assert.equal(singingLyricIndex(lines, 1.1), 0);
+	assert.equal(singingLyricIndex(lines, 1.8), -1);
+	assert.equal(activeLyricIndex(lines, 1.8), 0, 'started index stays on the finished line');
+	assert.equal(lineSungThrough(lines[0], 1.8), true);
+	assert.equal(singingLyricIndex(lines, 5), -1);
+	assert.equal(singingLyricIndex(lines, 8.1), 1);
 });
 
 test('wordProgress clamps to 0..1 outside the word span', () => {

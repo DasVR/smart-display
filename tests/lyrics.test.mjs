@@ -12,6 +12,7 @@ import {
 	hasRealWordTiming,
 	linesFromCommunityPayload,
 	lyricsFromHit,
+	dropNonLyricLines,
 	parseKrc,
 	parseLRC,
 	parseMusixmatchRichSync,
@@ -175,6 +176,8 @@ test('parseTTML reads Apple Music-style word spans', () => {
 	assert.equal(lines[0].words.length, 3);
 	assert.equal(lines[0].words[1].text, 'can');
 	assert.equal(lines[0].words[1].time, 1.6);
+	assert.equal(lines[0].words[1].end, 1.9);
+	assert.equal(lines[0].end, 4.5);
 });
 
 test('parseTTML handles HH:MM:SS.mmm and keeps a spanless <p> as an instrumental marker', () => {
@@ -440,7 +443,45 @@ test('parseYrc reads karaoke word clocks from LRC-style and JSON rows', () => {
 	const credit = lines.find((line) => line.text === 'Hello there');
 	assert.equal(karaoke.words[0].text, 'Caught');
 	assert.equal(karaoke.words[1].time, 48.4);
+	assert.equal(karaoke.words[0].end, 48.4);
 	assert.equal(credit.words[1].time, 1.4);
+});
+
+test('parseYrc drops 作词/作曲 credit rows', () => {
+	const lines = parseYrc(
+		'{"t":0,"c":[{"tx":"作词: "},{"tx":"Mike Shinoda"}]}\n' +
+			'[48100,3780](48100,300,0)Caught (48400,60,0)in (48460,210,0)the'
+	);
+	assert.equal(lines.some((line) => /作词/.test(line.text)), false);
+	assert.equal(lines[0].text.includes('Caught'), true);
+});
+
+test('dropNonLyricLines strips a Kugou title-artist header and keeps the verse', () => {
+	const lines = dropNonLyricLines(
+		parseKrc(
+			'[100,100]<0,100,0>Numb (英雄联盟代表音乐) - Linkin Park\n' +
+				'[25872,4298]<0,475,0>Feeling <475,242,0>so <717,1315,0>faithless'
+		),
+		{ artist: 'Linkin Park', title: 'Numb' }
+	);
+	assert.equal(lines.length, 1);
+	assert.equal(lines[0].text, 'Feeling so faithless');
+	assert.ok(Math.abs(lines[0].words[1].end - (25.872 + 0.475 + 0.242)) < 1e-9);
+});
+
+test('dropNonLyricLines keeps a later chorus that repeats the title', () => {
+	const lines = dropNonLyricLines(
+		[
+			{ time: 0.1, text: 'Numb - Linkin Park' },
+			{ time: 22, text: "I'm tired of being what you want me to be" },
+			{ time: 80, text: 'Numb' }
+		],
+		{ artist: 'Linkin Park', title: 'Numb' }
+	);
+	assert.deepEqual(
+		lines.map((line) => line.text),
+		["I'm tired of being what you want me to be", 'Numb']
+	);
 });
 
 test('parseKrc converts word offsets into absolute times', () => {

@@ -39,6 +39,57 @@ export function activeLyricIndex(lines, position) {
 	return idx;
 }
 
+/** Last-word fill without a real `end` clock. Long enough to sweep the
+ *  letters, short enough that a rest after the line does not keep painting. */
+export const DEFAULT_WORD_SPAN_SEC = 0.6;
+/** Cap for inferring a last-word end from the next line / line.end. Wider
+ *  gaps are instrumentals, not extra hold on the last syllable. */
+const MAX_INFERRED_LAST_WORD_SEC = 1.5;
+
+/** Clock when `words[index]` finishes. Prefers an explicit `end` from
+ *  karaoke sources (TTML/YRC/KRC). Otherwise the next word's start, a tight
+ *  `lineEndTime`, or a short default — never the start of a far-away next
+ *  line, which used to stretch the last character through the rest. */
+export function wordEndTime(words, index, lineEndTime) {
+	if (!Array.isArray(words) || index < 0 || index >= words.length) return 0;
+	const start = Number(words[index].time) || 0;
+	const explicit = Number(words[index].end);
+	if (Number.isFinite(explicit) && explicit > start) return explicit;
+	if (index + 1 < words.length) {
+		const next = Number(words[index + 1].time) || 0;
+		if (next > start) return next;
+	}
+	const lineEnd = Number(lineEndTime);
+	if (Number.isFinite(lineEnd) && lineEnd > start && lineEnd - start <= MAX_INFERRED_LAST_WORD_SEC) {
+		return lineEnd;
+	}
+	return start + DEFAULT_WORD_SPAN_SEC;
+}
+
+/** True once playback has passed the last sung clock on this line. Blank
+ *  instrumental markers never count — those stay "on" so the dots can run. */
+export function lineSungThrough(line, position) {
+	if (!line?.text) return false;
+	const t = Number(position) || 0;
+	const words = line.words;
+	if (Array.isArray(words) && words.length) {
+		return t >= wordEndTime(words, words.length - 1, line.end);
+	}
+	const lineEnd = Number(line.end);
+	if (Number.isFinite(lineEnd) && lineEnd > (Number(line.time) || 0)) return t >= lineEnd;
+	return false;
+}
+
+/** Index of the line currently being sung, or -1 when the last word has
+ *  already finished and the next line has not started yet (the lyric stack
+ *  goes dark across that rest instead of holding the last character). */
+export function singingLyricIndex(lines, position) {
+	const idx = activeLyricIndex(lines, position);
+	if (idx < 0) return -1;
+	if (lineSungThrough(lines[idx], position)) return -1;
+	return idx;
+}
+
 export function activeWordIndex(words, position) {
 	if (!Array.isArray(words) || !words.length) return -1;
 	const t = Number(position) || 0;
@@ -57,14 +108,13 @@ export function lyricsAreSynced(lines) {
 /** How far (0..1) `position` has swept through `words[index]`, for a smooth
  *  left-to-right fill within the word instead of an instant per-word snap —
  *  the "letter by letter" sweep Apple Music does. The word's span runs to
- *  the next word's clock, or to `lineEndTime` (the next line's start) for a
- *  line's last word, falling back to a short default so a lone word still
- *  animates instead of filling instantly. */
+ *  its own `end` (or the next word). The last word of a line finishes at
+ *  that end and stops; it does not keep filling across an instrumental. */
 export function wordProgress(words, index, position, lineEndTime) {
 	if (!Array.isArray(words) || index < 0 || index >= words.length) return 0;
 	const start = Number(words[index].time) || 0;
-	const next = index + 1 < words.length ? Number(words[index + 1].time) : Number(lineEndTime) || 0;
-	const span = next > start ? next - start : 0.6;
+	const end = wordEndTime(words, index, lineEndTime);
+	const span = end > start ? end - start : DEFAULT_WORD_SPAN_SEC;
 	const t = Number(position) || 0;
 	return Math.min(1, Math.max(0, (t - start) / span));
 }
