@@ -364,3 +364,9 @@ test('isPlaybackJump detects a scrub, not the next extrapolated frame', () => {
 	assert.equal(isPlaybackJump(prev, { playing: true, position: 40, positionAt: 2_000, length: 200 }, 2_000), true);
 	assert.equal(isPlaybackJump(prev, { playing: true, position: 10, positionAt: 1_000, seeking: true }, 2_000), true);
 });
+
+test('isPlaybackJump ignores a metadata restamp of the same sample', () => {
+	const prev = { playing: true, position: 10, positionAt: 1_000, length: 200 };
+	const lyricsLanded = { ...prev, lyrics: [{ time: 12, text: 'hi' }] };
+	assert.equal(isPlaybackJump(prev, lyricsLanded, 5_000), false);
+});

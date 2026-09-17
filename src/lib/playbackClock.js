@@ -161,6 +161,9 @@ export function letterWave(fill) {
 export function isPlaybackJump(prev, next, now = Date.now()) {
 	if (!prev || !next) return false;
 	if (next.seeking) return true;
+	const prevAt = Number(prev.positionAt) || 0;
+	const nextAt = Number(next.positionAt) || 0;
+	if (prevAt && nextAt && prevAt === nextAt) return false;
 	const expected = livePlaybackPosition(prev, now);
 	const reported = Number(next.position) || 0;
 	return Math.abs(reported - expected) > 1.4;
