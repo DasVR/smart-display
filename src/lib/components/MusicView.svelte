@@ -5,12 +5,14 @@
 	import {
 		activeLyricIndex as startedIndexForTime,
 		activeWordIndex,
-		instrumentalDotStates,
+		instrumentalDotStatesFromGap,
+		instrumentalRest,
 		isHeldWord,
 		isPlaybackJump,
 		letterFill,
 		letterWave,
 		livePlaybackPosition,
+		LYRIC_LEAD_SEC,
 		lyricsAreSynced,
 		singingLyricIndex,
 		wordProgress
@@ -35,21 +37,23 @@
 	let synced = $derived(lyricsAreSynced(track?.lyrics) ? track.lyrics : null);
 	let plainLyrics = $derived(!synced && track?.lyrics?.[0]?.text ? track.lyrics[0].text : null);
 	let lyricsPending = $derived(Boolean(track?.lyricsPending) && !synced && !plainLyrics);
-	let startedLyricIndex = $derived(startedIndexForTime(synced, displayPosition));
-	let activeLyricIndex = $derived(singingLyricIndex(synced, displayPosition));
+	let lyricClock = $derived(track?.playing ? displayPosition + LYRIC_LEAD_SEC : displayPosition);
+	let startedLyricIndex = $derived(startedIndexForTime(synced, lyricClock));
+	let rest = $derived(instrumentalRest(synced, lyricClock, track?.length));
+	let activeLyricIndex = $derived(singingLyricIndex(synced, lyricClock, track?.length));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
-	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, displayPosition));
+	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, lyricClock));
 	let activeWordFill = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return 0;
-		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex]?.end);
+		return wordProgress(words, activeWordIdx, lyricClock, synced?.[activeLyricIndex]?.end);
 	});
 	let heldActive = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return false;
 		return isHeldWord(words, activeWordIdx, synced?.[activeLyricIndex]?.end);
 	});
-	let instrumentalDots = $derived(instrumentalDotStates(synced, startedLyricIndex, displayPosition));
+	let instrumentalDots = $derived(instrumentalDotStatesFromGap(rest, lyricClock));
 	let artPulse = $derived(track?.playing ? 1 + $bassLevel * 0.045 : 1);
 	let carouselCards = $derived.by(() => {
 		const list = [];
@@ -97,9 +101,10 @@
 	});
 
 	$effect(() => {
-		const idx = startedLyricIndex;
+		const restSlot = rest;
+		const idx = restSlot ? (restSlot.blank ? restSlot.afterIndex : 'rest') : startedLyricIndex;
 		const viewport = lyricsViewport;
-		if (!viewport || idx < 0) {
+		if (!viewport || idx === -1) {
 			lyricsOffset = 0;
 			return;
 		}
@@ -207,14 +212,21 @@
 	}
 
 	function lineIsPast(lineIndex) {
+		if (rest?.blank && rest.afterIndex === lineIndex) return false;
 		if (startedLyricIndex < 0) return false;
 		if (lineIndex < startedLyricIndex) return true;
 		return lineIndex === startedLyricIndex && activeLyricIndex < 0;
 	}
 
 	function lineDelta(lineIndex) {
+		if (rest) {
+			if (rest.blank || rest.afterIndex < 0) return lineIndex - rest.afterIndex;
+			return lineIndex <= rest.afterIndex
+				? lineIndex - rest.afterIndex - 1
+				: lineIndex - rest.afterIndex;
+		}
 		const origin = activeLyricIndex >= 0 ? activeLyricIndex : startedLyricIndex;
-		if (origin < 0) return lineIndex;
+		if (origin < 0) return lineIndex + 1;
 		return lineIndex - origin;
 	}
 
@@ -227,9 +239,13 @@
 	}
 
 	function dotBrightness(lineIndex, dotIndex) {
+		if (rest?.blank && rest.afterIndex === lineIndex) return instrumentalDots[dotIndex] ?? 0;
 		if (lineIndex < startedLyricIndex) return 1;
-		if (lineIndex > startedLyricIndex) return 0;
-		return instrumentalDots[dotIndex] ?? 0;
+		return 0;
+	}
+
+	function showSyntheticRest(afterIndex) {
+		return Boolean(rest) && !rest.blank && rest.afterIndex === afterIndex;
 	}
 </script>
 
@@ -335,10 +351,22 @@
 						class:instant={reducedMotion || snapLyrics}
 						style="transform: translate3d(0, {lyricsOffset}px, 0)"
 					>
+						{#snippet restDots()}
+							<span class="lyric-dots" aria-hidden="true">
+								{#each instrumentalDots as brightness, d (d)}
+									<span class="dot" style="opacity: {brightness}; --o: {brightness}"></span>
+								{/each}
+							</span>
+						{/snippet}
+						{#if showSyntheticRest(-1)}
+							<p class="lyric-line active" data-lyric="rest" style="--delta: 0">
+								{@render restDots()}
+							</p>
+						{/if}
 						{#each synced as line, i (`${line.time}:${line.text}`)}
 							<p
 								class="lyric-line"
-								class:active={i === activeLyricIndex}
+								class:active={i === activeLyricIndex || (rest?.blank && rest.afterIndex === i)}
 								class:past={lineIsPast(i)}
 								class:near={Math.abs(lineDelta(i)) === 1}
 								data-lyric={i}
@@ -367,6 +395,11 @@
 									</span>
 								{/if}
 							</p>
+							{#if showSyntheticRest(i)}
+								<p class="lyric-line active" data-lyric="rest" style="--delta: 0">
+									{@render restDots()}
+								</p>
+							{/if}
 						{/each}
 					</div>
 				</div>
@@ -672,10 +705,10 @@
 		transform: translate3d(calc(var(--delta, 0) * -6px), calc(var(--delta, 0) * 12px), 0) scale(0.96);
 		filter: blur(0.35px);
 		transition:
-			color 380ms var(--spring-smooth),
-			opacity 380ms var(--spring-smooth),
+			color 120ms var(--spring-smooth),
+			opacity 120ms var(--spring-smooth),
 			transform 560ms var(--spring-smooth),
-			filter 420ms var(--spring-smooth);
+			filter 180ms var(--spring-smooth);
 	}
 	.lyric-line.near {
 		opacity: 0.55;
@@ -708,7 +741,7 @@
 	.lyric-word {
 		display: inline;
 		opacity: 0.42;
-		transition: opacity 90ms linear;
+		transition: opacity 50ms linear;
 	}
 	.lyric-line.active .lyric-word.sung,
 	.lyric-line.past .lyric-word {
@@ -773,8 +806,8 @@
 	@media (prefers-reduced-motion: no-preference) {
 		.dot {
 			transition:
-				opacity 280ms linear,
-				transform 280ms var(--spring-smooth);
+				opacity 120ms linear,
+				transform 120ms var(--spring-smooth);
 		}
 	}
 	.lyrics-viewport.pending {
