@@ -1,40 +1,28 @@
 #!/usr/bin/env python3
-"""CLI wrapper around the `syncedlyrics` package for lyrics.js's second
-lookup tier (after lrclib.net comes up empty). syncedlyrics aggregates
-several providers (NetEase, Musixmatch, etc.), so it catches some tracks
-LRCLIB's own crowd-sourced database doesn't have.
+"""CLI for lyrics.js community lookup.
 
-Install: pip install syncedlyrics
+Tries AMLL TTML, NetEase YRC, Kugou KRC, then the syncedlyrics package
+(Musixmatch enhanced / line LRC). Prints one JSON object to stdout.
 
 Usage:
-	python3 syncedlyrics_lookup.py <artist> <title>
-
-Prints {"synced": "<lrc text>" | null} as JSON to stdout. Any failure
-(package missing, no match, provider error) prints {"synced": null} rather
-than raising, since this is a best-effort fallback the caller should
-silently move past.
+	python3 syncedlyrics_lookup.py <artist> <title> [album] [duration]
 """
 import json
+import os
 import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+	sys.path.insert(0, HERE)
+
+from community_lyrics import empty_result, main as community_main  # noqa: E402
 
 
 def main():
 	if len(sys.argv) < 3:
-		print(json.dumps({"synced": None, "error": "usage: syncedlyrics_lookup.py <artist> <title>"}))
+		print(json.dumps(empty_result(error="usage: syncedlyrics_lookup.py <artist> <title> [album] [duration]")))
 		return 0
-	artist, title = sys.argv[1], sys.argv[2]
-	try:
-		import syncedlyrics
-	except ImportError:
-		print(json.dumps({"synced": None, "error": "syncedlyrics not installed"}))
-		return 0
-	try:
-		lrc = syncedlyrics.search(f"{title} {artist}", synced_only=True)
-	except Exception as exc:
-		print(json.dumps({"synced": None, "error": str(exc)}))
-		return 0
-	print(json.dumps({"synced": lrc}))
-	return 0
+	return community_main(sys.argv[1:])
 
 
 if __name__ == "__main__":

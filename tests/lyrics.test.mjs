@@ -9,10 +9,14 @@ import {
 	fetchLyrics,
 	fetchPlainLyricsText,
 	fetchSyncedLyricsFallback,
+	hasRealWordTiming,
+	linesFromCommunityPayload,
 	lyricsFromHit,
+	parseKrc,
 	parseLRC,
 	parseMusixmatchRichSync,
 	parseTTML,
+	parseYrc,
 	peekLyrics,
 	peekTrackDuration,
 	pickBestLyricsHit,
@@ -289,7 +293,8 @@ test('fetchSyncedLyricsFallback parses LRC text the python helper prints', async
 			return fakePythonChild(JSON.stringify({ synced: '[00:05.00]Hello there' }));
 		}
 	});
-	assert.deepEqual(calls[0][1].slice(1), ['Some Artist', 'Some Song']);
+	assert.equal(calls[0][1][1], 'Some Artist');
+	assert.equal(calls[0][1][2], 'Some Song');
 	assert.equal(lines[0].text, 'Hello there');
 	assert.equal(lines[0].time, 5);
 });
@@ -424,4 +429,68 @@ test('peekTrackDuration/ensureTrackDurationCached never block the caller on a co
 	resolveLoad();
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.equal(peekTrackDuration(artist, title), 200);
+});
+
+test('parseYrc reads karaoke word clocks from LRC-style and JSON rows', () => {
+	const lines = parseYrc(
+		'[48100,3780](48100,300,0)Caught (48400,60,0)in (48460,210,0)the (48670,630,0)undertow\n' +
+			'{"t":1000,"c":[{"tx":"Hello","t":0},{"tx":"there","t":400}]}'
+	);
+	const karaoke = lines.find((line) => line.text.includes('Caught'));
+	const credit = lines.find((line) => line.text === 'Hello there');
+	assert.equal(karaoke.words[0].text, 'Caught');
+	assert.equal(karaoke.words[1].time, 48.4);
+	assert.equal(credit.words[1].time, 1.4);
+});
+
+test('parseKrc converts word offsets into absolute times', () => {
+	const lines = parseKrc('[25872,4298]<0,475,0>Feeling <475,242,0>so <717,1315,0>faithless');
+	assert.equal(lines[0].text, 'Feeling so faithless');
+	assert.equal(lines[0].words[1].text, 'so');
+	assert.ok(Math.abs(lines[0].words[1].time - (25.872 + 0.475)) < 1e-9);
+});
+
+test('hasRealWordTiming distinguishes estimated LRC from karaoke sources', () => {
+	const estimated = parseLRC('[00:10.00]You can take it all\n[00:14.00]Just do not mess with me');
+	assert.equal(hasRealWordTiming(estimated), false);
+	const enhanced = parseLRC('[00:12.00]<00:12.00>You <00:12.40>can <00:12.80>take');
+	assert.equal(hasRealWordTiming(enhanced), true);
+	const yrc = parseYrc('[48100,3780](48100,300,0)Caught (48400,60,0)in (48460,210,0)the');
+	assert.equal(hasRealWordTiming(yrc), true);
+});
+
+test('parseTTML skips translation spans without begin clocks', () => {
+	const ttml =
+		'<p begin="00:01.000">' +
+		'<span begin="00:01.000">Hello</span> ' +
+		'<span begin="00:01.400">there</span>' +
+		'<span ttm:role="x-translation" xml:lang="zh-CN">你好</span></p>';
+	const lines = parseTTML(ttml);
+	assert.equal(lines[0].words.length, 2);
+	assert.equal(lines[0].text, 'Hello there');
+});
+
+test('linesFromCommunityPayload prefers canonical word-level lines', () => {
+	const lines = linesFromCommunityPayload({
+		wordLevel: true,
+		lines: [{ time: 1, text: 'Hello there', words: [{ time: 1, text: 'Hello' }, { time: 1.4, text: 'there' }] }]
+	});
+	assert.equal(hasRealWordTiming(lines), true);
+	assert.equal(lines[0].words[1].time, 1.4);
+});
+
+test('fetchSyncedLyricsFallback accepts a word-level community payload', async () => {
+	const lines = await fetchSyncedLyricsFallback('Linkin Park', 'Numb', {
+		spawnFn: () =>
+			fakePythonChild(
+				JSON.stringify({
+					source: 'amll-ttml',
+					wordLevel: true,
+					ttml:
+						'<p begin="00:22.065"><span begin="00:22.065">I\'m</span> <span begin="00:22.154">tired</span></p>'
+				})
+			)
+	});
+	assert.equal(lines[0].words[0].text, "I'm");
+	assert.equal(hasRealWordTiming(lines), true);
 });

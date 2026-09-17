@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import {
+	cancelOtherAlignments,
 	ensureAlignedLyrics,
 	isAlignmentInFlight,
 	readCachedAlignment,
@@ -133,4 +134,23 @@ test('ensureAlignedLyrics skips work entirely once a result is already cached', 
 	});
 	assert.equal(result, fp);
 	assert.equal(calls.length, 0, 'should never spawn a recorder for an already-cached track');
+});
+
+test('cancelOtherAlignments stops a recording that is not the current track', () => {
+	process.env.FORCED_ALIGN_CACHE_DIR = mkdtempSync(path.join(os.tmpdir(), 'align-cache-'));
+	const killed = [];
+	const hanging = new EventEmitter();
+	hanging.kill = (sig) => killed.push(sig);
+	ensureAlignedLyrics({
+		artist: 'Old Artist',
+		title: 'Old Song',
+		duration: 200,
+		plainLyrics: 'la la',
+		position: 0,
+		spawnFn: () => hanging,
+		findBinary: () => '/usr/bin/parec'
+	});
+	const keep = trackFingerprint('New Artist', 'New Song', 200);
+	cancelOtherAlignments(keep);
+	assert.equal(killed[0], 'SIGTERM');
 });

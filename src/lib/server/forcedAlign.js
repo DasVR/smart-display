@@ -10,22 +10,16 @@ import { normalizeLyricText } from './lyrics.js';
 
 const ALIGN_SCRIPT = fileURLToPath(new URL('../../../scripts/forced_align/align.py', import.meta.url));
 
-// A function, not a module-load-time constant, so tests can point different
-// cases at different cache dirs via process.env without needing a fresh
-// module import per test.
 function cacheDir() {
 	return process.env.FORCED_ALIGN_CACHE_DIR || path.join(process.cwd(), 'data', 'forced-align-cache');
 }
 
-// Only worth starting a recording if we caught the track within this many
-// seconds of its own start - otherwise the alignment would be missing its
-// opening lines. Skip anything implausibly short/long to avoid wasting a
-// CPU-minutes-scale job on bad duration data.
 const START_WINDOW_SEC = 6;
 const MIN_DURATION_SEC = 20;
 const MAX_DURATION_SEC = 20 * 60;
 
 const inFlight = new Set();
+const recorders = new Map();
 
 export function trackFingerprint(artist, title, duration) {
 	const key = `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${Math.round(Number(duration) || 0)}`;
@@ -51,13 +45,32 @@ export function isAlignmentInFlight(fp) {
 	return inFlight.has(fp);
 }
 
-function runPythonAlign({ wavPath, lyricsTextPath, outJsonPath, spawnFn = spawn, pythonBin } = {}) {
+export function cancelAlignment(fp) {
+	const rec = recorders.get(fp);
+	try {
+		rec?.stop?.();
+	} catch {
+		/* already gone */
+	}
+	recorders.delete(fp);
+}
+
+/** Stop recordings that aren't for the track that's actually playing so a
+ *  skip doesn't leave a multi-minute orphan WAV capture running. */
+export function cancelOtherAlignments(keepFp) {
+	for (const fp of [...recorders.keys()]) {
+		if (fp !== keepFp) cancelAlignment(fp);
+	}
+}
+
+function runPythonAlign({ wavPath, lyricsTextPath, outJsonPath, spawnFn = spawn, pythonBin, offsetSec = 0 } = {}) {
 	return new Promise((resolve) => {
 		const bin = pythonBin || process.env.LYRICS_PYTHON_BIN || 'python3';
 		let child;
 		try {
 			child = spawnFn(bin, [ALIGN_SCRIPT, wavPath, lyricsTextPath, outJsonPath], {
-				stdio: ['ignore', 'ignore', 'pipe']
+				stdio: ['ignore', 'ignore', 'pipe'],
+				env: { ...process.env, FORCED_ALIGN_OFFSET: String(offsetSec || 0) }
 			});
 		} catch {
 			resolve(false);
@@ -75,18 +88,11 @@ function runPythonAlign({ wavPath, lyricsTextPath, outJsonPath, spawnFn = spawn,
 	});
 }
 
-/** Kicks off a background job that records the rest of this track's
- *  play-through, isolates vocals with Demucs, and force-aligns the known
- *  plain lyric text against them with MFA - so the *next* time this song
- *  plays, cached word-level lyrics are available even though nothing
- *  online has synced lyrics for it. Never blocks or throws into the
- *  caller: it fires the job and returns immediately, and the current
- *  play-through just falls back to whatever fetchLyrics()/plain text
- *  already gave the UI. Silently no-ops if a job for this track is already
- *  running or cached, there's no plain lyric text to align against, the
- *  duration looks unusable, or we joined more than START_WINDOW_SEC into
- *  the track (missed the start - wait for the next play-through instead of
- *  recording a partial take). */
+/** Records the rest of this play-through and force-aligns known plain lyric
+ *  text against it on-device (energy envelope by default; CTC/aeneas/MFA
+ *  if installed). Fire-and-forget: the current poll still returns whatever
+ *  online sources had, and a later poll of the same track picks up the
+ *  cached word clocks. */
 export function ensureAlignedLyrics({
 	artist,
 	title,
@@ -110,6 +116,7 @@ export function ensureAlignedLyrics({
 	const lyricsTextPath = path.join(workDir, 'lyrics.txt');
 	const cleanup = () => {
 		inFlight.delete(fp);
+		recorders.delete(fp);
 		try {
 			rmSync(workDir, { recursive: true, force: true });
 		} catch {
@@ -126,14 +133,23 @@ export function ensureAlignedLyrics({
 		return null;
 	}
 
-	const recordSec = Math.ceil(dur - Number(position) || 0) + 2;
-	const { done } = recordToWavFile({ outPath: wavPath, durationSec: recordSec, spawnFn, findBinary });
+	const offsetSec = Number(position) || 0;
+	const recordSec = Math.ceil(dur - offsetSec) + 2;
+	const recorder = recordToWavFile({ outPath: wavPath, durationSec: recordSec, spawnFn, findBinary });
+	recorders.set(fp, recorder);
 
-	done
+	recorder.done
 		.then((recorded) => {
 			if (!recorded || !existsSync(wavPath)) return false;
 			mkdirSync(cacheDir(), { recursive: true });
-			return runPythonAlign({ wavPath, lyricsTextPath, outJsonPath: cachePath(fp), spawnFn, pythonBin });
+			return runPythonAlign({
+				wavPath,
+				lyricsTextPath,
+				outJsonPath: cachePath(fp),
+				spawnFn,
+				pythonBin,
+				offsetSec
+			});
 		})
 		.catch((error) => console.error('forced-align job failed:', error.message))
 		.finally(cleanup);
