@@ -56,6 +56,12 @@ export const VOICE_DEMO_LINES = annotateLyricVoices([
 				end: 5.6,
 				text: 'now',
 				words: [word(4.7, 'now', 5.6)]
+			},
+			{
+				time: 5.7,
+				end: 6.3,
+				text: 'hold it',
+				words: [word(5.7, 'hold', 6.0), word(6.0, 'it', 6.3)]
 			}
 		]
 	}
