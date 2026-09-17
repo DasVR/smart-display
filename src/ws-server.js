@@ -7,6 +7,7 @@ import {
 	getTelemetry,
 	getCalendar,
 	getNowPlaying,
+	getDemoNowPlaying,
 	getGitContext,
 	getOllamaPs,
 	getHAStates,
@@ -538,8 +539,9 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
-	if (req.method === 'GET' && req.url === '/api/nowplaying') {
-		json(res, await getNowPlaying());
+	if (req.method === 'GET' && reqPath(req) === '/api/nowplaying') {
+		const demo = new URL(req.url, 'http://local').searchParams.get('demo');
+		json(res, demo === 'music' ? getDemoNowPlaying() : await getNowPlaying());
 		return;
 	}
 
