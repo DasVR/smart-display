@@ -50,11 +50,28 @@ const MAX_INFERRED_LAST_WORD_SEC = 1.5;
  *  through the instrumental. */
 export const MAX_LAST_WORD_SEC = 1.15;
 
+/** Last-word fill stops here when a rest follows, so a far TTML `end` cannot
+ *  keep the last letter singing through an instrumental. Held notes that
+ *  run up to the next line (a long "us" then the next verse a beat later)
+ *  keep their stamped end. */
+function capLastWordEnd(start, end, nextLineStart) {
+	const cap = start + MAX_LAST_WORD_SEC;
+	if (!(end > cap)) return end;
+	const next = Number(nextLineStart);
+	if (Number.isFinite(next) && next > start) {
+		const restAfter = next - end;
+		const stampedThrough = end - start >= INSTRUMENTAL_GAP_SEC && Math.abs(next - end) < 0.45;
+		if (restAfter >= INSTRUMENTAL_GAP_SEC || stampedThrough) return cap;
+		return end;
+	}
+	return cap;
+}
+
 /** Clock when `words[index]` finishes. Prefers an explicit `end` from
  *  karaoke sources (TTML/YRC/KRC). Otherwise the next word's start, a tight
  *  `lineEndTime`, or a short default — never the start of a far-away next
  *  line, which used to stretch the last character through the rest. */
-export function wordEndTime(words, index, lineEndTime) {
+export function wordEndTime(words, index, lineEndTime, nextLineStart) {
 	if (!Array.isArray(words) || index < 0 || index >= words.length) return 0;
 	const start = Number(words[index].time) || 0;
 	let end = start + DEFAULT_WORD_SPAN_SEC;
@@ -70,21 +87,18 @@ export function wordEndTime(words, index, lineEndTime) {
 			end = lineEnd;
 		}
 	}
-	if (index === words.length - 1) {
-		const cap = start + MAX_LAST_WORD_SEC;
-		if (end > cap) end = cap;
-	}
+	if (index === words.length - 1) end = capLastWordEnd(start, end, nextLineStart);
 	return end;
 }
 
 /** True once playback has passed the last sung clock on this line. Blank
  *  instrumental markers never count — those stay "on" so the dots can run. */
-export function lineSungThrough(line, position) {
+export function lineSungThrough(line, position, nextLineStart) {
 	if (!line?.text) return false;
 	const t = Number(position) || 0;
 	const words = line.words;
 	if (Array.isArray(words) && words.length) {
-		return t >= wordEndTime(words, words.length - 1, line.end);
+		return t >= wordEndTime(words, words.length - 1, line.end, nextLineStart);
 	}
 	const lineEnd = Number(line.end);
 	if (Number.isFinite(lineEnd) && lineEnd > (Number(line.time) || 0)) return t >= lineEnd;
@@ -97,7 +111,7 @@ export function lineSungThrough(line, position) {
 export function singingLyricIndex(lines, position, length = 0) {
 	const idx = activeLyricIndex(lines, position);
 	if (idx < 0) return -1;
-	if (lineSungThrough(lines[idx], position)) return -1;
+	if (lineSungThrough(lines[idx], position, lines[idx + 1]?.time)) return -1;
 	if (instrumentalRest(lines, position, length)) return -1;
 	return idx;
 }
@@ -122,19 +136,19 @@ export function lyricsAreSynced(lines) {
  *  the "letter by letter" sweep Apple Music does. The word's span runs to
  *  its own `end` (or the next word). The last word of a line finishes at
  *  that end and stops; it does not keep filling across an instrumental. */
-export function wordProgress(words, index, position, lineEndTime) {
+export function wordProgress(words, index, position, lineEndTime, nextLineStart) {
 	if (!Array.isArray(words) || index < 0 || index >= words.length) return 0;
 	const start = Number(words[index].time) || 0;
-	const span = wordSpanSec(words, index, lineEndTime);
+	const span = wordSpanSec(words, index, lineEndTime, nextLineStart);
 	const t = Number(position) || 0;
 	return Math.min(1, Math.max(0, (t - start) / span));
 }
 
 /** How long `words[index]` is actually sung. */
-export function wordSpanSec(words, index, lineEndTime) {
+export function wordSpanSec(words, index, lineEndTime, nextLineStart) {
 	if (!Array.isArray(words) || index < 0 || index >= words.length) return DEFAULT_WORD_SPAN_SEC;
 	const start = Number(words[index].time) || 0;
-	const end = wordEndTime(words, index, lineEndTime);
+	const end = wordEndTime(words, index, lineEndTime, nextLineStart);
 	return end > start ? end - start : DEFAULT_WORD_SPAN_SEC;
 }
 
@@ -143,8 +157,8 @@ export function wordSpanSec(words, index, lineEndTime) {
  *  or last chorus word runs past this. */
 export const HELD_WORD_SEC = 0.78;
 
-export function isHeldWord(words, index, lineEndTime, threshold = HELD_WORD_SEC) {
-	return wordSpanSec(words, index, lineEndTime) >= threshold;
+export function isHeldWord(words, index, lineEndTime, threshold = HELD_WORD_SEC, nextLineStart) {
+	return wordSpanSec(words, index, lineEndTime, nextLineStart) >= threshold;
 }
 
 /** 0..1 fill for letter `index` of `count` given the word's --wp progress.
@@ -214,12 +228,12 @@ const DEFAULT_OUTRO_SWEEP_SEC = 12;
 /** Clock when a line finishes being sung. Blank markers sit at their stamp.
  *  Word-timed lines use the last word's end; line-only rows get a short hold
  *  so a long instrumental after them can still become dots. */
-export function lineEndClock(line) {
+export function lineEndClock(line, nextLineStart) {
 	if (!line) return 0;
 	if (!line.text) return Number(line.time) || 0;
 	const words = line.words;
 	if (Array.isArray(words) && words.length) {
-		return wordEndTime(words, words.length - 1, line.end);
+		return wordEndTime(words, words.length - 1, line.end, nextLineStart);
 	}
 	const start = Number(line.time) || 0;
 	const lineEnd = Number(line.end);
@@ -277,7 +291,7 @@ export function instrumentalRest(lines, position, length = 0) {
 		return null;
 	}
 
-	const sungEnd = lineEndClock(line);
+	const sungEnd = lineEndClock(line, next?.time);
 	if (t < sungEnd) return null;
 
 	if (next && !next.text) {

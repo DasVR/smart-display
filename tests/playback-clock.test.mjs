@@ -139,9 +139,18 @@ test('wordEndTime caps an explicit last-word end that runs into the instrumental
 		{ time: 12.4, text: 'can' },
 		{ time: 12.8, end: 40, text: 'take' }
 	];
-	assert.equal(wordEndTime(words, 2, 40), 12.8 + MAX_LAST_WORD_SEC);
-	assert.equal(wordProgress(words, 2, 12.8 + MAX_LAST_WORD_SEC, 40), 1);
-	assert.equal(lineSungThrough({ time: 12, text: 'You can take', words, end: 40 }, 14.2), true);
+	assert.equal(wordEndTime(words, 2, 40, 40), 12.8 + MAX_LAST_WORD_SEC);
+	assert.equal(wordProgress(words, 2, 12.8 + MAX_LAST_WORD_SEC, 40, 40), 1);
+	assert.equal(lineSungThrough({ time: 12, text: 'You can take', words, end: 40 }, 14.2, 40), true);
+});
+
+test('wordEndTime keeps a held last note when the next line is right after it', () => {
+	const words = [
+		{ time: 64.074, text: 'They' },
+		{ time: 70.53, end: 75.767, text: 'us' }
+	];
+	assert.equal(wordEndTime(words, 1, 75.772, 76.884), 75.767);
+	assert.equal(lineSungThrough({ time: 64, text: 'us', words, end: 75.772 }, 73, 76.884), false);
 });
 
 test('instrumentalRest starts after the capped last word, not after a far TTML end', () => {
@@ -160,6 +169,45 @@ test('instrumentalRest starts after the capped last word, not after a far TTML e
 	assert.ok(rest.start < 15, 'dots start once the last syllable ends');
 	assert.equal(rest.end, 40);
 	assert.equal(singingLyricIndex(lines, 16, 50), -1);
+});
+
+test('instrumentalRest still starts when the last word ends well before the next verse', () => {
+	const lines = [
+		{
+			time: 145.567,
+			end: 155.906,
+			text: 'please',
+			words: [{ time: 151.619, end: 155.905, text: 'please' }]
+		},
+		{ time: 176.431, text: 'house', words: [{ time: 176.431, end: 176.8, text: 'house' }] }
+	];
+	const rest = instrumentalRest(lines, 160, 228);
+	assert.ok(rest);
+	assert.equal(rest.afterIndex, 0);
+	assert.ok(rest.start < 153, 'dots start once the last syllable is capped');
+	assert.equal(rest.end, 176.431);
+	assert.equal(singingLyricIndex(lines, 160, 228), -1);
+});
+
+test('instrumentalRest does not treat a held last note as an instrumental', () => {
+	const lines = [
+		{
+			time: 64.074,
+			end: 75.772,
+			text: "They don't they don't speak for us",
+			words: [
+				{ time: 64.074, end: 65.987, text: 'They' },
+				{ time: 70.53, end: 75.767, text: 'us' }
+			]
+		},
+		{
+			time: 76.884,
+			text: "I'll take a quiet life",
+			words: [{ time: 76.884, end: 77.2, text: "I'll" }]
+		}
+	];
+	assert.equal(instrumentalRest(lines, 73, 228), null);
+	assert.equal(singingLyricIndex(lines, 73, 228), 0);
 });
 
 test('singingLyricIndex goes dark after the last word and stays dark until the next line', () => {

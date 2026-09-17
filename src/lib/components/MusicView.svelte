@@ -8,6 +8,7 @@
 		easeToward,
 		instrumentalDotStatesFromGap,
 		instrumentalRest,
+		HELD_WORD_SEC,
 		isHeldWord,
 		isPlaybackJump,
 		letterFill,
@@ -52,12 +53,24 @@
 	let activeWordFill = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return 0;
-		return wordProgress(words, activeWordIdx, lyricClock, synced?.[activeLyricIndex]?.end);
+		return wordProgress(
+			words,
+			activeWordIdx,
+			lyricClock,
+			synced?.[activeLyricIndex]?.end,
+			synced?.[activeLyricIndex + 1]?.time
+		);
 	});
 	let heldActive = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return false;
-		return isHeldWord(words, activeWordIdx, synced?.[activeLyricIndex]?.end);
+		return isHeldWord(
+			words,
+			activeWordIdx,
+			synced?.[activeLyricIndex]?.end,
+			HELD_WORD_SEC,
+			synced?.[activeLyricIndex + 1]?.time
+		);
 	});
 	let instrumentalDots = $derived.by(() => {
 		const states = instrumentalDotStatesFromGap(rest, lyricClock);
