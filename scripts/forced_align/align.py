@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-"""Forced-alignment fallback for songs with no synced lyrics anywhere
-online: isolate vocals with Demucs, then align the known plain lyric text
-to that vocal stem with the Montreal Forced Aligner (MFA) to get
-word-level timestamps.
+"""Last-resort lyrics generation for songs with no synced lyrics anywhere
+online: isolate vocals with Demucs, then get word-level timestamps for
+them one of two ways depending on whether any lyric *text* is known:
+
+- Known text (LRCLIB had the words but no timing): force-align that known
+  text to the vocal stem with the Montreal Forced Aligner (MFA). This is
+  the accurate path - it isn't guessing what's being sung, just when.
+- No text anywhere (an obscure/unreleased/instrumental-adjacent track
+  nothing has transcribed): transcribe the vocal stem directly with
+  Whisper, which produces its own text *and* word timestamps in one pass.
+  Less accurate than aligning known text, but the only option when
+  there's nothing to align against.
 
 This is the last-resort tier, run by src/lib/server/forcedAlign.js only
 after LRCLIB and the syncedlyrics fallback both come up empty, and only
@@ -12,15 +20,17 @@ runs inline with a request; it runs in the background against a full
 play-through recording and simply isn't ready yet the first time a song is
 played.
 
-One-time setup (not run automatically - conda-based, with a one-off model
-download):
+One-time setup (not run automatically - conda-based, with one-off model
+downloads):
 	conda create -n smart-display-align python=3.10
 	conda activate smart-display-align
-	pip install demucs
+	pip install demucs openai-whisper
 	conda install -c conda-forge montreal-forced-aligner
 	mfa model download acoustic english_us_arpa
 	mfa model download dictionary english_us_arpa
 
+`openai-whisper` is only needed for the no-known-text path; skip it if
+every track this runs against already has plain lyric text somewhere.
 Then point smart-display at that env's `python3`/`demucs`/`mfa` binaries,
 e.g. via LYRICS_PYTHON_BIN and PATH, before starting ws-server.js.
 
@@ -28,11 +38,13 @@ Usage:
 	python3 align.py <wav_path> <lyrics_txt_path> <out_json_path>
 
 <lyrics_txt_path> is the plain lyric text, one sung line per line - the
-same line breaks the output JSON preserves. <out_json_path> is written
+same line breaks the output JSON preserves - or an *empty* file, which is
+the signal to transcribe instead of align. <out_json_path> is written
 atomically (write to .tmp, then rename) as:
 	{"lines": [{"time": 12.34, "text": "...", "words": [{"time": 12.34, "text": "..."}]}]}
 matching the shape lyrics.js's parseLRC()/parseTTML() already produce, so
-the UI doesn't need to know a line came from forced alignment.
+the UI doesn't need to know a line came from forced alignment or
+transcription.
 """
 import json
 import os
@@ -156,6 +168,36 @@ def to_lines_json(lyric_lines, timed_words):
 	return {"lines": lines}
 
 
+def transcribe_vocals(vocals_path):
+	"""No lyric text is known for this track anywhere online - transcribe
+	the isolated vocal stem directly with Whisper instead of aligning known
+	text. Whisper's own cross-attention word timestamps are noisier than
+	MFA's phoneme alignment against ground-truth text, but this is the only
+	route left when there's nothing to align against. Requires
+	`pip install openai-whisper`; raises ImportError otherwise, which
+	forcedAlign.js treats the same as any other failed job (silently
+	retried on a later play-through, never surfaced to the UI)."""
+	import whisper
+
+	model = whisper.load_model(os.environ.get("WHISPER_MODEL", "small"))
+	result = model.transcribe(vocals_path, word_timestamps=True, verbose=False)
+	lines = []
+	for segment in result.get("segments", []):
+		text = segment.get("text", "").strip()
+		if not text:
+			continue
+		words = [
+			{"time": round(w["start"], 3), "text": w["word"].strip()}
+			for w in segment.get("words", [])
+			if w.get("word", "").strip()
+		]
+		entry = {"time": round(segment["start"], 3), "text": text}
+		if words:
+			entry["words"] = words
+		lines.append(entry)
+	return {"lines": lines}
+
+
 def main():
 	if len(sys.argv) != 4:
 		print("usage: align.py <wav_path> <lyrics_txt_path> <out_json_path>", file=sys.stderr)
@@ -163,12 +205,16 @@ def main():
 	wav_path, lyrics_txt_path, out_json_path = sys.argv[1:4]
 	with open(lyrics_txt_path, "r", encoding="utf-8") as fh:
 		lyric_lines = fh.read().splitlines()
+	has_known_lyrics = any(line.strip() for line in lyric_lines)
 
 	with tempfile.TemporaryDirectory(prefix="smart-display-align-") as work_dir:
 		vocals_path = isolate_vocals(wav_path, work_dir)
-		timed_words = align_words(vocals_path, lyric_lines, work_dir)
+		if has_known_lyrics:
+			timed_words = align_words(vocals_path, lyric_lines, work_dir)
+			result = to_lines_json(lyric_lines, timed_words)
+		else:
+			result = transcribe_vocals(vocals_path)
 
-	result = to_lines_json(lyric_lines, timed_words)
 	os.makedirs(os.path.dirname(out_json_path) or ".", exist_ok=True)
 	tmp = out_json_path + ".tmp"
 	with open(tmp, "w", encoding="utf-8") as fh:

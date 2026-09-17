@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -36,14 +36,27 @@ test('readCachedAlignment returns null when nothing is cached', () => {
 	assert.equal(readCachedAlignment('does-not-exist'), null);
 });
 
-test('ensureAlignedLyrics no-ops without plain lyrics, without a usable duration, or when joined late', () => {
-	assert.equal(ensureAlignedLyrics({ artist: 'A', title: 'B', duration: 200, plainLyrics: null }), null);
+test('ensureAlignedLyrics no-ops without a usable duration or when joined late, but proceeds without plain lyrics', () => {
+	process.env.FORCED_ALIGN_CACHE_DIR = mkdtempSync(path.join(os.tmpdir(), 'align-cache-'));
 	assert.equal(ensureAlignedLyrics({ artist: 'A', title: 'B', duration: 0, plainLyrics: 'hi' }), null);
 	assert.equal(ensureAlignedLyrics({ artist: 'A', title: 'B', duration: 5, plainLyrics: 'hi' }), null);
 	assert.equal(
 		ensureAlignedLyrics({ artist: 'A', title: 'B', duration: 200, plainLyrics: 'hi', position: 30 }),
 		null
 	);
+	// No lyric text found anywhere online is not a reason to skip - that's
+	// exactly the case Whisper transcription (in align.py) exists for.
+	const fp = ensureAlignedLyrics({
+		artist: 'No Text Artist',
+		title: 'No Text Song',
+		duration: 200,
+		plainLyrics: null,
+		position: 0,
+		spawnFn: () => fakeChild(),
+		findBinary: () => '/usr/bin/parec'
+	});
+	assert.ok(fp);
+	assert.equal(isAlignmentInFlight(fp), true);
 });
 
 test('ensureAlignedLyrics records, aligns, and caches when joined near the start of a valid track', async () => {
@@ -89,6 +102,41 @@ test('ensureAlignedLyrics records, aligns, and caches when joined near the start
 	const cached = readCachedAlignment(fp);
 	assert.ok(cached);
 	assert.equal(cached[0].text, 'line one');
+});
+
+test('ensureAlignedLyrics writes an empty lyrics file when there is no known text, signaling align.py to transcribe', async () => {
+	const cacheDir = mkdtempSync(path.join(os.tmpdir(), 'align-cache-'));
+	process.env.FORCED_ALIGN_CACHE_DIR = cacheDir;
+	const calls = [];
+	const fp = ensureAlignedLyrics({
+		artist: 'No Text Artist 2',
+		title: 'No Text Song 2',
+		duration: 200,
+		plainLyrics: null,
+		position: 0,
+		spawnFn: (bin, args) => {
+			calls.push([bin, args]);
+			if (bin === 'parec') {
+				const outPath = args[args.length - 1];
+				mkdirSync(path.dirname(outPath), { recursive: true });
+				writeFileSync(outPath, 'fake wav bytes');
+			}
+			if (bin === 'python3') {
+				const lyricsTextPath = args[2];
+				// This is what tells align.py to transcribe instead of align.
+				assert.equal(readFileSync(lyricsTextPath, 'utf8'), '');
+				const outPath = args[args.length - 1];
+				mkdirSync(path.dirname(outPath), { recursive: true });
+				writeFileSync(outPath, JSON.stringify({ lines: [{ time: 1.2, text: 'transcribed line' }] }));
+			}
+			return fakeChild();
+		},
+		findBinary: () => '/usr/bin/parec'
+	});
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.equal(calls[1][0], 'python3');
+	const cached = readCachedAlignment(fp);
+	assert.equal(cached[0].text, 'transcribed line');
 });
 
 test('ensureAlignedLyrics returns the same fingerprint without starting a second job while one is in flight', () => {

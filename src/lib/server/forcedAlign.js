@@ -76,17 +76,22 @@ function runPythonAlign({ wavPath, lyricsTextPath, outJsonPath, spawnFn = spawn,
 }
 
 /** Kicks off a background job that records the rest of this track's
- *  play-through, isolates vocals with Demucs, and force-aligns the known
- *  plain lyric text against them with MFA - so the *next* time this song
- *  plays, cached word-level lyrics are available even though nothing
- *  online has synced lyrics for it. Never blocks or throws into the
- *  caller: it fires the job and returns immediately, and the current
- *  play-through just falls back to whatever fetchLyrics()/plain text
- *  already gave the UI. Silently no-ops if a job for this track is already
- *  running or cached, there's no plain lyric text to align against, the
- *  duration looks unusable, or we joined more than START_WINDOW_SEC into
- *  the track (missed the start - wait for the next play-through instead of
- *  recording a partial take). */
+ *  play-through, isolates vocals with Demucs, and generates word-level
+ *  lyrics from them - so the *next* time this song plays, cached synced
+ *  lyrics are available even though nothing online has any for it. When
+ *  `plainLyrics` is known (LRCLIB had the words but no timing), align.py
+ *  force-aligns that known text to the vocal stem with MFA - the more
+ *  accurate path, since it isn't guessing what's being sung. When there's
+ *  no lyric text anywhere online either, `plainLyrics` is falsy and
+ *  align.py instead transcribes the vocal stem directly with Whisper,
+ *  which produces its own text *and* word timestamps in one pass - the
+ *  only option left when there's nothing to align against. Never blocks or
+ *  throws into the caller: it fires the job and returns immediately, and
+ *  the current play-through just falls back to whatever fetchLyrics()/
+ *  plain text already gave the UI. Silently no-ops if a job for this track
+ *  is already running or cached, the duration looks unusable, or we joined
+ *  more than START_WINDOW_SEC into the track (missed the start - wait for
+ *  the next play-through instead of recording a partial take). */
 export function ensureAlignedLyrics({
 	artist,
 	title,
@@ -101,7 +106,7 @@ export function ensureAlignedLyrics({
 	const fp = trackFingerprint(artist, title, dur);
 	if (readCachedAlignment(fp)) return fp;
 	if (inFlight.has(fp)) return fp;
-	if (!plainLyrics || !dur || dur < MIN_DURATION_SEC || dur > MAX_DURATION_SEC) return null;
+	if (!dur || dur < MIN_DURATION_SEC || dur > MAX_DURATION_SEC) return null;
 	if (Number(position) > START_WINDOW_SEC) return null;
 
 	inFlight.add(fp);
@@ -119,7 +124,9 @@ export function ensureAlignedLyrics({
 
 	try {
 		mkdirSync(workDir, { recursive: true });
-		writeFileSync(lyricsTextPath, plainLyrics);
+		// Empty file (no plainLyrics) is align.py's signal to transcribe
+		// instead of align - see the docstring above.
+		writeFileSync(lyricsTextPath, plainLyrics || '');
 	} catch (error) {
 		console.error('forced-align setup failed:', error.message);
 		cleanup();
