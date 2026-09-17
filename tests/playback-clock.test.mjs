@@ -48,6 +48,14 @@ test('livePlaybackPosition caps at track length', () => {
 	);
 });
 
+test('livePlaybackPosition freezes at the last sample while seeking, instead of extrapolating off a stale one', () => {
+	const track = { playing: true, position: 10, positionAt: 1_000, length: 200, seeking: true };
+	// Without the seeking flag this would extrapolate to 12 (2s elapsed);
+	// mid-seek, `position` is about to go stale, so it should hold still.
+	assert.equal(livePlaybackPosition(track, 3_000), 10);
+	assert.equal(livePlaybackPosition({ ...track, seeking: false }, 3_000), 12);
+});
+
 test('activeLyricIndex follows the last line that has started', () => {
 	const lines = [
 		{ time: 0.5, text: 'one' },

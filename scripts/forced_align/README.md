@@ -2,9 +2,11 @@
 
 `src/lib/server/lyrics.js`'s `fetchLyrics()` tries, in order:
 
-1. **LRCLIB** (`lrclib.net`) - free, no key, no setup. Already wired up.
-2. **`syncedlyrics`** - a Python package aggregating a few other providers
-   (NetEase, Musixmatch, ...), for tracks LRCLIB's own database misses.
+1. **`syncedlyrics`** - a Python package aggregating several providers
+   (NetEase, Musixmatch, ...). Tried first since it catches plenty of
+   tracks LRCLIB's own crowd-sourced database misses.
+2. **LRCLIB** (`lrclib.net`) - free, no key, no setup. Also the only source
+   of plain lyric text for tier 3, so it's still checked on a tier-1 miss.
 3. **Forced alignment** (this directory) - for tracks nothing above has
    synced timing for at all. Runs once per track, in the background, off a
    full AirPlay/Bluetooth play-through; the result is cached to disk under

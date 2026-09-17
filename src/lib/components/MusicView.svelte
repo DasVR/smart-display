@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { cubicOut } from 'svelte/easing';
 	import { nowPlaying } from '$lib/stores.js';
 	import { bassLevel } from '$lib/services/audioReactive.js';
 	import {
@@ -22,8 +23,17 @@
 
 	let track = $derived($nowPlaying);
 	let hasTrack = $derived(Boolean(track?.title || track?.playing));
+	// Identifies the *song*, not the art fetch - keys the vinyl-swap
+	// transition below so it plays exactly once per track change, even if
+	// the art URL is briefly empty/retried or unchanged between two tracks.
+	let trackKey = $derived(`${track?.artist ?? ''}::${track?.title ?? ''}`);
 	let synced = $derived(lyricsAreSynced(track?.lyrics) ? track.lyrics : null);
 	let plainLyrics = $derived(!synced && track?.lyrics?.[0]?.text ? track.lyrics[0].text : null);
+	// True only while the server is still checking online sources
+	// (syncedlyrics/LRCLIB) for this track - not while a forced-alignment
+	// job might be running in the background, which can take minutes and
+	// isn't something a "loading" indicator should promise is imminent.
+	let lyricsPending = $derived(Boolean(track?.lyricsPending) && !synced && !plainLyrics);
 	let activeLyricIndex = $derived(indexForTime(synced, displayPosition));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
 	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, displayPosition));
@@ -87,6 +97,26 @@
 		lyricsOffset = viewport.clientHeight * 0.38 - el.offsetTop - el.offsetHeight / 2;
 	});
 
+	// A record sliding in/out of its sleeve, for the moment a new track
+	// takes over the art slot: the outgoing cover slides down and away as
+	// the incoming one rises into place at a slight counter-rotation, like
+	// swapping a vinyl rather than just crossfading two images. Used for
+	// both `in:` and `out:` - Svelte runs `t` 0->1 for the entrance and
+	// 1->0 for the exit, and this reads as "how settled into place" either
+	// way, so one function covers both directions.
+	function vinylSwap(node, { duration = 520 } = {}) {
+		return {
+			duration,
+			easing: cubicOut,
+			css: (t) => {
+				const y = (1 - t) * 46;
+				const rotate = (1 - t) * -9;
+				const scale = 0.9 + t * 0.1;
+				return `transform: translateY(${y}%) rotate(${rotate}deg) scale(${scale}); opacity: ${t};`;
+			}
+		};
+	}
+
 	function fmtTime(sec) {
 		const n = Number(sec);
 		if (!Number.isFinite(n) || n < 0) return '0:00';
@@ -127,7 +157,7 @@
 			<p class="empty-copy">AirPlay from Apple Music, connect Bluetooth, or start a track here.</p>
 		</div>
 	{:else}
-		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics)}>
+		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics || lyricsPending)}>
 			<div class="player-main">
 				<div class="art-slot" class:playing={track.playing} style="--pulse: {artPulse}">
 					<!-- A purely decorative "more where this came from" stack behind
@@ -139,19 +169,20 @@
 						<div class="stack-card stack-1"></div>
 					</div>
 					<div class="album-art" class:playing={track.playing}>
-						{#if track.art && !artFailed}
-							{#key track.art}
-								<img
-									class="art-image"
-									src={track.art}
-									alt=""
-									onerror={() => (artFailed = true)}
-								/>
-							{/key}
-						{:else}
-							<div class="vinyl-groove"></div>
-							<div class="center-label"></div>
-						{/if}
+						{#key trackKey}
+							<div
+								class="art-face"
+								in:vinylSwap={{ duration: reducedMotion ? 0 : 520 }}
+								out:vinylSwap={{ duration: reducedMotion ? 0 : 320 }}
+							>
+								{#if track.art && !artFailed}
+									<img class="art-image" src={track.art} alt="" onerror={() => (artFailed = true)} />
+								{:else}
+									<div class="vinyl-groove"></div>
+									<div class="center-label"></div>
+								{/if}
+							</div>
+						{/key}
 					</div>
 				</div>
 				<div class="track-info">
@@ -244,6 +275,14 @@
 					{#key plainLyrics}
 						<p class="lyric-line plain-block">{plainLyrics}</p>
 					{/key}
+				</div>
+			{:else if lyricsPending}
+				<div class="lyrics-viewport pending">
+					<div class="loading-dots" class:instant={reducedMotion} aria-hidden="true">
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="dot"></span>
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -368,26 +407,18 @@
 			transition: transform 160ms var(--spring-smooth);
 		}
 	}
+	.art-face {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
 	.art-image {
 		width: 100%;
 		height: 100%;
 		object-fit: contain;
 		object-position: center;
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.art-image {
-			animation: art-in 420ms var(--spring-smooth);
-		}
-	}
-	@keyframes art-in {
-		from {
-			opacity: 0;
-			transform: scale(0.97);
-		}
-		to {
-			opacity: 1;
-			transform: scale(1);
-		}
 	}
 	.vinyl-groove {
 		position: absolute;
@@ -609,6 +640,50 @@
 			transition:
 				opacity 280ms linear,
 				transform 280ms var(--spring-smooth);
+		}
+	}
+	.lyrics-viewport.pending {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	/* Same dot as the in-lyrics instrumental-gap indicator above, so the
+	   "something's happening, hold on" language reads the same whether it's
+	   a musical break or the lyrics lookup itself still in flight - just
+	   self-animating on a loop instead of driven by playback position. */
+	.loading-dots {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5em;
+		color: var(--text-tertiary);
+	}
+	.loading-dots .dot {
+		opacity: 0.3;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.loading-dots:not(.instant) .dot {
+			animation: loading-dot-pulse 1.1s ease-in-out infinite;
+		}
+		.loading-dots:not(.instant) .dot:nth-child(2) {
+			animation-delay: 0.15s;
+		}
+		.loading-dots:not(.instant) .dot:nth-child(3) {
+			animation-delay: 0.3s;
+		}
+	}
+	.loading-dots.instant .dot {
+		opacity: 0.55;
+	}
+	@keyframes loading-dot-pulse {
+		0%,
+		80%,
+		100% {
+			opacity: 0.3;
+			transform: scale(0.8);
+		}
+		40% {
+			opacity: 1;
+			transform: scale(1);
 		}
 	}
 	.lyric-line.plain-block {

@@ -59,6 +59,21 @@ test('airplay metadata parser keeps the session through a flush', () => {
 	assert.equal(state.playing, true);
 });
 
+test('airplay metadata parser marks seeking on a flush and clears it on the next progress report', () => {
+	const midFlush =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('73736e63', '70726772', '0/441000/12039300') +
+		item('73736e63', '70666c73');
+	assert.equal(parse(midFlush).seeking, true);
+
+	const afterSeek =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('73736e63', '70726772', '0/441000/12039300') +
+		item('73736e63', '70666c73') +
+		item('73736e63', '70726772', '0/8820000/12039300');
+	assert.equal(parse(afterSeek).seeking, false);
+});
+
 test('airplay metadata parser reads duration and progress', () => {
 	const xml =
 		item('636f7265', '6d696e6d', 'My Way') +

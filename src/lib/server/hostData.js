@@ -12,7 +12,13 @@ import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import { ensureAlignedLyrics, readCachedAlignment, trackFingerprint } from './forcedAlign.js';
-import { fetchLyrics, fetchPlainLyricsText, lookupTrackDuration } from './lyrics.js';
+import {
+	ensureLyricsCached,
+	ensureTrackDurationCached,
+	fetchPlainLyricsText,
+	peekLyrics,
+	peekTrackDuration
+} from './lyrics.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -281,49 +287,58 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			return { playing: false };
 		}
 		if (skipLyrics) return merged;
-		let duration = Number(merged.length) || 0;
-		if (
-			!duration &&
-			merged.artist &&
-			merged.title &&
-			merged.artist !== 'Unknown artist' &&
-			merged.title !== 'Unknown title'
-		) {
-			duration = await lookupTrackDuration(merged.artist, merged.title, { album: merged.album || '' });
-		}
 		const validTrack =
 			merged.artist && merged.title && merged.artist !== 'Unknown artist' && merged.title !== 'Unknown title';
-		let lyrics = validTrack
-			? await fetchLyrics(merged.artist, merged.title, {
-					album: merged.album || '',
-					duration
-				})
-			: null;
-		// Nothing online has synced timing for this track (LRCLIB and the
-		// syncedlyrics fallback both missed). Check whether a background
-		// forced-alignment job already finished one for it; if not, kick one
-		// off (best-effort, never blocks this response) so a *later*
-		// play-through of the same song gets word-level lyrics anyway.
-		if (validTrack && (!lyrics || lyrics.length <= 1)) {
-			const fp = trackFingerprint(merged.artist, merged.title, duration);
-			const aligned = readCachedAlignment(fp);
-			if (aligned) {
-				lyrics = aligned;
-			} else {
-				const plainLyrics = await fetchPlainLyricsText(merged.artist, merged.title, {
-					album: merged.album || '',
-					duration
-				});
-				ensureAlignedLyrics({
-					artist: merged.artist,
-					title: merged.title,
-					duration,
-					plainLyrics,
-					position: merged.position
-				});
+		// Both the iTunes duration lookup and the lyrics fetch are network
+		// calls - awaiting either here would delay every field in this
+		// response (title/artist/art included) by however long they take,
+		// which is what made the display look slow to notice a track change.
+		// Serve whatever's already cached and kick off a background refresh
+		// on a miss instead; the rest catches up within a poll or two.
+		let duration = Number(merged.length) || 0;
+		if (!duration && validTrack) {
+			duration = peekTrackDuration(merged.artist, merged.title, merged.album || '') || 0;
+			if (!duration) ensureTrackDurationCached(merged.artist, merged.title, { album: merged.album || '' });
+		}
+		let lyrics = null;
+		// True only during the brief online-lookup window (peekLyrics hasn't
+		// resolved yet) - not while a forced-alignment job is running, which
+		// can take minutes and isn't something a loading spinner should imply
+		// is about to finish. Lets the UI show a "checking for lyrics" state
+		// instead of a bare gap right after a track change.
+		let lyricsPending = false;
+		if (validTrack) {
+			const peeked = peekLyrics(merged.artist, merged.title, merged.album || '', duration);
+			lyrics = peeked.lines;
+			if (!peeked.known) {
+				lyricsPending = true;
+				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
+			} else if (!lyrics || lyrics.length <= 1) {
+				// Nothing online has synced timing for this track (LRCLIB and the
+				// syncedlyrics fallback both missed). Check whether a background
+				// forced-alignment job already finished one for it; if not, kick
+				// one off (also best-effort, never blocks this response) so a
+				// *later* play-through of the same song gets word-level lyrics.
+				const fp = trackFingerprint(merged.artist, merged.title, duration);
+				const aligned = readCachedAlignment(fp);
+				if (aligned) {
+					lyrics = aligned;
+				} else {
+					const plainLyrics = await fetchPlainLyricsText(merged.artist, merged.title, {
+						album: merged.album || '',
+						duration
+					});
+					ensureAlignedLyrics({
+						artist: merged.artist,
+						title: merged.title,
+						duration,
+						plainLyrics,
+						position: merged.position
+					});
+				}
 			}
 		}
-		return { ...merged, length: merged.length || duration || 0, lyrics };
+		return { ...merged, length: merged.length || duration || 0, lyrics, lyricsPending };
 	} catch {
 		return { playing: false };
 	}

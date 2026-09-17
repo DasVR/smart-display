@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 
 import {
+	ensureLyricsCached,
+	ensureTrackDurationCached,
 	fetchLyrics,
 	fetchPlainLyricsText,
 	fetchSyncedLyricsFallback,
@@ -11,6 +13,8 @@ import {
 	parseLRC,
 	parseMusixmatchRichSync,
 	parseTTML,
+	peekLyrics,
+	peekTrackDuration,
 	pickBestLyricsHit,
 	pickItunesDuration,
 	scoreLyricsHit,
@@ -120,6 +124,35 @@ test('synthesizeWordTiming gives longer words a bigger share of the span', () =>
 	assert.ok(remaining > aSpan, '"extraordinarily" should get more time than "a"');
 });
 
+test('synthesizeWordTiming weighs words by syllable count, not raw length', () => {
+	// "screamed" is 8 characters but one syllable; "melody" is shorter but
+	// three syllables - a speech-accurate estimate should give melody more
+	// time despite being the shorter word, which a character-count weight
+	// would get backwards.
+	const lines = synthesizeWordTiming([
+		{ time: 0, text: 'screamed melody' },
+		{ time: 4, text: 'end' }
+	]);
+	const [screamed, melody] = lines[0].words;
+	const screamedSpan = melody.time - screamed.time;
+	const melodySpan = 4 - melody.time;
+	assert.ok(melodySpan > screamedSpan, '"melody" (3 syllables) should get more time than "screamed" (1)');
+});
+
+test('synthesizeWordTiming gives a clause-ending word a small trailing pause', () => {
+	const withComma = synthesizeWordTiming([
+		{ time: 0, text: 'wait, go' },
+		{ time: 4, text: 'end' }
+	]);
+	const withoutComma = synthesizeWordTiming([
+		{ time: 0, text: 'wait go' },
+		{ time: 4, text: 'end' }
+	]);
+	const commaGoStart = withComma[0].words[1].time;
+	const plainGoStart = withoutComma[0].words[1].time;
+	assert.ok(commaGoStart > plainGoStart, 'a comma after "wait" should push the next word out a bit further');
+});
+
 test('synthesizeWordTiming leaves already-timed words alone', () => {
 	const lines = synthesizeWordTiming([{ time: 0, text: 'You can', words: [{ time: 0, text: 'You' }, { time: 1, text: 'can' }] }]);
 	assert.equal(lines[0].words[0].time, 0);
@@ -223,7 +256,7 @@ test('pickItunesDuration prefers the matching artist duration', () => {
 	assert.equal(duration, 273);
 });
 
-test('fetchLyrics asks LRCLIB /api/get with duration', async () => {
+test('fetchLyrics asks LRCLIB /api/get with duration once syncedlyrics has nothing', async () => {
 	const urls = [];
 	const load = async (url) => {
 		urls.push(url);
@@ -241,7 +274,8 @@ test('fetchLyrics asks LRCLIB /api/get with duration', async () => {
 	const lines = await fetchLyrics('Limp Bizkit', 'My Way', {
 		album: 'Chocolate Starfish and the Hot Dog Flavored Water',
 		duration: 273.4,
-		load
+		load,
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.match(urls[0], /duration=273/);
 	assert.equal(lines[0].text, 'You can take it all');
@@ -281,7 +315,19 @@ test('fetchSyncedLyricsFallback resolves null (not throw) on bad output or spawn
 	assert.equal(spawnThrows, null);
 });
 
-test('fetchLyrics falls back to syncedlyrics when LRCLIB has no hit', async () => {
+test('fetchLyrics prefers syncedlyrics over LRCLIB and never touches LRCLIB on a syncedlyrics hit', async () => {
+	const load = async (url) => {
+		throw new Error('LRCLIB should not have been called: ' + url);
+	};
+	const lines = await fetchLyrics('Some Artist', 'Some Song', {
+		duration: 200,
+		load,
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: '[00:03.00]From syncedlyrics' }))
+	});
+	assert.equal(lines[0].text, 'From syncedlyrics');
+});
+
+test('fetchLyrics falls back to LRCLIB when syncedlyrics has nothing', async () => {
 	const load = async (url) => {
 		if (url.includes('/api/get')) throw new Error('404');
 		if (url.includes('/api/search')) return [];
@@ -290,9 +336,9 @@ test('fetchLyrics falls back to syncedlyrics when LRCLIB has no hit', async () =
 	const lines = await fetchLyrics('Obscure Artist', 'Obscure Song', {
 		duration: 200,
 		load,
-		spawnFn: () => fakePythonChild(JSON.stringify({ synced: '[00:03.00]From syncedlyrics' }))
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
-	assert.equal(lines[0].text, 'From syncedlyrics');
+	assert.equal(lines, null);
 });
 
 test('fetchPlainLyricsText returns the plain lyric text LRCLIB served alongside a hit', async () => {
@@ -307,7 +353,11 @@ test('fetchPlainLyricsText returns the plain lyric text LRCLIB served alongside 
 		}
 		throw new Error('unexpected ' + url);
 	};
-	const text = await fetchPlainLyricsText('Frank Sinatra', 'My Way', { duration: 275, load });
+	const text = await fetchPlainLyricsText('Frank Sinatra', 'My Way', {
+		duration: 275,
+		load,
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
+	});
 	assert.equal(text, 'And now, the end is near\nAnd so I face the final curtain');
 });
 
@@ -323,4 +373,55 @@ test('fetchPlainLyricsText returns null when there is nothing to align against',
 		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.equal(text, null);
+});
+
+test('peekLyrics/ensureLyricsCached never block the caller on a cold cache', async () => {
+	const artist = `Peek Artist ${Date.now()}`;
+	const title = 'Peek Song';
+	const before = peekLyrics(artist, title, '', 210);
+	assert.deepEqual(before, { known: false, lines: null });
+
+	let resolveLoad;
+	const load = (url) => {
+		if (url.includes('/api/get')) {
+			return new Promise((resolve) => {
+				resolveLoad = () =>
+				resolve({ trackName: title, artistName: artist, duration: 210, syncedLyrics: '[00:01.00]hi' });
+			});
+		}
+		return Promise.reject(new Error('unexpected ' + url));
+	};
+	// Fires the lookup in the background - must return immediately either way.
+	ensureLyricsCached(artist, title, {
+		duration: 210,
+		load,
+		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
+	});
+	assert.deepEqual(peekLyrics(artist, title, '', 210), { known: false, lines: null });
+
+	// Let the syncedlyrics tier's fake subprocess resolve (nothing found)
+	// before LRCLIB's `load` gets called.
+	await new Promise((resolve) => setImmediate(resolve));
+	resolveLoad();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(peekLyrics(artist, title, '', 210).known, true);
+});
+
+test('peekTrackDuration/ensureTrackDurationCached never block the caller on a cold cache', async () => {
+	const artist = `Duration Artist ${Date.now()}`;
+	const title = 'Duration Song';
+	assert.equal(peekTrackDuration(artist, title), undefined);
+
+	let resolveLoad;
+	const load = () =>
+		new Promise((resolve) => {
+			resolveLoad = () =>
+				resolve({ results: [{ trackName: title, artistName: artist, trackTimeMillis: 200000 }] });
+		});
+	ensureTrackDurationCached(artist, title, { load });
+	assert.equal(peekTrackDuration(artist, title), undefined);
+
+	resolveLoad();
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.equal(peekTrackDuration(artist, title), 200);
 });

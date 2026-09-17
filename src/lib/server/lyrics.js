@@ -53,16 +53,38 @@ function parseEnhancedWords(content, offsetSec) {
 // highlighting the whole line at once.
 const SYNTH_MAX_SPAN_SEC = 8;
 const SYNTH_FALLBACK_WORDS_PER_SEC = 2.2;
-const SYNTH_MIN_WORD_WEIGHT = 0.5;
+const SYNTH_MIN_WORD_WEIGHT = 0.6;
+// A word ending a clause reads with a small breath after it before the next
+// one starts - this bonus (added on top of its syllable weight) buys that
+// word's tail a sliver more time instead of running straight into the next.
+const SYNTH_CLAUSE_PAUSE_BONUS = 0.6;
+const CLAUSE_END_RE = /[,.;:!?]$/;
+const VOWEL_GROUPS_RE = /[aeiouy]+/g;
+
+/** Rough syllable count for a word, via the standard "count vowel groups,
+ *  drop a silent trailing e" heuristic - not linguistically exact, but a
+ *  much closer proxy for how long a word takes to sing/say than its raw
+ *  character count (e.g. "screamed" is one syllable despite being longer
+ *  than "melody"'s three). */
+function estimateSyllables(word) {
+	const letters = String(word || '')
+		.toLowerCase()
+		.replace(/[^a-z]/g, '');
+	if (!letters) return 1;
+	let count = (letters.match(VOWEL_GROUPS_RE) || []).length;
+	if (count > 1 && letters.endsWith('e') && !letters.endsWith('le')) count -= 1;
+	return Math.max(1, count);
+}
 
 /** Fills in an estimated `words` timing array for any line that doesn't
  *  already have real word-level data (from enhanced LRC, TTML, or
  *  Musixmatch rich-sync) - spreading the line's span (to the next line's
  *  clock, or a words-per-second estimate for a trailing line) across its
- *  words, weighted by word length so longer words get proportionally more
- *  time than "a" or "I" do. This is an estimate, not real per-word timing,
- *  but it's the same technique most lyric apps use for plain LRC and reads
- *  far better than snapping the whole line on at once. */
+ *  words, weighted by estimated syllable count (plus a small pause bonus for
+ *  a word ending a clause) so the sweep reads like actual speech rhythm
+ *  rather than a raw-character-count guess. This is an estimate, not real
+ *  per-word timing, but it's the same technique most lyric apps use for
+ *  plain LRC and reads far better than snapping the whole line on at once. */
 export function synthesizeWordTiming(lines) {
 	const list = Array.isArray(lines) ? lines : [];
 	return list.map((line, i) => {
@@ -73,7 +95,10 @@ export function synthesizeWordTiming(lines) {
 		const rawSpan =
 			next && Number.isFinite(next.time) ? next.time - line.time : tokens.length / SYNTH_FALLBACK_WORDS_PER_SEC;
 		const span = Math.max(0.4, Math.min(SYNTH_MAX_SPAN_SEC, rawSpan));
-		const weights = tokens.map((t) => Math.max(SYNTH_MIN_WORD_WEIGHT, t.length));
+		const weights = tokens.map((t) => {
+			const weight = estimateSyllables(t) + (CLAUSE_END_RE.test(t) ? SYNTH_CLAUSE_PAUSE_BONUS : 0);
+			return Math.max(SYNTH_MIN_WORD_WEIGHT, weight);
+		});
 		const totalWeight = weights.reduce((a, b) => a + b, 0);
 		let elapsed = 0;
 		const words = tokens.map((text, idx) => {
@@ -301,17 +326,51 @@ export async function lookupTrackDuration(artist, title, { album = '', load } = 
 	}
 }
 
+const DURATION_TTL = 6 * 60 * 60 * 1000;
+const durationCache = new Map();
+const durationInFlight = new Set();
+
+function durationCacheKey(artist, title, album) {
+	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}`;
+}
+
+/** Synchronous read of a previously-resolved track duration, or `undefined`
+ *  if it hasn't been looked up yet (distinct from a confirmed 0). Exists so
+ *  getNowPlaying() can use a duration the moment it's known without ever
+ *  awaiting the iTunes lookup inline - see ensureTrackDurationCached(). */
+export function peekTrackDuration(artist, title, album = '') {
+	const cached = durationCache.get(durationCacheKey(artist, title, album));
+	if (!cached || Date.now() - cached.fetchedAt >= DURATION_TTL) return undefined;
+	return cached.duration;
+}
+
+/** Kicks off (at most once per track, de-duplicated across overlapping
+ *  polls) a background lookupTrackDuration() call and caches the result -
+ *  never awaited by the caller, so a cold cache never adds iTunes's
+ *  round-trip to a now-playing response's latency. The duration just shows
+ *  up a poll or two later via peekTrackDuration(). */
+export function ensureTrackDurationCached(artist, title, opts = {}) {
+	const key = durationCacheKey(artist, title, opts.album || '');
+	if (durationInFlight.has(key) || peekTrackDuration(artist, title, opts.album) !== undefined) return;
+	durationInFlight.add(key);
+	lookupTrackDuration(artist, title, opts)
+		.then((duration) => durationCache.set(key, { duration, fetchedAt: Date.now() }))
+		.catch(() => {})
+		.finally(() => durationInFlight.delete(key));
+}
+
 function lyricsCacheKey(artist, title, album, rounded) {
 	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}|${rounded}`;
 }
 
-/** Second lookup tier, tried only when lrclib.net has no hit. Shells out to
+/** First lookup tier, tried before lrclib.net. Shells out to
  *  `syncedlyrics_lookup.py`, a thin wrapper around the `syncedlyrics` pip
  *  package, which aggregates several other providers (NetEase, Musixmatch,
  *  ...) - it catches some tracks LRCLIB's own crowd-sourced database
  *  doesn't have. Resolves to `null` (never rejects) if the package isn't
  *  installed, nothing matched, or the lookup times out, since this is a
- *  best-effort tier the caller should silently fall through past. */
+ *  best-effort tier the caller should silently fall through past (to
+ *  LRCLIB next). */
 export function fetchSyncedLyricsFallback(artist, title, { spawnFn = spawn, pythonBin, timeoutMs = 15000 } = {}) {
 	return new Promise((resolve) => {
 		const bin = pythonBin || process.env.LYRICS_PYTHON_BIN || 'python3';
@@ -360,29 +419,36 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 	if (cached && Date.now() - cached.fetchedAt < cached.ttl) return cached.lines;
 	const getJson = load || defaultLoad;
 	try {
-		const params = new URLSearchParams({ artist_name: artist, track_name: title });
-		if (album) params.set('album_name', album);
-		if (rounded) params.set('duration', String(rounded));
-		const query = { artist, title, album, duration: rounded };
-		let hit = null;
-		try {
-			hit = await getJson(`https://lrclib.net/api/get?${params}`);
-			if (scoreLyricsHit(hit, query) < 70) hit = null;
-		} catch {
-			hit = null;
-		}
-		if (!hit) {
-			const search = new URLSearchParams({ artist_name: artist, track_name: title });
-			const found = await getJson(`https://lrclib.net/api/search?${search}`);
-			hit = pickBestLyricsHit(found, query);
-		}
-		let lines = lyricsFromHit(hit);
+		// syncedlyrics aggregates several other providers (NetEase,
+		// Musixmatch, ...) and catches plenty LRCLIB's own crowd-sourced
+		// database misses, so it's tried first. LRCLIB is the fallback - and
+		// it's still always worth a look on a miss, since it's also the only
+		// source of plain lyric text the forced-alignment tier needs.
+		let lines = await fetchSyncedLyricsFallback(artist, title, { spawnFn, pythonBin });
+		let plainText = null;
 		if (!lines) {
-			lines = await fetchSyncedLyricsFallback(artist, title, { spawnFn, pythonBin });
+			const params = new URLSearchParams({ artist_name: artist, track_name: title });
+			if (album) params.set('album_name', album);
+			if (rounded) params.set('duration', String(rounded));
+			const query = { artist, title, album, duration: rounded };
+			let hit = null;
+			try {
+				hit = await getJson(`https://lrclib.net/api/get?${params}`);
+				if (scoreLyricsHit(hit, query) < 70) hit = null;
+			} catch {
+				hit = null;
+			}
+			if (!hit) {
+				const search = new URLSearchParams({ artist_name: artist, track_name: title });
+				const found = await getJson(`https://lrclib.net/api/search?${search}`);
+				hit = pickBestLyricsHit(found, query);
+			}
+			lines = lyricsFromHit(hit);
+			plainText = hit?.plainLyrics || null;
 		}
 		lyricsCache.set(key, {
 			lines,
-			plainText: hit?.plainLyrics || null,
+			plainText,
 			fetchedAt: Date.now(),
 			ttl: lines ? LYRICS_HIT_TTL : LYRICS_MISS_TTL
 		});
@@ -392,6 +458,35 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 		lyricsCache.set(key, { lines: null, plainText: null, fetchedAt: Date.now(), ttl: LYRICS_MISS_TTL });
 		return null;
 	}
+}
+
+const lyricsInFlight = new Set();
+
+/** Synchronous cache read: `{ known: true, lines }` once fetchLyrics() has
+ *  resolved for this exact artist/title/album/duration, or
+ *  `{ known: false, lines: null }` if it hasn't been looked up yet (or the
+ *  cache entry expired). Lets getNowPlaying() serve whatever it already
+ *  has instantly instead of awaiting a fresh LRCLIB/syncedlyrics round
+ *  trip on every cold track. */
+export function peekLyrics(artist, title, album = '', duration = 0) {
+	const rounded = Math.round(Number(duration) || 0);
+	const cached = lyricsCache.get(lyricsCacheKey(artist, title, album, rounded));
+	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) return { known: false, lines: null };
+	return { known: true, lines: cached.lines };
+}
+
+/** Kicks off (at most once per track, de-duplicated across overlapping
+ *  polls) a background fetchLyrics() call so a cache miss never blocks the
+ *  current now-playing response - the result just shows up a poll or two
+ *  later via peekLyrics(). */
+export function ensureLyricsCached(artist, title, opts = {}) {
+	const rounded = Math.round(Number(opts.duration) || 0);
+	const key = lyricsCacheKey(artist, title, opts.album || '', rounded);
+	if (lyricsInFlight.has(key) || peekLyrics(artist, title, opts.album, opts.duration).known) return;
+	lyricsInFlight.add(key);
+	fetchLyrics(artist, title, opts)
+		.catch(() => {})
+		.finally(() => lyricsInFlight.delete(key));
 }
 
 /** Plain (unsynced) lyric text for the forced-alignment fallback in

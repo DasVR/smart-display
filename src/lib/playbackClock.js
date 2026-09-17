@@ -18,7 +18,11 @@ export function livePlaybackPosition(track, now = Date.now()) {
 	const length = Number(track.length) || 0;
 	const sampledAt = Number(track.positionAt) || 0;
 	const frozen = length > 0 ? Math.min(Math.max(0, position), length) : Math.max(0, position);
-	if (!track.playing || !sampledAt) return frozen;
+	// Mid-seek, `position`/`positionAt` are the pre-seek sample and about to
+	// go stale - extrapolating off them would run the lyric highlight further
+	// from reality every frame instead of just pausing it for the beat until
+	// the next real progress report lands.
+	if (!track.playing || !sampledAt || track.seeking) return frozen;
 	const elapsed = Math.max(0, (now - sampledAt) / 1000);
 	const next = position + elapsed;
 	return length > 0 ? Math.min(next, length) : next;

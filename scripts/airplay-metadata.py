@@ -45,6 +45,12 @@ state = {
 	"length": 0,
 	"source": "airplay",
 	"updatedAt": 0,
+	# Set on a flush (skip/seek) and cleared by the next progress report.
+	# There's no seek-target payload in this protocol - only a fresh `prgr`
+	# actually tells us where playback landed - so this just tells clients
+	# "don't trust position/positionAt for extrapolation right now" instead
+	# of quietly drifting further from reality on every heartbeat.
+	"seeking": False,
 }
 
 
@@ -104,6 +110,7 @@ def apply_progress(data):
 		return False
 	state["length"] = length
 	state["position"] = min(position, length)
+	state["seeking"] = False
 	stamp_position()
 	return True
 
@@ -122,7 +129,9 @@ def apply_item(typ, code, data):
 		state["paused"] = False
 		changed = True
 	elif code == "pfls":
-		# Flush fires on skip/seek. Audio is still the AirPlay session.
+		# Flush fires on skip/seek. Audio is still the AirPlay session, but
+		# the position we're holding is now stale until the next prgr lands.
+		state["seeking"] = True
 		changed = True
 	elif code == "prsm":
 		state["playing"] = True
@@ -148,6 +157,7 @@ def apply_item(typ, code, data):
 		title = data.decode("utf-8", errors="replace")
 		if title != state["title"]:
 			state["position"] = 0
+			state["seeking"] = False
 			stamp_position()
 		state["title"] = title
 		state["playing"] = True
