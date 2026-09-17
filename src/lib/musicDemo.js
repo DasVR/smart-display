@@ -61,17 +61,20 @@ const DEMO_LYRICS = [
 	{ time: 35.4, text: 'Hold this note until the dawn' }
 ];
 
-/** Local preview payload for `?demo=music` / `?island=music`. */
-export function demoNowPlaying(now = Date.now()) {
+/** Local preview payload for `?demo=music` / `?island=music`.
+ *  Pass `position` to start at a clock (seconds). Pass `freeze: true` to
+ *  hold that clock still so a specific lyric phase can be inspected. */
+export function demoNowPlaying(now = Date.now(), { position = 7, freeze = false } = {}) {
+	const pos = Number.isFinite(Number(position)) ? Number(position) : 7;
 	return {
-		playing: true,
-		paused: false,
+		playing: !freeze,
+		paused: freeze,
 		title: 'Night Drive',
 		artist: 'Demo FM',
 		album: 'Late Causeway',
 		art: DEMO_ART,
-		position: 8,
-		positionAt: now - 8000,
+		position: pos,
+		positionAt: freeze ? now : now - pos * 1000,
 		length: 214,
 		source: 'airplay',
 		lyrics: DEMO_LYRICS

@@ -373,7 +373,13 @@
 		}
 		if (musicDemo) {
 			if (preview.get('demo') === 'music') currentView.set('music');
-			nowPlaying.set(demoNowPlaying());
+			const t = Number(preview.get('t'));
+			nowPlaying.set(
+				demoNowPlaying(undefined, {
+					position: Number.isFinite(t) ? t : 7,
+					freeze: preview.get('freeze') === '1'
+				})
+			);
 		}
 		let installDemo = 0;
 		if (islandPreview === 'install') {
