@@ -68,4 +68,70 @@ test('voice demo staggers a reply and tucks a chorus echo under the lead', () =>
 	assert.equal(VOICE_DEMO_LINES[1].part, 'reply');
 	assert.equal(VOICE_DEMO_LINES[1].side, 'right');
 	assert.equal(VOICE_DEMO_LINES[2].background[0].text, 'now');
+	assert.equal(VOICE_DEMO_LINES[2].background[1].text, 'hold it');
+});
+
+test('parseTTML splits a top-level br into a smaller row under the lead', () => {
+	const ttml =
+		'<p begin="00:01.000" end="00:05.000">' +
+		'<span begin="00:01.000" end="00:01.500">Hold</span> ' +
+		'<span begin="00:01.500" end="00:02.200">the line</span><br/>' +
+		'<span begin="00:02.400" end="00:02.800">Keep</span> ' +
+		'<span begin="00:02.800" end="00:03.200">it</span> ' +
+		'<span begin="00:03.200" end="00:04.200">going</span></p>';
+	const lines = parseTTML(ttml);
+	assert.equal(lines.length, 1);
+	assert.equal(lines[0].text, 'Hold the line');
+	assert.equal(lines[0].words.map((w) => w.text).join(' '), 'Hold the line');
+	assert.equal(lines[0].background.length, 1);
+	assert.equal(lines[0].background[0].text, 'Keep it going');
+	assert.equal(lines[0].background[0].words[0].time, 2.4);
+	assert.equal(lines[0].background[0].words.at(-1).text, 'going');
+});
+
+test('parseTTML treats a spaced br tag the same as a self-closing one', () => {
+	const ttml =
+		'<p begin="00:01.000" end="00:03.000">' +
+		'<span begin="00:01.000" end="00:01.500">Keep</span><br />' +
+		'<span begin="00:01.700" end="00:02.200">going</span></p>';
+	const lines = parseTTML(ttml);
+	assert.equal(lines[0].text, 'Keep');
+	assert.equal(lines[0].background[0].text, 'going');
+});
+
+test('parseTTML splits a spanless br into lead plus under-line text', () => {
+	const lines = parseTTML('<p begin="00:01.000" end="00:03.000">Hello<br/>there</p>');
+	assert.equal(lines.length, 1);
+	assert.equal(lines[0].text, 'Hello');
+	assert.equal(lines[0].background.length, 1);
+	assert.equal(lines[0].background[0].text, 'there');
+	assert.equal(lines[0].words, undefined);
+});
+
+test('parseTTML does not duplicate an x-bg row that already follows a br', () => {
+	const ttml =
+		'<p begin="00:01.000" end="00:04.000">' +
+		'<span begin="00:01.000" end="00:02.000">Lead</span><br/>' +
+		'<span ttm:role="x-bg">' +
+		'<span begin="00:02.200" end="00:03.000">echo</span>' +
+		'</span></p>';
+	const lines = parseTTML(ttml);
+	assert.equal(lines[0].text, 'Lead');
+	assert.equal(lines[0].background.length, 1);
+	assert.equal(lines[0].background[0].text, 'echo');
+	assert.equal(lines[0].background[0].words[0].time, 2.2);
+});
+
+test('parseTTML ignores a br nested inside a timed span', () => {
+	const ttml =
+		'<p begin="00:01.000" end="00:03.000">' +
+		'<span begin="00:01.000" end="00:01.600">one<br/>word</span> ' +
+		'<span begin="00:01.600" end="00:02.200">next</span></p>';
+	const lines = parseTTML(ttml);
+	assert.equal(lines.length, 1);
+	assert.equal(lines[0].text, 'one word next');
+	assert.equal(lines[0].background, undefined);
+	assert.equal(lines[0].words.length, 2);
+	assert.equal(lines[0].words[0].text, 'one word');
+	assert.equal(lines[0].words[1].text, 'next');
 });
