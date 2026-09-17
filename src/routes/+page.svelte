@@ -63,6 +63,9 @@
 	// it in the effect that reacts to $currentView doesn't create a
 	// self-triggering loop.
 	let lastViewIdx = -1;
+	// `?demo=music` pins the Music view. The kiosk websocket init/navigate
+	// payload would otherwise snap back to Clock as soon as /ws connects.
+	let lockMusicDemo = false;
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
 
@@ -154,7 +157,7 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
-					currentView.set(msg.view);
+					if (!lockMusicDemo) currentView.set(msg.view);
 				}
 				if (msg.type === 'notify') {
 					pushIslandEvent({
@@ -190,7 +193,7 @@
 					applyAudioFrame(msg);
 				}
 				if (msg.type === 'init') {
-					if (msg.view) currentView.set(msg.view);
+					if (msg.view && !lockMusicDemo) currentView.set(msg.view);
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
 				}
@@ -346,6 +349,10 @@
 		const preview = new URLSearchParams(window.location.search);
 		const islandPreview = preview.get('island');
 		const musicDemo = islandPreview === 'music' || preview.get('demo') === 'music';
+		if (preview.get('demo') === 'music') {
+			lockMusicDemo = true;
+			currentView.set('music');
+		}
 		connect();
 		fetchWeather();
 		if (!musicDemo) refreshNowPlaying();
