@@ -301,10 +301,17 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			if (!duration) ensureTrackDurationCached(merged.artist, merged.title, { album: merged.album || '' });
 		}
 		let lyrics = null;
+		// True only during the brief online-lookup window (peekLyrics hasn't
+		// resolved yet) - not while a forced-alignment job is running, which
+		// can take minutes and isn't something a loading spinner should imply
+		// is about to finish. Lets the UI show a "checking for lyrics" state
+		// instead of a bare gap right after a track change.
+		let lyricsPending = false;
 		if (validTrack) {
 			const peeked = peekLyrics(merged.artist, merged.title, merged.album || '', duration);
 			lyrics = peeked.lines;
 			if (!peeked.known) {
+				lyricsPending = true;
 				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
 			} else if (!lyrics || lyrics.length <= 1) {
 				// Nothing online has synced timing for this track (LRCLIB and the
@@ -331,7 +338,7 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 				}
 			}
 		}
-		return { ...merged, length: merged.length || duration || 0, lyrics };
+		return { ...merged, length: merged.length || duration || 0, lyrics, lyricsPending };
 	} catch {
 		return { playing: false };
 	}

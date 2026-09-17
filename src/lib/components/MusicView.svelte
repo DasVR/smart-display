@@ -29,6 +29,11 @@
 	let trackKey = $derived(`${track?.artist ?? ''}::${track?.title ?? ''}`);
 	let synced = $derived(lyricsAreSynced(track?.lyrics) ? track.lyrics : null);
 	let plainLyrics = $derived(!synced && track?.lyrics?.[0]?.text ? track.lyrics[0].text : null);
+	// True only while the server is still checking online sources
+	// (syncedlyrics/LRCLIB) for this track - not while a forced-alignment
+	// job might be running in the background, which can take minutes and
+	// isn't something a "loading" indicator should promise is imminent.
+	let lyricsPending = $derived(Boolean(track?.lyricsPending) && !synced && !plainLyrics);
 	let activeLyricIndex = $derived(indexForTime(synced, displayPosition));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
 	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, displayPosition));
@@ -152,7 +157,7 @@
 			<p class="empty-copy">AirPlay from Apple Music, connect Bluetooth, or start a track here.</p>
 		</div>
 	{:else}
-		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics)}>
+		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics || lyricsPending)}>
 			<div class="player-main">
 				<div class="art-slot" class:playing={track.playing} style="--pulse: {artPulse}">
 					<!-- A purely decorative "more where this came from" stack behind
@@ -270,6 +275,14 @@
 					{#key plainLyrics}
 						<p class="lyric-line plain-block">{plainLyrics}</p>
 					{/key}
+				</div>
+			{:else if lyricsPending}
+				<div class="lyrics-viewport pending">
+					<div class="loading-dots" class:instant={reducedMotion} aria-hidden="true">
+						<span class="dot"></span>
+						<span class="dot"></span>
+						<span class="dot"></span>
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -627,6 +640,50 @@
 			transition:
 				opacity 280ms linear,
 				transform 280ms var(--spring-smooth);
+		}
+	}
+	.lyrics-viewport.pending {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	/* Same dot as the in-lyrics instrumental-gap indicator above, so the
+	   "something's happening, hold on" language reads the same whether it's
+	   a musical break or the lyrics lookup itself still in flight - just
+	   self-animating on a loop instead of driven by playback position. */
+	.loading-dots {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5em;
+		color: var(--text-tertiary);
+	}
+	.loading-dots .dot {
+		opacity: 0.3;
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.loading-dots:not(.instant) .dot {
+			animation: loading-dot-pulse 1.1s ease-in-out infinite;
+		}
+		.loading-dots:not(.instant) .dot:nth-child(2) {
+			animation-delay: 0.15s;
+		}
+		.loading-dots:not(.instant) .dot:nth-child(3) {
+			animation-delay: 0.3s;
+		}
+	}
+	.loading-dots.instant .dot {
+		opacity: 0.55;
+	}
+	@keyframes loading-dot-pulse {
+		0%,
+		80%,
+		100% {
+			opacity: 0.3;
+			transform: scale(0.8);
+		}
+		40% {
+			opacity: 1;
+			transform: scale(1);
 		}
 	}
 	.lyric-line.plain-block {
