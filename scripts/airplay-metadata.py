@@ -69,6 +69,32 @@ def stamp_position():
 	state["positionAt"] = int(time.time() * 1000)
 
 
+def freeze_position():
+	# Bake extrapolated progress into `position` so a pause does not rewind
+	# karaoke to the last `prgr` sample. Only while playing - a second pause
+	# must not add wall time on top of the already-frozen clock.
+	at = int(state.get("positionAt") or 0)
+	if state.get("playing") and at:
+		elapsed = max(0.0, (time.time() * 1000 - at) / 1000.0)
+		length = float(state.get("length") or 0)
+		pos = float(state.get("position") or 0) + elapsed
+		if length > 0:
+			pos = min(pos, length)
+		state["position"] = pos
+	stamp_position()
+
+
+def resume_clock():
+	# Start extrapolating from the frozen position. If we are already
+	# playing, do not restamp - that is what sent lyrics back to the last
+	# `prgr` on a stray caps=2 / prsm, then jumped them forward on the next
+	# real progress report.
+	if not state.get("playing"):
+		stamp_position()
+	state["playing"] = True
+	state["paused"] = False
+
+
 def clear_session():
 	# Session end (pend) must wipe metadata. Leaving a title behind made
 	# the dashboard treat a disconnected receiver as a paused track, and
@@ -136,9 +162,7 @@ def apply_item(typ, code, data):
 	if typ not in ("ssnc", "core"):
 		return False
 	if code == "pbeg":
-		state["playing"] = True
-		state["paused"] = False
-		stamp_position()
+		resume_clock()
 		changed = True
 	elif code == "pend":
 		clear_session()
@@ -149,9 +173,7 @@ def apply_item(typ, code, data):
 		state["seeking"] = True
 		changed = True
 	elif code == "prsm":
-		state["playing"] = True
-		state["paused"] = False
-		stamp_position()
+		resume_clock()
 		changed = True
 	elif code == "prgr":
 		changed = apply_progress(data)
@@ -162,13 +184,12 @@ def apply_item(typ, code, data):
 	elif code == "caps":
 		status = parse_int(data)
 		if status == 3:
+			freeze_position()
 			state["playing"] = False
 			state["paused"] = True
 			changed = True
 		elif status == 2:
-			state["playing"] = True
-			state["paused"] = False
-			stamp_position()
+			resume_clock()
 			changed = True
 	elif code == "minm":
 		title = data.decode("utf-8", errors="replace")

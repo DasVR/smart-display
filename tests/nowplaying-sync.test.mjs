@@ -68,3 +68,35 @@ test('mergeNowPlayingSample keeps a local seek until the player lands nearby', (
 	assert.equal(landed.position, 80.4);
 	assert.equal(landed.optimisticUntil, 0);
 });
+
+test('mergeNowPlayingSample does not rewind lyrics on a restamped progress sample', () => {
+	const current = { ...live, playing: true, position: 10, positionAt: 1_000 };
+	const restamp = { ...live, playing: true, position: 10, positionAt: 6_000 };
+	const merged = mergeNowPlayingSample(current, restamp, 6_000);
+	assert.equal(merged.position, 10);
+	assert.equal(merged.positionAt, 1_000);
+});
+
+test('mergeNowPlayingSample ignores a dropped zero sample mid-track', () => {
+	const current = { ...live, playing: true, position: 40, positionAt: 1_000 };
+	const dropped = { ...live, playing: true, position: 0, positionAt: 5_000 };
+	const merged = mergeNowPlayingSample(current, dropped, 5_000);
+	assert.equal(merged.position, 40);
+	assert.equal(merged.positionAt, 1_000);
+});
+
+test('mergeNowPlayingSample still accepts a flush seek backward', () => {
+	const current = { ...live, playing: true, position: 40, positionAt: 1_000 };
+	const seeked = { ...live, playing: true, position: 12, positionAt: 5_000, seeking: true };
+	const merged = mergeNowPlayingSample(current, seeked, 5_000);
+	assert.equal(merged.position, 12);
+	assert.equal(merged.seeking, true);
+});
+
+test('mergeNowPlayingSample takes a later real progress report', () => {
+	const current = { ...live, playing: true, position: 10, positionAt: 1_000 };
+	const prgr = { ...live, playing: true, position: 14.2, positionAt: 5_000 };
+	const merged = mergeNowPlayingSample(current, prgr, 5_000);
+	assert.equal(merged.position, 14.2);
+	assert.equal(merged.positionAt, 5_000);
+});
