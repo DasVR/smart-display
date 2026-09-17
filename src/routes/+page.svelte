@@ -66,6 +66,10 @@
 	// `?demo=music` pins the Music view. The kiosk websocket init/navigate
 	// payload would otherwise snap back to Clock as soon as /ws connects.
 	let lockMusicDemo = false;
+	if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'music') {
+		lockMusicDemo = true;
+		currentView.set('music');
+	}
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
 
