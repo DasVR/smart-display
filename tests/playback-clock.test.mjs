@@ -20,7 +20,9 @@ import {
 	lyricsAreSynced,
 	singingLyricIndex,
 	wordEndTime,
-	wordProgress
+	wordProgress,
+	easeToward,
+	STACK_EASE_TAU_SEC
 } from '../src/lib/playbackClock.js';
 
 test('livePlaybackPosition holds still when paused', () => {
@@ -369,4 +371,22 @@ test('isPlaybackJump ignores a metadata restamp of the same sample', () => {
 	const prev = { playing: true, position: 10, positionAt: 1_000, length: 200 };
 	const lyricsLanded = { ...prev, lyrics: [{ time: 12, text: 'hi' }] };
 	assert.equal(isPlaybackJump(prev, lyricsLanded, 5_000), false);
+});
+
+test('easeToward closes most of the gap over three time constants', () => {
+	let y = 0;
+	const target = 100;
+	const tau = STACK_EASE_TAU_SEC;
+	const dt = 1 / 60;
+	for (let t = 0; t < tau * 3; t += dt) {
+		y = easeToward(y, target, dt, tau);
+	}
+	assert.ok(y > 94, `expected ~95 after 3τ, got ${y}`);
+	assert.ok(y <= 100);
+});
+
+test('easeToward snaps when already close, and when dt is 0', () => {
+	assert.equal(easeToward(10, 10.05, 0.016, STACK_EASE_TAU_SEC), 10.05);
+	assert.equal(easeToward(0, 40, 0, STACK_EASE_TAU_SEC), 40);
+	assert.equal(easeToward(8, 3, 0.016, 0), 3);
 });

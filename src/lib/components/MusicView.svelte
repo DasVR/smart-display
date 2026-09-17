@@ -5,6 +5,7 @@
 	import {
 		activeLyricIndex as startedIndexForTime,
 		activeWordIndex,
+		easeToward,
 		instrumentalDotStatesFromGap,
 		instrumentalRest,
 		isHeldWord,
@@ -15,6 +16,7 @@
 		LYRIC_LEAD_SEC,
 		lyricsAreSynced,
 		singingLyricIndex,
+		STACK_EASE_TAU_SEC,
 		wordProgress
 	} from '$lib/playbackClock.js';
 	import { rememberNowPlaying } from '$lib/artCarousel.js';
@@ -29,6 +31,7 @@
 	let reducedMotion = $state(false);
 	let snapLyrics = $state(false);
 	let lastSample = null;
+	let lastEaseAt = 0;
 	let carousel = $state({ prev: null, current: null, next: null });
 
 	let track = $derived($nowPlaying);
@@ -80,10 +83,38 @@
 		if (next.title) carousel = rememberNowPlaying(next);
 	});
 
-	function tick() {
+	function measureLyricsOffset() {
+		const viewport = lyricsViewport;
+		if (!viewport) return null;
+		const restSlot = rest;
+		const focusY = viewport.clientHeight * 0.38;
+		if (restSlot && !restSlot.blank) {
+			if (restSlot.afterIndex < 0) return focusY + 28;
+			const finished = viewport.querySelector(`[data-lyric="${restSlot.afterIndex}"]`);
+			if (!finished) return null;
+			const padBottom = parseFloat(getComputedStyle(finished).paddingBottom) || 0;
+			const textBottom = finished.offsetTop + finished.offsetHeight - padBottom;
+			return focusY - textBottom - 22;
+		}
+		const idx = restSlot?.blank ? restSlot.afterIndex : startedLyricIndex;
+		if (idx === -1) return 0;
+		const el = viewport.querySelector(`[data-lyric="${idx}"]`);
+		if (!el) return null;
+		return focusY - el.offsetTop - el.offsetHeight / 2;
+	}
+
+	function tick(now) {
 		if (isPlaybackJump(lastSample, track)) snapLyrics = true;
 		displayPosition = livePlaybackPosition(track, Date.now());
 		lastSample = track;
+		const target = measureLyricsOffset();
+		if (target != null) {
+			const ts = Number(now) || (typeof performance !== 'undefined' ? performance.now() : 0);
+			const dt = lastEaseAt ? Math.min(0.05, (ts - lastEaseAt) / 1000) : 0.016;
+			lastEaseAt = ts;
+			if (snapLyrics || reducedMotion) lyricsOffset = target;
+			else lyricsOffset = easeToward(lyricsOffset, target, dt, STACK_EASE_TAU_SEC);
+		}
 		raf = requestAnimationFrame(tick);
 	}
 
@@ -103,32 +134,6 @@
 		}
 		raf = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(raf);
-	});
-
-	$effect(() => {
-		const restSlot = rest;
-		const viewport = lyricsViewport;
-		if (!viewport) return;
-		if (restSlot && !restSlot.blank) {
-			if (restSlot.afterIndex < 0) {
-				lyricsOffset = viewport.clientHeight * 0.38 + 28;
-				return;
-			}
-			const finished = viewport.querySelector(`[data-lyric="${restSlot.afterIndex}"]`);
-			if (!finished) return;
-			const padBottom = parseFloat(getComputedStyle(finished).paddingBottom) || 0;
-			const textBottom = finished.offsetTop + finished.offsetHeight - padBottom;
-			lyricsOffset = viewport.clientHeight * 0.38 - textBottom - 22;
-			return;
-		}
-		const idx = restSlot?.blank ? restSlot.afterIndex : startedLyricIndex;
-		if (idx === -1) {
-			lyricsOffset = 0;
-			return;
-		}
-		const el = viewport.querySelector(`[data-lyric="${idx}"]`);
-		if (!el) return;
-		lyricsOffset = viewport.clientHeight * 0.38 - el.offsetTop - el.offsetHeight / 2;
 	});
 
 	$effect(() => {
@@ -367,7 +372,7 @@
 					<div
 						class="lyrics-stack"
 						class:instant={reducedMotion || snapLyrics}
-						style="--stack-y: {lyricsOffset}px"
+						style="transform: translate3d(0, {lyricsOffset}px, 0)"
 					>
 						{#each synced as line, i (`${line.time}:${line.text}`)}
 							<p
@@ -377,7 +382,6 @@
 								class:near={Math.abs(lineDelta(i)) === 1}
 								class:resting={lineIsResting(i)}
 								data-lyric={i}
-								style="--delta: {lineDelta(i)}"
 							>
 								{#if line.words?.length}
 									{#each line.words as word, w (w)}
@@ -701,13 +705,8 @@
 		gap: var(--space-5);
 		padding: 0 var(--space-4);
 		will-change: transform;
-		transform: translate3d(0, var(--stack-y, 0px), 0);
-		transition:
-			--stack-y 840ms var(--ease-out),
-			transform 840ms var(--ease-out);
-	}
-	.lyrics-stack.instant {
-		transition: none;
+		/* Vertical travel is lerped in rAF (`easeToward`) so line changes and
+		   instrumental rests glide instead of waiting on a CSS custom-prop. */
 	}
 	.lyric-line {
 		margin: 0;
@@ -719,24 +718,23 @@
 		color: var(--text-tertiary);
 		opacity: 0.38;
 		transform-origin: left center;
-		transform: translate3d(calc(var(--delta, 0) * -6px), calc(var(--delta, 0) * 12px), 0) scale(0.96);
+		transform: translate3d(0, 14px, 0) scale(0.96);
 		filter: blur(0.35px);
 		transition:
-			color 480ms var(--spring-smooth),
-			opacity 560ms var(--spring-smooth),
-			transform 840ms var(--ease-out),
-			filter 520ms var(--spring-smooth),
-			padding-bottom 840ms var(--ease-out),
-			--delta 840ms var(--ease-out);
+			color 560ms var(--spring-smooth),
+			opacity 640ms var(--spring-smooth),
+			transform 720ms var(--ease-out),
+			filter 560ms var(--spring-smooth),
+			padding-bottom 720ms var(--ease-out);
 	}
 	.lyric-line.near {
 		opacity: 0.55;
 		filter: none;
-		transform: translate3d(calc(var(--delta, 0) * -3px), calc(var(--delta, 0) * 8px), 0) scale(0.98);
+		transform: translate3d(-2px, 8px, 0) scale(0.985);
 	}
 	.lyric-line.past {
 		opacity: 0.22;
-		transform: translate3d(0, -12px, 0) scale(0.94);
+		transform: translate3d(0, -14px, 0) scale(0.94);
 		filter: blur(0.45px);
 	}
 	.lyric-line.resting {
@@ -746,7 +744,7 @@
 		color: var(--foreground);
 		opacity: 1;
 		filter: none;
-		transform: translate3d(0, 0, 0) scale(1.045);
+		transform: translate3d(0, 0, 0) scale(1.03);
 	}
 	.lyrics-stack.instant .lyric-line {
 		transition: none;
@@ -778,8 +776,8 @@
 	@media (prefers-reduced-motion: no-preference) {
 		.lyric-rest-focus {
 			transition:
-				opacity 560ms var(--spring-smooth),
-				transform 840ms var(--ease-out);
+				opacity 720ms var(--spring-smooth),
+				transform 720ms var(--ease-out);
 		}
 	}
 	.lyric-rest-focus.open {

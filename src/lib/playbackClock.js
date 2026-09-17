@@ -169,6 +169,22 @@ export function isPlaybackJump(prev, next, now = Date.now()) {
 	return Math.abs(reported - expected) > 1.4;
 }
 
+/** Time constant for the lyric-stack lerp. After ~3τ the offset has settled
+ *  (~840ms), so line changes and instrumental rests ease instead of jumping. */
+export const STACK_EASE_TAU_SEC = 0.28;
+
+/** Exponential ease toward `target`. One rAF step; `tauSec` is the time
+ *  constant (63% of the remaining gap per τ). Snaps when dt or tau is 0. */
+export function easeToward(current, target, dtSec, tauSec) {
+	const from = Number(current);
+	const to = Number(target);
+	if (!Number.isFinite(to)) return Number.isFinite(from) ? from : 0;
+	if (!Number.isFinite(from)) return to;
+	if (!(dtSec > 0) || !(tauSec > 0)) return to;
+	if (Math.abs(to - from) < 0.15) return to;
+	return from + (to - from) * (1 - Math.exp(-dtSec / tauSec));
+}
+
 // A gap at least this long between one line's clock and the next reads as
 // an instrumental break rather than just an unhurried lyric. Breaths shorter
 // than this stay on the finished line instead of flipping to dots.
