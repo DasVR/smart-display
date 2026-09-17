@@ -5,17 +5,23 @@
 	import {
 		activeLyricIndex as startedIndexForTime,
 		activeWordIndex,
-		instrumentalDotStates,
+		easeToward,
+		instrumentalDotStatesFromGap,
+		instrumentalRest,
+		HELD_WORD_SEC,
 		isHeldWord,
 		isPlaybackJump,
 		letterFill,
 		letterWave,
 		livePlaybackPosition,
+		LYRIC_LEAD_SEC,
 		lyricsAreSynced,
 		singingLyricIndex,
+		STACK_EASE_TAU_SEC,
 		wordProgress
 	} from '$lib/playbackClock.js';
 	import { rememberNowPlaying } from '$lib/artCarousel.js';
+	import { shouldGlueLyricTokens } from '$lib/lyricWords.js';
 	import { applyTransportOptimistic, nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
 
 	let artFailed = $state(false);
@@ -27,6 +33,9 @@
 	let reducedMotion = $state(false);
 	let snapLyrics = $state(false);
 	let lastSample = null;
+	let lastEaseAt = 0;
+	let stackReady = false;
+	let lastTrackKey = '';
 	let carousel = $state({ prev: null, current: null, next: null });
 
 	let track = $derived($nowPlaying);
@@ -35,21 +44,40 @@
 	let synced = $derived(lyricsAreSynced(track?.lyrics) ? track.lyrics : null);
 	let plainLyrics = $derived(!synced && track?.lyrics?.[0]?.text ? track.lyrics[0].text : null);
 	let lyricsPending = $derived(Boolean(track?.lyricsPending) && !synced && !plainLyrics);
-	let startedLyricIndex = $derived(startedIndexForTime(synced, displayPosition));
-	let activeLyricIndex = $derived(singingLyricIndex(synced, displayPosition));
+	let lyricClock = $derived(track?.playing ? displayPosition + LYRIC_LEAD_SEC : displayPosition);
+	let startedLyricIndex = $derived(startedIndexForTime(synced, lyricClock));
+	let rest = $derived(instrumentalRest(synced, lyricClock, track?.length));
+	let activeLyricIndex = $derived(singingLyricIndex(synced, lyricClock, track?.length));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
-	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, displayPosition));
+	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, lyricClock));
 	let activeWordFill = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return 0;
-		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex]?.end);
+		return wordProgress(
+			words,
+			activeWordIdx,
+			lyricClock,
+			synced?.[activeLyricIndex]?.end,
+			synced?.[activeLyricIndex + 1]?.time
+		);
 	});
 	let heldActive = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return false;
-		return isHeldWord(words, activeWordIdx, synced?.[activeLyricIndex]?.end);
+		return isHeldWord(
+			words,
+			activeWordIdx,
+			synced?.[activeLyricIndex]?.end,
+			HELD_WORD_SEC,
+			synced?.[activeLyricIndex + 1]?.time
+		);
 	});
-	let instrumentalDots = $derived(instrumentalDotStates(synced, startedLyricIndex, displayPosition));
+	let instrumentalDots = $derived.by(() => {
+		const states = instrumentalDotStatesFromGap(rest, lyricClock);
+		if (!rest) return states;
+		return states.map((v) => 0.28 + v * 0.72);
+	});
+	let restFocus = $derived(Boolean(rest) && !rest.blank);
 	let artPulse = $derived(track?.playing ? 1 + $bassLevel * 0.045 : 1);
 	let carouselCards = $derived.by(() => {
 		const list = [];
@@ -71,10 +99,47 @@
 		if (next.title) carousel = rememberNowPlaying(next);
 	});
 
-	function tick() {
+	function measureLyricsOffset() {
+		const viewport = lyricsViewport;
+		if (!viewport) return null;
+		const restSlot = rest;
+		const focusY = viewport.clientHeight * 0.38;
+		if (restSlot && !restSlot.blank) {
+			if (restSlot.afterIndex < 0) return focusY + 28;
+			const finished = viewport.querySelector(`[data-lyric="${restSlot.afterIndex}"]`);
+			if (!finished) return null;
+			const padBottom = parseFloat(getComputedStyle(finished).paddingBottom) || 0;
+			const textBottom = finished.offsetTop + finished.offsetHeight - padBottom;
+			return focusY - textBottom - 22;
+		}
+		const idx = restSlot?.blank ? restSlot.afterIndex : startedLyricIndex;
+		if (idx === -1) return 0;
+		const el = viewport.querySelector(`[data-lyric="${idx}"]`);
+		if (!el) return null;
+		return focusY - el.offsetTop - el.offsetHeight / 2;
+	}
+
+	function tick(now) {
 		if (isPlaybackJump(lastSample, track)) snapLyrics = true;
 		displayPosition = livePlaybackPosition(track, Date.now());
 		lastSample = track;
+		const key = trackKey;
+		if (key !== lastTrackKey) {
+			lastTrackKey = key;
+			stackReady = false;
+		}
+		const target = measureLyricsOffset();
+		if (target != null) {
+			const ts = Number(now) || (typeof performance !== 'undefined' ? performance.now() : 0);
+			const dt = lastEaseAt ? Math.min(0.1, Math.max(0, (ts - lastEaseAt) / 1000)) : 0.016;
+			lastEaseAt = ts;
+			if (!stackReady || snapLyrics || reducedMotion) {
+				lyricsOffset = target;
+				stackReady = true;
+			} else {
+				lyricsOffset = easeToward(lyricsOffset, target, dt, STACK_EASE_TAU_SEC);
+			}
+		}
 		raf = requestAnimationFrame(tick);
 	}
 
@@ -94,18 +159,6 @@
 		}
 		raf = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(raf);
-	});
-
-	$effect(() => {
-		const idx = startedLyricIndex;
-		const viewport = lyricsViewport;
-		if (!viewport || idx < 0) {
-			lyricsOffset = 0;
-			return;
-		}
-		const el = viewport.querySelector(`[data-lyric="${idx}"]`);
-		if (!el) return;
-		lyricsOffset = viewport.clientHeight * 0.38 - el.offsetTop - el.offsetHeight / 2;
 	});
 
 	$effect(() => {
@@ -207,14 +260,25 @@
 	}
 
 	function lineIsPast(lineIndex) {
+		if (rest?.blank && rest.afterIndex === lineIndex) return false;
 		if (startedLyricIndex < 0) return false;
 		if (lineIndex < startedLyricIndex) return true;
 		return lineIndex === startedLyricIndex && activeLyricIndex < 0;
 	}
 
+	function lineIsResting(lineIndex) {
+		return restFocus && rest.afterIndex === lineIndex;
+	}
+
 	function lineDelta(lineIndex) {
+		if (rest) {
+			if (rest.blank || rest.afterIndex < 0) return lineIndex - rest.afterIndex;
+			return lineIndex <= rest.afterIndex
+				? lineIndex - rest.afterIndex - 1
+				: lineIndex - rest.afterIndex;
+		}
 		const origin = activeLyricIndex >= 0 ? activeLyricIndex : startedLyricIndex;
-		if (origin < 0) return lineIndex;
+		if (origin < 0) return lineIndex + 1;
 		return lineIndex - origin;
 	}
 
@@ -227,9 +291,9 @@
 	}
 
 	function dotBrightness(lineIndex, dotIndex) {
+		if (rest?.blank && rest.afterIndex === lineIndex) return instrumentalDots[dotIndex] ?? 0;
 		if (lineIndex < startedLyricIndex) return 1;
-		if (lineIndex > startedLyricIndex) return 0;
-		return instrumentalDots[dotIndex] ?? 0;
+		return 0;
 	}
 </script>
 
@@ -338,15 +402,15 @@
 						{#each synced as line, i (`${line.time}:${line.text}`)}
 							<p
 								class="lyric-line"
-								class:active={i === activeLyricIndex}
+								class:active={i === activeLyricIndex || (rest?.blank && rest.afterIndex === i)}
 								class:past={lineIsPast(i)}
 								class:near={Math.abs(lineDelta(i)) === 1}
+								class:resting={lineIsResting(i)}
 								data-lyric={i}
-								style="--delta: {lineDelta(i)}"
 							>
 								{#if line.words?.length}
 									{#each line.words as word, w (w)}
-										{#if w > 0}{' '}{/if}<span
+										{#if w > 0 && !shouldGlueLyricTokens(line.words[w - 1].text, word.text)}{' '}{/if}<span
 											class="lyric-word"
 											class:sung={wordSung(i, w)}
 											class:filling={i === activeLyricIndex && w === activeWordIdx}
@@ -368,6 +432,22 @@
 								{/if}
 							</p>
 						{/each}
+					</div>
+					<div
+						class="lyric-rest-focus"
+						class:open={restFocus}
+						class:instant={reducedMotion || snapLyrics}
+						aria-hidden="true"
+					>
+						<span class="lyric-dots">
+							{#each instrumentalDots as brightness, d (d)}
+								<span
+									class="dot"
+									class:filling={brightness > 0.08 && brightness < 0.92}
+									style="opacity: {brightness}; --o: {brightness}"
+								></span>
+							{/each}
+						</span>
 					</div>
 				</div>
 			{:else if plainLyrics}
@@ -654,10 +734,8 @@
 		gap: var(--space-5);
 		padding: 0 var(--space-4);
 		will-change: transform;
-		transition: transform 560ms var(--spring-smooth);
-	}
-	.lyrics-stack.instant {
-		transition: none;
+		/* Vertical travel is lerped in rAF (`easeToward`) so line changes and
+		   instrumental rests glide instead of waiting on a CSS custom-prop. */
 	}
 	.lyric-line {
 		margin: 0;
@@ -669,29 +747,33 @@
 		color: var(--text-tertiary);
 		opacity: 0.38;
 		transform-origin: left center;
-		transform: translate3d(calc(var(--delta, 0) * -6px), calc(var(--delta, 0) * 12px), 0) scale(0.96);
+		transform: translate3d(0, 14px, 0) scale(0.96);
 		filter: blur(0.35px);
 		transition:
-			color 380ms var(--spring-smooth),
-			opacity 380ms var(--spring-smooth),
-			transform 560ms var(--spring-smooth),
-			filter 420ms var(--spring-smooth);
+			color 560ms var(--spring-smooth),
+			opacity 640ms var(--spring-smooth),
+			transform 720ms var(--ease-out),
+			filter 560ms var(--spring-smooth),
+			padding-bottom 720ms var(--ease-out);
 	}
 	.lyric-line.near {
 		opacity: 0.55;
 		filter: none;
-		transform: translate3d(calc(var(--delta, 0) * -3px), calc(var(--delta, 0) * 8px), 0) scale(0.98);
+		transform: translate3d(-2px, 8px, 0) scale(0.985);
 	}
 	.lyric-line.past {
 		opacity: 0.22;
-		transform: translate3d(0, -10px, 0) scale(0.94);
+		transform: translate3d(0, -14px, 0) scale(0.94);
 		filter: blur(0.45px);
+	}
+	.lyric-line.resting {
+		padding-bottom: 2.6em;
 	}
 	.lyric-line.active {
 		color: var(--foreground);
 		opacity: 1;
 		filter: none;
-		transform: translate3d(0, 0, 0) scale(1.045);
+		transform: translate3d(0, 0, 0) scale(1.03);
 	}
 	.lyrics-stack.instant .lyric-line {
 		transition: none;
@@ -705,10 +787,72 @@
 			filter: none;
 		}
 	}
+	.lyric-rest-focus {
+		position: absolute;
+		left: var(--space-4);
+		right: var(--space-4);
+		top: 38%;
+		z-index: 2;
+		opacity: 0;
+		pointer-events: none;
+		transform: translateY(-42%) scale(0.9);
+		font-family: var(--font-body);
+		font-size: clamp(1.15rem, 2.2vw, 1.85rem);
+		font-weight: 600;
+		color: var(--foreground);
+		transition: opacity 280ms var(--spring-smooth);
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.lyric-rest-focus {
+			transition:
+				opacity 720ms var(--spring-smooth),
+				transform 720ms var(--ease-out);
+		}
+	}
+	.lyric-rest-focus.open {
+		opacity: 1;
+		transform: translateY(-50%) scale(1.045);
+	}
+	.lyric-rest-focus .lyric-dots {
+		gap: 0.5em;
+	}
+	.lyric-rest-focus .dot {
+		width: 0.54em;
+		height: 0.54em;
+		transform: translateY(calc((1 - var(--o, 0)) * 0.16em)) scale(calc(0.68 + 0.42 * var(--o, 0)));
+		filter: drop-shadow(0 0 calc(4px + 12px * var(--o, 0)) color-mix(in srgb, var(--foreground) calc(28% + var(--o, 0) * 42%), transparent));
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.lyric-rest-focus .dot.filling {
+			animation: rest-dot-lift 1.05s var(--spring-smooth) infinite;
+		}
+	}
+	@keyframes rest-dot-lift {
+		0%,
+		100% {
+			transform: translateY(calc((1 - var(--o, 0)) * 0.16em)) scale(calc(0.68 + 0.42 * var(--o, 0)));
+		}
+		50% {
+			transform: translateY(calc((1 - var(--o, 0)) * 0.16em - 0.16em))
+				scale(calc(0.78 + 0.36 * var(--o, 0)));
+		}
+	}
+	.lyric-rest-focus.instant {
+		transition: none;
+	}
+	.lyric-rest-focus.instant .dot.filling {
+		animation: none;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.lyric-rest-focus,
+		.lyric-rest-focus.open {
+			transform: translateY(-50%);
+		}
+	}
 	.lyric-word {
 		display: inline;
 		opacity: 0.42;
-		transition: opacity 90ms linear;
+		transition: opacity 50ms linear;
 	}
 	.lyric-line.active .lyric-word.sung,
 	.lyric-line.past .lyric-word {
@@ -773,7 +917,7 @@
 	@media (prefers-reduced-motion: no-preference) {
 		.dot {
 			transition:
-				opacity 280ms linear,
+				opacity 280ms var(--spring-smooth),
 				transform 280ms var(--spring-smooth);
 		}
 	}

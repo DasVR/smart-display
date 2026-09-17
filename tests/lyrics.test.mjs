@@ -180,6 +180,37 @@ test('parseTTML reads Apple Music-style word spans', () => {
 	assert.equal(lines[0].end, 4.5);
 });
 
+test('parseTTML glues contraction fragments instead of painting don \' t', () => {
+	const ttml = `<p begin="00:01.000" end="00:02.000">` +
+		`<span begin="00:01.000" end="00:01.200">They</span> ` +
+		`<span begin="00:01.220" end="00:01.400">don</span>` +
+		`<span begin="00:01.400" end="00:01.480">'</span>` +
+		`<span begin="00:01.480" end="00:01.700">t</span></p>`;
+	const lines = parseTTML(ttml);
+	assert.equal(lines[0].text, "They don't");
+	assert.equal(lines[0].words.length, 2);
+	assert.equal(lines[0].words[0].text, 'They');
+	assert.equal(lines[0].words[1].text, "don't");
+});
+
+test('parseTTML glues a contraction even when the source put spaces around the apostrophe', () => {
+	const ttml = `<p begin="00:01.000" end="00:02.000">` +
+		`<span begin="00:01.000" end="00:01.200">don</span> ` +
+		`<span begin="00:01.200" end="00:01.280">'</span> ` +
+		`<span begin="00:01.280" end="00:01.500">t</span></p>`;
+	const lines = parseTTML(ttml);
+	assert.equal(lines[0].text, "don't");
+	assert.equal(lines[0].words.length, 1);
+	assert.equal(lines[0].words[0].text, "don't");
+});
+
+test('parseYrc glues a split apostrophe into one word', () => {
+	const lines = parseYrc("[1000,800](1000,200,0)don(1200,80,0)'(1280,120,0)t");
+	assert.equal(lines[0].text, "don't");
+	assert.equal(lines[0].words.length, 1);
+	assert.equal(lines[0].words[0].text, "don't");
+});
+
 test('parseTTML handles HH:MM:SS.mmm and keeps a spanless <p> as an instrumental marker', () => {
 	const ttml =
 		'<p begin="00:00:12.000" end="00:00:14.000">Hello</p>' +

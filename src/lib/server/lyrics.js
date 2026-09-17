@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { coalesceLyricWords, lineWithCoalescedWords } from '../lyricWords.js';
 
 const LYRICS_HIT_TTL = 6 * 60 * 60 * 1000;
 const LYRICS_MISS_TTL = 90 * 1000;
@@ -109,7 +110,7 @@ function parseEnhancedWords(content, offsetSec) {
 			i + 1 < tags.length ? parseClock(tags[i + 1][1], tags[i + 1][2]) + offsetSec : undefined;
 		words.push(timedWord(time, text, nextTime));
 	}
-	return words;
+	return coalesceLyricWords(words);
 }
 
 // Plain LRC (the overwhelming majority of what lrclib.net serves) only has
@@ -225,8 +226,19 @@ function xmlAttr(attrsText, name) {
 	return m ? m[1] : null;
 }
 
+function decodeLyricChunk(html) {
+	return String(html || '')
+		.replace(/<br\s*\/?>/gi, ' ')
+		.replace(/<[^>]+>/g, '')
+		.replace(/&nbsp;/gi, ' ')
+		.replace(/&apos;|&#39;|&#x27;/gi, "'")
+		.replace(/&lsquo;|&rsquo;|&#8216;|&#8217;/gi, "'")
+		.replace(/&quot;|&#34;/gi, '"')
+		.replace(/&amp;/gi, '&');
+}
+
 function stripMarkup(html) {
-	return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+	return decodeLyricChunk(html).replace(/\s+/g, ' ').trim();
 }
 
 const TTML_P_TAG = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
@@ -250,21 +262,30 @@ export function parseTTML(text) {
 		const words = [];
 		TTML_SPAN_TAG.lastIndex = 0;
 		let sm;
+		let cursor = 0;
 		while ((sm = TTML_SPAN_TAG.exec(inner)) !== null) {
+			const between = inner.slice(cursor, sm.index);
+			cursor = sm.index + sm[0].length;
 			const [, sAttrs, sInner] = sm;
 			if (/ttm:role\s*=\s*"x-translation"/i.test(sAttrs || '')) continue;
 			const wordBegin = parseTimecode(xmlAttr(sAttrs, 'begin'));
 			const wordEnd = parseTimecode(xmlAttr(sAttrs, 'end'));
-			const wordText = stripMarkup(sInner);
+			const raw = decodeLyricChunk(sInner);
+			const wordText = raw.replace(/\s+/g, ' ').trim();
 			if (wordBegin == null || !wordText) continue;
-			words.push(timedWord(wordBegin, wordText, wordEnd));
+			const breakBefore = /\s/.test(decodeLyricChunk(between)) || /^\s/.test(raw);
+			words.push({
+				...timedWord(wordBegin, wordText, wordEnd),
+				...(breakBefore ? { breakBefore: true } : {})
+			});
 		}
-		const lineText = words.length ? words.map((w) => w.text).join(' ') : stripMarkup(inner);
+		const coalesced = coalesceLyricWords(words);
+		const lineText = coalesced.length ? coalesced.map((w) => w.text).join(' ') : stripMarkup(inner);
 		lines.push({
 			time: begin,
 			text: lineText,
 			...(lineEnd != null && lineEnd > begin ? { end: lineEnd } : {}),
-			...(words.length ? { words } : {})
+			...(coalesced.length ? { words: coalesced } : {})
 		});
 	}
 	return lines.sort((a, b) => a.time - b.time);
@@ -291,13 +312,18 @@ export function parseYrc(text) {
 				const begin = (Number(obj?.t) || 0) / 1000;
 				const words = [];
 				for (const chunk of obj?.c || []) {
-					const word = String(chunk?.tx || chunk?.c || '').trim();
+					const word = String(chunk?.tx || chunk?.c || '');
 					if (!word) continue;
 					words.push({ time: begin + (Number(chunk?.t) || 0) / 1000, text: word });
 				}
-				const lineText = words.map((w) => w.text).join(' ');
+				const coalesced = coalesceLyricWords(words);
+				const lineText = coalesced.map((w) => w.text).join(' ');
 				if (!lineText || CREDIT_LINE_RE.test(lineText)) continue;
-				lines.push({ time: begin, text: lineText, ...(words.length >= 2 ? { words } : {}) });
+				lines.push({
+					time: begin,
+					text: lineText,
+					...(coalesced.length >= 2 ? { words: coalesced } : {})
+				});
 			} catch {
 				/* not a JSON credit line */
 			}
@@ -318,12 +344,14 @@ export function parseYrc(text) {
 		}
 		const lineText = words.map((w) => w.text).join(' ');
 		if (CREDIT_LINE_RE.test(lineText)) continue;
-		lines.push({
-			time: begin,
-			end: lineEnd,
-			text: lineText,
-			...(words.length >= 2 ? { words } : {})
-		});
+		lines.push(
+			lineWithCoalescedWords({
+				time: begin,
+				end: lineEnd,
+				text: lineText,
+				...(words.length >= 2 ? { words } : {})
+			})
+		);
 	}
 	return lines.sort((a, b) => a.time - b.time);
 }
@@ -349,12 +377,14 @@ export function parseKrc(text) {
 			? words.map((w) => w.text).join(' ')
 			: match[3].replace(KRC_WORD_RE, '').trim();
 		if (CREDIT_LINE_RE.test(lineText)) continue;
-		lines.push({
-			time: begin,
-			end: lineEnd,
-			text: lineText,
-			...(words.length >= 2 ? { words } : {})
-		});
+		lines.push(
+			lineWithCoalescedWords({
+				time: begin,
+				end: lineEnd,
+				text: lineText,
+				...(words.length >= 2 ? { words } : {})
+			})
+		);
 	}
 	return lines.sort((a, b) => a.time - b.time);
 }
@@ -383,7 +413,9 @@ export function linesFromCommunityPayload(parsed, query) {
 	const q = query || { artist: parsed.artist, title: parsed.title };
 	let lines = null;
 	if (Array.isArray(parsed.lines) && parsed.lines.length) {
-		lines = parsed.wordLevel ? parsed.lines : synthesizeWordTiming(parsed.lines);
+		lines = parsed.wordLevel
+			? parsed.lines.map(lineWithCoalescedWords)
+			: synthesizeWordTiming(parsed.lines);
 	} else if (parsed.ttml) {
 		const parsedTtml = parseTTML(parsed.ttml);
 		lines = parsedTtml.length ? synthesizeWordTiming(parsedTtml) : null;
@@ -420,12 +452,14 @@ export function parseMusixmatchRichSync(body) {
 		}
 		const lineText =
 			typeof row?.x === 'string' && row.x.trim() ? row.x.trim() : words.map((w) => w.text).join(' ');
-		lines.push({
-			time: ts,
-			text: lineText,
-			...(Number.isFinite(te) && te > ts ? { end: te } : {}),
-			...(words.length ? { words } : {})
-		});
+		lines.push(
+			lineWithCoalescedWords({
+				time: ts,
+				text: lineText,
+				...(Number.isFinite(te) && te > ts ? { end: te } : {}),
+				...(words.length ? { words } : {})
+			})
+		);
 	}
 	return lines.sort((a, b) => a.time - b.time);
 }

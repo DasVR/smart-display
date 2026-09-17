@@ -106,3 +106,14 @@ test('airplay metadata parser reads duration and progress', () => {
 	assert.equal(typeof state.positionAt, 'number');
 	assert.ok(state.positionAt > 0);
 });
+
+test('airplay metadata parser does not restamp the clock on a play-status while already playing', () => {
+	const xml =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('73736e63', '70726772', '0/441000/12039300') +
+		item('73736e63', '63617073', String.fromCharCode(2)) +
+		item('73736e63', '7072736d');
+	const state = parse(xml);
+	assert.equal(state.playing, true);
+	assert.equal(state.position, 10);
+});
