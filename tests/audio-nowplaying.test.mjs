@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 
 import {
 	AIRPLAY_STALE_MS,
+	AIRPLAY_PAUSED_STALE_MS,
 	mergeNowPlaying,
 	readAirplayNowPlaying
 } from '../src/lib/server/audioNowPlaying.js';
@@ -19,6 +20,16 @@ test('mergeNowPlaying keeps an AirPlay title after a flush/pause', () => {
 	assert.equal(merged.title, 'My Way');
 	assert.equal(merged.playing, false);
 	assert.equal(merged.paused, true);
+});
+
+test('mergeNowPlaying does not treat a leftover AirPlay title as a session', () => {
+	const merged = mergeNowPlaying(
+		{ playing: false },
+		{ playing: false, paused: false, title: 'Ghost track', artist: 'Gone' }
+	);
+	assert.equal(merged.playing, false);
+	assert.equal(merged.title, undefined);
+	assert.equal(merged.source, undefined);
 });
 
 test('mergeNowPlaying prefers live AirPlay over idle MPRIS', () => {
@@ -140,4 +151,23 @@ test('readAirplayNowPlaying returns live state', () => {
 	const live = readAirplayNowPlaying(file, now);
 	assert.equal(live.playing, true);
 	assert.equal(live.title, 'Cardigan');
+});
+
+test('readAirplayNowPlaying treats a paused file without heartbeats as disconnected', () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), 'airplay-np-'));
+	const file = path.join(dir, 'now.json');
+	const now = 1_700_000_000_000;
+	writeFileSync(
+		file,
+		JSON.stringify({
+			playing: false,
+			paused: true,
+			title: 'My Way',
+			updatedAt: now - AIRPLAY_PAUSED_STALE_MS - 500
+		})
+	);
+	const stale = readAirplayNowPlaying(file, now);
+	assert.equal(stale.stale, true);
+	assert.equal(stale.paused, false);
+	assert.equal(mergeNowPlaying({ playing: false }, stale).title, undefined);
 });

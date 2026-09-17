@@ -113,10 +113,56 @@ export function lyricsAreSynced(lines) {
 export function wordProgress(words, index, position, lineEndTime) {
 	if (!Array.isArray(words) || index < 0 || index >= words.length) return 0;
 	const start = Number(words[index].time) || 0;
-	const end = wordEndTime(words, index, lineEndTime);
-	const span = end > start ? end - start : DEFAULT_WORD_SPAN_SEC;
+	const span = wordSpanSec(words, index, lineEndTime);
 	const t = Number(position) || 0;
 	return Math.min(1, Math.max(0, (t - start) / span));
+}
+
+/** How long `words[index]` is actually sung. */
+export function wordSpanSec(words, index, lineEndTime) {
+	if (!Array.isArray(words) || index < 0 || index >= words.length) return DEFAULT_WORD_SPAN_SEC;
+	const start = Number(words[index].time) || 0;
+	const end = wordEndTime(words, index, lineEndTime);
+	return end > start ? end - start : DEFAULT_WORD_SPAN_SEC;
+}
+
+/** Held notes (Cider / Apple Music letter-float): longer than a spoken
+ *  syllable. Typical karaoke words sit around 0.3-0.55s; a held "you"
+ *  or last chorus word runs past this. */
+export const HELD_WORD_SEC = 0.78;
+
+export function isHeldWord(words, index, lineEndTime, threshold = HELD_WORD_SEC) {
+	return wordSpanSec(words, index, lineEndTime) >= threshold;
+}
+
+/** 0..1 fill for letter `index` of `count` given the word's --wp progress.
+ *  Letters light in sequence with overlap so a long hold still feels like
+ *  a wave, not a typewriter. */
+export function letterFill(progress, index, count) {
+	const n = Math.max(1, Number(count) || 1);
+	const p = Math.min(1, Math.max(0, Number(progress) || 0));
+	if (n === 1) return p;
+	const start = (index / n) * 0.58;
+	const span = 0.42 + 0.58 / n;
+	return Math.min(1, Math.max(0, (p - start) / span));
+}
+
+/** 0 at the start and end of a letter's fill, 1 at the peak - drives the
+ *  vertical wave + bloom so the lift happens while the letter is sung. */
+export function letterWave(fill) {
+	const f = Math.min(1, Math.max(0, Number(fill) || 0));
+	return Math.sin(f * Math.PI);
+}
+
+/** True when the newly reported sample is a scrub/skip, not the next
+ *  extrapolated frame. Used to snap lyrics instead of easing toward a
+ *  stale clock. */
+export function isPlaybackJump(prev, next, now = Date.now()) {
+	if (!prev || !next) return false;
+	if (next.seeking) return true;
+	const expected = livePlaybackPosition(prev, now);
+	const reported = Number(next.position) || 0;
+	return Math.abs(reported - expected) > 1.4;
 }
 
 // A gap at least this long between one line's clock and the next reads as

@@ -469,6 +469,21 @@ test('dropNonLyricLines strips a Kugou title-artist header and keeps the verse',
 	assert.ok(Math.abs(lines[0].words[1].end - (25.872 + 0.475 + 0.242)) < 1e-9);
 });
 
+test('dropNonLyricLines strips end credits without eating a verse that starts The end', () => {
+	const lines = dropNonLyricLines([
+		{ time: 10, text: 'a real verse' },
+		{ time: 12, text: 'The end is near' },
+		{ time: 200, text: 'Thanks for listening' },
+		{ time: 201, text: 'The end' },
+		{ time: 202, text: 'LRC by some user' },
+		{ time: 203, text: '© 2024 NetEase' }
+	]);
+	assert.deepEqual(
+		lines.map((line) => line.text),
+		['a real verse', 'The end is near']
+	);
+});
+
 test('dropNonLyricLines keeps a later chorus that repeats the title', () => {
 	const lines = dropNonLyricLines(
 		[

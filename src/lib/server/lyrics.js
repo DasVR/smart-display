@@ -28,8 +28,17 @@ export function normalizeLyricText(value = '') {
 
 // NetEase/Kugou (and some LRC dumps) stamp a header row before the song:
 // "作词: …", "Title - Artist". Those are credits, not lyrics.
-const CREDIT_LINE_RE =
+export const CREDIT_LINE_RE =
 	/^(作词|作詞|作曲|编曲|編曲|制作人|製作人|歌词|歌詞|演唱|歌手|出品|produced\s*by|written\s*by|lyrics\s*by|lyricist|composer|arranger|lyrics|composer)\s*[:：]/i;
+
+/** End-of-file stamps community files append after the last sung line.
+ *  Whole-line only for "The end" / "End." so a verse like Sinatra's
+ *  "The end is near" stays. Marks (©) and catalog watermarks can sit
+ *  anywhere on the line. */
+export const TRAILING_CREDIT_RE =
+	/^(lrc\s*by|lyrics\s+provided|provided\s+by|copyright|all rights reserved|thanks for listening)\b/i;
+const WHOLE_LINE_CREDIT_RE = /^(the end|end|fin)\.?$/i;
+const MARK_CREDIT_RE = /©|℗|网易云|酷狗音乐|qq音乐/;
 
 function isTrackHeaderLine(text, query = {}) {
 	const n = normalizeLyricText(text);
@@ -47,13 +56,22 @@ function isTrackHeaderLine(text, query = {}) {
 /** Drops credit/title header rows so they never show as karaoke. Blank
  *  instrumental markers stay. Exact-title-only matches only drop when they
  *  sit at the start of the file (a chorus that repeats the title later is
- *  a real lyric). "Title - Artist" headers drop wherever they appear. */
+ *  a real lyric). "Title - Artist" headers drop wherever they appear.
+ *  Trailing provider stamps after the last sung line also drop. */
+export function isTrailingCreditLine(text) {
+	const raw = String(text || '').trim();
+	if (!raw) return false;
+	if (CREDIT_LINE_RE.test(raw) || TRAILING_CREDIT_RE.test(raw)) return true;
+	if (WHOLE_LINE_CREDIT_RE.test(raw)) return true;
+	return MARK_CREDIT_RE.test(raw);
+}
+
 export function dropNonLyricLines(lines, query = {}) {
 	const list = Array.isArray(lines) ? lines : [];
-	return list.filter((line) => {
+	const kept = list.filter((line) => {
 		const text = String(line?.text || '').trim();
 		if (!text) return true;
-		if (CREDIT_LINE_RE.test(text)) return false;
+		if (isTrailingCreditLine(text)) return false;
 		if (!isTrackHeaderLine(text, query)) return true;
 		const n = normalizeLyricText(text);
 		const title = normalizeLyricText(query.title);
@@ -61,6 +79,10 @@ export function dropNonLyricLines(lines, query = {}) {
 		if (artist && n !== title) return false;
 		return (Number(line.time) || 0) >= 3;
 	});
+	while (kept.length && isTrailingCreditLine(kept[kept.length - 1]?.text)) {
+		kept.pop();
+	}
+	return kept;
 }
 
 function timedWord(time, text, end) {

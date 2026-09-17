@@ -39,7 +39,7 @@ function compactPeer(list) {
  * Activity, trailing Live Activity (or an equalizer for Music).
  * Returns null when nothing ongoing, so the island can idle as a nub.
  */
-export function compactSlots(nowPlaying, activities) {
+export function compactSlots(nowPlaying, activities, { onMusicView = false } = {}) {
 	const list = Array.isArray(activities) ? activities.filter(Boolean) : [];
 	const ranked = [...list].sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
 	const music =
@@ -47,9 +47,10 @@ export function compactSlots(nowPlaying, activities) {
 			? {
 					id: 'music',
 					kind: 'music',
-					title: nowPlaying.title || 'Untitled',
-					body: nowPlaying.artist || '',
+					title: onMusicView ? '' : nowPlaying.title || 'Untitled',
+					body: onMusicView ? '' : nowPlaying.artist || '',
 					art: nowPlaying.art || '',
+					hideTitle: Boolean(onMusicView),
 					severity: 'info'
 				}
 			: null;

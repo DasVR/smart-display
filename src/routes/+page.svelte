@@ -14,7 +14,7 @@
 	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
-	import { refreshNowPlaying } from '$lib/services/nowPlayingSync.js';
+	import { startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
@@ -359,12 +359,11 @@
 		}
 		connect();
 		fetchWeather();
-		if (!musicDemo) refreshNowPlaying();
 		const stopSystemWatch = startSystemWatch();
 		const clock = setInterval(() => {
 			time = new Date();
 		}, 1000);
-		const music = musicDemo ? 0 : setInterval(refreshNowPlaying, 1000);
+		const stopMusicPoll = musicDemo ? () => {} : startNowPlayingPolling(1000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });
@@ -442,7 +441,7 @@
 		}
 		return () => {
 			clearInterval(clock);
-			clearInterval(music);
+			stopMusicPoll();
 			clearInterval(wx);
 			clearInterval(demoLyricsPoll);
 			clearInterval(installDemo);
@@ -603,12 +602,14 @@
 		windDir={atm.windRad}
 	/>
 
-	{#if $currentView === 'music' && $nowPlaying?.art && ($nowPlaying?.playing || $nowPlaying?.title)}
-		<div
-			class="music-ambient"
-			style="background-image: linear-gradient(color-mix(in srgb, var(--abyss) 80%, transparent), color-mix(in srgb, var(--abyss) 80%, transparent)), url({$nowPlaying.art})"
-			aria-hidden="true"
-		></div>
+	{#if $currentView === 'music' && $nowPlaying?.art && ($nowPlaying?.playing || $nowPlaying?.paused || $nowPlaying?.title)}
+		{#key $nowPlaying.art}
+			<div
+				class="music-ambient"
+				style="background-image: linear-gradient(color-mix(in srgb, var(--abyss) 80%, transparent), color-mix(in srgb, var(--abyss) 80%, transparent)), url({$nowPlaying.art})"
+				aria-hidden="true"
+			></div>
+		{/key}
 	{/if}
 
 	<IslandStack
@@ -616,6 +617,7 @@
 		events={$islandQueue}
 		activities={$islandActivities}
 		progress={$installProgress}
+		onMusicView={$currentView === 'music'}
 	/>
 
 	<div
@@ -753,7 +755,7 @@
 	   the way Apple Music/Cider tint their whole now-playing screen. */
 	.music-ambient {
 		position: fixed;
-		inset: -10%;
+		inset: -18%;
 		z-index: 1;
 		background-size: cover;
 		background-position: center;
@@ -763,7 +765,9 @@
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.music-ambient {
-			animation: ambient-in 900ms var(--spring-smooth) both;
+			animation:
+				ambient-in 900ms var(--spring-smooth) both,
+				ambient-ken 28s ease-in-out infinite alternate;
 		}
 	}
 	@keyframes ambient-in {
@@ -772,6 +776,14 @@
 		}
 		to {
 			opacity: 1;
+		}
+	}
+	@keyframes ambient-ken {
+		from {
+			transform: translate3d(-2%, -1%, 0) scale(1.04);
+		}
+		to {
+			transform: translate3d(3%, 2%, 0) scale(1.14);
 		}
 	}
 	.display-root {

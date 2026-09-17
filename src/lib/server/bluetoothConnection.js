@@ -14,7 +14,7 @@ const execFileAsync = promisify(execFile);
  * Async (not execFileSync) so it doesn't block the event loop - see
  * kioskStatus.js for the fuller note on why that matters here. */
 
-const CACHE_MS = 2500;
+const CACHE_MS = 800;
 const CONNECTED_DEVICE_RE = /^Device\s+[0-9A-Fa-f:]{17}/m;
 const cache = { at: 0, connected: false };
 

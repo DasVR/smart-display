@@ -69,6 +69,22 @@ def stamp_position():
 	state["positionAt"] = int(time.time() * 1000)
 
 
+def clear_session():
+	# Session end (pend) must wipe metadata. Leaving a title behind made
+	# the dashboard treat a disconnected receiver as a paused track, and
+	# the idle keepalive then restamped updatedAt forever.
+	state["playing"] = False
+	state["paused"] = False
+	state["title"] = ""
+	state["artist"] = ""
+	state["album"] = ""
+	state["art"] = ""
+	state["position"] = 0
+	state["positionAt"] = 0
+	state["length"] = 0
+	state["seeking"] = False
+
+
 def write_state():
 	state["updatedAt"] = int(time.time() * 1000)
 	directory = os.path.dirname(STATE_PATH)
@@ -125,8 +141,7 @@ def apply_item(typ, code, data):
 		stamp_position()
 		changed = True
 	elif code == "pend":
-		state["playing"] = False
-		state["paused"] = False
+		clear_session()
 		changed = True
 	elif code == "pfls":
 		# Flush fires on skip/seek. Audio is still the AirPlay session, but
@@ -141,7 +156,9 @@ def apply_item(typ, code, data):
 	elif code == "prgr":
 		changed = apply_progress(data)
 	elif code in ("phbt", "phb0"):
-		changed = state["playing"]
+		# Heartbeats are the liveness signal for both playing and paused.
+		# A paused session that stops getting them is a disconnect.
+		changed = state["playing"] or state["paused"]
 	elif code == "caps":
 		status = parse_int(data)
 		if status == 3:
@@ -232,12 +249,9 @@ def main():
 			while True:
 				ready, _, _ = select.select([pipe], [], [], 1.0)
 				if not ready:
-					# Keep updatedAt fresh so the dashboard knows the session
-					# is live. Do not stamp positionAt: the last prgr sample
-					# is still the clock origin, and rewriting it here would
-					# rewind lyrics every second.
-					if state["playing"] or state["title"]:
-						write_state()
+					# Do not keepalive from title leftovers or a paused clock.
+					# Progress and heartbeats refresh updatedAt; rewriting the
+					# file here hid AirPlay disconnects (especially while paused).
 					continue
 				chunk = os.read(pipe.fileno(), 4096)
 				if not chunk:

@@ -40,6 +40,12 @@ CREDIT_LINE_RE = re.compile(
 	r"^(作词|作詞|作曲|编曲|編曲|制作人|製作人|歌词|歌詞|演唱|歌手|出品|produced\s*by|written\s*by|lyrics\s*by|lyricist|composer|arranger|lyrics|composer)\s*[:：]",
 	re.I,
 )
+TRAILING_CREDIT_RE = re.compile(
+	r"^(lrc\s*by|lyrics\s+provided|provided\s+by|copyright|all rights reserved|thanks for listening)\b",
+	re.I,
+)
+WHOLE_LINE_CREDIT_RE = re.compile(r"^(the end|end|fin)\.?$", re.I)
+MARK_CREDIT_RE = re.compile(r"©|℗|网易云|酷狗音乐|qq音乐")
 
 
 def normalize(value: str = "") -> str:
@@ -106,15 +112,26 @@ def is_track_header_line(text, want) -> bool:
 	return False
 
 
+def is_trailing_credit_line(text: str) -> bool:
+	raw = str(text or "").strip()
+	if not raw:
+		return False
+	if CREDIT_LINE_RE.search(raw) or TRAILING_CREDIT_RE.search(raw):
+		return True
+	if WHOLE_LINE_CREDIT_RE.search(raw):
+		return True
+	return bool(MARK_CREDIT_RE.search(raw))
+
+
 def drop_non_lyric_lines(lines, want=None):
-	"""Strip credit/title headers. Blank instrumental rows stay."""
+	"""Strip credit/title headers and trailing provider stamps. Blank instrumental rows stay."""
 	cleaned = []
 	for line in lines or []:
 		text = str(line.get("text") or "").strip()
 		if not text:
 			cleaned.append(line)
 			continue
-		if CREDIT_LINE_RE.search(text):
+		if is_trailing_credit_line(text):
 			continue
 		if not is_track_header_line(text, want or {}):
 			cleaned.append(line)
@@ -511,9 +528,18 @@ def self_test():
 	)
 	assert len(headered) == 1
 	assert headered[0]["text"] == "Feeling so faithless"
+	credits_end = drop_non_lyric_lines(
+		[
+			{"time": 10, "text": "a real verse"},
+			{"time": 200, "text": "Thanks for listening"},
+			{"time": 201, "text": "The end"},
+			{"time": 12, "text": "The end is near"},
+		]
+	)
+	assert [row["text"] for row in credits_end] == ["a real verse", "The end is near"]
 	assert score_hit("Linkin Park", "Numb", 186, {"artist": "Linkin Park", "title": "Numb", "duration": 186}) >= 90
 	assert score_hit("Frank Sinatra", "My Way", 275, {"artist": "Limp Bizkit", "title": "My Way", "duration": 273}) == 0
-	print(json.dumps({"ok": True, "tests": 6}))
+	print(json.dumps({"ok": True, "tests": 7}))
 	return 0
 
 
