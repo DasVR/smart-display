@@ -54,6 +54,7 @@
 		return isHeldWord(words, activeWordIdx, synced?.[activeLyricIndex]?.end);
 	});
 	let instrumentalDots = $derived(instrumentalDotStatesFromGap(rest, lyricClock));
+	let restFocus = $derived(Boolean(rest) && !rest.blank);
 	let artPulse = $derived(track?.playing ? 1 + $bassLevel * 0.045 : 1);
 	let carouselCards = $derived.by(() => {
 		const list = [];
@@ -102,9 +103,21 @@
 
 	$effect(() => {
 		const restSlot = rest;
-		const idx = restSlot ? (restSlot.blank ? restSlot.afterIndex : 'rest') : startedLyricIndex;
 		const viewport = lyricsViewport;
-		if (!viewport || idx === -1) {
+		if (!viewport) return;
+		if (restSlot && !restSlot.blank) {
+			if (restSlot.afterIndex < 0) {
+				lyricsOffset = 0;
+				return;
+			}
+			const finished = viewport.querySelector(`[data-lyric="${restSlot.afterIndex}"]`);
+			if (!finished) return;
+			lyricsOffset =
+				viewport.clientHeight * 0.38 - finished.offsetTop - finished.offsetHeight - 20;
+			return;
+		}
+		const idx = restSlot?.blank ? restSlot.afterIndex : startedLyricIndex;
+		if (idx === -1) {
 			lyricsOffset = 0;
 			return;
 		}
@@ -243,10 +256,6 @@
 		if (lineIndex < startedLyricIndex) return 1;
 		return 0;
 	}
-
-	function showSyntheticRest(afterIndex) {
-		return Boolean(rest) && !rest.blank && rest.afterIndex === afterIndex;
-	}
 </script>
 
 <div class="music-view">
@@ -351,18 +360,6 @@
 						class:instant={reducedMotion || snapLyrics}
 						style="transform: translate3d(0, {lyricsOffset}px, 0)"
 					>
-						{#snippet restDots()}
-							<span class="lyric-dots" aria-hidden="true">
-								{#each instrumentalDots as brightness, d (d)}
-									<span class="dot" style="opacity: {brightness}; --o: {brightness}"></span>
-								{/each}
-							</span>
-						{/snippet}
-						{#if showSyntheticRest(-1)}
-							<p class="lyric-line active" data-lyric="rest" style="--delta: 0">
-								{@render restDots()}
-							</p>
-						{/if}
 						{#each synced as line, i (`${line.time}:${line.text}`)}
 							<p
 								class="lyric-line"
@@ -395,12 +392,19 @@
 									</span>
 								{/if}
 							</p>
-							{#if showSyntheticRest(i)}
-								<p class="lyric-line active" data-lyric="rest" style="--delta: 0">
-									{@render restDots()}
-								</p>
-							{/if}
 						{/each}
+					</div>
+					<div
+						class="lyric-rest-focus"
+						class:open={restFocus}
+						class:instant={reducedMotion || snapLyrics}
+						aria-hidden="true"
+					>
+						<span class="lyric-dots">
+							{#each instrumentalDots as brightness, d (d)}
+								<span class="dot" style="opacity: {brightness}; --o: {brightness}"></span>
+							{/each}
+						</span>
 					</div>
 				</div>
 			{:else if plainLyrics}
@@ -687,7 +691,7 @@
 		gap: var(--space-5);
 		padding: 0 var(--space-4);
 		will-change: transform;
-		transition: transform 560ms var(--spring-smooth);
+		transition: transform 720ms var(--spring-smooth);
 	}
 	.lyrics-stack.instant {
 		transition: none;
@@ -705,10 +709,11 @@
 		transform: translate3d(calc(var(--delta, 0) * -6px), calc(var(--delta, 0) * 12px), 0) scale(0.96);
 		filter: blur(0.35px);
 		transition:
-			color 120ms var(--spring-smooth),
-			opacity 120ms var(--spring-smooth),
-			transform 560ms var(--spring-smooth),
-			filter 180ms var(--spring-smooth);
+			color 480ms var(--spring-smooth),
+			opacity 560ms var(--spring-smooth),
+			transform 720ms var(--spring-smooth),
+			filter 520ms var(--spring-smooth),
+			--delta 720ms var(--spring-smooth);
 	}
 	.lyric-line.near {
 		opacity: 0.55;
@@ -717,7 +722,7 @@
 	}
 	.lyric-line.past {
 		opacity: 0.22;
-		transform: translate3d(0, -10px, 0) scale(0.94);
+		transform: translate3d(0, -12px, 0) scale(0.94);
 		filter: blur(0.45px);
 	}
 	.lyric-line.active {
@@ -736,6 +741,41 @@
 		.lyric-line.active {
 			transform: none;
 			filter: none;
+		}
+	}
+	.lyric-rest-focus {
+		position: absolute;
+		left: var(--space-4);
+		right: var(--space-4);
+		top: 38%;
+		z-index: 2;
+		opacity: 0;
+		pointer-events: none;
+		transform: translateY(-42%) scale(0.9);
+		font-family: var(--font-body);
+		font-size: clamp(1.15rem, 2.2vw, 1.85rem);
+		font-weight: 600;
+		color: var(--foreground);
+		transition: opacity 280ms var(--spring-smooth);
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.lyric-rest-focus {
+			transition:
+				opacity 560ms var(--spring-smooth),
+				transform 720ms var(--spring-smooth);
+		}
+	}
+	.lyric-rest-focus.open {
+		opacity: 1;
+		transform: translateY(-50%) scale(1.045);
+	}
+	.lyric-rest-focus.instant {
+		transition: none;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.lyric-rest-focus,
+		.lyric-rest-focus.open {
+			transform: translateY(-50%);
 		}
 	}
 	.lyric-word {
@@ -806,8 +846,8 @@
 	@media (prefers-reduced-motion: no-preference) {
 		.dot {
 			transition:
-				opacity 120ms linear,
-				transform 120ms var(--spring-smooth);
+				opacity 280ms var(--spring-smooth),
+				transform 280ms var(--spring-smooth);
 		}
 	}
 	.lyrics-viewport.pending {

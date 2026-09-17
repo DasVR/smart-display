@@ -7,6 +7,18 @@
 	--color-accent: var(--brand);
 }
 
+@property --delta {
+	syntax: '<number>';
+	inherits: false;
+	initial-value: 0;
+}
+
+@property --o {
+	syntax: '<number>';
+	inherits: false;
+	initial-value: 0;
+}
+
 :root {
 	--abyss: #07070b;
 	--abyss-1: #0c0c12;
