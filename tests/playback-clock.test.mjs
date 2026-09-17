@@ -5,14 +5,18 @@ import {
 	activeLyricIndex,
 	activeWordIndex,
 	instrumentalDotStates,
+	instrumentalDotStatesFromGap,
 	instrumentalDotsOpacity,
 	instrumentalGap,
+	instrumentalRest,
+	lineEndClock,
 	lineSungThrough,
 	isHeldWord,
 	isPlaybackJump,
 	letterFill,
 	letterWave,
 	livePlaybackPosition,
+	LYRIC_LEAD_SEC,
 	lyricsAreSynced,
 	singingLyricIndex,
 	wordEndTime,
@@ -165,7 +169,7 @@ test('instrumentalGap only fires on a blank line with a long rest after it', () 
 	];
 	assert.deepEqual(instrumentalGap(lines, 1), { start: 4, end: 20 });
 	assert.equal(instrumentalGap(lines, 0), null, 'a real lyric line never becomes dots');
-	assert.equal(instrumentalGap(lines, 2), null, 'no next line to measure the gap against');
+	assert.equal(instrumentalGap(lines, 2), null, 'a sung last line is not a blank gap');
 });
 
 test('instrumentalGap ignores a short blank line (just a breath, not a break)', () => {
@@ -191,7 +195,7 @@ test('instrumentalDotsOpacity rises across the gap and caps at 1', () => {
 
 test('instrumentalDotStates lights up one dot at a time in sequence', () => {
 	// Gap: line 1 (blank, time 0) -> line 2 (time 18) = an 18s instrumental
-	// break, well over the 5s threshold.
+	// break, well over the 2.5s threshold.
 	const lines = [
 		{ time: -2, text: 'intro' },
 		{ time: 0, text: '' },
@@ -218,6 +222,121 @@ test('instrumentalDotStates returns all-zero dots outside a real gap', () => {
 		{ time: 4, text: 'verse' }
 	];
 	assert.deepEqual(instrumentalDotStates(lines, 0, 2), [0, 0, 0]);
+});
+
+test('instrumentalRest shows intro dots before the first lyric line', () => {
+	const lines = [
+		{
+			time: 25.7,
+			text: 'a heart that is full up like a landfill',
+			words: [{ time: 25.7, end: 26.1, text: 'a' }]
+		}
+	];
+	assert.deepEqual(instrumentalRest(lines, 0), {
+		start: 0,
+		end: 25.7,
+		afterIndex: -1,
+		blank: false
+	});
+	assert.deepEqual(instrumentalRest(lines, 12), {
+		start: 0,
+		end: 25.7,
+		afterIndex: -1,
+		blank: false
+	});
+	assert.equal(instrumentalRest(lines, 25.7), null, 'first word is not an intro rest');
+	const mid = instrumentalDotStatesFromGap(instrumentalRest(lines, 12.85), 12.85);
+	assert.equal(mid[0], 1);
+	assert.ok(Math.abs(mid[1] - 0.5) < 1e-9);
+	assert.equal(mid[2], 0);
+});
+
+test('instrumentalRest ignores a short wait before the first line', () => {
+	const lines = [{ time: 1.2, text: 'hi', words: [{ time: 1.2, end: 1.6, text: 'hi' }] }];
+	assert.equal(instrumentalRest(lines, 0.4), null);
+});
+
+test('instrumentalRest fills a between-line instrumental with no blank marker', () => {
+	const lines = [
+		{
+			time: 1,
+			text: 'one line',
+			words: [
+				{ time: 1, end: 1.3, text: 'one' },
+				{ time: 1.3, end: 1.8, text: 'line' }
+			]
+		},
+		{
+			time: 12,
+			text: 'two',
+			words: [{ time: 12, end: 12.4, text: 'two' }]
+		}
+	];
+	assert.equal(instrumentalRest(lines, 1.4), null, 'still singing');
+	assert.deepEqual(instrumentalRest(lines, 4), {
+		start: 1.8,
+		end: 12,
+		afterIndex: 0,
+		blank: false
+	});
+	assert.equal(singingLyricIndex(lines, 4), -1);
+	assert.equal(instrumentalRest(lines, 12), null);
+});
+
+test('instrumentalRest prefers a blank LRC marker over a synthetic row', () => {
+	const lines = [
+		{ time: 1, text: 'verse', words: [{ time: 1, end: 1.5, text: 'verse' }] },
+		{ time: 4, text: '' },
+		{ time: 20, text: 'chorus' }
+	];
+	assert.deepEqual(instrumentalRest(lines, 10), {
+		start: 4,
+		end: 20,
+		afterIndex: 1,
+		blank: true
+	});
+});
+
+test('instrumentalRest covers the outro after the last sung line', () => {
+	const lines = [
+		{
+			time: 100,
+			text: 'last',
+			words: [{ time: 100, end: 101, text: 'last' }]
+		}
+	];
+	assert.deepEqual(instrumentalRest(lines, 110, 180), {
+		start: 101,
+		end: 180,
+		afterIndex: 0,
+		blank: false
+	});
+	assert.equal(instrumentalRest(lines, 100.4, 180), null);
+});
+
+test('instrumentalGap treats a trailing blank marker as an outro', () => {
+	const lines = [
+		{ time: 10, text: 'verse' },
+		{ time: 20, text: '' }
+	];
+	assert.deepEqual(instrumentalGap(lines, 1, 40), { start: 20, end: 40 });
+});
+
+test('lineEndClock uses the last word, then line.end, then a short hold', () => {
+	assert.equal(
+		lineEndClock({
+			time: 1,
+			text: 'one',
+			words: [{ time: 1, end: 1.8, text: 'one' }]
+		}),
+		1.8
+	);
+	assert.equal(lineEndClock({ time: 4, end: 6.2, text: 'two' }), 6.2);
+	assert.equal(lineEndClock({ time: 8, text: 'three' }), 10.4);
+});
+
+test('LYRIC_LEAD_SEC is a hair ahead of the transport clock', () => {
+	assert.equal(LYRIC_LEAD_SEC, 0.1);
 });
 
 test('isHeldWord is true only for words sung longer than a spoken syllable', () => {

@@ -83,10 +83,11 @@ export function lineSungThrough(line, position) {
 /** Index of the line currently being sung, or -1 when the last word has
  *  already finished and the next line has not started yet (the lyric stack
  *  goes dark across that rest instead of holding the last character). */
-export function singingLyricIndex(lines, position) {
+export function singingLyricIndex(lines, position, length = 0) {
 	const idx = activeLyricIndex(lines, position);
 	if (idx < 0) return -1;
 	if (lineSungThrough(lines[idx], position)) return -1;
+	if (instrumentalRest(lines, position, length)) return -1;
 	return idx;
 }
 
@@ -166,36 +167,120 @@ export function isPlaybackJump(prev, next, now = Date.now()) {
 }
 
 // A gap at least this long between one line's clock and the next reads as
-// an instrumental break rather than just an unhurried lyric.
-const INSTRUMENTAL_GAP_SEC = 5;
+// an instrumental break rather than just an unhurried lyric. Breaths shorter
+// than this stay on the finished line instead of flipping to dots.
+export const INSTRUMENTAL_GAP_SEC = 2.5;
+/** Karaoke highlight leads the transport clock by this much so the fill
+ *  lands on the beat instead of a hair behind it. Progress/time stay on the
+ *  real sample; only the lyric stack uses the lead. */
+export const LYRIC_LEAD_SEC = 0.1;
+/** Line-only LRC has no word `end`. Hold the line this long before a long
+ *  wait until the next stamp can count as a rest. */
+const DEFAULT_LINE_HOLD_SEC = 2.4;
+/** When the file has no next line and no track length, sweep dots across
+ *  this window then hold them lit through the outro. */
+const DEFAULT_OUTRO_SWEEP_SEC = 12;
+
+/** Clock when a line finishes being sung. Blank markers sit at their stamp.
+ *  Word-timed lines use the last word's end; line-only rows get a short hold
+ *  so a long instrumental after them can still become dots. */
+export function lineEndClock(line) {
+	if (!line) return 0;
+	if (!line.text) return Number(line.time) || 0;
+	const words = line.words;
+	if (Array.isArray(words) && words.length) {
+		return wordEndTime(words, words.length - 1, line.end);
+	}
+	const start = Number(line.time) || 0;
+	const lineEnd = Number(line.end);
+	if (Number.isFinite(lineEnd) && lineEnd > start) return lineEnd;
+	return start + DEFAULT_LINE_HOLD_SEC;
+}
+
+function restEndFromLength(start, length) {
+	const len = Number(length) || 0;
+	if (len > start + INSTRUMENTAL_GAP_SEC) return len;
+	return start + DEFAULT_OUTRO_SWEEP_SEC;
+}
 
 /** The {start, end} span of an instrumental break at `lines[index]`, or
  *  null if that slot isn't one. Only a line the lyrics source stamped with
  *  no text (a blank timed marker - what LRC instrumental cues look like)
- *  counts; a real lyric line followed by a long rest keeps showing its own
- *  text instead of turning into dots. */
-export function instrumentalGap(lines, index) {
+ *  counts. Community TTML/YRC often omit those markers; `instrumentalRest`
+ *  covers intro / between-line / outro rests without a blank row. */
+export function instrumentalGap(lines, index, length = 0) {
 	if (!Array.isArray(lines) || index < 0 || index >= lines.length) return null;
 	const line = lines[index];
-	const next = lines[index + 1];
-	if (!next || line.text) return null;
+	if (line.text) return null;
 	const start = Number(line.time) || 0;
-	const end = Number(next.time) || 0;
+	const next = lines[index + 1];
+	const end = next ? Number(next.time) || 0 : restEndFromLength(start, length);
 	if (end - start < INSTRUMENTAL_GAP_SEC) return null;
 	return { start, end };
+}
+
+/** Rest currently playing at `position`: intro before the first line, a long
+ *  gap after a sung line (even with no blank marker), a blank LRC cue, or
+ *  the outro after the last line. `afterIndex` is -1 for intro, else the
+ *  lyric index the rest belongs to. `blank` is true when that index is the
+ *  empty marker itself (render dots on that row instead of injecting one). */
+export function instrumentalRest(lines, position, length = 0) {
+	if (!Array.isArray(lines) || !lines.length) return null;
+	const t = Number(position) || 0;
+	const firstStart = Number(lines[0].time) || 0;
+	if (t < firstStart && firstStart >= INSTRUMENTAL_GAP_SEC) {
+		return { start: 0, end: firstStart, afterIndex: -1, blank: false };
+	}
+
+	const started = activeLyricIndex(lines, t);
+	if (started < 0) return null;
+
+	const line = lines[started];
+	const next = lines[started + 1];
+
+	if (!line.text) {
+		const gap = instrumentalGap(lines, started, length);
+		if (gap) return { ...gap, afterIndex: started, blank: true };
+		return null;
+	}
+
+	const sungEnd = lineEndClock(line);
+	if (t < sungEnd) return null;
+
+	if (next && !next.text) {
+		const blankGap = instrumentalGap(lines, started + 1, length);
+		if (blankGap && t >= blankGap.start && t < blankGap.end) {
+			return { ...blankGap, afterIndex: started + 1, blank: true };
+		}
+		const blankStart = Number(next.time) || 0;
+		if (blankStart - sungEnd >= INSTRUMENTAL_GAP_SEC && t < blankStart) {
+			return { start: sungEnd, end: blankStart, afterIndex: started, blank: false };
+		}
+		return null;
+	}
+
+	const restEnd = next ? Number(next.time) || 0 : restEndFromLength(sungEnd, length);
+	if (restEnd - sungEnd < INSTRUMENTAL_GAP_SEC) return null;
+	if (next && t >= restEnd) return null;
+	return { start: sungEnd, end: restEnd, afterIndex: started, blank: false };
 }
 
 /** Opacity (0..1) for the three-dot instrumental indicator at `lines[index]`
  *  given the current playback `position` - rises gradually across the gap
  *  and reaches full brightness right as the break ends, rather than
  *  snapping in like a lyric line does. */
-export function instrumentalDotsOpacity(lines, index, position) {
-	const gap = instrumentalGap(lines, index);
+export function instrumentalDotsOpacity(lines, index, position, length = 0) {
+	return instrumentalDotsOpacityFromGap(instrumentalGap(lines, index, length), position);
+}
+
+export function instrumentalDotsOpacityFromGap(gap, position) {
 	if (!gap) return 0;
 	const t = Number(position) || 0;
 	if (t <= gap.start) return 0;
 	if (t >= gap.end) return 1;
-	return (t - gap.start) / (gap.end - gap.start);
+	const span = gap.end - gap.start;
+	if (!(span > 0)) return 0;
+	return (t - gap.start) / span;
 }
 
 /** Per-dot brightness (0..1 each) for the instrumental indicator, the way
@@ -204,11 +289,16 @@ export function instrumentalDotsOpacity(lines, index, position) {
  *  off the gap's actual {start, end} span, a long instrumental break sweeps
  *  slowly and a short one (still >= the instrumental-gap threshold) sweeps
  *  fast, instead of every gap animating at the same fixed rate. */
-export function instrumentalDotStates(lines, index, position, dotCount = 3) {
-	const gap = instrumentalGap(lines, index);
+export function instrumentalDotStates(lines, index, position, dotCount = 3, length = 0) {
+	return instrumentalDotStatesFromGap(instrumentalGap(lines, index, length), position, dotCount);
+}
+
+export function instrumentalDotStatesFromGap(gap, position, dotCount = 3) {
 	if (!gap) return new Array(dotCount).fill(0);
 	const t = Number(position) || 0;
-	const progress = Math.max(0, Math.min(1, (t - gap.start) / (gap.end - gap.start)));
+	const span = gap.end - gap.start;
+	if (!(span > 0)) return new Array(dotCount).fill(0);
+	const progress = Math.max(0, Math.min(1, (t - gap.start) / span));
 	return Array.from({ length: dotCount }, (_, i) => {
 		const segStart = i / dotCount;
 		const segEnd = (i + 1) / dotCount;
