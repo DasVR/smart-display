@@ -1,36 +1,54 @@
-# Lyrics fallback tiers
+# Lyrics lookup
 
-`src/lib/server/lyrics.js`'s `fetchLyrics()` tries, in order:
+`src/lib/server/lyrics.js` tries, in order:
 
-1. **`syncedlyrics`** - a Python package aggregating several providers
-   (NetEase, Musixmatch, ...). Tried first since it catches plenty of
-   tracks LRCLIB's own crowd-sourced database misses.
-2. **LRCLIB** (`lrclib.net`) - free, no key, no setup. Also the only source
-   of plain lyric text for tier 3, so it's still checked on a tier-1 miss.
-3. **Forced alignment** (this directory) - for tracks nothing above has
-   synced timing for at all. Runs once per track, in the background, off a
-   full AirPlay/Bluetooth play-through; the result is cached to disk under
-   `data/forced-align-cache/` and reused on every later play. It never
-   blocks the current play-through - the first time a song plays with no
-   online sync, you still just get plain lyrics (or none) while the job
-   runs; word-level synced lyrics show up starting the *next* time it plays.
+1. **Community word-sync** (`scripts/forced_align/community_lyrics.py`) - several
+   free, keyless sources that publish per-word or per-syllable timing:
+   - **AMLL TTML DB** (`api.amll.dev`) - community Apple-Music-like TTML
+   - **NetEase Cloud Music YRC** - karaoke word clocks
+   - **Kugou KRC** - karaoke word clocks
+   - **syncedlyrics** with `enhanced=True` - Musixmatch word-level LRC, then line LRC
+2. **LRCLIB** (`lrclib.net`) - line-synced LRC and plain text, scored so a
+   same-title hit for the wrong artist is rejected.
+3. **On-device alignment** - if the hit is only plain text or line-synced LRC
+   (no real word clocks), the kiosk records the rest of the play-through and
+   aligns those words to the audio. The next poll of the same track picks up
+   the cached karaoke timestamps, so you do not have to wait until the song
+   plays again.
 
-## Tier 2 setup: `syncedlyrics`
+Title matching is scored on every networked source. A "My Way" hit for the
+wrong artist never reaches the Music view.
+
+## Community lookup
+
+No API keys. The Python helper fans the four sources out in parallel and
+keeps the first matching word-level hit. Install the optional aggregator
+for Musixmatch / Megalobiz / Genius:
 
 ```sh
 pip install syncedlyrics
 ```
 
-That's it - `scripts/forced_align/syncedlyrics_lookup.py` shells out to it.
-If it's not installed, this tier silently no-ops and `fetchLyrics()` just
-returns nothing found, same as today.
+AMLL, NetEase, and Kugou use only the stdlib. If a source is down, that
+tier no-ops.
 
-## Tier 3 setup: Demucs + Montreal Forced Aligner (MFA)
+## On-device alignment
 
-This tier needs real CPU (a few minutes per track) and ~1-2GB of one-time
-model downloads, so it's meant for a proper machine, not the Raspberry
-Pi-class kiosk box this repo also targets. It is entirely optional - the
-first two tiers work with zero setup.
+`scripts/forced_align/align.py` picks an engine (`FORCED_ALIGN_ENGINE`,
+default `auto`):
+
+| Engine | Needs | Notes |
+|---|---|---|
+| `energy` | Python 3 only | RMS envelope vs lyric weights. Always on. |
+| `ctc` | `pip install torch torchaudio` | Meta MMS forced aligner, better word lock. |
+| `aeneas` | `pip install aeneas` plus espeak/ffmpeg | DTW aligner. |
+| `mfa` | Demucs + Montreal Forced Aligner | Opt-in only. Heavy. Not used by `auto`. |
+
+`python3 scripts/forced_align/align.py --probe` prints the engine that
+would run. Skipping a track cancels the in-flight recording so a leftover
+WAV capture does not keep running.
+
+### Optional MFA setup
 
 ```sh
 conda create -n smart-display-align python=3.10
@@ -41,29 +59,11 @@ mfa model download acoustic english_us_arpa
 mfa model download dictionary english_us_arpa
 ```
 
-Then make sure `ws-server.js` runs with that env's `python3`, `demucs`, and
-`mfa` on `PATH` (or point `LYRICS_PYTHON_BIN` at that env's `python3` and
-prepend its `bin/` to `PATH`) before starting the server.
-
-### How it works
-
-- `src/lib/server/forcedAlign.js`'s `ensureAlignedLyrics()` is called from
-  `getNowPlaying()` whenever a track has no synced lyrics from tiers 1-2.
-- If we joined the track within its first few seconds, it records the rest
-  of the play-through straight to a WAV file (`recordToWavFile()` in
-  `audioCapture.js`, via `parec`'s system-audio monitor), using the plain
-  lyric text LRCLIB already had for the track.
-- Once recording finishes, `scripts/forced_align/align.py` isolates vocals
-  with Demucs and aligns the lyric text to them with MFA, producing
-  word-level timestamps, then writes them to
-  `data/forced-align-cache/<fingerprint>.json`.
-- Only one job runs per track at a time; a track fingerprint is
-  `sha1(artist|title|duration)`, so a cache hit is instant on every later
-  play and nothing re-runs the pipeline for a song it already has.
+Then start the server with `FORCED_ALIGN_ENGINE=mfa` and that env on `PATH`.
 
 ### Env vars
 
-- `LYRICS_PYTHON_BIN` - python interpreter to use for both the
-  `syncedlyrics` and forced-alignment subprocesses (default `python3`).
-- `FORCED_ALIGN_CACHE_DIR` - where generated alignments are cached
-  (default `data/forced-align-cache/`).
+- `LYRICS_PYTHON_BIN` - python for community lookup and alignment (default `python3`).
+- `FORCED_ALIGN_ENGINE` - `auto` / `energy` / `ctc` / `aeneas` / `mfa`.
+- `FORCED_ALIGN_CACHE_DIR` - default `data/forced-align-cache/`.
+- `FORCED_ALIGN_OFFSET` - set by the Node wrapper when recording did not start at 0:00.

@@ -11,12 +11,14 @@ import { fetchAmbientStations } from './ambientStations.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
-import { ensureAlignedLyrics, readCachedAlignment, trackFingerprint } from './forcedAlign.js';
+import { cancelOtherAlignments, ensureAlignedLyrics, readCachedAlignment, trackFingerprint } from './forcedAlign.js';
 import {
 	ensureLyricsCached,
 	ensureTrackDurationCached,
-	fetchPlainLyricsText,
+	hasRealWordTiming,
+	lyricsToPlainText,
 	peekLyrics,
+	peekPlainLyrics,
 	peekTrackDuration
 } from './lyrics.js';
 
@@ -301,33 +303,24 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			if (!duration) ensureTrackDurationCached(merged.artist, merged.title, { album: merged.album || '' });
 		}
 		let lyrics = null;
-		// True only during the brief online-lookup window (peekLyrics hasn't
-		// resolved yet) - not while a forced-alignment job is running, which
-		// can take minutes and isn't something a loading spinner should imply
-		// is about to finish. Lets the UI show a "checking for lyrics" state
-		// instead of a bare gap right after a track change.
 		let lyricsPending = false;
 		if (validTrack) {
 			const peeked = peekLyrics(merged.artist, merged.title, merged.album || '', duration);
 			lyrics = peeked.lines;
+			const fp = trackFingerprint(merged.artist, merged.title, duration);
+			cancelOtherAlignments(fp);
+			const aligned = readCachedAlignment(fp);
+			if (aligned && hasRealWordTiming(aligned)) {
+				lyrics = aligned;
+			}
 			if (!peeked.known) {
 				lyricsPending = true;
 				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
-			} else if (!lyrics || lyrics.length <= 1) {
-				// Nothing online has synced timing for this track (LRCLIB and the
-				// syncedlyrics fallback both missed). Check whether a background
-				// forced-alignment job already finished one for it; if not, kick
-				// one off (also best-effort, never blocks this response) so a
-				// *later* play-through of the same song gets word-level lyrics.
-				const fp = trackFingerprint(merged.artist, merged.title, duration);
-				const aligned = readCachedAlignment(fp);
-				if (aligned) {
-					lyrics = aligned;
-				} else {
-					const plainLyrics = await fetchPlainLyricsText(merged.artist, merged.title, {
-						album: merged.album || '',
-						duration
-					});
+			} else if (!hasRealWordTiming(lyrics)) {
+				const plainLyrics =
+					peekPlainLyrics(merged.artist, merged.title, merged.album || '', duration) ||
+					lyricsToPlainText(lyrics);
+				if (plainLyrics) {
 					ensureAlignedLyrics({
 						artist: merged.artist,
 						title: merged.title,

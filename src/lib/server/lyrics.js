@@ -104,7 +104,7 @@ export function synthesizeWordTiming(lines) {
 		const words = tokens.map((text, idx) => {
 			const time = line.time + elapsed;
 			elapsed += (weights[idx] / totalWeight) * span;
-			return { time, text };
+			return { time, text, estimated: true };
 		});
 		return { ...line, words };
 	});
@@ -186,6 +186,7 @@ export function parseTTML(text) {
 		let sm;
 		while ((sm = TTML_SPAN_TAG.exec(inner)) !== null) {
 			const [, sAttrs, sInner] = sm;
+			if (/ttm:role\s*=\s*"x-translation"/i.test(sAttrs || '')) continue;
 			const wordBegin = parseTimecode(xmlAttr(sAttrs, 'begin'));
 			const wordText = stripMarkup(sInner);
 			if (wordBegin == null || !wordText) continue;
@@ -201,6 +202,115 @@ export function parseTTML(text) {
  *  `{ ts, te, x, l: [{ c, o }] }` lines, where `ts` is the line's start
  *  time and each chunk's `o` is an offset in seconds from `ts` - into the
  *  same `{time, text, words}` shape as `parseLRC`/`parseTTML`. */
+const YRC_WORD_RE = /\((\d+),(\d+),(\d+)\)([^(]*)/g;
+const KRC_LINE_RE = /^\[(\d+),(\d+)\](.*)$/;
+const KRC_WORD_RE = /<(\d+),(\d+),(\d+)>([^<]*)/g;
+
+/** NetEase YRC: JSON-per-line credits (`{t,c:[{tx,t}]}`) mixed with
+ *  `[startMs,durMs](start,dur,0)word` karaoke rows. */
+export function parseYrc(text) {
+	const lines = [];
+	for (const raw of String(text || '').split(/\r?\n/)) {
+		const row = raw.trim();
+		if (!row) continue;
+		if (row.startsWith('{')) {
+			try {
+				const obj = JSON.parse(row);
+				const begin = (Number(obj?.t) || 0) / 1000;
+				const words = [];
+				for (const chunk of obj?.c || []) {
+					const word = String(chunk?.tx || chunk?.c || '').trim();
+					if (!word) continue;
+					words.push({ time: begin + (Number(chunk?.t) || 0) / 1000, text: word });
+				}
+				const lineText = words.map((w) => w.text).join(' ');
+				if (!lineText) continue;
+				lines.push({ time: begin, text: lineText, ...(words.length >= 2 ? { words } : {}) });
+			} catch {
+				/* not a JSON credit line */
+			}
+			continue;
+		}
+		const header = row.match(/^\[(\d+),(\d+)\](.*)$/);
+		if (!header) continue;
+		const begin = Number(header[1]) / 1000;
+		const words = [];
+		YRC_WORD_RE.lastIndex = 0;
+		let wm;
+		while ((wm = YRC_WORD_RE.exec(header[3])) !== null) {
+			const word = wm[4].trim();
+			if (!word) continue;
+			words.push({ time: Number(wm[1]) / 1000, text: word });
+		}
+		const lineText = words.map((w) => w.text).join(' ');
+		lines.push({ time: begin, text: lineText, ...(words.length >= 2 ? { words } : {}) });
+	}
+	return lines.sort((a, b) => a.time - b.time);
+}
+
+/** Decoded Kugou KRC: `[startMs,durMs]<offsetMs,dur,0>word`. */
+export function parseKrc(text) {
+	const lines = [];
+	for (const raw of String(text || '').split(/\r?\n/)) {
+		const match = raw.match(KRC_LINE_RE);
+		if (!match) continue;
+		const begin = Number(match[1]) / 1000;
+		const words = [];
+		KRC_WORD_RE.lastIndex = 0;
+		let wm;
+		while ((wm = KRC_WORD_RE.exec(match[3])) !== null) {
+			const word = wm[4].trim();
+			if (!word) continue;
+			words.push({ time: begin + Number(wm[1]) / 1000, text: word });
+		}
+		const lineText = words.length
+			? words.map((w) => w.text).join(' ')
+			: match[3].replace(KRC_WORD_RE, '').trim();
+		lines.push({ time: begin, text: lineText, ...(words.length >= 2 ? { words } : {}) });
+	}
+	return lines.sort((a, b) => a.time - b.time);
+}
+
+/** True when at least one line has real (not length-estimated) word clocks
+ *  from TTML / YRC / KRC / enhanced LRC. SynthesizeWordTiming marks its
+ *  guesses with `estimated: true` so we can still kick on-device alignment
+ *  for plain/line-only hits. */
+export function hasRealWordTiming(lines) {
+	if (!Array.isArray(lines)) return false;
+	return lines.some((line) => {
+		const words = line?.words;
+		if (!Array.isArray(words) || words.length < 2) return false;
+		return words.every((word) => word && !word.estimated);
+	});
+}
+
+export function lyricsToPlainText(lines) {
+	if (!Array.isArray(lines)) return null;
+	const texts = lines.map((line) => String(line?.text || '').trim()).filter(Boolean);
+	return texts.length ? texts.join('\n') : null;
+}
+
+export function linesFromCommunityPayload(parsed) {
+	if (!parsed || typeof parsed !== 'object') return null;
+	if (Array.isArray(parsed.lines) && parsed.lines.length) {
+		return parsed.wordLevel ? parsed.lines : synthesizeWordTiming(parsed.lines);
+	}
+	if (parsed.ttml) {
+		const lines = parseTTML(parsed.ttml);
+		return lines.length ? synthesizeWordTiming(lines) : null;
+	}
+	if (parsed.yrc) {
+		const lines = parseYrc(parsed.yrc);
+		return lines.length ? synthesizeWordTiming(lines) : null;
+	}
+	if (parsed.krc) {
+		const lines = parseKrc(parsed.krc);
+		return lines.length ? synthesizeWordTiming(lines) : null;
+	}
+	if (parsed.synced) return parseLRC(parsed.synced);
+	return null;
+}
+
 export function parseMusixmatchRichSync(body) {
 	const rows = Array.isArray(body) ? body : [];
 	const lines = [];
@@ -363,20 +473,23 @@ function lyricsCacheKey(artist, title, album, rounded) {
 	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}|${rounded}`;
 }
 
-/** First lookup tier, tried before lrclib.net. Shells out to
- *  `syncedlyrics_lookup.py`, a thin wrapper around the `syncedlyrics` pip
- *  package, which aggregates several other providers (NetEase, Musixmatch,
- *  ...) - it catches some tracks LRCLIB's own crowd-sourced database
- *  doesn't have. Resolves to `null` (never rejects) if the package isn't
- *  installed, nothing matched, or the lookup times out, since this is a
- *  best-effort tier the caller should silently fall through past (to
- *  LRCLIB next). */
-export function fetchSyncedLyricsFallback(artist, title, { spawnFn = spawn, pythonBin, timeoutMs = 15000 } = {}) {
+/** Community lookup: AMLL TTML, NetEase YRC, Kugou KRC, then the
+ *  syncedlyrics package (Musixmatch enhanced / line LRC). Resolves to
+ *  `{ lines, plain, source, wordLevel }` or null. Never rejects. */
+export function fetchCommunityLyrics(
+	artist,
+	title,
+	{ album = '', duration = 0, spawnFn = spawn, pythonBin, timeoutMs = 22000 } = {}
+) {
 	return new Promise((resolve) => {
 		const bin = pythonBin || process.env.LYRICS_PYTHON_BIN || 'python3';
 		let child;
 		try {
-			child = spawnFn(bin, [SYNCEDLYRICS_SCRIPT, artist, title], { stdio: ['ignore', 'pipe', 'ignore'] });
+			child = spawnFn(
+				bin,
+				[SYNCEDLYRICS_SCRIPT, artist, title, album || '', String(Math.round(Number(duration) || 0))],
+				{ stdio: ['ignore', 'pipe', 'ignore'] }
+			);
 		} catch {
 			resolve(null);
 			return;
@@ -404,12 +517,27 @@ export function fetchSyncedLyricsFallback(artist, title, { spawnFn = spawn, pyth
 		child.on('close', () => {
 			try {
 				const parsed = JSON.parse(out);
-				finish(parsed?.synced ? parseLRC(parsed.synced) : null);
+				const lines = linesFromCommunityPayload(parsed);
+				if (!lines) {
+					finish(null);
+					return;
+				}
+				finish({
+					lines,
+					plain: parsed.plain || lyricsToPlainText(lines),
+					source: parsed.source || null,
+					wordLevel: Boolean(parsed.wordLevel) || hasRealWordTiming(lines)
+				});
 			} catch {
 				finish(null);
 			}
 		});
 	});
+}
+
+/** @deprecated wrapper kept for existing tests - returns just the line array. */
+export function fetchSyncedLyricsFallback(artist, title, opts = {}) {
+	return fetchCommunityLyrics(artist, title, opts).then((hit) => hit?.lines || null);
 }
 
 export async function fetchLyrics(artist, title, { album = '', duration = 0, load, spawnFn, pythonBin } = {}) {
@@ -419,13 +547,9 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 	if (cached && Date.now() - cached.fetchedAt < cached.ttl) return cached.lines;
 	const getJson = load || defaultLoad;
 	try {
-		// syncedlyrics aggregates several other providers (NetEase,
-		// Musixmatch, ...) and catches plenty LRCLIB's own crowd-sourced
-		// database misses, so it's tried first. LRCLIB is the fallback - and
-		// it's still always worth a look on a miss, since it's also the only
-		// source of plain lyric text the forced-alignment tier needs.
-		let lines = await fetchSyncedLyricsFallback(artist, title, { spawnFn, pythonBin });
-		let plainText = null;
+		const community = await fetchCommunityLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin });
+		let lines = community?.lines || null;
+		let plainText = community?.plain || null;
 		if (!lines) {
 			const params = new URLSearchParams({ artist_name: artist, track_name: title });
 			if (album) params.set('album_name', album);
@@ -444,7 +568,7 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 				hit = pickBestLyricsHit(found, query);
 			}
 			lines = lyricsFromHit(hit);
-			plainText = hit?.plainLyrics || null;
+			plainText = hit?.plainLyrics || lyricsToPlainText(lines);
 		}
 		lyricsCache.set(key, {
 			lines,
@@ -489,10 +613,8 @@ export function ensureLyricsCached(artist, title, opts = {}) {
 		.finally(() => lyricsInFlight.delete(key));
 }
 
-/** Plain (unsynced) lyric text for the forced-alignment fallback in
- *  forcedAlign.js - it needs the actual words to align against audio, even
- *  when nothing has synced timing for the track. Reuses fetchLyrics's own
- *  LRCLIB lookup/cache rather than querying twice. */
+/** Plain (unsynced) lyric text for the on-device alignment fallback.
+ *  Reuses fetchLyrics's cache rather than querying twice. */
 export async function fetchPlainLyricsText(artist, title, opts = {}) {
 	const rounded = Math.round(Number(opts.duration) || 0);
 	const key = lyricsCacheKey(artist, title, opts.album || '', rounded);
@@ -500,7 +622,15 @@ export async function fetchPlainLyricsText(artist, title, opts = {}) {
 	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) {
 		await fetchLyrics(artist, title, opts);
 	}
-	return lyricsCache.get(key)?.plainText || null;
+	const next = lyricsCache.get(key);
+	return next?.plainText || lyricsToPlainText(next?.lines) || null;
+}
+
+export function peekPlainLyrics(artist, title, album = '', duration = 0) {
+	const rounded = Math.round(Number(duration) || 0);
+	const cached = lyricsCache.get(lyricsCacheKey(artist, title, album, rounded));
+	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) return null;
+	return cached.plainText || lyricsToPlainText(cached.lines);
 }
 
 async function defaultLoad(url) {
