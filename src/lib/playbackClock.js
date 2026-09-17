@@ -105,6 +105,17 @@ export function lineSungThrough(line, position, nextLineStart) {
 	return false;
 }
 
+/** True while playback is inside this line's sung window. Overlapping
+ *  duet lines can both be singing; the stack should paint both instead of
+ *  treating the later start as "the" active row. */
+export function isLineSinging(line, position, nextLineStart) {
+	if (!line?.text) return false;
+	const t = Number(position) || 0;
+	const start = Number(line.time) || 0;
+	if (t < start) return false;
+	return !lineSungThrough(line, t, nextLineStart);
+}
+
 /** Index of the line currently being sung, or -1 when the last word has
  *  already finished and the next line has not started yet (the lyric stack
  *  goes dark across that rest instead of holding the last character). */

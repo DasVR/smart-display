@@ -23,7 +23,8 @@ import {
 	wordEndTime,
 	wordProgress,
 	easeToward,
-	STACK_EASE_TAU_SEC
+	STACK_EASE_TAU_SEC,
+	isLineSinging
 } from '../src/lib/playbackClock.js';
 
 test('livePlaybackPosition holds still when paused', () => {
@@ -467,4 +468,23 @@ test('easeToward snaps when already close, and when dt is 0', () => {
 	assert.equal(easeToward(10, 10.05, 0.016, STACK_EASE_TAU_SEC), 10.05);
 	assert.equal(easeToward(0, 40, 0, STACK_EASE_TAU_SEC), 40);
 	assert.equal(easeToward(8, 3, 0.016, 0), 3);
+});
+
+test('isLineSinging lets overlapping duet lines paint at the same clock', () => {
+	const lead = {
+		time: 10,
+		end: 14,
+		text: 'Call it out',
+		words: [{ time: 10, text: 'Call', end: 14 }]
+	};
+	const reply = {
+		time: 11.2,
+		end: 13.5,
+		text: 'Send it back',
+		words: [{ time: 11.2, text: 'Send', end: 13.5 }]
+	};
+	assert.equal(isLineSinging(lead, 11.5, reply.time), true);
+	assert.equal(isLineSinging(reply, 11.5, undefined), true);
+	assert.equal(isLineSinging(lead, 9.5, reply.time), false);
+	assert.equal(isLineSinging(lead, 14.2, reply.time), false);
 });

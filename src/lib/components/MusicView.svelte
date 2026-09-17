@@ -16,12 +16,14 @@
 		livePlaybackPosition,
 		LYRIC_LEAD_SEC,
 		lyricsAreSynced,
-		singingLyricIndex,
+		lineSungThrough,
+		isLineSinging,
 		STACK_EASE_TAU_SEC,
 		wordProgress
 	} from '$lib/playbackClock.js';
 	import { rememberNowPlaying } from '$lib/artCarousel.js';
 	import { shouldGlueLyricTokens } from '$lib/lyricWords.js';
+	import { isLyricReply } from '$lib/lyricVoices.js';
 	import { applyTransportOptimistic, nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
 
 	let artFailed = $state(false);
@@ -47,31 +49,15 @@
 	let lyricClock = $derived(track?.playing ? displayPosition + LYRIC_LEAD_SEC : displayPosition);
 	let startedLyricIndex = $derived(startedIndexForTime(synced, lyricClock));
 	let rest = $derived(instrumentalRest(synced, lyricClock, track?.length));
-	let activeLyricIndex = $derived(singingLyricIndex(synced, lyricClock, track?.length));
+	let focusLyricIndex = $derived.by(() => {
+		if (!synced?.length) return -1;
+		for (let i = 0; i < synced.length; i++) {
+			if (isLineSinging(synced[i], lyricClock, synced[i + 1]?.time)) return i;
+		}
+		if (rest) return rest.afterIndex;
+		return startedLyricIndex;
+	});
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
-	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, lyricClock));
-	let activeWordFill = $derived.by(() => {
-		const words = synced?.[activeLyricIndex]?.words;
-		if (!words?.length || activeWordIdx < 0) return 0;
-		return wordProgress(
-			words,
-			activeWordIdx,
-			lyricClock,
-			synced?.[activeLyricIndex]?.end,
-			synced?.[activeLyricIndex + 1]?.time
-		);
-	});
-	let heldActive = $derived.by(() => {
-		const words = synced?.[activeLyricIndex]?.words;
-		if (!words?.length || activeWordIdx < 0) return false;
-		return isHeldWord(
-			words,
-			activeWordIdx,
-			synced?.[activeLyricIndex]?.end,
-			HELD_WORD_SEC,
-			synced?.[activeLyricIndex + 1]?.time
-		);
-	});
 	let instrumentalDots = $derived.by(() => {
 		const states = instrumentalDotStatesFromGap(rest, lyricClock);
 		if (!rest) return states;
@@ -112,7 +98,7 @@
 			const textBottom = finished.offsetTop + finished.offsetHeight - padBottom;
 			return focusY - textBottom - 22;
 		}
-		const idx = restSlot?.blank ? restSlot.afterIndex : startedLyricIndex;
+		const idx = restSlot?.blank ? restSlot.afterIndex : focusLyricIndex;
 		if (idx === -1) return 0;
 		const el = viewport.querySelector(`[data-lyric="${idx}"]`);
 		if (!el) return null;
@@ -251,19 +237,27 @@
 		}
 	}
 
+	function wordsSungOn(line, wordIndex, nextStart) {
+		if (!line) return false;
+		if ((Number(line.time) || 0) > lyricClock) return false;
+		if (lineSungThrough(line, lyricClock, nextStart)) return true;
+		return wordIndex < activeWordIndex(line.words, lyricClock);
+	}
+
 	function wordSung(line, wordIndex) {
-		if (startedLyricIndex < 0) return false;
-		if (line < startedLyricIndex) return true;
-		if (line > startedLyricIndex) return false;
-		if (activeLyricIndex < 0) return true;
-		return wordIndex < activeWordIdx;
+		return wordsSungOn(synced?.[line], wordIndex, synced?.[line + 1]?.time);
 	}
 
 	function lineIsPast(lineIndex) {
 		if (rest?.blank && rest.afterIndex === lineIndex) return false;
-		if (startedLyricIndex < 0) return false;
-		if (lineIndex < startedLyricIndex) return true;
-		return lineIndex === startedLyricIndex && activeLyricIndex < 0;
+		const row = synced?.[lineIndex];
+		if (!row?.text) return false;
+		return lineSungThrough(row, lyricClock, synced[lineIndex + 1]?.time);
+	}
+
+	function lineIsActive(lineIndex) {
+		if (rest?.blank && rest.afterIndex === lineIndex) return true;
+		return isLineSinging(synced?.[lineIndex], lyricClock, synced?.[lineIndex + 1]?.time);
 	}
 
 	function lineIsResting(lineIndex) {
@@ -277,9 +271,25 @@
 				? lineIndex - rest.afterIndex - 1
 				: lineIndex - rest.afterIndex;
 		}
-		const origin = activeLyricIndex >= 0 ? activeLyricIndex : startedLyricIndex;
+		const origin = focusLyricIndex >= 0 ? focusLyricIndex : startedLyricIndex;
 		if (origin < 0) return lineIndex + 1;
 		return lineIndex - origin;
+	}
+
+	function paintFor(line, nextStart) {
+		const words = line?.words;
+		if (!words?.length) {
+			return { wordIdx: -1, fill: 0, held: false, singing: isLineSinging(line, lyricClock, nextStart) };
+		}
+		const singing = isLineSinging(line, lyricClock, nextStart);
+		const wordIdx = activeWordIndex(words, lyricClock);
+		if (!singing || wordIdx < 0) return { wordIdx, fill: 0, held: false, singing };
+		return {
+			wordIdx,
+			singing,
+			fill: wordProgress(words, wordIdx, lyricClock, line?.end, nextStart),
+			held: isHeldWord(words, wordIdx, line?.end, HELD_WORD_SEC, nextStart)
+		};
 	}
 
 	function wordChars(text) {
@@ -399,13 +409,15 @@
 						class:instant={reducedMotion || snapLyrics}
 						style="transform: translate3d(0, {lyricsOffset}px, 0)"
 					>
-						{#each synced as line, i (`${line.time}:${line.text}`)}
+						{#each synced as line, i (`${line.time}:${line.side ?? ''}:${line.text}`)}
+							{@const paint = paintFor(line, synced[i + 1]?.time)}
 							<p
 								class="lyric-line"
-								class:active={i === activeLyricIndex || (rest?.blank && rest.afterIndex === i)}
+								class:active={lineIsActive(i)}
 								class:past={lineIsPast(i)}
 								class:near={Math.abs(lineDelta(i)) === 1}
 								class:resting={lineIsResting(i)}
+								class:reply={isLyricReply(line)}
 								data-lyric={i}
 							>
 								{#if line.words?.length}
@@ -413,12 +425,10 @@
 										{#if w > 0 && !shouldGlueLyricTokens(line.words[w - 1].text, word.text)}{' '}{/if}<span
 											class="lyric-word"
 											class:sung={wordSung(i, w)}
-											class:filling={i === activeLyricIndex && w === activeWordIdx}
-											class:held={i === activeLyricIndex && w === activeWordIdx && heldActive && !reducedMotion}
-											style={i === activeLyricIndex && w === activeWordIdx
-												? `--wp: ${activeWordFill}`
-												: undefined}
-										>{#if i === activeLyricIndex && w === activeWordIdx && heldActive && !reducedMotion}{#each wordChars(word.text) as ch, ci (ci)}<span class="lyric-letter" style="--fill: {heldLetterFill(activeWordFill, ci, word.text)}; --wave: {letterWave(heldLetterFill(activeWordFill, ci, word.text))}">{ch}</span>{/each}{:else}{word.text}{/if}</span>
+											class:filling={paint.singing && w === paint.wordIdx}
+											class:held={paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}
+											style={paint.singing && w === paint.wordIdx ? `--wp: ${paint.fill}` : undefined}
+										>{#if paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}{#each wordChars(word.text) as ch, ci (ci)}<span class="lyric-letter" style="--fill: {heldLetterFill(paint.fill, ci, word.text)}; --wave: {letterWave(heldLetterFill(paint.fill, ci, word.text))}">{ch}</span>{/each}{:else}{word.text}{/if}</span>
 									{/each}
 								{:else if line.text}
 									{line.text}
@@ -429,6 +439,25 @@
 											<span class="dot" style="opacity: {b}; --o: {b}"></span>
 										{/each}
 									</span>
+								{/if}
+								{#if line.background?.length}
+									{#each line.background as bg, b (`${bg.time}:${bg.text}`)}
+										{@const bgPaint = paintFor(bg, line.background[b + 1]?.time ?? line.end)}
+										<span class="lyric-bg" class:singing={bgPaint.singing}>
+											{#if bg.words?.length}
+												{#each bg.words as word, w (w)}
+													{#if w > 0 && !shouldGlueLyricTokens(bg.words[w - 1].text, word.text)}{' '}{/if}<span
+														class="lyric-word"
+														class:sung={wordsSungOn(bg, w, line.background[b + 1]?.time ?? line.end)}
+														class:filling={bgPaint.singing && w === bgPaint.wordIdx}
+														style={bgPaint.singing && w === bgPaint.wordIdx ? `--wp: ${bgPaint.fill}` : undefined}
+													>{word.text}</span>
+												{/each}
+											{:else}
+												{bg.text}
+											{/if}
+										</span>
+									{/each}
 								{/if}
 							</p>
 						{/each}
@@ -731,6 +760,7 @@
 	.lyrics-stack {
 		display: flex;
 		flex-direction: column;
+		align-items: stretch;
 		gap: var(--space-5);
 		padding: 0 var(--space-4);
 		will-change: transform;
@@ -775,6 +805,40 @@
 		filter: none;
 		transform: translate3d(0, 0, 0) scale(1.03);
 	}
+	.lyric-line.reply {
+		align-self: flex-end;
+		max-width: 78%;
+		text-align: right;
+		font-size: clamp(0.92rem, 1.7vw, 1.38rem);
+		font-weight: 500;
+		transform-origin: right center;
+	}
+	.lyric-line.reply.near {
+		transform: translate3d(2px, 8px, 0) scale(0.985);
+	}
+	.lyric-line.reply.active {
+		transform: translate3d(0, 0, 0) scale(1.02);
+	}
+	.lyric-line.reply.past {
+		transform: translate3d(0, -14px, 0) scale(0.94);
+	}
+	.lyric-bg {
+		display: block;
+		margin-top: 0.28em;
+		font-size: 0.62em;
+		font-weight: 500;
+		letter-spacing: 0.01em;
+		line-height: 1.35;
+		color: color-mix(in srgb, var(--foreground) 72%, transparent);
+		opacity: 0.55;
+	}
+	.lyric-line.active .lyric-bg,
+	.lyric-bg.singing {
+		opacity: 0.88;
+	}
+	.lyric-line.reply .lyric-bg {
+		text-align: right;
+	}
 	.lyrics-stack.instant .lyric-line {
 		transition: none;
 	}
@@ -782,7 +846,11 @@
 		.lyric-line,
 		.lyric-line.near,
 		.lyric-line.past,
-		.lyric-line.active {
+		.lyric-line.active,
+		.lyric-line.reply,
+		.lyric-line.reply.near,
+		.lyric-line.reply.active,
+		.lyric-line.reply.past {
 			transform: none;
 			filter: none;
 		}
