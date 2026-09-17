@@ -112,8 +112,9 @@
 			}
 			const finished = viewport.querySelector(`[data-lyric="${restSlot.afterIndex}"]`);
 			if (!finished) return;
-			lyricsOffset =
-				viewport.clientHeight * 0.38 - finished.offsetTop - finished.offsetHeight - 20;
+			const padBottom = parseFloat(getComputedStyle(finished).paddingBottom) || 0;
+			const textBottom = finished.offsetTop + finished.offsetHeight - padBottom;
+			lyricsOffset = viewport.clientHeight * 0.38 - textBottom - 22;
 			return;
 		}
 		const idx = restSlot?.blank ? restSlot.afterIndex : startedLyricIndex;
@@ -229,6 +230,10 @@
 		if (startedLyricIndex < 0) return false;
 		if (lineIndex < startedLyricIndex) return true;
 		return lineIndex === startedLyricIndex && activeLyricIndex < 0;
+	}
+
+	function lineIsResting(lineIndex) {
+		return restFocus && rest.afterIndex === lineIndex;
 	}
 
 	function lineDelta(lineIndex) {
@@ -366,6 +371,7 @@
 								class:active={i === activeLyricIndex || (rest?.blank && rest.afterIndex === i)}
 								class:past={lineIsPast(i)}
 								class:near={Math.abs(lineDelta(i)) === 1}
+								class:resting={lineIsResting(i)}
 								data-lyric={i}
 								style="--delta: {lineDelta(i)}"
 							>
@@ -713,6 +719,7 @@
 			opacity 560ms var(--spring-smooth),
 			transform 720ms var(--spring-smooth),
 			filter 520ms var(--spring-smooth),
+			padding-bottom 720ms var(--spring-smooth),
 			--delta 720ms var(--spring-smooth);
 	}
 	.lyric-line.near {
@@ -724,6 +731,9 @@
 		opacity: 0.22;
 		transform: translate3d(0, -12px, 0) scale(0.94);
 		filter: blur(0.45px);
+	}
+	.lyric-line.resting {
+		padding-bottom: 2.6em;
 	}
 	.lyric-line.active {
 		color: var(--foreground);
