@@ -806,15 +806,16 @@
 		transform: translate3d(0, 0, 0) scale(1.03);
 	}
 	.lyric-line.reply {
-		align-self: flex-end;
-		max-width: 78%;
-		text-align: right;
+		align-self: flex-start;
+		max-width: 72%;
+		margin-left: 22%;
+		text-align: left;
 		font-size: clamp(0.92rem, 1.7vw, 1.38rem);
 		font-weight: 500;
-		transform-origin: right center;
+		transform-origin: left center;
 	}
 	.lyric-line.reply.near {
-		transform: translate3d(2px, 8px, 0) scale(0.985);
+		transform: translate3d(-2px, 8px, 0) scale(0.985);
 	}
 	.lyric-line.reply.active {
 		transform: translate3d(0, 0, 0) scale(1.02);
@@ -835,9 +836,6 @@
 	.lyric-line.active .lyric-bg,
 	.lyric-bg.singing {
 		opacity: 0.88;
-	}
-	.lyric-line.reply .lyric-bg {
-		text-align: right;
 	}
 	.lyrics-stack.instant .lyric-line {
 		transition: none;
