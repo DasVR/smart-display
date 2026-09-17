@@ -795,7 +795,8 @@
 		z-index: 2;
 		opacity: 0;
 		pointer-events: none;
-		transform: translateY(-42%) scale(0.9);
+		transform: translateY(-42%);
+		transform-origin: left center;
 		font-family: var(--font-body);
 		font-size: clamp(1.15rem, 2.2vw, 1.85rem);
 		font-weight: 600;
@@ -811,16 +812,17 @@
 	}
 	.lyric-rest-focus.open {
 		opacity: 1;
-		transform: translateY(-50%) scale(1.045);
+		transform: translateY(-50%);
 	}
 	.lyric-rest-focus .lyric-dots {
-		gap: 0.5em;
+		gap: 0.18em;
 	}
 	.lyric-rest-focus .dot {
-		width: 0.54em;
-		height: 0.54em;
-		transform: translateY(calc((1 - var(--o, 0)) * 0.16em)) scale(calc(0.68 + 0.42 * var(--o, 0)));
-		filter: drop-shadow(0 0 calc(4px + 12px * var(--o, 0)) color-mix(in srgb, var(--foreground) calc(28% + var(--o, 0) * 42%), transparent));
+		width: 0.28em;
+		height: 0.28em;
+		transform-origin: left center;
+		transform: translateY(calc((1 - var(--o, 0)) * 0.1em)) scale(calc(0.82 + 0.18 * var(--o, 0)));
+		filter: drop-shadow(0 0 calc(3px + 8px * var(--o, 0)) color-mix(in srgb, var(--foreground) calc(22% + var(--o, 0) * 38%), transparent));
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.lyric-rest-focus .dot.filling {
@@ -830,11 +832,11 @@
 	@keyframes rest-dot-lift {
 		0%,
 		100% {
-			transform: translateY(calc((1 - var(--o, 0)) * 0.16em)) scale(calc(0.68 + 0.42 * var(--o, 0)));
+			transform: translateY(calc((1 - var(--o, 0)) * 0.1em)) scale(calc(0.82 + 0.18 * var(--o, 0)));
 		}
 		50% {
-			transform: translateY(calc((1 - var(--o, 0)) * 0.16em - 0.16em))
-				scale(calc(0.78 + 0.36 * var(--o, 0)));
+			transform: translateY(calc((1 - var(--o, 0)) * 0.1em - 0.1em))
+				scale(calc(0.9 + 0.14 * var(--o, 0)));
 		}
 	}
 	.lyric-rest-focus.instant {
@@ -901,18 +903,20 @@
 	.lyric-dots {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.35em;
+		justify-content: flex-start;
+		gap: 0.18em;
 	}
 	/* Each dot's opacity is driven inline from instrumentalDotStates - they
 	   light up one at a time as the actual instrumental gap elapses, not on
 	   a fixed timer, so a long break sweeps slowly and a short one sweeps
 	   fast. The transition just smooths the per-frame opacity updates. */
 	.dot {
-		width: 0.4em;
-		height: 0.4em;
+		width: 0.28em;
+		height: 0.28em;
 		border-radius: 50%;
 		background: currentColor;
-		transform: scale(calc(0.75 + 0.25 * var(--o, 0)));
+		transform-origin: left center;
+		transform: scale(calc(0.82 + 0.18 * var(--o, 0)));
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.dot {
