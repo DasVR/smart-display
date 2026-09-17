@@ -107,7 +107,7 @@
 		if (!viewport) return;
 		if (restSlot && !restSlot.blank) {
 			if (restSlot.afterIndex < 0) {
-				lyricsOffset = 0;
+				lyricsOffset = viewport.clientHeight * 0.38 + 28;
 				return;
 			}
 			const finished = viewport.querySelector(`[data-lyric="${restSlot.afterIndex}"]`);
