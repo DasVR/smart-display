@@ -45,6 +45,10 @@ export const DEFAULT_WORD_SPAN_SEC = 0.6;
 /** Cap for inferring a last-word end from the next line / line.end. Wider
  *  gaps are instrumentals, not extra hold on the last syllable. */
 const MAX_INFERRED_LAST_WORD_SEC = 1.5;
+/** Hard cap on the last token of a line, even when TTML stamps an `end` that
+ *  reaches the next verse. Without this the last letter keeps "singing"
+ *  through the instrumental. */
+export const MAX_LAST_WORD_SEC = 1.15;
 
 /** Clock when `words[index]` finishes. Prefers an explicit `end` from
  *  karaoke sources (TTML/YRC/KRC). Otherwise the next word's start, a tight
@@ -53,17 +57,24 @@ const MAX_INFERRED_LAST_WORD_SEC = 1.5;
 export function wordEndTime(words, index, lineEndTime) {
 	if (!Array.isArray(words) || index < 0 || index >= words.length) return 0;
 	const start = Number(words[index].time) || 0;
+	let end = start + DEFAULT_WORD_SPAN_SEC;
 	const explicit = Number(words[index].end);
-	if (Number.isFinite(explicit) && explicit > start) return explicit;
-	if (index + 1 < words.length) {
+	if (Number.isFinite(explicit) && explicit > start) {
+		end = explicit;
+	} else if (index + 1 < words.length) {
 		const next = Number(words[index + 1].time) || 0;
-		if (next > start) return next;
+		if (next > start) end = next;
+	} else {
+		const lineEnd = Number(lineEndTime);
+		if (Number.isFinite(lineEnd) && lineEnd > start && lineEnd - start <= MAX_INFERRED_LAST_WORD_SEC) {
+			end = lineEnd;
+		}
 	}
-	const lineEnd = Number(lineEndTime);
-	if (Number.isFinite(lineEnd) && lineEnd > start && lineEnd - start <= MAX_INFERRED_LAST_WORD_SEC) {
-		return lineEnd;
+	if (index === words.length - 1) {
+		const cap = start + MAX_LAST_WORD_SEC;
+		if (end > cap) end = cap;
 	}
-	return start + DEFAULT_WORD_SPAN_SEC;
+	return end;
 }
 
 /** True once playback has passed the last sung clock on this line. Blank
@@ -212,7 +223,10 @@ export function lineEndClock(line) {
 	}
 	const start = Number(line.time) || 0;
 	const lineEnd = Number(line.end);
-	if (Number.isFinite(lineEnd) && lineEnd > start) return lineEnd;
+	if (Number.isFinite(lineEnd) && lineEnd > start) {
+		if (lineEnd - start >= INSTRUMENTAL_GAP_SEC) return start + DEFAULT_LINE_HOLD_SEC;
+		return lineEnd;
+	}
 	return start + DEFAULT_LINE_HOLD_SEC;
 }
 

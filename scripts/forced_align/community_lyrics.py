@@ -154,6 +154,75 @@ def timed_word(time, text, end=None):
 	return word
 
 
+_PUNCT_ONLY_RE = re.compile(r"^[\W_]+$", re.UNICODE)
+_GLUE_PREFIX_RE = re.compile(r"^['’ʼ‘‛`,.!?;:\)\]…]+")
+_CONTRACTION_RE = re.compile(r"^(n['’]t|['’](?:t|s|re|ll|ve|d|m))$", re.I)
+_ENDS_APOS_RE = re.compile(r"['’]$")
+_WORD_CHARS_RE = re.compile(r"^[A-Za-z]+$")
+
+
+def should_glue_lyric_tokens(prev_text, next_text) -> bool:
+	prev = str(prev_text or "")
+	nxt = str(next_text or "")
+	if not prev or not nxt:
+		return False
+	if _PUNCT_ONLY_RE.match(nxt):
+		return True
+	if _GLUE_PREFIX_RE.match(nxt) or _CONTRACTION_RE.match(nxt):
+		return True
+	if _ENDS_APOS_RE.search(prev) and _WORD_CHARS_RE.match(nxt) and len(nxt) <= 3:
+		return True
+	return False
+
+
+def coalesce_lyric_words(words):
+	if not words:
+		return []
+	out = []
+	for raw in words:
+		original = str((raw or {}).get("text") or "")
+		if re.fullmatch(r"\s+", original):
+			if out:
+				out[-1]["_break"] = True
+			continue
+		text = re.sub(r"\s+", " ", original).strip()
+		if not text:
+			continue
+		break_before = bool((raw or {}).get("breakBefore")) or bool(re.match(r"\s", original))
+		item = dict(raw)
+		item["text"] = text
+		item.pop("breakBefore", None)
+		prev = out[-1] if out else None
+		glue = prev is not None and should_glue_lyric_tokens(prev.get("text"), text)
+		if glue:
+			prev["text"] = str(prev.get("text") or "") + text
+			end = item.get("end")
+			if end is not None and float(end) > float(prev.get("end") or prev.get("time") or 0):
+				prev["end"] = end
+		else:
+			if prev is not None:
+				prev.pop("_break", None)
+			out.append(item)
+	for item in out:
+		item.pop("_break", None)
+	return out
+
+
+def line_with_coalesced_words(line):
+	words = (line or {}).get("words") or []
+	if not words:
+		return line
+	merged = coalesce_lyric_words(words)
+	if not merged:
+		next_line = dict(line)
+		next_line.pop("words", None)
+		return next_line
+	next_line = dict(line)
+	next_line["words"] = merged
+	next_line["text"] = " ".join(w.get("text") or "" for w in merged)
+	return next_line
+
+
 def empty_result(source=None, error=None):
 	return {
 		"source": source,
@@ -195,7 +264,7 @@ def parse_yrc(text: str):
 			begin = float(obj.get("t") or 0) / 1000.0
 			words = []
 			for chunk in obj.get("c") or []:
-				word = str(chunk.get("tx") or chunk.get("c") or "").strip()
+				word = str(chunk.get("tx") or chunk.get("c") or "")
 				if not word:
 					continue
 				offset = float(chunk.get("t") or 0) / 1000.0
@@ -205,7 +274,7 @@ def parse_yrc(text: str):
 				entry = {"time": round(begin, 3), "text": line_text}
 				if len(words) >= 2:
 					entry["words"] = words
-				lines.append(entry)
+				lines.append(line_with_coalesced_words(entry))
 			continue
 		header = re.match(r"^\[(\d+),(\d+)\](.*)$", row)
 		if not header:
@@ -227,7 +296,7 @@ def parse_yrc(text: str):
 		if len(words) >= 2:
 			entry["words"] = words
 		if line_text or not words:
-			lines.append(entry)
+			lines.append(line_with_coalesced_words(entry) if words else entry)
 	return lines
 
 
@@ -257,7 +326,7 @@ def parse_krc(text: str):
 		entry = {"time": round(begin, 3), "end": round(line_end, 3), "text": line_text}
 		if len(words) >= 2:
 			entry["words"] = words
-		lines.append(entry)
+		lines.append(line_with_coalesced_words(entry) if words else entry)
 	return lines
 
 
@@ -519,6 +588,18 @@ def self_test():
 	assert krc[0]["words"][1]["text"] == "so"
 	assert abs(krc[0]["words"][1]["time"] - (25.872 + 0.475)) < 1e-9
 	assert "end" in krc[0]["words"][1]
+	dont = parse_yrc("[1000,800](1000,200,0)don(1200,80,0)'(1280,120,0)t")
+	assert dont[0]["text"] == "don't"
+	assert len(dont[0]["words"]) == 1
+	assert dont[0]["words"][0]["text"] == "don't"
+	spaced = coalesce_lyric_words(
+		[
+			{"time": 1, "end": 1.2, "text": "don"},
+			{"time": 1.2, "end": 1.28, "text": " '"},
+			{"time": 1.28, "end": 1.5, "text": " t"},
+		]
+	)
+	assert [w["text"] for w in spaced] == ["don't"]
 	headered = drop_non_lyric_lines(
 		parse_krc(
 			"[100,100]<0,100,0>Numb (英雄联盟代表音乐) - Linkin Park\n"
@@ -539,7 +620,7 @@ def self_test():
 	assert [row["text"] for row in credits_end] == ["a real verse", "The end is near"]
 	assert score_hit("Linkin Park", "Numb", 186, {"artist": "Linkin Park", "title": "Numb", "duration": 186}) >= 90
 	assert score_hit("Frank Sinatra", "My Way", 275, {"artist": "Limp Bizkit", "title": "My Way", "duration": 273}) == 0
-	print(json.dumps({"ok": True, "tests": 7}))
+	print(json.dumps({"ok": True, "tests": 9}))
 	return 0
 
 

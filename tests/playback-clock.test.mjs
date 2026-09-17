@@ -18,6 +18,7 @@ import {
 	livePlaybackPosition,
 	LYRIC_LEAD_SEC,
 	lyricsAreSynced,
+	MAX_LAST_WORD_SEC,
 	singingLyricIndex,
 	wordEndTime,
 	wordProgress,
@@ -130,6 +131,35 @@ test('wordProgress does not stretch the last word across a long instrumental', (
 	assert.equal(wordEndTime(words, 2, 40), 13.4);
 	assert.equal(wordProgress(words, 2, 13.4, 40), 1);
 	assert.equal(wordProgress(words, 2, 20, 40), 1);
+});
+
+test('wordEndTime caps an explicit last-word end that runs into the instrumental', () => {
+	const words = [
+		{ time: 12, text: 'You' },
+		{ time: 12.4, text: 'can' },
+		{ time: 12.8, end: 40, text: 'take' }
+	];
+	assert.equal(wordEndTime(words, 2, 40), 12.8 + MAX_LAST_WORD_SEC);
+	assert.equal(wordProgress(words, 2, 12.8 + MAX_LAST_WORD_SEC, 40), 1);
+	assert.equal(lineSungThrough({ time: 12, text: 'You can take', words, end: 40 }, 14.2), true);
+});
+
+test('instrumentalRest starts after the capped last word, not after a far TTML end', () => {
+	const lines = [
+		{
+			time: 12,
+			end: 40,
+			text: 'take',
+			words: [{ time: 12.8, end: 40, text: 'take' }]
+		},
+		{ time: 40, text: 'next', words: [{ time: 40, end: 40.4, text: 'next' }] }
+	];
+	const rest = instrumentalRest(lines, 16, 50);
+	assert.equal(rest.afterIndex, 0);
+	assert.equal(rest.blank, false);
+	assert.ok(rest.start < 15, 'dots start once the last syllable ends');
+	assert.equal(rest.end, 40);
+	assert.equal(singingLyricIndex(lines, 16, 50), -1);
 });
 
 test('singingLyricIndex goes dark after the last word and stays dark until the next line', () => {

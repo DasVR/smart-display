@@ -20,6 +20,7 @@
 		wordProgress
 	} from '$lib/playbackClock.js';
 	import { rememberNowPlaying } from '$lib/artCarousel.js';
+	import { shouldGlueLyricTokens } from '$lib/lyricWords.js';
 	import { applyTransportOptimistic, nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
 
 	let artFailed = $state(false);
@@ -396,7 +397,7 @@
 							>
 								{#if line.words?.length}
 									{#each line.words as word, w (w)}
-										{#if w > 0}{' '}{/if}<span
+										{#if w > 0 && !shouldGlueLyricTokens(line.words[w - 1].text, word.text)}{' '}{/if}<span
 											class="lyric-word"
 											class:sung={wordSung(i, w)}
 											class:filling={i === activeLyricIndex && w === activeWordIdx}
@@ -427,7 +428,11 @@
 					>
 						<span class="lyric-dots">
 							{#each instrumentalDots as brightness, d (d)}
-								<span class="dot" style="opacity: {brightness}; --o: {brightness}"></span>
+								<span
+									class="dot"
+									class:filling={brightness > 0.08 && brightness < 0.92}
+									style="opacity: {brightness}; --o: {brightness}"
+								></span>
 							{/each}
 						</span>
 					</div>
@@ -795,8 +800,35 @@
 		opacity: 1;
 		transform: translateY(-50%) scale(1.045);
 	}
+	.lyric-rest-focus .lyric-dots {
+		gap: 0.5em;
+	}
+	.lyric-rest-focus .dot {
+		width: 0.54em;
+		height: 0.54em;
+		transform: translateY(calc((1 - var(--o, 0)) * 0.16em)) scale(calc(0.68 + 0.42 * var(--o, 0)));
+		filter: drop-shadow(0 0 calc(4px + 12px * var(--o, 0)) color-mix(in srgb, var(--foreground) calc(28% + var(--o, 0) * 42%), transparent));
+	}
+	@media (prefers-reduced-motion: no-preference) {
+		.lyric-rest-focus .dot.filling {
+			animation: rest-dot-lift 1.05s var(--spring-smooth) infinite;
+		}
+	}
+	@keyframes rest-dot-lift {
+		0%,
+		100% {
+			transform: translateY(calc((1 - var(--o, 0)) * 0.16em)) scale(calc(0.68 + 0.42 * var(--o, 0)));
+		}
+		50% {
+			transform: translateY(calc((1 - var(--o, 0)) * 0.16em - 0.16em))
+				scale(calc(0.78 + 0.36 * var(--o, 0)));
+		}
+	}
 	.lyric-rest-focus.instant {
 		transition: none;
+	}
+	.lyric-rest-focus.instant .dot.filling {
+		animation: none;
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.lyric-rest-focus,
