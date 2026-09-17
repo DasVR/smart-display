@@ -1,0 +1,70 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import { mergeNowPlayingSample, OPTIMISTIC_HOLD_MS } from '../src/lib/nowPlayingMerge.js';
+
+const live = {
+	playing: true,
+	paused: false,
+	title: 'Daylight',
+	position: 10,
+	positionAt: 1_000,
+	length: 200
+};
+
+test('mergeNowPlayingSample lets disconnect win immediately', () => {
+	const held = { ...live, playing: false, paused: true, optimisticUntil: 5_000 };
+	const merged = mergeNowPlayingSample(held, { playing: false }, 1_200);
+	assert.equal(merged.playing, false);
+	assert.equal(merged.title, undefined);
+});
+
+test('mergeNowPlayingSample keeps an optimistic pause over a stale playing poll', () => {
+	const held = {
+		...live,
+		playing: false,
+		paused: true,
+		position: 12,
+		positionAt: 3_000,
+		optimisticUntil: 3_000 + OPTIMISTIC_HOLD_MS
+	};
+	const merged = mergeNowPlayingSample(held, { ...live, position: 10 }, 3_200);
+	assert.equal(merged.playing, false);
+	assert.equal(merged.paused, true);
+	assert.equal(merged.position, 12);
+});
+
+test('mergeNowPlayingSample accepts the server once play/pause matches', () => {
+	const held = {
+		...live,
+		playing: false,
+		paused: true,
+		optimisticUntil: 3_000 + OPTIMISTIC_HOLD_MS
+	};
+	const incoming = { ...live, playing: false, paused: true, position: 12, positionAt: 3_400 };
+	const merged = mergeNowPlayingSample(held, incoming, 3_200);
+	assert.equal(merged.playing, false);
+	assert.equal(merged.position, 12);
+	assert.equal(merged.optimisticUntil, 0);
+});
+
+test('mergeNowPlayingSample keeps a local seek until the player lands nearby', () => {
+	const held = {
+		...live,
+		position: 80,
+		positionAt: 4_000,
+		seeking: true,
+		optimisticUntil: 4_000 + OPTIMISTIC_HOLD_MS
+	};
+	const stale = mergeNowPlayingSample(held, { ...live, position: 10, seeking: false }, 4_200);
+	assert.equal(stale.position, 80);
+	assert.equal(stale.seeking, true);
+
+	const landed = mergeNowPlayingSample(
+		held,
+		{ ...live, position: 80.4, positionAt: 4_300, seeking: false },
+		4_300
+	);
+	assert.equal(landed.position, 80.4);
+	assert.equal(landed.optimisticUntil, 0);
+});

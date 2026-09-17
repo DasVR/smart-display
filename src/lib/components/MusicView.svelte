@@ -1,18 +1,22 @@
 <script>
 	import { onMount } from 'svelte';
-	import { cubicOut } from 'svelte/easing';
 	import { nowPlaying } from '$lib/stores.js';
 	import { bassLevel } from '$lib/services/audioReactive.js';
 	import {
 		activeLyricIndex as startedIndexForTime,
 		activeWordIndex,
 		instrumentalDotStates,
+		isHeldWord,
+		isPlaybackJump,
+		letterFill,
+		letterWave,
 		livePlaybackPosition,
 		lyricsAreSynced,
 		singingLyricIndex,
 		wordProgress
 	} from '$lib/playbackClock.js';
-	import { nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
+	import { rememberNowPlaying } from '$lib/artCarousel.js';
+	import { applyTransportOptimistic, nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
 
 	let artFailed = $state(false);
 	let lastArtUrl = null;
@@ -21,43 +25,41 @@
 	let raf = 0;
 	let lyricsViewport = $state(null);
 	let reducedMotion = $state(false);
+	let snapLyrics = $state(false);
+	let lastSample = null;
+	let carousel = $state({ prev: null, current: null, next: null });
 
 	let track = $derived($nowPlaying);
-	let hasTrack = $derived(Boolean(track?.title || track?.playing));
-	// Identifies the *song*, not the art fetch - keys the vinyl-swap
-	// transition below so it plays exactly once per track change, even if
-	// the art URL is briefly empty/retried or unchanged between two tracks.
+	let hasTrack = $derived(Boolean(track?.title || track?.playing || track?.paused));
 	let trackKey = $derived(`${track?.artist ?? ''}::${track?.title ?? ''}`);
 	let synced = $derived(lyricsAreSynced(track?.lyrics) ? track.lyrics : null);
 	let plainLyrics = $derived(!synced && track?.lyrics?.[0]?.text ? track.lyrics[0].text : null);
-	// True only while the server is still checking online sources
-	// (syncedlyrics/LRCLIB) for this track - not while a forced-alignment
-	// job might be running in the background, which can take minutes and
-	// isn't something a "loading" indicator should promise is imminent.
 	let lyricsPending = $derived(Boolean(track?.lyricsPending) && !synced && !plainLyrics);
-	// Last line whose start clock has been reached. Used for scroll + "past"
-	// styling so a rest after the last word does not jump the viewport.
 	let startedLyricIndex = $derived(startedIndexForTime(synced, displayPosition));
-	// Line currently being sung. -1 after the last word finishes and before
-	// the next line starts, so the stack goes dark across the instrumental.
 	let activeLyricIndex = $derived(singingLyricIndex(synced, displayPosition));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
 	let activeWordIdx = $derived(activeWordIndex(synced?.[activeLyricIndex]?.words, displayPosition));
-	// Fraction (0..1) the way through the currently-singing word, for a
-	// smooth left-to-right sweep within the word rather than an instant
-	// per-word snap - the "letter by letter" look Apple Music has.
 	let activeWordFill = $derived.by(() => {
 		const words = synced?.[activeLyricIndex]?.words;
 		if (!words?.length || activeWordIdx < 0) return 0;
 		return wordProgress(words, activeWordIdx, displayPosition, synced?.[activeLyricIndex]?.end);
 	});
-	// Per-dot brightness (Apple Music-style: dots light up in sequence as the
-	// gap elapses, scaled to how long the actual instrumental section is).
+	let heldActive = $derived.by(() => {
+		const words = synced?.[activeLyricIndex]?.words;
+		if (!words?.length || activeWordIdx < 0) return false;
+		return isHeldWord(words, activeWordIdx, synced?.[activeLyricIndex]?.end);
+	});
 	let instrumentalDots = $derived(instrumentalDotStates(synced, startedLyricIndex, displayPosition));
-	// A small, bass-driven breathing scale for the album art - subtle enough
-	// not to distract from the art itself, but enough that the cover reads
-	// as alive rather than a static image while something is playing.
 	let artPulse = $derived(track?.playing ? 1 + $bassLevel * 0.045 : 1);
+	let carouselCards = $derived.by(() => {
+		const list = [];
+		if (carousel.prev) list.push({ ...carousel.prev, slot: 'prev' });
+		if (carousel.current) list.push({ ...carousel.current, slot: 'current' });
+		if (carousel.next) list.push({ ...carousel.next, slot: 'next' });
+		if (list.length) return list;
+		if (!track) return [];
+		return [{ key: trackKey, art: track.art, slot: 'current' }];
+	});
 
 	$effect(() => {
 		const next = track;
@@ -66,10 +68,13 @@
 			lastArtUrl = next.art;
 			artFailed = false;
 		}
+		if (next.title) carousel = rememberNowPlaying(next);
 	});
 
 	function tick() {
+		if (isPlaybackJump(lastSample, track)) snapLyrics = true;
 		displayPosition = livePlaybackPosition(track, Date.now());
+		lastSample = track;
 		raf = requestAnimationFrame(tick);
 	}
 
@@ -103,25 +108,13 @@
 		lyricsOffset = viewport.clientHeight * 0.38 - el.offsetTop - el.offsetHeight / 2;
 	});
 
-	// A record sliding in/out of its sleeve, for the moment a new track
-	// takes over the art slot: the outgoing cover slides down and away as
-	// the incoming one rises into place at a slight counter-rotation, like
-	// swapping a vinyl rather than just crossfading two images. Used for
-	// both `in:` and `out:` - Svelte runs `t` 0->1 for the entrance and
-	// 1->0 for the exit, and this reads as "how settled into place" either
-	// way, so one function covers both directions.
-	function vinylSwap(node, { duration = 520 } = {}) {
-		return {
-			duration,
-			easing: cubicOut,
-			css: (t) => {
-				const y = (1 - t) * 46;
-				const rotate = (1 - t) * -9;
-				const scale = 0.9 + t * 0.1;
-				return `transform: translateY(${y}%) rotate(${rotate}deg) scale(${scale}); opacity: ${t};`;
-			}
-		};
-	}
+	$effect(() => {
+		if (!snapLyrics) return;
+		const id = requestAnimationFrame(() => {
+			snapLyrics = false;
+		});
+		return () => cancelAnimationFrame(id);
+	});
 
 	function fmtTime(sec) {
 		const n = Number(sec);
@@ -137,6 +130,74 @@
 			.catch(() => {});
 	}
 
+	function togglePlay() {
+		const live = livePlaybackPosition(track, Date.now());
+		if (track?.playing) {
+			applyTransportOptimistic({
+				playing: false,
+				paused: true,
+				position: live,
+				positionAt: Date.now(),
+				seeking: false
+			});
+		} else {
+			applyTransportOptimistic({
+				playing: true,
+				paused: false,
+				position: live,
+				positionAt: Date.now(),
+				seeking: false
+			});
+		}
+		send('play-pause');
+	}
+
+	function seekTo(sec) {
+		const length = Number(track?.length) || 0;
+		const position = length > 0 ? Math.min(Math.max(0, sec), length) : Math.max(0, sec);
+		applyTransportOptimistic({
+			position,
+			positionAt: Date.now(),
+			seeking: true
+		});
+		displayPosition = position;
+		snapLyrics = true;
+		fetch('/api/player/seek', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ position })
+		})
+			.then(nudgeNowPlaying)
+			.catch(() => {});
+	}
+
+	function onSeekPointer(e) {
+		const length = Number(track?.length) || 0;
+		if (length <= 0) return;
+		const rect = e.currentTarget.getBoundingClientRect();
+		const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+		seekTo(ratio * length);
+	}
+
+	function onSeekKey(e) {
+		const length = Number(track?.length) || 0;
+		if (length <= 0) return;
+		const step = Math.max(5, length * 0.05);
+		if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+			e.preventDefault();
+			seekTo(displayPosition + step);
+		} else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+			e.preventDefault();
+			seekTo(displayPosition - step);
+		} else if (e.key === 'Home') {
+			e.preventDefault();
+			seekTo(0);
+		} else if (e.key === 'End') {
+			e.preventDefault();
+			seekTo(length);
+		}
+	}
+
 	function wordSung(line, wordIndex) {
 		if (startedLyricIndex < 0) return false;
 		if (line < startedLyricIndex) return true;
@@ -149,6 +210,20 @@
 		if (startedLyricIndex < 0) return false;
 		if (lineIndex < startedLyricIndex) return true;
 		return lineIndex === startedLyricIndex && activeLyricIndex < 0;
+	}
+
+	function lineDelta(lineIndex) {
+		const origin = activeLyricIndex >= 0 ? activeLyricIndex : startedLyricIndex;
+		if (origin < 0) return lineIndex;
+		return lineIndex - origin;
+	}
+
+	function wordChars(text) {
+		return Array.from(String(text || ''));
+	}
+
+	function heldLetterFill(progress, index, text) {
+		return letterFill(progress, index, wordChars(text).length);
 	}
 
 	function dotBrightness(lineIndex, dotIndex) {
@@ -174,29 +249,26 @@
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics || lyricsPending)}>
 			<div class="player-main">
 				<div class="art-slot" class:playing={track.playing} style="--pulse: {artPulse}">
-					<!-- A purely decorative "more where this came from" stack behind
-					     the current album - the audio backends here (playerctl/
-					     AirPlay) don't expose an actual upcoming-track queue, so
-					     this doesn't claim to show real next-up art, just depth. -->
-					<div class="album-stack" aria-hidden="true">
-						<div class="stack-card stack-2"></div>
-						<div class="stack-card stack-1"></div>
-					</div>
-					<div class="album-art" class:playing={track.playing}>
-						{#key trackKey}
+					<div class="art-stage" class:peeks={carouselCards.length > 1}>
+						{#each carouselCards as card (card.key)}
 							<div
-								class="art-face"
-								in:vinylSwap={{ duration: reducedMotion ? 0 : 520 }}
-								out:vinylSwap={{ duration: reducedMotion ? 0 : 320 }}
+								class="album-card"
+								class:current={card.slot === 'current'}
+								class:prev={card.slot === 'prev'}
+								class:next={card.slot === 'next'}
+								class:playing={card.slot === 'current' && track.playing}
+								aria-hidden={card.slot !== 'current'}
 							>
-								{#if track.art && !artFailed}
-									<img class="art-image" src={track.art} alt="" onerror={() => (artFailed = true)} />
-								{:else}
+								{#if card.slot === 'current' && card.art && !artFailed}
+									<img class="art-image" src={card.art} alt="" onerror={() => (artFailed = true)} />
+								{:else if card.art}
+									<img class="art-image" src={card.art} alt="" />
+								{:else if card.slot === 'current'}
 									<div class="vinyl-groove"></div>
 									<div class="center-label"></div>
 								{/if}
 							</div>
-						{/key}
+						{/each}
 					</div>
 				</div>
 				<div class="track-info">
@@ -208,7 +280,18 @@
 					<span>{fmtTime(displayPosition)}</span>
 					<span>{fmtTime(track.length)}</span>
 				</div>
-				<div class="progress" style="--p: {progress}">
+				<div
+					class="progress"
+					style="--p: {progress}"
+					role="slider"
+					tabindex="0"
+					aria-label="Seek"
+					aria-valuemin="0"
+					aria-valuemax={track.length || 0}
+					aria-valuenow={displayPosition}
+					onpointerdown={onSeekPointer}
+					onkeydown={onSeekKey}
+				>
 					<div class="progress-fill"></div>
 				</div>
 
@@ -223,7 +306,7 @@
 						type="button"
 						class="play"
 						aria-label={track.playing ? 'Pause' : 'Play'}
-						onclick={() => send('play-pause')}
+						onclick={togglePlay}
 					>
 						{#if track.playing}
 							<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -249,7 +332,7 @@
 				<div class="lyrics-viewport synced" bind:this={lyricsViewport}>
 					<div
 						class="lyrics-stack"
-						class:instant={reducedMotion}
+						class:instant={reducedMotion || snapLyrics}
 						style="transform: translate3d(0, {lyricsOffset}px, 0)"
 					>
 						{#each synced as line, i (`${line.time}:${line.text}`)}
@@ -257,7 +340,9 @@
 								class="lyric-line"
 								class:active={i === activeLyricIndex}
 								class:past={lineIsPast(i)}
+								class:near={Math.abs(lineDelta(i)) === 1}
 								data-lyric={i}
+								style="--delta: {lineDelta(i)}"
 							>
 								{#if line.words?.length}
 									{#each line.words as word, w (w)}
@@ -265,10 +350,11 @@
 											class="lyric-word"
 											class:sung={wordSung(i, w)}
 											class:filling={i === activeLyricIndex && w === activeWordIdx}
+											class:held={i === activeLyricIndex && w === activeWordIdx && heldActive && !reducedMotion}
 											style={i === activeLyricIndex && w === activeWordIdx
 												? `--wp: ${activeWordFill}`
 												: undefined}
-										>{word.text}</span>
+										>{#if i === activeLyricIndex && w === activeWordIdx && heldActive && !reducedMotion}{#each wordChars(word.text) as ch, ci (ci)}<span class="lyric-letter" style="--fill: {heldLetterFill(activeWordFill, ci, word.text)}; --wave: {letterWave(heldLetterFill(activeWordFill, ci, word.text))}">{ch}</span>{/each}{:else}{word.text}{/if}</span>
 									{/each}
 								{:else if line.text}
 									{line.text}
@@ -355,84 +441,74 @@
 		align-items: center;
 		justify-content: center;
 		position: relative;
+		perspective: 980px;
+	}
+	.art-stage {
+		position: relative;
+		width: min(100%, 42vh, 420px);
+		aspect-ratio: 1;
+		max-height: 100%;
+		display: grid;
+		place-items: center;
+		transform-style: preserve-3d;
+	}
+	.with-lyrics .art-stage {
+		width: min(100%, 28vh, 280px);
+	}
+	.album-card {
+		grid-area: 1 / 1;
+		width: 100%;
+		aspect-ratio: 1;
+		border-radius: var(--radius-lg);
+		border: 1px solid var(--hairline);
+		background: linear-gradient(160deg, var(--abyss-2) 0%, var(--abyss) 62%, color-mix(in srgb, var(--brand) 12%, var(--abyss)) 100%);
+		overflow: hidden;
+		box-shadow: var(--elevation-2);
+		transform-origin: center center;
+		position: relative;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.album-card.prev,
+	.album-card.next {
+		z-index: 0;
+		filter: brightness(0.38) saturate(0.78);
+		pointer-events: none;
+	}
+	.album-card.prev {
+		transform: translateX(-46%) rotateY(28deg) scale(0.78);
+	}
+	.album-card.next {
+		transform: translateX(46%) rotateY(-28deg) scale(0.78);
+	}
+	.album-card.current {
+		z-index: 2;
+		box-shadow: var(--elevation-3);
+		transform: scale(var(--pulse, 1));
+		filter: none;
 	}
 	@media (prefers-reduced-motion: no-preference) {
-		/* A slow, subtle sway on top of the bass pulse so the cover reads as
-		   alive during quiet passages too, not just on beats. */
-		.art-slot.playing {
+		.album-card {
+			transition:
+				transform 620ms var(--spring-smooth),
+				filter 480ms var(--spring-smooth),
+				box-shadow 480ms var(--spring-smooth);
+		}
+		.album-card.current.playing {
 			animation: art-drift 9s ease-in-out infinite;
 		}
 	}
 	@keyframes art-drift {
-		0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
-		50% { transform: translate3d(0, -4px, 0) rotate(0.6deg); }
-	}
-	.album-stack {
-		position: absolute;
-		inset: 0;
-		z-index: 0;
-		pointer-events: none;
-	}
-	.stack-card {
-		position: absolute;
-		left: 50%;
-		top: 50%;
-		width: min(88%, 37vh, 380px);
-		aspect-ratio: 1;
-		border-radius: var(--radius-lg);
-		border: 1px solid var(--hairline);
-		background: linear-gradient(160deg, var(--abyss-3) 0%, var(--abyss-1) 100%);
-		box-shadow: var(--elevation-2);
-	}
-	.stack-card.stack-1 {
-		transform: translate(-50%, -50%) translate(16px, 20px) rotate(5deg) scale(calc(0.94 * var(--pulse, 1)));
-		opacity: 0.75;
-	}
-	.stack-card.stack-2 {
-		transform: translate(-50%, -50%) translate(30px, 38px) rotate(9deg) scale(calc(0.88 * var(--pulse, 1)));
-		opacity: 0.45;
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.stack-card {
-			transition: transform 160ms var(--spring-smooth);
-		}
-	}
-	.album-art {
-		width: auto;
-		height: auto;
-		max-width: min(100%, 42vh, 420px);
-		max-height: 100%;
-		aspect-ratio: 1;
-		align-self: center;
-		border-radius: var(--radius-lg);
-		background: linear-gradient(160deg, var(--abyss-2) 0%, var(--abyss) 62%, color-mix(in srgb, var(--brand) 12%, var(--abyss)) 100%);
-		border: 1px solid var(--hairline);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		position: relative;
-		z-index: 1;
-		overflow: hidden;
-		box-shadow: var(--elevation-3);
-		transform: scale(var(--pulse, 1));
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.album-art {
-			transition: transform 160ms var(--spring-smooth);
-		}
-	}
-	.art-face {
-		position: absolute;
-		inset: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		0%, 100% { transform: scale(var(--pulse, 1)) translate3d(0, 0, 0) rotate(0deg); }
+		50% { transform: scale(var(--pulse, 1)) translate3d(0, -4px, 0) rotate(0.6deg); }
 	}
 	.art-image {
 		width: 100%;
 		height: 100%;
-		object-fit: contain;
+		object-fit: cover;
 		object-position: center;
+		display: block;
 	}
 	.vinyl-groove {
 		position: absolute;
@@ -470,6 +546,9 @@
 		letter-spacing: -0.03em;
 		overflow-wrap: anywhere;
 	}
+	.with-lyrics .track-title {
+		font-size: clamp(1.25rem, 2.1vw, 2rem);
+	}
 	.track-artist {
 		font-family: var(--font-body);
 		font-size: var(--text-lg);
@@ -491,15 +570,6 @@
 		white-space: nowrap;
 		color: var(--text-tertiary);
 	}
-	.with-lyrics .album-art {
-		max-width: min(100%, 28vh, 280px);
-	}
-	.with-lyrics .stack-card {
-		width: min(88%, 24vh, 250px);
-	}
-	.with-lyrics .track-title {
-		font-size: clamp(1.25rem, 2.1vw, 2rem);
-	}
 	.with-lyrics .times,
 	.with-lyrics .progress {
 		width: min(100%, 28rem);
@@ -508,18 +578,21 @@
 		width: min(540px, 100%);
 		max-width: 100%;
 		flex-shrink: 0;
-		height: 2px;
-		background: var(--hairline);
+		height: 14px;
+		display: flex;
+		align-items: center;
+		cursor: pointer;
+		background: linear-gradient(var(--hairline), var(--hairline)) center / 100% 2px no-repeat;
 		border-radius: 0;
-		overflow: hidden;
 	}
 	.progress-fill {
 		width: 100%;
-		height: 100%;
+		height: 2px;
 		background: var(--accent);
 		border-radius: 0;
 		transform: scaleX(var(--p, 0));
 		transform-origin: left center;
+		pointer-events: none;
 	}
 
 	.controls {
@@ -578,10 +651,10 @@
 	.lyrics-stack {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-4);
+		gap: var(--space-5);
 		padding: 0 var(--space-4);
 		will-change: transform;
-		transition: transform 420ms var(--spring-smooth);
+		transition: transform 560ms var(--spring-smooth);
 	}
 	.lyrics-stack.instant {
 		transition: none;
@@ -594,18 +667,43 @@
 		font-style: normal;
 		line-height: 1.35;
 		color: var(--text-tertiary);
-		opacity: 0.4;
+		opacity: 0.38;
 		transform-origin: left center;
+		transform: translate3d(calc(var(--delta, 0) * -6px), calc(var(--delta, 0) * 12px), 0) scale(0.96);
+		filter: blur(0.35px);
 		transition:
-			color 320ms var(--spring-smooth),
-			opacity 320ms var(--spring-smooth);
+			color 380ms var(--spring-smooth),
+			opacity 380ms var(--spring-smooth),
+			transform 560ms var(--spring-smooth),
+			filter 420ms var(--spring-smooth);
+	}
+	.lyric-line.near {
+		opacity: 0.55;
+		filter: none;
+		transform: translate3d(calc(var(--delta, 0) * -3px), calc(var(--delta, 0) * 8px), 0) scale(0.98);
 	}
 	.lyric-line.past {
-		opacity: 0.25;
+		opacity: 0.22;
+		transform: translate3d(0, -10px, 0) scale(0.94);
+		filter: blur(0.45px);
 	}
 	.lyric-line.active {
 		color: var(--foreground);
 		opacity: 1;
+		filter: none;
+		transform: translate3d(0, 0, 0) scale(1.045);
+	}
+	.lyrics-stack.instant .lyric-line {
+		transition: none;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.lyric-line,
+		.lyric-line.near,
+		.lyric-line.past,
+		.lyric-line.active {
+			transform: none;
+			filter: none;
+		}
 	}
 	.lyric-word {
 		display: inline;
@@ -619,7 +717,7 @@
 	/* The word currently being sung fills left-to-right in real time - a
 	   sub-letter-resolution sweep via a hard-stop gradient clipped to the
 	   text, rather than the binary sung/unsung flip the other words get. */
-	.lyric-word.filling {
+	.lyric-word.filling:not(.held) {
 		opacity: 1;
 		color: transparent;
 		background-image: linear-gradient(
@@ -632,6 +730,29 @@
 		background-clip: text;
 		-webkit-background-clip: text;
 		transition: none;
+	}
+	.lyric-word.held {
+		opacity: 1;
+		color: inherit;
+	}
+	.lyric-letter {
+		display: inline-block;
+		transform: translateY(calc(var(--wave, 0) * -0.22em)) scale(calc(1 + var(--wave, 0) * 0.06));
+		color: color-mix(
+			in srgb,
+			var(--foreground) calc(var(--fill, 0) * 100%),
+			color-mix(in srgb, var(--foreground) 40%, transparent)
+		);
+		text-shadow: 0 0 calc(var(--wave, 0) * 22px) color-mix(in srgb, var(--foreground) calc(var(--wave, 0) * 70%), transparent);
+		filter: brightness(calc(1 + var(--wave, 0) * 0.45));
+		will-change: transform, filter, text-shadow;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.lyric-letter {
+			transform: none;
+			text-shadow: none;
+			filter: none;
+		}
 	}
 	.lyric-dots {
 		display: inline-flex;
@@ -755,7 +876,7 @@
 	.bar-skeleton { width: min(540px, 70vw); height: 2px; border-radius: 0; }
 
 	@media (prefers-reduced-motion: no-preference) {
-		.album-art.playing .vinyl-groove {
+		.album-card.current.playing .vinyl-groove {
 			animation: spin 8s linear infinite;
 		}
 	}

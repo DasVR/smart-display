@@ -2,7 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const AIRPLAY_STALE_MS = 45_000;
+export const AIRPLAY_STALE_MS = 12_000;
+export const AIRPLAY_PAUSED_STALE_MS = 12_000;
 
 function runtimeDir() {
 	return process.env.XDG_RUNTIME_DIR || `/run/user/${typeof process.getuid === 'function' ? process.getuid() : 1000}`;
@@ -26,8 +27,10 @@ export function readAirplayNowPlaying(file = airplayStatePath(), now = Date.now(
 		const data = JSON.parse(readFileSync(file, 'utf8'));
 		if (!data || typeof data !== 'object') return null;
 		const updatedAt = Number(data.updatedAt) || 0;
-		if (updatedAt && now - updatedAt > AIRPLAY_STALE_MS) {
-			return { ...data, playing: false, stale: true };
+		const playing = Boolean(data.playing);
+		const staleAfter = playing ? AIRPLAY_STALE_MS : AIRPLAY_PAUSED_STALE_MS;
+		if (updatedAt && now - updatedAt > staleAfter) {
+			return { ...data, playing: false, paused: false, stale: true };
 		}
 		return data;
 	} catch {
@@ -45,12 +48,12 @@ export function readAirplayNowPlaying(file = airplayStatePath(), now = Date.now(
  *  behind it. Defaults to `true` so callers that don't know connection
  *  state (tests, other call sites) keep the old behavior. */
 export function mergeNowPlaying(mpris, airplay, { bluetoothConnected = true } = {}) {
-	const airplaySession = Boolean(airplay && !airplay.stale && (airplay.playing || airplay.title));
+	const airplaySession = Boolean(airplay && !airplay.stale && (airplay.playing || airplay.paused));
 	if (airplaySession) {
 		const playing = Boolean(airplay.playing);
 		return {
 			playing,
-			paused: Boolean(airplay.paused || (!playing && airplay.title)),
+			paused: Boolean(airplay.paused),
 			artist: airplay.artist || 'Unknown artist',
 			title: airplay.title || 'Unknown title',
 			album: airplay.album || '',

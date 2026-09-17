@@ -9,7 +9,8 @@
 		nowPlaying = null,
 		events = [],
 		activities = [],
-		anchored = false
+		anchored = false,
+		onMusicView = false
 	} = $props();
 
 	let reducedMotion = $state(false);
@@ -34,7 +35,7 @@
 	// Queued notices expand through, then compact Live Activities
 	// (now-playing, network) stay like iPhone's island.
 	let activeEvent = $derived(events?.[0] ?? null);
-	let slots = $derived(compactSlots(nowPlaying, activities));
+	let slots = $derived(compactSlots(nowPlaying, activities, { onMusicView }));
 	let mode = $derived.by(() => {
 		if (activeEvent) return 'event';
 		if (slots) return 'compact';
@@ -231,7 +232,7 @@
 					{/if}
 				{/if}
 			</span>
-			{#if place === 'leading' || slot.kind !== 'music'}
+			{#if slot.title && (place === 'leading' || slot.kind !== 'music') && !slot.hideTitle}
 				<span class="compact-title">{slot.title}</span>
 			{/if}
 		</span>
@@ -249,7 +250,7 @@
 			</div>
 		</div>
 	{:else if m === 'compact'}
-		<div class="compact">
+		<div class="compact" class:music-slim={slots?.leading?.hideTitle && slots?.trailing?.kind === 'eq'}>
 			<div class="side leading">{@render compactSide(slots?.leading, 'leading')}</div>
 			<span class="compact-gap" aria-hidden="true"></span>
 			<div class="side trailing">{@render compactSide(slots?.trailing, 'trailing')}</div>
@@ -380,6 +381,11 @@
 		max-width: min(36rem, 86vw);
 		padding: 0.4rem 0.75rem 0.5rem;
 		box-sizing: border-box;
+	}
+	.compact.music-slim {
+		min-width: 8.25rem;
+		gap: 0.45rem;
+		padding: 0.35rem 0.6rem 0.45rem;
 	}
 	.compact-gap {
 		width: 0.85rem;

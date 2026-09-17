@@ -8,6 +8,10 @@ import {
 	instrumentalDotsOpacity,
 	instrumentalGap,
 	lineSungThrough,
+	isHeldWord,
+	isPlaybackJump,
+	letterFill,
+	letterWave,
 	livePlaybackPosition,
 	lyricsAreSynced,
 	singingLyricIndex,
@@ -214,4 +218,30 @@ test('instrumentalDotStates returns all-zero dots outside a real gap', () => {
 		{ time: 4, text: 'verse' }
 	];
 	assert.deepEqual(instrumentalDotStates(lines, 0, 2), [0, 0, 0]);
+});
+
+test('isHeldWord is true only for words sung longer than a spoken syllable', () => {
+	assert.equal(isHeldWord([{ time: 0, end: 0.4, text: 'a' }], 0), false);
+	assert.equal(isHeldWord([{ time: 0, end: 1.2, text: 'you' }], 0), true);
+});
+
+test('letterFill lights letters in sequence across a held word', () => {
+	assert.equal(letterFill(0, 0, 4), 0);
+	assert.equal(letterFill(1, 0, 4), 1);
+	assert.ok(letterFill(0.2, 0, 4) > 0);
+	assert.equal(letterFill(0.2, 3, 4), 0);
+	assert.ok(letterFill(1, 3, 4) > 0.9);
+});
+
+test('letterWave peaks mid-letter and is 0 at the ends', () => {
+	assert.equal(letterWave(0), 0);
+	assert.ok(Math.abs(letterWave(1)) < 1e-9);
+	assert.ok(letterWave(0.5) > 0.99);
+});
+
+test('isPlaybackJump detects a scrub, not the next extrapolated frame', () => {
+	const prev = { playing: true, position: 10, positionAt: 1_000, length: 200 };
+	assert.equal(isPlaybackJump(prev, { playing: true, position: 11, positionAt: 2_000, length: 200 }, 2_000), false);
+	assert.equal(isPlaybackJump(prev, { playing: true, position: 40, positionAt: 2_000, length: 200 }, 2_000), true);
+	assert.equal(isPlaybackJump(prev, { playing: true, position: 10, positionAt: 1_000, seeking: true }, 2_000), true);
 });

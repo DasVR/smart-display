@@ -37,6 +37,18 @@ describe('compact slots', () => {
 		assert.equal(slots.trailing.kind, 'eq');
 	});
 
+	it('hides the music title when the Music view is already open', () => {
+		const slots = compactSlots(
+			{ playing: true, title: 'Night Drive', artist: 'Demo FM' },
+			[],
+			{ onMusicView: true }
+		);
+		assert.equal(slots.leading.kind, 'music');
+		assert.equal(slots.leading.title, '');
+		assert.equal(slots.leading.hideTitle, true);
+		assert.equal(slots.trailing.kind, 'eq');
+	});
+
 	it('keeps a paused AirPlay track in the island', () => {
 		const slots = compactSlots(
 			{ playing: false, paused: true, title: 'My Way', artist: 'Limp Bizkit', source: 'airplay' },

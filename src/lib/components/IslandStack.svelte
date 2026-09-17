@@ -3,7 +3,7 @@
 	import DynamicIsland from '$lib/components/DynamicIsland.svelte';
 	import InstallOrb from '$lib/components/InstallOrb.svelte';
 
-	let { nowPlaying = null, events = [], activities = [], progress = null } = $props();
+	let { nowPlaying = null, events = [], activities = [], progress = null, onMusicView = false } = $props();
 
 	let stackEl = $state(null);
 	let islandBox = $state({ w: 264, h: 55 });
@@ -61,7 +61,7 @@
 		</div>
 	{/if}
 	<div class="fg">
-		<DynamicIsland {nowPlaying} {events} {activities} anchored />
+		<DynamicIsland {nowPlaying} {events} {activities} {onMusicView} anchored />
 		<InstallOrb {progress} />
 	</div>
 </div>

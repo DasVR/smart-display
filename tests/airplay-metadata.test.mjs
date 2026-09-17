@@ -53,6 +53,25 @@ test('airplay metadata parser clears playing on session end', () => {
 	assert.equal(parse(xml).playing, false);
 });
 
+test('airplay metadata parser wipes leftover title on session end', () => {
+	const xml = item('636f7265', '6d696e6d', 'Daylight') + item('73736e63', '70656e64');
+	const state = parse(xml);
+	assert.equal(state.playing, false);
+	assert.equal(state.paused, false);
+	assert.equal(state.title, '');
+});
+
+test('airplay metadata parser keeps a paused session through a heartbeat', () => {
+	const xml =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('73736e63', '63617073', String.fromCharCode(3)) +
+		item('73736e63', '70686274');
+	const state = parse(xml);
+	assert.equal(state.playing, false);
+	assert.equal(state.paused, true);
+	assert.equal(state.title, 'My Way');
+});
+
 test('airplay metadata parser keeps the session through a flush', () => {
 	const xml = item('73736e63', '70626567') + item('73736e63', '70666c73');
 	const state = parse(xml);
