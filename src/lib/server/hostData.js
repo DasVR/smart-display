@@ -12,6 +12,7 @@ import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import { cancelOtherAlignments, ensureAlignedLyrics, readCachedAlignment, trackFingerprint } from './forcedAlign.js';
+import { DEMO_TRACK, demoNowPlaying } from '../musicDemo.js';
 import {
 	ensureLyricsCached,
 	ensureTrackDurationCached,
@@ -335,6 +336,22 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 	} catch {
 		return { playing: false };
 	}
+}
+
+/** `?demo=music` preview: Radiohead / No Surprises, lyrics from the same
+ *  community lookup a live track uses. Clock/position stay with the client. */
+export function getDemoNowPlaying() {
+	const { artist, title, album, length } = DEMO_TRACK;
+	const peeked = peekLyrics(artist, title, album, length);
+	if (!peeked.known) ensureLyricsCached(artist, title, { album, duration: length });
+	const fp = trackFingerprint(artist, title, length);
+	const aligned = readCachedAlignment(fp);
+	let lyrics = peeked.lines;
+	if (aligned && hasRealWordTiming(aligned)) lyrics = aligned;
+	return demoNowPlaying(undefined, {
+		lyrics,
+		lyricsPending: !peeked.known
+	});
 }
 
 /** Parse `git status -sb` tracking, e.g. `## master...origin/master [behind 2]`. */

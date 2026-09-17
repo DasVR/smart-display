@@ -21,7 +21,7 @@
 	import { mergeRadarPrediction } from '$lib/rainModel.js';
 	import { islandWeatherSlip, splitNwsAlerts, tickerText } from '$lib/nwsAlerts.js';
 	import { shortDateline } from '$lib/dateline.js';
-	import { demoNowPlaying } from '$lib/musicDemo.js';
+	import { DEMO_START_SEC, demoNowPlaying } from '$lib/musicDemo.js';
 	import {
 		EMPTY_INSTALL_PROGRESS,
 		applyUpgradeEvent,
@@ -371,15 +371,42 @@
 				source: 'Cursor'
 			});
 		}
+		let demoLyricsPoll = 0;
 		if (musicDemo) {
 			if (preview.get('demo') === 'music') currentView.set('music');
 			const t = Number(preview.get('t'));
 			nowPlaying.set(
 				demoNowPlaying(undefined, {
-					position: Number.isFinite(t) ? t : 7,
-					freeze: preview.get('freeze') === '1'
+					position: Number.isFinite(t) ? t : DEMO_START_SEC,
+					freeze: preview.get('freeze') === '1',
+					lyricsPending: true
 				})
 			);
+			const pullDemoLyrics = async () => {
+				try {
+					const r = await fetch('/api/nowplaying?demo=music');
+					if (!r.ok) return false;
+					const data = await r.json();
+					nowPlaying.update((cur) => {
+						if (!cur) return cur;
+						return {
+							...cur,
+							lyrics: data.lyrics ?? cur.lyrics,
+							lyricsPending: Boolean(data.lyricsPending)
+						};
+					});
+					return !data.lyricsPending;
+				} catch {
+					return false;
+				}
+			};
+			pullDemoLyrics();
+			demoLyricsPoll = setInterval(async () => {
+				if (await pullDemoLyrics()) {
+					clearInterval(demoLyricsPoll);
+					demoLyricsPoll = 0;
+				}
+			}, 400);
 		}
 		let installDemo = 0;
 		if (islandPreview === 'install') {
@@ -406,6 +433,7 @@
 			clearInterval(clock);
 			clearInterval(music);
 			clearInterval(wx);
+			clearInterval(demoLyricsPoll);
 			clearInterval(installDemo);
 			clearTimeout(reconnectTimer);
 			stopSystemWatch();
