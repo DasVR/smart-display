@@ -53,7 +53,11 @@
 		if (!words?.length || activeWordIdx < 0) return false;
 		return isHeldWord(words, activeWordIdx, synced?.[activeLyricIndex]?.end);
 	});
-	let instrumentalDots = $derived(instrumentalDotStatesFromGap(rest, lyricClock));
+	let instrumentalDots = $derived.by(() => {
+		const states = instrumentalDotStatesFromGap(rest, lyricClock);
+		if (!rest) return states;
+		return states.map((v) => 0.28 + v * 0.72);
+	});
 	let restFocus = $derived(Boolean(rest) && !rest.blank);
 	let artPulse = $derived(track?.playing ? 1 + $bassLevel * 0.045 : 1);
 	let carouselCards = $derived.by(() => {
@@ -363,7 +367,7 @@
 					<div
 						class="lyrics-stack"
 						class:instant={reducedMotion || snapLyrics}
-						style="transform: translate3d(0, {lyricsOffset}px, 0)"
+						style="--stack-y: {lyricsOffset}px"
 					>
 						{#each synced as line, i (`${line.time}:${line.text}`)}
 							<p
@@ -697,7 +701,10 @@
 		gap: var(--space-5);
 		padding: 0 var(--space-4);
 		will-change: transform;
-		transition: transform 720ms var(--spring-smooth);
+		transform: translate3d(0, var(--stack-y, 0px), 0);
+		transition:
+			--stack-y 840ms var(--ease-out),
+			transform 840ms var(--ease-out);
 	}
 	.lyrics-stack.instant {
 		transition: none;
@@ -717,10 +724,10 @@
 		transition:
 			color 480ms var(--spring-smooth),
 			opacity 560ms var(--spring-smooth),
-			transform 720ms var(--spring-smooth),
+			transform 840ms var(--ease-out),
 			filter 520ms var(--spring-smooth),
-			padding-bottom 720ms var(--spring-smooth),
-			--delta 720ms var(--spring-smooth);
+			padding-bottom 840ms var(--ease-out),
+			--delta 840ms var(--ease-out);
 	}
 	.lyric-line.near {
 		opacity: 0.55;
@@ -772,7 +779,7 @@
 		.lyric-rest-focus {
 			transition:
 				opacity 560ms var(--spring-smooth),
-				transform 720ms var(--spring-smooth);
+				transform 840ms var(--ease-out);
 		}
 	}
 	.lyric-rest-focus.open {

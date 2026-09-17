@@ -13,6 +13,12 @@
 	initial-value: 0;
 }
 
+@property --stack-y {
+	syntax: '<length>';
+	inherits: false;
+	initial-value: 0px;
+}
+
 @property --o {
 	syntax: '<number>';
 	inherits: false;
