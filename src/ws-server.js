@@ -49,6 +49,8 @@ import {
 	daysEqual
 } from './lib/server/displaySchedule.js';
 import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
+import { probeAlignEngine } from './lib/server/forcedAlign.js';
+import { lyricsDbStats } from './lib/server/lyricsStore.js';
 
 const port = process.env.PORT || 3000;
 const SCHEDULE_PATH =
@@ -661,4 +663,17 @@ server.listen(port, '0.0.0.0', () => {
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
 	setTimeout(phoneLoop, 4000);
 	setTimeout(proximityLoop, 4000);
+	const lyricsDb = lyricsDbStats();
+	console.log(
+		lyricsDb.available
+			? `lyrics db ${lyricsDb.path}: ${lyricsDb.lyrics} tracks (${lyricsDb.wordLevel} word-level),` +
+					` ${lyricsDb.alignments} alignments (${lyricsDb.precise} precise)`
+			: 'lyrics db: unavailable, caching in memory only'
+	);
+	probeAlignEngine().then((info) => {
+		console.log(
+			`lyrics aligner: ${info.engine}${info.precise ? ' (frame-accurate)' : ' (energy stand-in)'}` +
+				` available ${info.available.join(',')}`
+		);
+	});
 });

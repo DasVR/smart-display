@@ -20,12 +20,23 @@ test('community_lyrics.py --self-test', () => {
 	assert.equal(parsed.ok, true);
 });
 
-test('align.py --probe always reports the stdlib energy engine', () => {
-	const result = runPython([ALIGN, '--probe']);
+test('align.py --self-test', () => {
+	const result = runPython([ALIGN, '--self-test']);
+	assert.equal(result.status, 0, result.stderr || result.stdout);
+	assert.equal(JSON.parse(result.stdout).ok, true);
+});
+
+test('align.py --probe always lists the stdlib energy engine and says whether the pick is precise', () => {
+	const result = runPython([ALIGN, '--probe'], { env: { ...process.env, FORCED_ALIGN_ENGINE: 'auto' } });
 	assert.equal(result.status, 0, result.stderr || result.stdout);
 	const parsed = JSON.parse(result.stdout);
-	assert.equal(parsed.engine, 'energy');
 	assert.ok(parsed.available.includes('energy'));
+	assert.equal(typeof parsed.precise, 'boolean');
+	assert.equal(parsed.precise, ['qwen', 'ctc', 'aeneas', 'mfa'].includes(parsed.engine));
+	const forced = runPython([ALIGN, '--probe'], { env: { ...process.env, FORCED_ALIGN_ENGINE: 'energy' } });
+	const forcedParsed = JSON.parse(forced.stdout);
+	assert.equal(forcedParsed.engine, 'energy');
+	assert.equal(forcedParsed.precise, false);
 });
 
 test('align.py energy engine writes word clocks from a silent-then-loud wav', () => {
@@ -58,7 +69,11 @@ with wave.open(path, 'w') as w:
 	assert.equal(result.status, 0, result.stderr || result.stdout);
 	const data = JSON.parse(readFileSync(outPath, 'utf8'));
 	assert.equal(data.engine, 'energy');
+	assert.equal(data.precise, false);
 	assert.ok(data.lines.length >= 2);
 	assert.ok(data.lines[0].words.length >= 2);
 	assert.ok(data.lines[0].words[0].time < data.lines[1].time);
+	// Words land where the tone starts (0.4s), not in the quiet intro.
+	assert.ok(data.lines[0].words[0].time >= 0.3, `first word at ${data.lines[0].words[0].time}`);
+	assert.ok(data.lines[0].words[0].end > data.lines[0].words[0].time, 'energy engine now emits word ends');
 });

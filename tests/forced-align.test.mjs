@@ -5,13 +5,35 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+process.env.LYRICS_DB_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'align-db-')), 'lyrics.db');
+
 import {
+	alignEngineInfo,
 	cancelOtherAlignments,
 	ensureAlignedLyrics,
 	isAlignmentInFlight,
+	probeAlignEngine,
 	readCachedAlignment,
+	readCachedAlignmentInfo,
+	resetAlignEngineProbe,
+	shouldAlign,
 	trackFingerprint
 } from '../src/lib/server/forcedAlign.js';
+import { getAlignmentRow } from '../src/lib/server/lyricsStore.js';
+
+const ENERGY = { engine: 'energy', precise: false, available: ['energy'] };
+const QWEN = { engine: 'qwen', precise: true, available: ['qwen', 'energy'] };
+
+function fakeProbeChild(stdout) {
+	const proc = new EventEmitter();
+	proc.stdout = new EventEmitter();
+	proc.kill = () => proc.emit('close', null);
+	queueMicrotask(() => {
+		if (stdout != null) proc.stdout.emit('data', Buffer.from(stdout));
+		proc.emit('close', 0);
+	});
+	return proc;
+}
 
 function fakeChild({ exitCode = 0, stderr = '' } = {}) {
 	const proc = new EventEmitter();
@@ -153,4 +175,181 @@ test('cancelOtherAlignments stops a recording that is not the current track', ()
 	const keep = trackFingerprint('New Artist', 'New Song', 200);
 	cancelOtherAlignments(keep);
 	assert.equal(killed[0], 'SIGTERM');
+});
+
+test('shouldAlign: a precise engine aligns every track until a precise result exists', () => {
+	assert.equal(shouldAlign({ cached: null, engine: QWEN, communityWordLevel: true }), true);
+	assert.equal(shouldAlign({ cached: null, engine: QWEN, communityWordLevel: false }), true);
+	assert.equal(
+		shouldAlign({ cached: { engine: 'energy', precise: false }, engine: QWEN, communityWordLevel: true }),
+		true,
+		'an energy guess gets upgraded once a real aligner is installed'
+	);
+	assert.equal(shouldAlign({ cached: { engine: 'qwen', precise: true }, engine: QWEN }), false);
+	assert.equal(shouldAlign({ cached: { engine: 'ctc', precise: true }, engine: ENERGY }), false);
+});
+
+test('shouldAlign: the energy stand-in only fills gaps and never redoes itself', () => {
+	assert.equal(shouldAlign({ cached: null, engine: ENERGY, communityWordLevel: false }), true);
+	assert.equal(shouldAlign({ cached: null, engine: ENERGY, communityWordLevel: true }), false);
+	assert.equal(shouldAlign({ cached: { engine: 'energy', precise: false }, engine: ENERGY }), false);
+	assert.equal(shouldAlign({ cached: null, engine: null, communityWordLevel: true }), false, 'unknown engine = energy');
+	assert.equal(shouldAlign({ cached: null, engine: null, communityWordLevel: false }), true);
+});
+
+test('probeAlignEngine parses align.py --probe and exposes it synchronously afterwards', async () => {
+	resetAlignEngineProbe();
+	delete process.env.FORCED_ALIGN_ENGINE;
+	assert.equal(alignEngineInfo(), null);
+	const args = [];
+	const info = await probeAlignEngine({
+		spawnFn: (bin, a) => {
+			args.push([bin, a]);
+			return fakeProbeChild(JSON.stringify({ engine: 'qwen', precise: true, available: ['qwen', 'ctc', 'energy'] }));
+		}
+	});
+	assert.equal(info.engine, 'qwen');
+	assert.equal(info.precise, true);
+	assert.deepEqual(info.available, ['qwen', 'ctc', 'energy']);
+	assert.ok(args[0][1][0].endsWith('align.py'));
+	assert.equal(args[0][1][1], '--probe');
+	assert.equal(alignEngineInfo().engine, 'qwen');
+	const again = await probeAlignEngine({ spawnFn: () => assert.fail('probe should only spawn once') });
+	assert.equal(again.engine, 'qwen');
+	resetAlignEngineProbe();
+});
+
+test('probeAlignEngine falls back to energy on garbage output and honors FORCED_ALIGN_ENGINE', async () => {
+	resetAlignEngineProbe();
+	const info = await probeAlignEngine({ spawnFn: () => fakeProbeChild('not json') });
+	assert.equal(info.engine, 'energy');
+	assert.equal(info.precise, false);
+	process.env.FORCED_ALIGN_ENGINE = 'ctc';
+	try {
+		assert.deepEqual(alignEngineInfo(), { engine: 'ctc', precise: true, available: ['ctc'] });
+	} finally {
+		delete process.env.FORCED_ALIGN_ENGINE;
+	}
+	resetAlignEngineProbe();
+});
+
+test('ensureAlignedLyrics skips a community word-level track when only energy is available', () => {
+	const calls = [];
+	const result = ensureAlignedLyrics({
+		artist: 'Karaoke Artist',
+		title: 'Karaoke Song',
+		duration: 200,
+		plainLyrics: 'la la la',
+		position: 0,
+		communityWordLevel: true,
+		engine: ENERGY,
+		spawnFn: (bin) => {
+			calls.push(bin);
+			return fakeChild();
+		},
+		findBinary: () => '/usr/bin/parec'
+	});
+	assert.equal(result, null);
+	assert.equal(calls.length, 0);
+});
+
+test('ensureAlignedLyrics with a precise engine records a community word-level track and stores a precise row', async () => {
+	resetAlignEngineProbe();
+	const calls = [];
+	const fp = ensureAlignedLyrics({
+		artist: 'Model Artist',
+		title: 'Model Song',
+		duration: 200,
+		plainLyrics: 'hello there\nmy friend',
+		position: 0,
+		communityWordLevel: true,
+		engine: QWEN,
+		spawnFn: (bin, args) => {
+			calls.push(bin);
+			if (bin === 'parec') {
+				const outPath = args[args.length - 1];
+				mkdirSync(path.dirname(outPath), { recursive: true });
+				writeFileSync(outPath, 'fake wav bytes');
+			}
+			if (bin === 'python3') {
+				const outPath = args[args.length - 1];
+				assert.ok(outPath.endsWith('aligned.json'), 'result lands in the job work dir, not a cache dir');
+				writeFileSync(
+					outPath,
+					JSON.stringify({
+						engine: 'qwen',
+						precise: true,
+						lines: [
+							{
+								time: 0.52,
+								text: 'hello there',
+								end: 1.4,
+								words: [
+									{ time: 0.52, text: 'hello', end: 0.91 },
+									{ time: 1.02, text: 'there', end: 1.4 }
+								]
+							},
+							{ time: 2.0, text: 'my friend', words: [{ time: 2.0, text: 'my', end: 2.2 }, { time: 2.25, text: 'friend', end: 2.7 }] }
+						]
+					})
+				);
+			}
+			return fakeChild();
+		},
+		findBinary: () => '/usr/bin/parec'
+	});
+	assert.ok(fp);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.deepEqual(calls, ['parec', 'python3']);
+	const info = readCachedAlignmentInfo(fp);
+	assert.equal(info.engine, 'qwen');
+	assert.equal(info.precise, true);
+	assert.equal(info.lines[0].words[1].end, 1.4);
+	const row = getAlignmentRow(fp);
+	assert.equal(row.precise, true, 'the alignment is persisted in the DB');
+	assert.equal(row.lines[1].words[1].text, 'friend');
+
+	// Precise result on file: nothing more to do, even with the engine present.
+	const again = ensureAlignedLyrics({
+		artist: 'Model Artist',
+		title: 'Model Song',
+		duration: 200,
+		plainLyrics: 'hello there\nmy friend',
+		position: 0,
+		engine: QWEN,
+		spawnFn: () => assert.fail('must not re-record a precisely aligned track')
+	});
+	assert.equal(again, fp);
+});
+
+test('a legacy energy file is upgraded when a precise engine appears', async () => {
+	const cacheDir = mkdtempSync(path.join(os.tmpdir(), 'align-cache-'));
+	process.env.FORCED_ALIGN_CACHE_DIR = cacheDir;
+	const fp = trackFingerprint('Upgrade Artist', 'Upgrade Song', 200);
+	writeFileSync(
+		path.join(cacheDir, `${fp}.json`),
+		JSON.stringify({ engine: 'energy', lines: [{ time: 0, text: 'hi there', words: [{ time: 0, text: 'hi' }, { time: 1, text: 'there' }] }] })
+	);
+	const before = readCachedAlignmentInfo(fp);
+	assert.equal(before.precise, false);
+	assert.equal(readCachedAlignment(fp)[0].text, 'hi there');
+
+	const calls = [];
+	const result = ensureAlignedLyrics({
+		artist: 'Upgrade Artist',
+		title: 'Upgrade Song',
+		duration: 200,
+		plainLyrics: 'hi there',
+		position: 0,
+		engine: QWEN,
+		spawnFn: (bin) => {
+			calls.push(bin);
+			return new EventEmitter();
+		},
+		findBinary: () => '/usr/bin/parec'
+	});
+	assert.equal(result, fp);
+	assert.equal(calls[0], 'parec', 'starts a fresh recording to replace the energy guess');
+	assert.equal(isAlignmentInFlight(fp), true);
+	cancelOtherAlignments('something-else');
 });

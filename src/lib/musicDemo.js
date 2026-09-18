@@ -33,7 +33,7 @@ export const DEMO_START_SEC = 25;
  *  hold that clock still so a specific lyric phase can be inspected. */
 export function demoNowPlaying(
 	now = Date.now(),
-	{ position = DEMO_START_SEC, freeze = false, lyrics = null, lyricsPending } = {}
+	{ position = DEMO_START_SEC, freeze = false, lyrics = null, lyricsPending, lyricsSource = null } = {}
 ) {
 	const pos = Number.isFinite(Number(position)) ? Number(position) : DEMO_START_SEC;
 	const pending = lyricsPending ?? !lyrics;
@@ -49,6 +49,7 @@ export function demoNowPlaying(
 		length: DEMO_TRACK.length,
 		source: 'airplay',
 		lyrics,
-		lyricsPending: pending
+		lyricsPending: pending,
+		lyricsSource
 	};
 }

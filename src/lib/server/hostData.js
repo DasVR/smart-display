@@ -11,15 +11,18 @@ import { fetchAmbientStations } from './ambientStations.js';
 import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
 import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
-import { cancelOtherAlignments, ensureAlignedLyrics, readCachedAlignment, trackFingerprint } from './forcedAlign.js';
+import {
+	cancelOtherAlignments,
+	ensureAlignedLyrics,
+	readCachedAlignmentInfo,
+	trackFingerprint
+} from './forcedAlign.js';
 import { DEMO_TRACK, demoNowPlaying } from '../musicDemo.js';
 import {
 	ensureLyricsCached,
 	ensureTrackDurationCached,
 	hasRealWordTiming,
-	lyricsToPlainText,
-	peekLyrics,
-	peekPlainLyrics,
+	peekLyricsInfo,
 	peekTrackDuration
 } from './lyrics.js';
 
@@ -305,52 +308,72 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 		}
 		let lyrics = null;
 		let lyricsPending = false;
+		let lyricsSource = null;
 		if (validTrack) {
-			const peeked = peekLyrics(merged.artist, merged.title, merged.album || '', duration);
-			lyrics = peeked.lines;
+			const peeked = peekLyricsInfo(merged.artist, merged.title, merged.album || '', duration);
 			const fp = trackFingerprint(merged.artist, merged.title, duration);
 			cancelOtherAlignments(fp);
-			const aligned = readCachedAlignment(fp);
-			if (aligned && hasRealWordTiming(aligned)) {
-				lyrics = aligned;
-			}
+			const aligned = readCachedAlignmentInfo(fp);
+			({ lyrics, source: lyricsSource } = pickDisplayLyrics({ community: peeked, aligned }));
 			if (!peeked.known) {
 				lyricsPending = true;
 				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
-			} else if (!hasRealWordTiming(lyrics)) {
-				const plainLyrics =
-					peekPlainLyrics(merged.artist, merged.title, merged.album || '', duration) ||
-					lyricsToPlainText(lyrics);
-				if (plainLyrics) {
-					ensureAlignedLyrics({
-						artist: merged.artist,
-						title: merged.title,
-						duration,
-						plainLyrics,
-						position: merged.position
-					});
-				}
+			} else if (peeked.plainText) {
+				// Every fetched track gets an on-device pass when a frame-accurate
+				// aligner is installed; with only the energy stand-in this is
+				// limited to tracks nobody published word clocks for. The
+				// decision itself lives in forcedAlign.shouldAlign().
+				ensureAlignedLyrics({
+					artist: merged.artist,
+					title: merged.title,
+					duration,
+					plainLyrics: peeked.plainText,
+					position: merged.position,
+					communityWordLevel: peeked.wordLevel
+				});
 			}
 		}
-		return { ...merged, length: merged.length || duration || 0, lyrics, lyricsPending };
+		return { ...merged, length: merged.length || duration || 0, lyrics, lyricsPending, lyricsSource };
 	} catch {
 		return { playing: false };
 	}
+}
+
+/** Chooses what the Music view paints from the two caches. A precise
+ *  on-device alignment (Qwen3 / MMS / MFA / aeneas) beats everything; a
+ *  community word-level file beats an energy-envelope guess; an energy
+ *  guess beats synthesized per-line timing; anything beats nothing. */
+export function pickDisplayLyrics({ community, aligned } = {}) {
+	const communityLines = community?.lines || null;
+	const communityWordLevel = Boolean(communityLines) && (Boolean(community?.wordLevel) || hasRealWordTiming(communityLines));
+	const alignedLines = aligned?.lines || null;
+	const alignedUsable = Boolean(alignedLines) && hasRealWordTiming(alignedLines);
+	if (alignedUsable && aligned.precise) {
+		return { lyrics: alignedLines, source: `align:${aligned.engine || 'precise'}` };
+	}
+	if (communityWordLevel) {
+		return { lyrics: communityLines, source: community?.source || 'community' };
+	}
+	if (alignedUsable) {
+		return { lyrics: alignedLines, source: `align:${aligned.engine || 'energy'}` };
+	}
+	if (communityLines) return { lyrics: communityLines, source: community?.source || null };
+	return { lyrics: null, source: null };
 }
 
 /** `?demo=music` preview: Radiohead / No Surprises, lyrics from the same
  *  community lookup a live track uses. Clock/position stay with the client. */
 export function getDemoNowPlaying() {
 	const { artist, title, album, length } = DEMO_TRACK;
-	const peeked = peekLyrics(artist, title, album, length);
+	const peeked = peekLyricsInfo(artist, title, album, length);
 	if (!peeked.known) ensureLyricsCached(artist, title, { album, duration: length });
 	const fp = trackFingerprint(artist, title, length);
-	const aligned = readCachedAlignment(fp);
-	let lyrics = peeked.lines;
-	if (aligned && hasRealWordTiming(aligned)) lyrics = aligned;
+	const aligned = readCachedAlignmentInfo(fp);
+	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned });
 	return demoNowPlaying(undefined, {
 		lyrics,
-		lyricsPending: !peeked.known
+		lyricsPending: !peeked.known,
+		lyricsSource: source
 	});
 }
 
