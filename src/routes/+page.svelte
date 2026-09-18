@@ -689,7 +689,7 @@
 			{#if showChromeTicker}
 				<SevereTicker text={tickerPulse} />
 			{/if}
-			{#if $currentView !== 'clock' && $currentView !== 'music'}
+			{#if $currentView !== 'clock' && $currentView !== 'music' && $currentView !== 'weather'}
 				<h1 class="view-title">{viewTitle}</h1>
 			{/if}
 		</header>
@@ -989,6 +989,10 @@
 		padding-top: var(--space-6);
 		padding-bottom: var(--space-6);
 	}
+	.display-root:has(.weather-pane) .center {
+		padding-top: var(--space-2);
+		padding-bottom: var(--space-2);
+	}
 	.view-pane {
 		position: relative;
 		overflow: hidden;
@@ -1086,17 +1090,16 @@
 		position: relative;
 		z-index: 1;
 		margin-left: auto;
-		width: min(36rem, 44%);
+		width: min(22rem, 32%);
 		height: 100%;
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
-		border-left: 1px solid var(--hairline);
 		background: linear-gradient(
 			90deg,
 			transparent,
-			color-mix(in srgb, var(--abyss) 28%, transparent) 22%,
-			color-mix(in srgb, var(--abyss) 58%, transparent) 62%
+			color-mix(in srgb, var(--abyss) 18%, transparent) 24%,
+			color-mix(in srgb, var(--abyss) 46%, transparent) 72%
 		);
 	}
 	.bottom {
