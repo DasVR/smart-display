@@ -43,10 +43,12 @@
 </script>
 
 <div class="weather-view">
-	<div class="hero">
+	{#if extremeCopy}
+		<SevereTicker text={extremeCopy} />
+	{/if}
+
+	<div class="readout">
 		<div class="big-temp">{displayTemp}°</div>
-	</div>
-	<div class="detail">
 		<div class="desc">{current.desc ?? '--'}</div>
 		<div class="feels">Feels {displayFeels}° · {displayHumidity}%</div>
 		<div class="pressure">{displayPressure} hPa</div>
@@ -57,12 +59,6 @@
 			<div class="mesh">{meshLine}</div>
 		{/if}
 	</div>
-
-	{#if extremeCopy}
-		<div class="ticker-slot">
-			<SevereTicker text={extremeCopy} />
-		</div>
-	{/if}
 
 	{#if alerts.length > 0}
 		<section class="alerts">
@@ -79,85 +75,77 @@
 
 <style>
 	.weather-view {
-		position: relative;
 		height: 100%;
 		width: 100%;
 		min-height: 0;
 		min-width: 0;
+		padding: var(--space-5) var(--space-6);
+		display: flex;
+		flex-direction: column;
+		justify-content: center;
+		gap: var(--space-4);
 		overflow: hidden;
 		box-sizing: border-box;
 	}
-	.hero {
-		position: absolute;
-		top: 50%;
-		left: var(--space-6);
-		transform: translateY(-50%);
-	}
-	.big-temp {
-		font-family: var(--font-display);
-		font-size: clamp(88px, 9vw, 148px);
-		font-weight: 700;
-		line-height: 0.85;
-		letter-spacing: -0.05em;
-		color: var(--foreground);
-	}
-	.detail {
-		position: absolute;
-		top: calc(50% + 4.35rem);
-		left: var(--space-6);
+	.readout {
 		display: flex;
 		flex-direction: column;
 		align-items: flex-start;
-		gap: 0.12em;
-		max-width: 18rem;
+		gap: 0.15em;
+		min-width: 0;
+		max-width: 100%;
+	}
+	.big-temp {
+		font-family: var(--font-display);
+		font-size: clamp(64px, 6.2vw, 112px);
+		font-weight: 700;
+		line-height: 0.9;
+		letter-spacing: -0.05em;
+		color: var(--foreground);
 	}
 	.desc {
 		font-family: var(--font-display);
-		font-size: var(--text-2xl);
+		font-size: var(--text-xl);
 		font-weight: 600;
 		color: var(--brand);
+		margin-top: var(--space-2);
 	}
 	.feels,
 	.pressure {
-		font-size: var(--text-lg);
+		font-size: var(--text-base);
 		color: var(--text-secondary);
+		overflow-wrap: anywhere;
+		min-width: 0;
 	}
 	.pressure {
 		color: var(--text-tertiary);
 	}
 	.rain-line {
 		font-family: var(--font-display);
-		font-size: var(--text-lg);
+		font-size: var(--text-base);
 		font-weight: 600;
 		color: var(--scan);
-		margin-top: var(--space-2);
+		margin-top: var(--space-1);
 	}
 	.mesh {
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		letter-spacing: 0.04em;
 		text-transform: uppercase;
-	}
-	.ticker-slot {
-		position: absolute;
-		top: var(--space-5);
-		left: var(--space-6);
-		right: var(--space-6);
+		margin-top: var(--space-1);
 	}
 	.alerts {
-		position: absolute;
-		left: var(--space-6);
-		right: var(--space-6);
-		bottom: var(--space-5);
-		max-height: 28%;
+		flex-shrink: 1;
+		min-height: 0;
+		max-height: 30%;
 		overflow: hidden;
 	}
 	.alert-card {
-		padding: var(--space-4);
+		padding: var(--space-3);
 		border-radius: var(--radius-bezel-inner);
 		background: color-mix(in srgb, var(--warn) 10%, transparent);
 		border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
-		margin-bottom: var(--space-3);
+		margin-bottom: var(--space-2);
 	}
 	.alert-card.extreme {
 		background: color-mix(in srgb, var(--warn) 18%, transparent);
@@ -165,7 +153,7 @@
 	}
 	.alert-title {
 		font-family: var(--font-display);
-		font-size: var(--text-xl);
+		font-size: var(--text-lg);
 		font-weight: 700;
 		color: var(--warn);
 	}
@@ -177,7 +165,7 @@
 		margin: var(--space-1) 0;
 	}
 	.alert-body {
-		font-size: var(--text-base);
+		font-size: var(--text-sm);
 		color: var(--text-secondary);
 		line-height: 1.4;
 	}
