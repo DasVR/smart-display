@@ -147,7 +147,7 @@ export async function getLyricMonitor({ demo = false } = {}) {
 		inFlight: isAlignmentInFlight(fp),
 		canonical: peeked.plainText
 			? {
-					source: peeked.plainSource || 'plain',
+					source: peeked.plainSource || 'lrclib-plain',
 					label: providerLabel(peeked.plainSource || 'lrclib-plain'),
 					lineCount: canonicalLines.length,
 					preview: canonicalLines.slice(0, 6)
