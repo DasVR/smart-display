@@ -162,7 +162,7 @@ export async function applyLyricAction({ action, source, demo = false } = {}) {
 
 	if (action === 'unpin') {
 		deleteLyricPick(key);
-		return getLyricMonitor();
+		return getLyricMonitor({ demo });
 	}
 
 	if (action === 'realign') {
@@ -178,7 +178,7 @@ export async function applyLyricAction({ action, source, demo = false } = {}) {
 				engine: alignEngineInfo()
 			});
 		}
-		return getLyricMonitor();
+		return getLyricMonitor({ demo });
 	}
 
 	if (!hit) return { ok: false, error: 'unknown source' };
@@ -194,7 +194,7 @@ export async function applyLyricAction({ action, source, demo = false } = {}) {
 			pinned: false,
 			updatedAt: Date.now()
 		});
-		return getLyricMonitor();
+		return getLyricMonitor({ demo });
 	}
 
 	if (action === 'pin') {
@@ -208,7 +208,7 @@ export async function applyLyricAction({ action, source, demo = false } = {}) {
 			pinned: true,
 			updatedAt: Date.now()
 		});
-		return getLyricMonitor();
+		return getLyricMonitor({ demo });
 	}
 
 	if (action === 'cache') {
@@ -231,7 +231,7 @@ export async function applyLyricAction({ action, source, demo = false } = {}) {
 			displaySource: current.displaySource || hit.id,
 			updatedAt: Date.now()
 		});
-		return getLyricMonitor();
+		return getLyricMonitor({ demo });
 	}
 
 	return { ok: false, error: 'unknown action' };

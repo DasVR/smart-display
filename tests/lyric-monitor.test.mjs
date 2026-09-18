@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { availableLyricProviders, getLyricMonitor, providerLabel } from '../src/lib/server/lyricMonitor.js';
+import { availableLyricProviders, applyLyricAction, getLyricMonitor, providerLabel } from '../src/lib/server/lyricMonitor.js';
 
 const communityLines = [
 	{
@@ -64,4 +64,15 @@ test('getLyricMonitor demo mode uses the No Surprises preview track', async () =
 	assert.equal(data.track.artist, 'Radiohead');
 	assert.ok(Array.isArray(data.providers));
 	assert.ok(data.engine?.engine);
+});
+
+test('applyLyricAction demo pin keeps the demo track in the reply', async () => {
+	const live = await getLyricMonitor({ demo: true });
+	const source = live.providers[0]?.id;
+	assert.ok(source, 'demo lyrics should already be cached');
+	const pinned = await applyLyricAction({ action: 'pin', source, demo: true });
+	assert.equal(pinned.track.title, 'No Surprises');
+	assert.equal(pinned.displaySource, source);
+	assert.equal(pinned.pick?.pinned, true);
+	await applyLyricAction({ action: 'unpin', demo: true });
 });
