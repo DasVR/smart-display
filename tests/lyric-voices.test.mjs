@@ -222,6 +222,14 @@ test('annotateLyricVoices tucks a later parenthetical line under the lead', () =
 	assert.equal(lines[1].text, 'Next verse starts');
 });
 
+test('parseLRC peels a trailing parenthetical into chorus under the lead', () => {
+	const lines = parseLRC('[00:10.00]Keep the line (now)\n[00:16.00]Next verse starts');
+	const keep = lines.find((line) => line.text === 'Keep the line');
+	assert.ok(keep);
+	assert.equal(keep.background[0].text, '(now)');
+	assert.equal(isLineSinging(keep, 10.4, 16), true);
+});
+
 test('annotateLyricVoices leaves a repeat mark on the lead line', () => {
 	const lines = annotateLyricVoices([
 		{ time: 10, text: 'Keep the line (x2)', words: [{ time: 10, text: 'Keep' }, { time: 10.4, text: 'the' }, { time: 10.8, text: 'line' }, { time: 11.2, text: '(x2)' }] }
