@@ -10,12 +10,31 @@
    - **syncedlyrics** with `enhanced=True` - Musixmatch word-level LRC, then line LRC
 2. **LRCLIB** (`lrclib.net`) - line-synced LRC and plain text, scored so a
    same-title hit for the wrong artist is rejected.
-3. **On-device alignment** - the kiosk records the play-through and aligns
-   the lyric words to the audio with the best aligner installed (see below).
-   The next poll of the same track picks up the cached karaoke timestamps.
+3. **On-device alignment** - the kiosk taps what the speakers are playing,
+   keeps that WAV, and aligns the cached lyric text to it with the best
+   aligner installed (see below). On boot it also walks every lyric already
+   in `data/lyrics.db` and re-runs the model on any track that has a saved
+   recording. The display keeps the tighter of the two clocks.
 
 Title matching is scored on every networked source. A "My Way" hit for the
 wrong artist never reaches the Music view.
+
+## How audio is captured
+
+There is no local music library. Alignment audio is a **live monitor tap**
+of whatever is coming out of the default sink:
+
+1. `parec -d @DEFAULT_MONITOR@ --file-format=wav` (PipeWire's PulseAudio
+   shim). That is the same stream AirPlay / Bluetooth is playing, not a mic.
+2. If `parec` is missing, `pw-record` writes the default source instead.
+3. Capture starts only in the first 6 seconds of a play-through (joining
+   mid-song would miss the intro). The WAV is copied to
+   `data/forced-align-audio/<fingerprint>.wav` and the path is stored in
+   the `recordings` table, then the temp file is deleted.
+4. Later plays, engine upgrades, and the boot sweep reuse that file. The
+   model never needs the song to play a second time.
+
+A cached lyric with no WAV waits until that track plays from the start.
 
 ## The lyrics database
 
@@ -28,6 +47,7 @@ back to the old memory-only cache and says so once at boot.
 |---|---|---|
 | `lyrics` | artist + title + album + rounded duration | parsed lines (JSON), plain text, provider (`kugou-krc`, `amll-ttml`, `lrclib-synced`, ...), `word_level` flag, fetched-at, ttl |
 | `alignments` | track fingerprint | on-device word clocks (JSON), `engine`, `precise` flag, created-at |
+| `recordings` | track fingerprint | path to a saved speaker WAV plus the offset the tap started at |
 
 Reads happen on every now-playing poll, so they stay synchronous: a small
 in-process map sits in front of the file and the file is WAL mode. Word-level
@@ -58,13 +78,14 @@ default `auto`), best first:
 | `mfa` | Demucs + Montreal Forced Aligner | yes | Opt-in only. Heavy. Not used by `auto`. |
 | `energy` | Python 3 only | no | RMS envelope vs lyric weights. Always on. A stand-in, not a measurement. |
 
-"Precise" engines get their clocks from an acoustic model, so their result
-**overrides community word timing** on screen and is cached as final. When a
-precise engine is installed every fetched track gets aligned (community
-clocks stay on screen until the model's result lands). With only `energy`,
-alignment runs just for tracks nobody published word clocks for, and never
-overrides a real karaoke file. An `energy` result is redone once a precise
-engine appears. The rules are `shouldAlign()` in `forcedAlign.js` and
+"Precise" engines get their clocks from an acoustic model. After a pass
+finishes, `alignmentQuality()` scores it against the community file
+(monotonic word starts, real end times, span vs track length). The display
+keeps whichever scores higher, so a collapsed model pass cannot clobber a
+good Kugou/AMLL file. When only `energy` is available the stand-in still
+only fills gaps. An `energy` result is redone once a precise engine
+appears, using the saved WAV if we have one. The rules are
+`shouldAlign()` / `sweepCachedLyrics()` in `forcedAlign.js` and
 `pickDisplayLyrics()` in `hostData.js`.
 
 Every word now carries `end` as well as `time`, so the karaoke fill can stop
@@ -116,4 +137,5 @@ Then start the server with `FORCED_ALIGN_ENGINE=mfa` and that env on `PATH`.
 - `FORCED_ALIGN_QWEN_MAX_SEC` - seconds per Qwen pass before chunking (default 240).
 - `FORCED_ALIGN_SEPARATE` - `auto` / `1` / `0`: run Demucs before `qwen` / `ctc`.
 - `FORCED_ALIGN_CACHE_DIR` - legacy JSON cache dir, imported into the DB (default `data/forced-align-cache/`).
+- `FORCED_ALIGN_AUDIO_DIR` - saved speaker WAVs (default `data/forced-align-audio/`).
 - `FORCED_ALIGN_OFFSET` - set by the Node wrapper when recording did not start at 0:00.

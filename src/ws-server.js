@@ -50,7 +50,7 @@ import {
 	daysEqual
 } from './lib/server/displaySchedule.js';
 import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
-import { probeAlignEngine } from './lib/server/forcedAlign.js';
+import { probeAlignEngine, sweepCachedLyrics } from './lib/server/forcedAlign.js';
 import { lyricsDbStats } from './lib/server/lyricsStore.js';
 
 const port = process.env.PORT || 3000;
@@ -676,5 +676,11 @@ server.listen(port, '0.0.0.0', () => {
 			`lyrics aligner: ${info.engine}${info.precise ? ' (frame-accurate)' : ' (energy stand-in)'}` +
 				` available ${info.available.join(',')}`
 		);
+		const sweep = sweepCachedLyrics({ engine: info });
+		if (sweep.cached) {
+			console.log(
+				`lyrics aligner: ${sweep.cached} cached tracks, ${sweep.haveAudio} with saved audio, queued ${sweep.queued}`
+			);
+		}
 	});
 });

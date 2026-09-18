@@ -56,6 +56,13 @@ const SCHEMA = `
 		lines TEXT NOT NULL,
 		created_at INTEGER NOT NULL
 	);
+	CREATE TABLE IF NOT EXISTS recordings (
+		fingerprint TEXT PRIMARY KEY,
+		path TEXT NOT NULL,
+		offset_sec REAL NOT NULL DEFAULT 0,
+		duration_sec REAL NOT NULL DEFAULT 0,
+		created_at INTEGER NOT NULL
+	);
 	CREATE TABLE IF NOT EXISTS meta (
 		key TEXT PRIMARY KEY,
 		value TEXT
@@ -247,6 +254,81 @@ export function getAlignmentRow(fingerprint) {
 	}
 }
 
+/** Every cached lyric that has plain text, for the on-device sweep.
+ *  Ignores ttl: a year-old karaoke file is still the transcript we want
+ *  to lock to a saved recording. */
+export function listLyricsForAlign() {
+	const handle = open();
+	if (!handle) return [];
+	try {
+		const rows = handle
+			.prepare(
+				`SELECT artist, title, album, duration, source, word_level, lines, plain
+				 FROM lyrics
+				 WHERE plain IS NOT NULL AND trim(plain) != ''`
+			)
+			.all();
+		return rows.map((row) => ({
+			artist: row.artist,
+			title: row.title,
+			album: row.album,
+			duration: Number(row.duration) || 0,
+			source: row.source || null,
+			wordLevel: Boolean(row.word_level),
+			lines: parseJson(row.lines),
+			plainText: row.plain
+		}));
+	} catch (error) {
+		console.error('lyrics db list failed:', error.message);
+		return [];
+	}
+}
+
+export function getRecordingRow(fingerprint) {
+	const handle = open();
+	if (!handle) return null;
+	try {
+		const row = handle
+			.prepare('SELECT path, offset_sec, duration_sec, created_at FROM recordings WHERE fingerprint = ?')
+			.get(fingerprint);
+		if (!row) return null;
+		return {
+			path: row.path,
+			offsetSec: Number(row.offset_sec) || 0,
+			durationSec: Number(row.duration_sec) || 0,
+			createdAt: Number(row.created_at) || 0
+		};
+	} catch (error) {
+		console.error('lyrics db read failed:', error.message);
+		return null;
+	}
+}
+
+export function putRecordingRow(fingerprint, entry) {
+	const handle = open();
+	if (!handle) return false;
+	if (!entry?.path) return false;
+	try {
+		handle
+			.prepare(
+				`INSERT OR REPLACE INTO recordings
+					(fingerprint, path, offset_sec, duration_sec, created_at)
+				 VALUES (?, ?, ?, ?, ?)`
+			)
+			.run(
+				fingerprint,
+				String(entry.path),
+				Number(entry.offsetSec) || 0,
+				Number(entry.durationSec) || 0,
+				Number(entry.createdAt) || Date.now()
+			);
+		return true;
+	} catch (error) {
+		console.error('lyrics db write failed:', error.message);
+		return false;
+	}
+}
+
 export function putAlignmentRow(fingerprint, entry) {
 	const handle = open();
 	if (!handle) return false;
@@ -278,20 +360,22 @@ export function putAlignmentRow(fingerprint, entry) {
 /** Row counts for the boot log and the dev wall. */
 export function lyricsDbStats() {
 	const handle = open();
-	if (!handle) return { available: false, path: lyricsDbPath(), lyrics: 0, wordLevel: 0, alignments: 0, precise: 0 };
+	if (!handle) return { available: false, path: lyricsDbPath(), lyrics: 0, wordLevel: 0, alignments: 0, precise: 0, recordings: 0 };
 	try {
 		const lyrics = handle.prepare('SELECT COUNT(*) AS n, SUM(word_level) AS w FROM lyrics').get();
 		const aligned = handle.prepare('SELECT COUNT(*) AS n, SUM(precise) AS p FROM alignments').get();
+		const recs = handle.prepare('SELECT COUNT(*) AS n FROM recordings').get();
 		return {
 			available: true,
 			path: dbPath,
 			lyrics: Number(lyrics?.n) || 0,
 			wordLevel: Number(lyrics?.w) || 0,
 			alignments: Number(aligned?.n) || 0,
-			precise: Number(aligned?.p) || 0
+			precise: Number(aligned?.p) || 0,
+			recordings: Number(recs?.n) || 0
 		};
 	} catch {
-		return { available: true, path: dbPath, lyrics: 0, wordLevel: 0, alignments: 0, precise: 0 };
+		return { available: true, path: dbPath, lyrics: 0, wordLevel: 0, alignments: 0, precise: 0, recordings: 0 };
 	}
 }
 

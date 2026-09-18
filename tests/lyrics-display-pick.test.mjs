@@ -60,10 +60,22 @@ test('synthesized timing is shown while nothing better exists, and nothing yield
 	assert.deepEqual(pickDisplayLyrics(), { lyrics: null, source: null });
 });
 
-test('an alignment without usable word clocks never replaces community lines', () => {
+test('a collapsed precise alignment loses to community word clocks', () => {
+	const collapsed = [
+		{
+			time: 1,
+			text: 'Hello there',
+			words: [
+				{ time: 1, text: 'Hello', end: 1 },
+				{ time: 1, text: 'there', end: 1 }
+			]
+		}
+	];
 	const picked = pickDisplayLyrics({
-		community: { known: true, lines: synthesized, source: 'lrclib-plain' },
-		aligned: { lines: [{ time: 0, text: 'Hello there' }], engine: 'qwen', precise: true }
+		community: { known: true, lines: wordLevel, wordLevel: true, source: 'amll-ttml' },
+		aligned: { lines: collapsed, engine: 'qwen', precise: true },
+		duration: 200
 	});
-	assert.equal(picked.lyrics, synthesized);
+	assert.equal(picked.lyrics, wordLevel);
+	assert.equal(picked.source, 'amll-ttml');
 });

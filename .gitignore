@@ -9,6 +9,7 @@ build/
 .station/
 data/display-schedule.json
 data/forced-align-cache/
+data/forced-align-audio/
 data/lyrics.db
 data/lyrics.db-*
 

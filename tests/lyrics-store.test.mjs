@@ -8,11 +8,14 @@ import {
 	closeLyricsDb,
 	getAlignmentRow,
 	getLyricsRow,
+	getRecordingRow,
+	listLyricsForAlign,
 	lyricsDbAvailable,
 	lyricsDbPath,
 	lyricsDbStats,
 	putAlignmentRow,
-	putLyricsRow
+	putLyricsRow,
+	putRecordingRow
 } from '../src/lib/server/lyricsStore.js';
 
 function freshDb() {
@@ -114,4 +117,33 @@ test('legacy forced-align-cache json files are imported once on open', () => {
 	} finally {
 		delete process.env.FORCED_ALIGN_CACHE_DIR;
 	}
+});
+
+test('recordings and lyrics-for-align lists round-trip', () => {
+	freshDb();
+	putLyricsRow('k1', {
+		artist: 'A',
+		title: 'Has Text',
+		duration: 200,
+		plainText: 'hello there',
+		lines: [{ time: 1, text: 'hello there' }],
+		fetchedAt: Date.now(),
+		ttl: 60_000
+	});
+	putLyricsRow('k2', {
+		artist: 'A',
+		title: 'Empty',
+		duration: 200,
+		plainText: '',
+		lines: [{ time: 1, text: 'x' }],
+		fetchedAt: Date.now(),
+		ttl: 60_000
+	});
+	assert.equal(listLyricsForAlign().length, 1);
+	assert.equal(listLyricsForAlign()[0].title, 'Has Text');
+	assert.equal(putRecordingRow('fp-rec', { path: '/tmp/x.wav', offsetSec: 1.5, durationSec: 200 }), true);
+	const rec = getRecordingRow('fp-rec');
+	assert.equal(rec.path, '/tmp/x.wav');
+	assert.equal(rec.offsetSec, 1.5);
+	assert.equal(lyricsDbStats().recordings, 1);
 });

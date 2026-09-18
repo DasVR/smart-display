@@ -1,18 +1,32 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { recordToWavFile } from './audioCapture.js';
 import { normalizeLyricText } from './lyrics.js';
-import { getAlignmentRow, putAlignmentRow } from './lyricsStore.js';
+import {
+	getAlignmentRow,
+	getRecordingRow,
+	listLyricsForAlign,
+	putAlignmentRow,
+	putRecordingRow
+} from './lyricsStore.js';
 
 const ALIGN_SCRIPT = fileURLToPath(new URL('../../../scripts/forced_align/align.py', import.meta.url));
 
 function legacyCacheDir() {
 	return process.env.FORCED_ALIGN_CACHE_DIR || path.join(process.cwd(), 'data', 'forced-align-cache');
+}
+
+function audioDir() {
+	return process.env.FORCED_ALIGN_AUDIO_DIR || path.join(process.cwd(), 'data', 'forced-align-audio');
+}
+
+function audioPath(fp) {
+	return path.join(audioDir(), `${fp}.wav`);
 }
 
 const START_WINDOW_SEC = 6;
@@ -230,30 +244,197 @@ function storeAlignmentResult(fp, outJsonPath, { artist, title, duration }) {
 	return true;
 }
 
+/** How usable a word-clock file is. Community karaoke and a model pass
+ *  are scored the same way so the display can keep whichever actually
+ *  locks to the song: monotonic word starts, few collapsed timestamps,
+ *  real end times, and a span that covers a sensible slice of the track. */
+export function alignmentQuality(lines, { duration = 0 } = {}) {
+	if (!Array.isArray(lines) || !lines.length) return 0;
+	const words = [];
+	for (const line of lines) {
+		for (const word of line?.words || []) {
+			if (!word || word.estimated) continue;
+			const time = Number(word.time);
+			if (!Number.isFinite(time)) continue;
+			const end = Number(word.end);
+			words.push({ time, end: Number.isFinite(end) ? end : null });
+		}
+	}
+	if (words.length < 2) return 0;
+	let increasing = 0;
+	let collapsed = 0;
+	let withEnd = 0;
+	for (let i = 0; i < words.length; i++) {
+		if (words[i].end != null && words[i].end > words[i].time) withEnd += 1;
+		if (i === 0) continue;
+		if (words[i].time > words[i - 1].time) increasing += 1;
+		else if (words[i].time === words[i - 1].time) collapsed += 1;
+	}
+	const pairs = words.length - 1;
+	const last = words[words.length - 1];
+	const span = (last.end ?? last.time) - words[0].time;
+	let score = 10;
+	score += (increasing / pairs) * 40;
+	score += (1 - collapsed / pairs) * 20;
+	score += (withEnd / words.length) * 15;
+	const dur = Number(duration) || 0;
+	if (dur >= 20 && span > 0) {
+		const cover = span / dur;
+		if (cover >= 0.3 && cover <= 1.1) score += 15;
+		else score += Math.max(0, 15 - Math.abs(cover - 0.65) * 25);
+	}
+	return score;
+}
+
+/** True when `candidate` is clearly a tighter lock than `baseline`. */
+export function isBetterAlignment(candidate, baseline, duration = 0) {
+	return alignmentQuality(candidate, { duration }) > alignmentQuality(baseline, { duration }) + 1;
+}
+
+function liveRecording(fp) {
+	const row = getRecordingRow(fp);
+	if (row && row.path && existsSync(row.path)) return row;
+	return null;
+}
+
+function persistRecording(fp, srcPath, { offsetSec = 0, duration = 0 } = {}) {
+	if (!srcPath || !existsSync(srcPath)) return null;
+	const existing = getRecordingRow(fp);
+	if (existing && existsSync(existing.path) && Number(existing.offsetSec) <= Number(offsetSec || 0)) {
+		return existing;
+	}
+	const dest = audioPath(fp);
+	try {
+		mkdirSync(audioDir(), { recursive: true });
+		if (path.resolve(srcPath) !== path.resolve(dest)) copyFileSync(srcPath, dest);
+	} catch (error) {
+		console.error('forced-align persist recording failed:', error.message);
+		return existing && existsSync(existing.path) ? existing : null;
+	}
+	if (!existsSync(dest)) return existing && existsSync(existing.path) ? existing : null;
+	const row = { path: dest, offsetSec: Number(offsetSec) || 0, durationSec: Number(duration) || 0, createdAt: Date.now() };
+	putRecordingRow(fp, row);
+	return row;
+}
+
+const alignQueue = [];
+let alignBusy = false;
+
+function enqueueAlign({
+	fp,
+	wavPath,
+	offsetSec = 0,
+	plainLyrics,
+	artist,
+	title,
+	duration,
+	spawnFn,
+	pythonBin
+}) {
+	if (!fp || !wavPath || !plainLyrics) return;
+	if (alignQueue.some((job) => job.fp === fp) || (alignBusy && alignBusy.fp === fp)) return;
+	inFlight.add(fp);
+	alignQueue.push({ fp, wavPath, offsetSec, plainLyrics, artist, title, duration, spawnFn, pythonBin });
+	pumpAlignQueue();
+}
+
+function pumpAlignQueue() {
+	if (alignBusy) return;
+	const job = alignQueue.shift();
+	if (!job) return;
+	alignBusy = job;
+	const workDir = path.join(os.tmpdir(), `smart-display-align-job-${job.fp}`);
+	const lyricsTextPath = path.join(workDir, 'lyrics.txt');
+	const outJsonPath = path.join(workDir, 'aligned.json');
+	Promise.resolve()
+		.then(() => {
+			mkdirSync(workDir, { recursive: true });
+			writeFileSync(lyricsTextPath, job.plainLyrics);
+			return runPythonAlign({
+				wavPath: job.wavPath,
+				lyricsTextPath,
+				outJsonPath,
+				spawnFn: job.spawnFn,
+				pythonBin: job.pythonBin,
+				offsetSec: job.offsetSec
+			});
+		})
+		.then((ok) => {
+			if (!ok) return false;
+			return storeAlignmentResult(job.fp, outJsonPath, {
+				artist: job.artist,
+				title: job.title,
+				duration: job.duration
+			});
+		})
+		.catch((error) => console.error('forced-align job failed:', error.message))
+		.finally(() => {
+			inFlight.delete(job.fp);
+			try {
+				rmSync(workDir, { recursive: true, force: true });
+			} catch {
+				/* best effort */
+			}
+			alignBusy = false;
+			pumpAlignQueue();
+		});
+}
+
 /** Decides whether a track should be (re)aligned given what is already
  *  cached and what the community lookup delivered. Pure, so the policy is
  *  unit-testable without spawning anything.
  *
- *  - A precise alignment on file is final.
- *  - A precise engine is installed: align every track. Community word
- *    clocks are kept on screen until the model's result lands, then the
- *    model wins (see hostData.pickDisplayLyrics).
+ *  - Same precise engine already on file: done.
+ *  - A better precise engine is installed: redo from the saved WAV.
+ *  - A precise engine is installed with no result yet: align.
  *  - Only `energy` is available: align only when nobody published real
  *    word clocks, and never redo an energy pass that already exists. */
 export function shouldAlign({ cached, engine, communityWordLevel = false } = {}) {
-	if (cached?.precise) return false;
-	const precise = Boolean(engine?.precise);
+	const name = String(engine?.engine || '').toLowerCase();
+	const precise = Boolean(engine?.precise) || isPreciseEngine(name);
+	const cachedEngine = String(cached?.engine || '').toLowerCase();
+	if (cached?.precise && (!precise || (name && name === cachedEngine))) return false;
 	if (precise) return true;
 	if (cached) return false;
 	return !communityWordLevel;
 }
 
-/** Records the rest of this play-through and force-aligns known plain lyric
- *  text against it on-device. Fire-and-forget: the current poll still
- *  returns whatever online sources had, and a later poll of the same track
- *  picks up the cached word clocks from the DB. Returns the fingerprint
- *  when a result exists or a job is running, null when nothing will
- *  happen for this track. */
+/** Walk every cached lyric that already has a speaker recording and queue
+ *  an alignment with the current engine. Tracks with no WAV wait until
+ *  they play: there is no local music library to pull from. */
+export function sweepCachedLyrics({ engine, spawnFn, pythonBin } = {}) {
+	const engineNow = engine === undefined ? alignEngineInfo() : engine;
+	const rows = listLyricsForAlign();
+	let queued = 0;
+	let haveAudio = 0;
+	for (const row of rows) {
+		const fp = trackFingerprint(row.artist, row.title, row.duration);
+		const rec = liveRecording(fp);
+		if (!rec) continue;
+		haveAudio += 1;
+		const cached = readCachedAlignmentInfo(fp);
+		if (!shouldAlign({ cached, engine: engineNow, communityWordLevel: row.wordLevel })) continue;
+		if (inFlight.has(fp)) continue;
+		enqueueAlign({
+			fp,
+			wavPath: rec.path,
+			offsetSec: rec.offsetSec,
+			plainLyrics: row.plainText,
+			artist: row.artist,
+			title: row.title,
+			duration: row.duration,
+			spawnFn,
+			pythonBin
+		});
+		queued += 1;
+	}
+	return { queued, haveAudio, cached: rows.length };
+}
+
+/** Records the rest of this play-through (or reuses a saved WAV) and
+ *  force-aligns known plain lyric text against it on-device. Fire-and-forget:
+ *  the current poll still returns whatever online sources had, and a later
+ *  poll of the same track picks up the cached word clocks from the DB. */
 export function ensureAlignedLyrics({
 	artist,
 	title,
@@ -273,16 +454,29 @@ export function ensureAlignedLyrics({
 	const engineNow = engine === undefined ? alignEngineInfo() : engine;
 	if (!shouldAlign({ cached, engine: engineNow, communityWordLevel })) return cached ? fp : null;
 	if (!plainLyrics || !dur || dur < MIN_DURATION_SEC || dur > MAX_DURATION_SEC) return cached ? fp : null;
+
+	const existing = liveRecording(fp);
+	if (existing) {
+		enqueueAlign({
+			fp,
+			wavPath: existing.path,
+			offsetSec: existing.offsetSec,
+			plainLyrics,
+			artist,
+			title,
+			duration: dur,
+			spawnFn,
+			pythonBin
+		});
+		return fp;
+	}
+
 	if (Number(position) > START_WINDOW_SEC) return cached ? fp : null;
 
 	inFlight.add(fp);
 	const workDir = path.join(os.tmpdir(), `smart-display-align-${fp}`);
 	const wavPath = path.join(workDir, 'track.wav');
-	const lyricsTextPath = path.join(workDir, 'lyrics.txt');
-	const outJsonPath = path.join(workDir, 'aligned.json');
-	const cleanup = () => {
-		inFlight.delete(fp);
-		recorders.delete(fp);
+	const cleanupWork = () => {
 		try {
 			rmSync(workDir, { recursive: true, force: true });
 		} catch {
@@ -292,10 +486,9 @@ export function ensureAlignedLyrics({
 
 	try {
 		mkdirSync(workDir, { recursive: true });
-		writeFileSync(lyricsTextPath, plainLyrics);
 	} catch (error) {
 		console.error('forced-align setup failed:', error.message);
-		cleanup();
+		inFlight.delete(fp);
 		return cached ? fp : null;
 	}
 
@@ -306,15 +499,34 @@ export function ensureAlignedLyrics({
 
 	recorder.done
 		.then((recorded) => {
-			if (!recorded || !existsSync(wavPath)) return false;
-			return runPythonAlign({ wavPath, lyricsTextPath, outJsonPath, spawnFn, pythonBin, offsetSec });
+			recorders.delete(fp);
+			if (!recorded || !existsSync(wavPath)) {
+				inFlight.delete(fp);
+				cleanupWork();
+				return;
+			}
+			const saved = persistRecording(fp, wavPath, { offsetSec, duration: dur });
+			cleanupWork();
+			inFlight.delete(fp);
+			if (!saved?.path || !existsSync(saved.path)) return;
+			enqueueAlign({
+				fp,
+				wavPath: saved.path,
+				offsetSec: saved.offsetSec ?? offsetSec,
+				plainLyrics,
+				artist,
+				title,
+				duration: dur,
+				spawnFn,
+				pythonBin
+			});
 		})
-		.then((ok) => {
-			if (!ok) return false;
-			return storeAlignmentResult(fp, outJsonPath, { artist, title, duration: dur });
-		})
-		.catch((error) => console.error('forced-align job failed:', error.message))
-		.finally(cleanup);
+		.catch((error) => {
+			console.error('forced-align job failed:', error.message);
+			recorders.delete(fp);
+			inFlight.delete(fp);
+			cleanupWork();
+		});
 
 	return fp;
 }

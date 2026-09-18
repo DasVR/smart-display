@@ -14,6 +14,7 @@ import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js
 import {
 	cancelOtherAlignments,
 	ensureAlignedLyrics,
+	isBetterAlignment,
 	readCachedAlignmentInfo,
 	trackFingerprint
 } from './forcedAlign.js';
@@ -315,7 +316,11 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			const fp = trackFingerprint(merged.artist, merged.title, duration);
 			cancelOtherAlignments(fp);
 			const aligned = readCachedAlignmentInfo(fp);
-			({ lyrics, source: lyricsSource } = pickDisplayLyrics({ community: peeked, aligned }));
+			({ lyrics, source: lyricsSource } = pickDisplayLyrics({
+				community: peeked,
+				aligned,
+				duration
+			}));
 			if (!peeked.known) {
 				lyricsPending = true;
 				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
@@ -341,16 +346,20 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 }
 
 /** Chooses what the Music view paints from the two caches. A precise
- *  on-device alignment (Qwen3 / MMS / MFA / aeneas) beats everything; a
- *  community word-level file beats an energy-envelope guess; an energy
- *  guess beats synthesized per-line timing; anything beats nothing. */
-export function pickDisplayLyrics({ community, aligned } = {}) {
+ *  on-device alignment only wins when it scores tighter than the community
+ *  file (monotonic word starts, real end times, span that covers the
+ *  track). Community word-level still beats an energy-envelope guess;
+ *  energy beats synthesized per-line timing; anything beats nothing. */
+export function pickDisplayLyrics({ community, aligned, duration = 0 } = {}) {
 	const communityLines = community?.lines || null;
 	const communityWordLevel = Boolean(communityLines) && (Boolean(community?.wordLevel) || hasRealWordTiming(communityLines));
 	const alignedLines = aligned?.lines || null;
 	const alignedUsable = Boolean(alignedLines) && hasRealWordTiming(alignedLines);
 	if (alignedUsable && aligned.precise) {
-		return { lyrics: alignedLines, source: `align:${aligned.engine || 'precise'}` };
+		if (!communityWordLevel || isBetterAlignment(alignedLines, communityLines, duration)) {
+			return { lyrics: alignedLines, source: `align:${aligned.engine || 'precise'}` };
+		}
+		return { lyrics: communityLines, source: community?.source || 'community' };
 	}
 	if (communityWordLevel) {
 		return { lyrics: communityLines, source: community?.source || 'community' };
@@ -370,7 +379,7 @@ export function getDemoNowPlaying() {
 	if (!peeked.known) ensureLyricsCached(artist, title, { album, duration: length });
 	const fp = trackFingerprint(artist, title, length);
 	const aligned = readCachedAlignmentInfo(fp);
-	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned });
+	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned, duration: length });
 	return demoNowPlaying(undefined, {
 		lyrics,
 		lyricsPending: !peeked.known,

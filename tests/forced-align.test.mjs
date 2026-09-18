@@ -6,20 +6,24 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.LYRICS_DB_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'align-db-')), 'lyrics.db');
+process.env.FORCED_ALIGN_AUDIO_DIR = mkdtempSync(path.join(os.tmpdir(), 'align-wav-'));
 
 import {
 	alignEngineInfo,
+	alignmentQuality,
 	cancelOtherAlignments,
 	ensureAlignedLyrics,
 	isAlignmentInFlight,
+	isBetterAlignment,
 	probeAlignEngine,
 	readCachedAlignment,
 	readCachedAlignmentInfo,
 	resetAlignEngineProbe,
 	shouldAlign,
+	sweepCachedLyrics,
 	trackFingerprint
 } from '../src/lib/server/forcedAlign.js';
-import { getAlignmentRow } from '../src/lib/server/lyricsStore.js';
+import { getAlignmentRow, putLyricsRow, putRecordingRow } from '../src/lib/server/lyricsStore.js';
 
 const ENERGY = { engine: 'energy', precise: false, available: ['energy'] };
 const QWEN = { engine: 'qwen', precise: true, available: ['qwen', 'energy'] };
@@ -104,7 +108,7 @@ test('ensureAlignedLyrics records, aligns, and caches when joined near the start
 
 	// Wait for the fire-and-forget job chain (record -> align -> cache write)
 	// to settle; both legs resolve on microtasks/fakeChild's queueMicrotask.
-	await new Promise((resolve) => setTimeout(resolve, 20));
+	await new Promise((resolve) => setTimeout(resolve, 50));
 
 	assert.equal(isAlignmentInFlight(fp), false);
 	assert.equal(calls[0][0], 'parec');
@@ -187,6 +191,11 @@ test('shouldAlign: a precise engine aligns every track until a precise result ex
 	);
 	assert.equal(shouldAlign({ cached: { engine: 'qwen', precise: true }, engine: QWEN }), false);
 	assert.equal(shouldAlign({ cached: { engine: 'ctc', precise: true }, engine: ENERGY }), false);
+	assert.equal(
+		shouldAlign({ cached: { engine: 'ctc', precise: true }, engine: QWEN }),
+		true,
+		'a better engine redoes an older precise result from the saved WAV'
+	);
 });
 
 test('shouldAlign: the energy stand-in only fills gaps and never redoes itself', () => {
@@ -299,7 +308,7 @@ test('ensureAlignedLyrics with a precise engine records a community word-level t
 		findBinary: () => '/usr/bin/parec'
 	});
 	assert.ok(fp);
-	await new Promise((resolve) => setTimeout(resolve, 20));
+	await new Promise((resolve) => setTimeout(resolve, 50));
 	assert.deepEqual(calls, ['parec', 'python3']);
 	const info = readCachedAlignmentInfo(fp);
 	assert.equal(info.engine, 'qwen');
@@ -352,4 +361,133 @@ test('a legacy energy file is upgraded when a precise engine appears', async () 
 	assert.equal(calls[0], 'parec', 'starts a fresh recording to replace the energy guess');
 	assert.equal(isAlignmentInFlight(fp), true);
 	cancelOtherAlignments('something-else');
+});
+
+test('alignmentQuality prefers monotonic clocks with real end times over a collapsed pass', () => {
+	const community = [
+		{
+			time: 1,
+			text: 'Hello there friend',
+			words: [
+				{ time: 1, text: 'Hello', end: 1.3 },
+				{ time: 1.4, text: 'there', end: 1.7 },
+				{ time: 1.8, text: 'friend', end: 2.2 }
+			]
+		}
+	];
+	const collapsed = [
+		{
+			time: 1,
+			text: 'Hello there friend',
+			words: [
+				{ time: 1, text: 'Hello', end: 1 },
+				{ time: 1, text: 'there', end: 1 },
+				{ time: 1, text: 'friend', end: 1 }
+			]
+		}
+	];
+	assert.ok(alignmentQuality(community, { duration: 200 }) > alignmentQuality(collapsed, { duration: 200 }));
+	assert.equal(isBetterAlignment(collapsed, community, 200), false);
+	assert.equal(isBetterAlignment(community, collapsed, 200), true);
+});
+
+test('a saved speaker recording is enough to align even if we joined the track late', async () => {
+	resetAlignEngineProbe();
+	const fp = trackFingerprint('Saved Wav Artist', 'Saved Wav Song', 200);
+	const wav = path.join(process.env.FORCED_ALIGN_AUDIO_DIR, `${fp}.wav`);
+	writeFileSync(wav, 'saved wav bytes');
+	putRecordingRow(fp, { path: wav, offsetSec: 0, durationSec: 200 });
+	const calls = [];
+	const result = ensureAlignedLyrics({
+		artist: 'Saved Wav Artist',
+		title: 'Saved Wav Song',
+		duration: 200,
+		plainLyrics: 'hello there',
+		position: 40,
+		engine: QWEN,
+		spawnFn: (bin, args) => {
+			calls.push(bin);
+			if (bin === 'python3') {
+				writeFileSync(
+					args[args.length - 1],
+					JSON.stringify({
+						engine: 'qwen',
+						precise: true,
+						lines: [
+							{
+								time: 0.5,
+								text: 'hello there',
+								words: [
+									{ time: 0.5, text: 'hello', end: 0.9 },
+									{ time: 1.0, text: 'there', end: 1.4 }
+								]
+							}
+						]
+					})
+				);
+			}
+			return fakeChild();
+		}
+	});
+	assert.equal(result, fp);
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.deepEqual(calls, ['python3']);
+	assert.equal(readCachedAlignmentInfo(fp).engine, 'qwen');
+});
+
+test('sweepCachedLyrics aligns every cached lyric that already has a recording and skips the rest', async () => {
+	resetAlignEngineProbe();
+	const withAudio = trackFingerprint('Sweep Artist', 'Has Audio', 200);
+	const wav = path.join(process.env.FORCED_ALIGN_AUDIO_DIR, `${withAudio}.wav`);
+	writeFileSync(wav, 'sweep wav');
+	putLyricsRow('sweep|has audio||200', {
+		artist: 'Sweep Artist',
+		title: 'Has Audio',
+		duration: 200,
+		plainText: 'hello there',
+		lines: [{ time: 1, text: 'hello there' }],
+		fetchedAt: Date.now(),
+		ttl: 60_000
+	});
+	putRecordingRow(withAudio, { path: wav, offsetSec: 0, durationSec: 200 });
+	putLyricsRow('sweep|no audio||200', {
+		artist: 'Sweep Artist',
+		title: 'No Audio',
+		duration: 200,
+		plainText: 'never recorded',
+		lines: [{ time: 1, text: 'never recorded' }],
+		fetchedAt: Date.now(),
+		ttl: 60_000
+	});
+	const calls = [];
+	const summary = sweepCachedLyrics({
+		engine: QWEN,
+		spawnFn: (bin, args) => {
+			calls.push(bin);
+			writeFileSync(
+				args[args.length - 1],
+				JSON.stringify({
+					engine: 'qwen',
+					precise: true,
+					lines: [
+						{
+							time: 0.4,
+							text: 'hello there',
+							words: [
+								{ time: 0.4, text: 'hello', end: 0.8 },
+								{ time: 0.9, text: 'there', end: 1.3 }
+							]
+						}
+					]
+				})
+			);
+			return fakeChild();
+		}
+	});
+	assert.ok(summary.haveAudio >= 1);
+	assert.ok(summary.queued >= 1);
+	await new Promise((resolve) => setTimeout(resolve, 50));
+	assert.ok(calls.includes('python3'));
+	assert.equal(readCachedAlignmentInfo(withAudio).engine, 'qwen');
+	assert.equal(readCachedAlignmentInfo(trackFingerprint('Sweep Artist', 'No Audio', 200)), null);
 });
