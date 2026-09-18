@@ -360,14 +360,55 @@ function collectBackgroundParts(html) {
 	return parts;
 }
 
+/** Apple / AMLL TTML uses a top-level `<br/>` inside a timed `<p>` to put
+ *  a second vocal row under the lead (often without `ttm:role="x-bg"`).
+ *  Nested `<br/>` inside a span is just a space, not a row split. */
+function splitTopLevelByBr(html) {
+	const src = String(html || '');
+	if (!src) return [''];
+	const spans = extractTopLevelSpans(src);
+	const insideSpan = (idx) => spans.some((s) => idx >= s.start && idx < s.end);
+	const rows = [];
+	let last = 0;
+	const brRe = /<br\s*\/?>/gi;
+	let m;
+	while ((m = brRe.exec(src)) !== null) {
+		if (insideSpan(m.index)) continue;
+		rows.push(src.slice(last, m.index));
+		last = m.index + m[0].length;
+	}
+	rows.push(src.slice(last));
+	return rows;
+}
+
+function rowToBackgroundParts(html, fallbackTime) {
+	const src = String(html || '');
+	const nestedBg = collectBackgroundParts(src);
+	const words = coalesceLyricWords(collectTimedWords(src));
+	if (!words.length) {
+		if (nestedBg.length) return nestedBg;
+		const text = stripMarkup(src);
+		if (!text) return [];
+		return [{ time: Number(fallbackTime) || 0, text }];
+	}
+	const lastEnd = Number(words[words.length - 1].end);
+	const part = {
+		time: words[0].time,
+		text: words.map((w) => w.text).join(' ')
+	};
+	if (Number.isFinite(lastEnd) && lastEnd > part.time) part.end = lastEnd;
+	part.words = words;
+	return [part, ...nestedBg];
+}
+
 /** Parses Apple Music-style TTML (word/syllable spans inside timed <p>
  *  lines, e.g. `<span begin="00:01.230" end="00:01.540">word</span>`) into
  *  the same `{time, text, words}` shape `parseLRC` produces, so the lyrics
  *  UI doesn't need to know which source a line came from. A <p> with no
  *  spans and no text (an empty timed line) is kept as an instrumental
  *  marker, matching LRC's bare-timestamp convention. Background vocals
- *  (`ttm:role="x-bg"`) stay attached to the lead line instead of merging
- *  into its karaoke sweep. */
+ *  (`ttm:role="x-bg"`) and top-level `<br/>` rows stay attached under the
+ *  lead line instead of merging into its karaoke sweep. */
 export function parseTTML(text) {
 	const lines = [];
 	TTML_P_TAG.lastIndex = 0;
@@ -378,9 +419,14 @@ export function parseTTML(text) {
 		if (begin == null) continue;
 		const lineEnd = parseTimecode(xmlAttr(pAttrs, 'end'));
 		const agent = ttmlAgent(pAttrs);
-		const words = coalesceLyricWords(collectTimedWords(inner));
-		const background = collectBackgroundParts(inner);
-		const lineText = words.length ? words.map((w) => w.text).join(' ') : stripMarkup(inner);
+		const rows = splitTopLevelByBr(inner);
+		const leadHtml = rows[0] ?? inner;
+		const words = coalesceLyricWords(collectTimedWords(leadHtml));
+		const background = [
+			...collectBackgroundParts(leadHtml),
+			...rows.slice(1).flatMap((row) => rowToBackgroundParts(row, begin))
+		];
+		const lineText = words.length ? words.map((w) => w.text).join(' ') : stripMarkup(leadHtml);
 		lines.push({
 			time: begin,
 			text: lineText,
