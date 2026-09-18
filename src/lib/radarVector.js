@@ -1,28 +1,43 @@
 /**
- * Turns the radar raster into smooth vector regions instead of a stretched
- * bitmap: `extractField` reduces a frame's composited tile pixels to a small
- * intensity grid (plus a representative color per intensity band, sampled
- * from the real pixels - not invented), `marchingSquares` traces contour
- * polygons through that grid at a threshold, and `chaikinSmooth` rounds the
- * result into the soft, metaball-like shape real precipitation cells read
- * as. `lerpFields`/`lerpColor` blend two frames' grids and colors so a
- * transition can re-trace contours through the blend at each tick - the
- * cells actually grow, shrink, split, and merge frame to frame, not just
- * cross-fade in place.
+ * Turns the radar raster into vector regions instead of a stretched bitmap.
+ * RainViewer tops out at z7, so a city zoom would otherwise blow each source
+ * pixel up to ~12 CSS px. `extractField` reduces a frame's native mosaic to
+ * a dense intensity grid (plus a representative color per band, sampled from
+ * the real pixels), `marchingSquares` traces those cells, and a light
+ * Chaikin pass (or none) keeps the original cell footprint instead of
+ * rounding it into a metaball. `lerpFields`/`lerpColor` blend two frames so
+ * a transition can re-trace contours - cells grow, shrink, split, and merge
+ * instead of cross-fading two rasters in place.
  */
 
-/** Intensity bands (0-1 alpha) contours are traced at, lightest to heaviest. */
-export const RADAR_THRESHOLDS = [0.12, 0.32, 0.55, 0.78];
+/** Intensity bands (0-1 alpha) contours are traced at, lightest to heaviest.
+ *  Dense enough that RainViewer's color steps stay distinct instead of
+ *  collapsing into four averaged blobs. */
+export const RADAR_THRESHOLDS = [
+	0.06, 0.14, 0.22, 0.3, 0.38, 0.46, 0.54, 0.62, 0.7, 0.78, 0.86, 0.94
+];
 
 /** Used only when a band has no sampled pixels in a given frame (so nothing
  *  using it will actually be visible) - a safe fallback color to avoid an
  *  undefined fillStyle, not a claim about real intensity. */
 export const RADAR_FALLBACK_COLORS = [
 	'rgb(76, 130, 190)',
+	'rgb(70, 150, 180)',
+	'rgb(64, 170, 150)',
 	'rgb(84, 170, 120)',
+	'rgb(140, 180, 80)',
 	'rgb(210, 190, 70)',
-	'rgb(200, 90, 70)'
+	'rgb(220, 150, 60)',
+	'rgb(210, 110, 55)',
+	'rgb(200, 90, 70)',
+	'rgb(190, 70, 90)',
+	'rgb(180, 50, 120)',
+	'rgb(160, 40, 140)'
 ];
+
+/** Light corner-cut so marching-squares facets do not read as a mesh, without
+ *  the two-iteration metaball shrink that used to invent blob shapes. */
+export const CONTOUR_CHAIKIN_ITERATIONS = 1;
 
 /** Linearly interpolates the crossing point of `threshold` along the edge
  *  from `pa` (value `va`) to `pb` (value `vb`). Must be called with the same
@@ -265,10 +280,14 @@ export function extractField(imageData, thresholds = RADAR_THRESHOLDS, fallbackC
 	return { alpha, cols: width, rows: height, colors };
 }
 
+/** Upper bound on field rows. High enough that a ~192-col square radar
+ *  (one sample per RainViewer source pixel at city zoom) is not clamped. */
+export const FIELD_MAX_ROWS = 256;
+
 /** Chooses a grid size close to `targetCols` whose aspect matches the given
  *  world-space bounds, so cells stay roughly square regardless of the
  *  viewport's own aspect ratio. */
-export function fieldGridSize(worldW, worldH, targetCols = 72, minRows = 24, maxRows = 140) {
+export function fieldGridSize(worldW, worldH, targetCols = 192, minRows = 24, maxRows = FIELD_MAX_ROWS) {
 	const aspect = worldW / worldH;
 	const cols = targetCols;
 	let rows = Math.round(cols / aspect);
