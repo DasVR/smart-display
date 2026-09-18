@@ -61,7 +61,7 @@ default `auto`), best first:
 
 | Engine | Needs | Precise | Notes |
 |---|---|---|---|
-| `whisperx` | `pip install whisperx` | yes | Whisper transcribes the singing, wav2vec2 stamps those words, then we map the clocks onto the canonical lyric sheet. Auto's first pick. |
+| `whisperx` | CPU venv via `install-host-venv.sh` | yes | Demucs vocals, Whisper large-v3 timeboxes, singing-tolerant wav2vec2 stamps the canonical sheet. Auto's first pick. Do not `pip install whisperx` with bare pip. |
 | `ctc` | `pip install torch torchaudio` | yes | Meta MMS_FA wav2vec2 CTC + Viterbi on the known sheet. 20 ms frames. Speech model, but it cannot collapse a verse onto one timestamp. Auto's second pick. |
 | `qwen` | `pip install qwen-asr` (pulls torch) | yes | [Qwen3-ForcedAligner-0.6B](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B): speech NAR. On singing it often stamps a whole verse at one clock. Auto tries it last among precise engines and skips a collapsed pass. |
 | `aeneas` | `pip install aeneas` plus espeak/ffmpeg | yes | DTW aligner; line-level fragments split by word weight. |
@@ -87,36 +87,65 @@ keep running.
 
 `align.py` auto order is **whisperx, then CTC, then Qwen**. Qwen is a speech
 model: on singing it often stamps a whole verse at one clock. CTC Viterbi
-on the canonical sheet, and WhisperX (Whisper + wav2vec2, then a match
-onto that sheet), are the singing-capable paths. `FORCED_ALIGN_ENGINE=qwen`
-still forces Qwen. Auto also skips a pass whose clocks collapsed and tries
-the next engine.
+on the canonical sheet, and WhisperX (Demucs vocals + Whisper timeboxes +
+wav2vec2, then a match onto that sheet), are the singing-capable paths.
+`FORCED_ALIGN_ENGINE=qwen` still forces Qwen. Auto also skips a pass whose
+clocks collapsed and tries the next engine.
 
 ### Installing the recommended aligner
 
-```sh
-pip install whisperx            # singing: Whisper + wav2vec2, maps onto the lyric sheet
-pip install qwen-asr            # Qwen3-ForcedAligner (speech; auto no longer prefers it)
-# or the lighter known-text option:
-pip install torch torchaudio    # MMS_FA CTC Viterbi
-python3 scripts/forced_align/align.py --probe
-```
-
-Optional canonical text (Genius editorial sheets). Without this, LRCLIB
-plain lyrics are used:
+Run this **on the das-server host** as user `das`, in a venv. Not in a
+container, not in the Cursor Cloud agent pod. The box is CPU / Ryzen iGPU:
+bare `pip install whisperx` drags CUDA torch (~2.5 GB) and WhisperX 3.x
+fights numpy 2.
 
 ```sh
-pip install lyricsgenius
-export GENIUS_ACCESS_TOKEN=...    # https://genius.com/api-clients
+scripts/forced_align/install-host-venv.sh
+# or by hand:
+python3 -m venv ~/venvs/lyrix && . ~/venvs/lyrix/bin/activate
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+pip install "numpy<2" whisperx demucs syncedlyrics
+sudo apt-get install -y ffmpeg
 ```
 
-On a CPU-only box the Qwen pass takes on the order of a minute for a
-four-minute track; it runs after the song finishes, in the background. Set
-`FORCED_ALIGN_DEVICE=cuda:0` when a GPU is present.
+Then point systemd at that interpreter (the script's `--apply-systemd`
+flag writes the drop-in):
 
-Optional: `pip install demucs` and the `whisperx` / `qwen` / `ctc` engines align against
-the separated vocal stem, which helps on dense mixes. Off automatically when
-Demucs is not installed; force with `FORCED_ALIGN_SEPARATE=1|0`.
+```
+LYRICS_PYTHON_BIN=/home/das/venvs/lyrix/bin/python
+FORCED_ALIGN_ENGINE=whisperx
+FORCED_ALIGN_DEVICE=cpu
+FORCED_ALIGN_WHISPER_MODEL=large-v3
+FORCED_ALIGN_ALIGN_MODEL=jonatasgrosman/wav2vec2-large-xlsr-53-english
+FORCED_ALIGN_SEPARATE=1
+```
+
+```sh
+/home/das/venvs/lyrix/bin/python scripts/forced_align/align.py --probe
+```
+
+First transcription downloads faster-whisper `large-v3`. Diarization stays
+off: no HuggingFace token. Demucs isolates vocals before WhisperX / CTC /
+Qwen. Force off with `FORCED_ALIGN_SEPARATE=0`.
+
+If you only want a timed lyric sheet and not on-device alignment,
+**syncedlyrics** (already the community lookup) is the short road. It pulls
+time-synced LRC from public sources with no token.
+
+Genius / `lyricsgenius` is optional and usually the wrong tool here. It
+needs a free client token from genius.com/api-clients, it is scrape-backed
+so it breaks without warning, and it returns unsynced lyrics littered with
+`[Chorus]` / `[Verse]` tags. Fine as an extra sheet. Useless as timing.
+
+```sh
+pip install qwen-asr            # speech NAR; auto no longer prefers it
+# lighter known-text option if WhisperX is too heavy:
+pip install torch torchaudio    # from the CPU index above; MMS_FA CTC Viterbi
+```
+
+On this CPU box a WhisperX pass runs after the song finishes, in the
+background. Only set `FORCED_ALIGN_DEVICE=cuda:0` on a machine that actually
+has NVIDIA CUDA.
 
 ### Optional MFA setup
 
@@ -138,10 +167,12 @@ Then start the server with `FORCED_ALIGN_ENGINE=mfa` and that env on `PATH`.
 - `FORCED_ALIGN_ENGINE` - `auto` / `whisperx` / `ctc` / `qwen` / `aeneas` / `mfa` / `energy`.
 - `FORCED_ALIGN_DEVICE` - `cuda:0` / `cpu` (default: CUDA when available).
 - `FORCED_ALIGN_LANGUAGE` - language name passed to Qwen / WhisperX (default `English`).
-- `FORCED_ALIGN_WHISPER_MODEL` - faster-whisper size for whisperx (default `base`).
+- `FORCED_ALIGN_WHISPER_MODEL` - faster-whisper size for whisperx (default `large-v3`).
+- `FORCED_ALIGN_ALIGN_MODEL` - wav2vec2 id for singing (default `jonatasgrosman/wav2vec2-large-xlsr-53-english`; empty uses WhisperX's language default).
 - `FORCED_ALIGN_QWEN_MODEL` - HF id or local dir (default `Qwen/Qwen3-ForcedAligner-0.6B`).
 - `FORCED_ALIGN_QWEN_MAX_SEC` - seconds per Qwen pass before chunking (default 240).
 - `FORCED_ALIGN_SEPARATE` - `auto` / `1` / `0`: run Demucs before `whisperx` / `qwen` / `ctc`.
-- `GENIUS_ACCESS_TOKEN` - optional. With `lyricsgenius`, canonical text comes from Genius.
+- `FORCED_ALIGN_DEMUCS` - optional path to the demucs CLI (defaults to the venv sibling of `LYRICS_PYTHON_BIN`).
+- `GENIUS_ACCESS_TOKEN` - optional. Unsynced Genius sheet only; timed lyrics come from syncedlyrics.
 - `FORCED_ALIGN_CACHE_DIR` - legacy JSON cache dir, imported into the DB (default `data/forced-align-cache/`).
 - `FORCED_ALIGN_OFFSET` - set by the Node wrapper when recording did not start at 0:00.

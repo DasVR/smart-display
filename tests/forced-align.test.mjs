@@ -219,6 +219,33 @@ test('probeAlignEngine parses align.py --probe and exposes it synchronously afte
 	resetAlignEngineProbe();
 });
 
+test('probeAlignEngine forwards whisperx host fields from align.py --probe', async () => {
+	resetAlignEngineProbe();
+	delete process.env.FORCED_ALIGN_ENGINE;
+	const info = await probeAlignEngine({
+		spawnFn: () =>
+			fakeProbeChild(
+				JSON.stringify({
+					engine: 'whisperx',
+					precise: true,
+					available: ['whisperx', 'energy'],
+					device: 'cpu',
+					separate: true,
+					whisper_model: 'large-v3',
+					align_model: 'jonatasgrosman/wav2vec2-large-xlsr-53-english',
+					python: '/home/das/venvs/lyrix/bin/python'
+				})
+			)
+	});
+	assert.equal(info.engine, 'whisperx');
+	assert.equal(info.device, 'cpu');
+	assert.equal(info.separate, true);
+	assert.equal(info.whisperModel, 'large-v3');
+	assert.equal(info.alignModel, 'jonatasgrosman/wav2vec2-large-xlsr-53-english');
+	assert.equal(info.python, '/home/das/venvs/lyrix/bin/python');
+	resetAlignEngineProbe();
+});
+
 test('probeAlignEngine falls back to energy on garbage output and honors FORCED_ALIGN_ENGINE', async () => {
 	resetAlignEngineProbe();
 	const info = await probeAlignEngine({ spawnFn: () => fakeProbeChild('not json') });

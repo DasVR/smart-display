@@ -7,8 +7,10 @@ published lyric sheet. Alignment should time one consistent sheet against
 the audio.
 
 Order (first scored hit wins):
-  1. Genius  - editorial lyric sheet. Needs GENIUS_ACCESS_TOKEN and the
-               lyricsgenius package. Official API search, page lyrics.
+  1. Genius  - optional unsynced editorial sheet. Needs GENIUS_ACCESS_TOKEN
+               and lyricsgenius. Scrape-backed; breaks without warning;
+               returns [Chorus]/[Verse] tags and no timestamps. Not used
+               for karaoke clocks. Timed sheets come from syncedlyrics.
   2. LRCLIB  - keyless equivalent. `plainLyrics` from lrclib.net, scored
                the same way the rest of this pipeline scores a title/artist
                match so a popular wrong "My Way" never lands.

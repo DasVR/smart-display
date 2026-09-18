@@ -5,10 +5,8 @@ text, emit a start (and end) clock for every word.
 Engines, best first. FORCED_ALIGN_ENGINE=auto picks the first one that is
 installed, never MFA unless asked (Demucs+MFA is too heavy for the kiosk):
 
-	whisperx - Whisper transcription + wav2vec2 phoneme alignment, then
-	           sequence-match onto the canonical lyric sheet. Built for
-	           singing; the sheet is the source of truth, Whisper only
-	           donates clocks.
+	whisperx - Demucs vocals, Whisper timeboxes, singing wav2vec2 stamps
+	           the canonical sheet. Whisper does not replace published text.
 	ctc      - torchaudio MMS_FA (wav2vec2 CTC) Viterbi on the known sheet,
 	           20 ms frames. Speech model, but it cannot collapse a verse
 	           onto one timestamp the way Qwen does.
@@ -29,13 +27,15 @@ Usage:
 
 Env:
 	FORCED_ALIGN_ENGINE      auto | whisperx | ctc | qwen | aeneas | mfa | energy
-	FORCED_ALIGN_WHISPER_MODEL  faster-whisper size for whisperx (default base)
+	FORCED_ALIGN_WHISPER_MODEL  faster-whisper size (default large-v3)
+	FORCED_ALIGN_ALIGN_MODEL    wav2vec2 id for singing; empty = WhisperX language default
 	FORCED_ALIGN_OFFSET      seconds to add when recording began mid-track
-	FORCED_ALIGN_LANGUAGE    qwen language name (default English)
+	FORCED_ALIGN_LANGUAGE    language name (default English)
 	FORCED_ALIGN_DEVICE      cuda | cuda:0 | cpu (default: cuda if available)
 	FORCED_ALIGN_QWEN_MODEL  HF id / local dir (default Qwen/Qwen3-ForcedAligner-0.6B)
 	FORCED_ALIGN_QWEN_MAX_SEC audio per qwen pass before chunking (default 240)
-	FORCED_ALIGN_SEPARATE    auto | 1 | 0: run Demucs before qwen/ctc when installed
+	FORCED_ALIGN_SEPARATE    auto | 1 | 0: run Demucs before whisperx/qwen/ctc
+	FORCED_ALIGN_DEMUCS      optional path to the demucs CLI (venv sibling by default)
 """
 import json
 import math
@@ -57,6 +57,9 @@ SILENCE_MARKS = {"sil", "sp", "spn", ""}
 WORD_RE = re.compile(r"[A-Za-z0-9']+")
 PRECISE_ENGINES = {"whisperx", "qwen", "ctc", "aeneas", "mfa"}
 AUTO_ENGINE_ORDER = ("whisperx", "ctc", "qwen", "aeneas")
+WHISPER_DEFAULT_MODEL = "large-v3"
+# XLSR English CTC: more tolerant of sung vowels than WhisperX's LibriSpeech default.
+SINGING_ALIGN_MODEL = "jonatasgrosman/wav2vec2-large-xlsr-53-english"
 QWEN_DEFAULT_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B"
 QWEN_DEFAULT_MAX_SEC = 240.0
 QWEN_ASSIGN_SLACK_SEC = 12.0
@@ -72,9 +75,22 @@ def log(msg):
 	print(msg, file=sys.stderr, flush=True)
 
 
+def demucs_bin():
+	wanted = (os.environ.get("FORCED_ALIGN_DEMUCS") or "").strip()
+	if wanted:
+		return wanted if os.path.exists(wanted) else None
+	sibling = os.path.join(os.path.dirname(sys.executable or ""), "demucs")
+	if sibling and os.path.isfile(sibling) and os.access(sibling, os.X_OK):
+		return sibling
+	return shutil.which("demucs")
+
+
 def isolate_vocals(wav_path, work_dir):
+	cli = demucs_bin()
+	if not cli:
+		raise FileNotFoundError("demucs is not installed")
 	out_dir = os.path.join(work_dir, "demucs")
-	run(["demucs", "--two-stems=vocals", "-n", "htdemucs", "-o", out_dir, wav_path])
+	run([cli, "--two-stems=vocals", "-n", "htdemucs", "-o", out_dir, wav_path])
 	stem = os.path.splitext(os.path.basename(wav_path))[0]
 	vocals = os.path.join(out_dir, "htdemucs", stem, "vocals.wav")
 	if not os.path.exists(vocals):
@@ -356,7 +372,7 @@ def has_aeneas():
 
 
 def has_mfa():
-	return bool(shutil.which("mfa") and shutil.which("demucs"))
+	return bool(shutil.which("mfa") and demucs_bin())
 
 
 def available_engines():
@@ -398,13 +414,24 @@ def pick_device():
 		return "cpu"
 
 
+def whisper_model_name():
+	return (os.environ.get("FORCED_ALIGN_WHISPER_MODEL") or WHISPER_DEFAULT_MODEL).strip() or WHISPER_DEFAULT_MODEL
+
+
+def align_model_name():
+	raw = os.environ.get("FORCED_ALIGN_ALIGN_MODEL")
+	if raw is None:
+		return SINGING_ALIGN_MODEL
+	return raw.strip()
+
+
 def want_separation(engine):
 	mode = (os.environ.get("FORCED_ALIGN_SEPARATE") or "auto").strip().lower()
 	if mode in {"0", "no", "off", "false"}:
 		return False
 	if mode in {"1", "yes", "on", "true"}:
-		return bool(shutil.which("demucs"))
-	return engine in {"whisperx", "qwen", "ctc"} and bool(shutil.which("demucs"))
+		return bool(demucs_bin())
+	return engine in {"whisperx", "qwen", "ctc"} and bool(demucs_bin())
 
 
 # ------------------------------------------------------------------ qwen
@@ -601,10 +628,49 @@ def line_overflowed(words, piece_sec, margin=0.3):
 	return flat * 2 >= len(words)
 
 
+def overlay_canonical_on_segments(segments, lyric_lines, duration=0.0):
+	"""Keep Whisper's timeboxes, replace ASR text with the published sheet.
+	Sung vocals make Whisper invent words; wav2vec2 then stamps the wrong
+	transcript. The sheet is the source of truth."""
+	usable = usable_lines(lyric_lines)
+	if not usable:
+		return [dict(seg) for seg in (segments or [])]
+	joined = " ".join(usable)
+	segs = [dict(seg) for seg in (segments or []) if seg]
+	if not segs:
+		return [{"start": 0.0, "end": max(0.5, float(duration or 0.0)), "text": joined}]
+	n_lines = len(usable)
+	n_segs = len(segs)
+	idx = 0
+	out = []
+	for i, seg in enumerate(segs):
+		remaining_segs = n_segs - i
+		remaining_lines = n_lines - idx
+		if remaining_segs <= 1:
+			take = remaining_lines
+		elif remaining_lines >= remaining_segs:
+			take = max(1, remaining_lines // remaining_segs)
+		else:
+			take = remaining_lines
+		chunk = usable[idx : idx + take]
+		idx += take
+		copy = dict(seg)
+		if chunk:
+			copy["text"] = " ".join(chunk)
+		out.append(copy)
+	return out
+
+
+def wav_duration_sec(wav_path):
+	with wave.open(wav_path, "rb") as wav:
+		rate = wav.getframerate() or 1
+		return wav.getnframes() / float(rate)
+
+
 def whisperx_align(wav_path, lyric_lines):
-	"""Whisper transcribes the singing; wav2vec2 stamps those words; then
-	we map the clocks onto the canonical lyric sheet so ASR typos never
-	replace the published text."""
+	"""Demucs (caller) isolates vocals. Whisper only finds timeboxes.
+	A singing-tolerant wav2vec2 stamps the canonical sheet. Diarization
+	stays off: no HuggingFace token, no pyannote."""
 	import whisperx
 
 	usable = usable_lines(lyric_lines)
@@ -616,16 +682,26 @@ def whisperx_align(wav_path, lyric_lines):
 	device = pick_device()
 	dev = "cuda" if str(device).startswith("cuda") else "cpu"
 	compute = "float16" if dev == "cuda" else "int8"
-	model_name = os.environ.get("FORCED_ALIGN_WHISPER_MODEL") or "base"
+	model_name = whisper_model_name()
 	language = (os.environ.get("FORCED_ALIGN_LANGUAGE") or "English").strip()
 	lang = "en" if language.lower() in {"english", "en"} else language.lower()[:2]
+	log(f"whisperx asr={model_name} align={align_model_name() or 'language-default'} device={dev} diarize=off")
 	model = whisperx.load_model(model_name, dev, compute_type=compute, language=lang)
 	audio = whisperx.load_audio(wav_path)
 	result = model.transcribe(audio, batch_size=8 if dev == "cuda" else 4, language=lang)
+	segments = overlay_canonical_on_segments(
+		result.get("segments") or [],
+		lyric_lines,
+		duration=wav_duration_sec(wav_path),
+	)
 	try:
-		align_model, metadata = whisperx.load_align_model(language_code=lang, device=dev)
+		align_id = align_model_name()
+		kwargs = {"language_code": lang, "device": dev}
+		if align_id:
+			kwargs["model_name"] = align_id
+		align_model, metadata = whisperx.load_align_model(**kwargs)
 		result = whisperx.align(
-			result.get("segments") or [],
+			segments,
 			align_model,
 			metadata,
 			audio,
@@ -634,6 +710,7 @@ def whisperx_align(wav_path, lyric_lines):
 		)
 	except Exception as exc:
 		log(f"whisperx phoneme align skipped: {exc}")
+		result = {"segments": segments}
 	asr_words = []
 	for seg in result.get("segments") or []:
 		words = seg.get("words") or []
@@ -1045,7 +1122,16 @@ def self_test():
 	assert apply_offset([(1.0, "a", 1.5)], 2.0) == [(3.0, "a", 3.5)]
 	assert "energy" in available_engines()
 	assert "energy" not in PRECISE_ENGINES and "qwen" in PRECISE_ENGINES
-	print(json.dumps({"ok": True, "tests": 13}))
+	assert whisper_model_name() == WHISPER_DEFAULT_MODEL
+	assert align_model_name() == SINGING_ALIGN_MODEL
+	packed = overlay_canonical_on_segments(
+		[{"start": 0.0, "end": 4.0, "text": "i walk a"}, {"start": 4.0, "end": 8.0, "text": "wrong asr"}],
+		["I walk a lonely road", "the only one that I have ever known"],
+	)
+	assert packed[0]["text"].startswith("I walk")
+	assert "ever known" in packed[1]["text"]
+	assert overlay_canonical_on_segments([], ["one line"], duration=12)[0]["text"] == "one line"
+	print(json.dumps({"ok": True, "tests": 15}))
 	return 0
 
 
@@ -1062,6 +1148,9 @@ def main():
 					"available": available_engines(),
 					"device": pick_device() if engine in {"whisperx", "qwen", "ctc"} else None,
 					"separate": want_separation(engine),
+					"whisper_model": whisper_model_name() if engine == "whisperx" else None,
+					"align_model": align_model_name() if engine == "whisperx" else None,
+					"python": sys.executable,
 				}
 			)
 		)

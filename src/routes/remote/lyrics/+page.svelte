@@ -24,8 +24,14 @@
 
 	function engineHint(engine) {
 		if (!engine?.engine) return 'no aligner';
+		const bits = [engine.engine];
+		if (engine.device) bits.push(engine.device);
+		if (engine.whisperModel) bits.push(engine.whisperModel);
+		if (engine.alignModel) bits.push(String(engine.alignModel).split('/').pop());
+		if (engine.separate) bits.push('vocals');
+		if (engine.precise) bits.push('frame-accurate');
 		const list = Array.isArray(engine.available) ? engine.available.join(', ') : engine.engine;
-		return engine.precise ? `${engine.engine} · frame-accurate · ${list}` : `${engine.engine} · ${list}`;
+		return `${bits.join(' · ')} · ${list}`;
 	}
 
 	async function refresh(signal) {
