@@ -389,19 +389,25 @@
 	/** Traces and fills every intensity band of one field as vector regions -
 	 *  scales cleanly with the view transform at city zoom instead of
 	 *  stretching a z7 bitmap. */
+	function bandAlpha(field, i, mul = 1) {
+		const base = field.opacities?.[i] ?? 0.75;
+		return base * mul;
+	}
+
 	function drawField(field, cellW, cellH, originX, originY, alphaMul) {
 		if (!field) return;
 		const extent = fieldExtent(field.alpha);
 		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
 			const threshold = RADAR_THRESHOLDS[i];
+			const fillA = bandAlpha(field, i, alphaMul);
 			if (extent.max < threshold) continue;
 			if (extent.min >= threshold) {
-				fillWholeField(field, cellW, cellH, originX, originY, field.colors[i], alphaMul);
+				fillWholeField(field, cellW, cellH, originX, originY, field.colors[i], fillA);
 				continue;
 			}
 			const polys = marchingSquares(field.alpha, field.cols, field.rows, threshold);
 			for (const poly of polys) {
-				fillContour(poly, cellW, cellH, originX, originY, field.colors[i], alphaMul);
+				fillContour(poly, cellW, cellH, originX, originY, field.colors[i], fillA);
 			}
 		}
 	}
@@ -417,14 +423,17 @@
 		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
 			const threshold = RADAR_THRESHOLDS[i];
 			const color = lerpColor(fieldA.colors[i], fieldB.colors[i], t);
+			const a0 = fieldA.opacities?.[i] ?? 0.75;
+			const a1 = fieldB.opacities?.[i] ?? 0.75;
+			const fillA = a0 + (a1 - a0) * t;
 			if (extent.max < threshold) continue;
 			if (extent.min >= threshold) {
-				fillWholeField(fieldA, cellW, cellH, originX, originY, color, 1);
+				fillWholeField(fieldA, cellW, cellH, originX, originY, color, fillA);
 				continue;
 			}
 			const polys = marchingSquares(blended, fieldA.cols, fieldA.rows, threshold);
 			for (const poly of polys) {
-				fillContour(poly, cellW, cellH, originX, originY, color, 1);
+				fillContour(poly, cellW, cellH, originX, originY, color, fillA);
 			}
 		}
 	}
