@@ -2,10 +2,37 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { coalesceLyricWords, lineWithCoalescedWords } from '../lyricWords.js';
 import { annotateLyricVoices } from '../lyricVoices.js';
+import { getLyricsRow, putLyricsRow } from './lyricsStore.js';
 
-const LYRICS_HIT_TTL = 6 * 60 * 60 * 1000;
+// Hits persist in data/lyrics.db (see lyricsStore.js). A karaoke-grade hit
+// does not change, so it is kept for a year; a line-only hit is retried
+// after a month in case a community source has since published word
+// clocks. Misses stay memory-only and short so a flaky network never
+// pins "no lyrics" to a track across restarts.
+const LYRICS_WORD_LEVEL_TTL = 365 * 24 * 60 * 60 * 1000;
+const LYRICS_HIT_TTL = 30 * 24 * 60 * 60 * 1000;
 const LYRICS_MISS_TTL = 90 * 1000;
+
+// Process-local L1 in front of the SQLite store: peekLyrics() is called on
+// every now-playing poll, so the common case stays a Map lookup.
 const lyricsCache = new Map();
+
+function readLyricsEntry(key) {
+	const hot = lyricsCache.get(key);
+	if (hot) {
+		if (Date.now() - hot.fetchedAt < hot.ttl) return hot;
+		lyricsCache.delete(key);
+	}
+	const stored = getLyricsRow(key);
+	if (!stored) return null;
+	lyricsCache.set(key, stored);
+	return stored;
+}
+
+function writeLyricsEntry(key, entry) {
+	lyricsCache.set(key, entry);
+	if (entry.lines) putLyricsRow(key, entry);
+}
 
 const SYNCEDLYRICS_SCRIPT = fileURLToPath(
 	new URL('../../../scripts/forced_align/syncedlyrics_lookup.py', import.meta.url)
@@ -751,7 +778,7 @@ export function ensureTrackDurationCached(artist, title, opts = {}) {
 		.finally(() => durationInFlight.delete(key));
 }
 
-function lyricsCacheKey(artist, title, album, rounded) {
+export function lyricsCacheKey(artist, title, album, rounded) {
 	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}|${rounded}`;
 }
 
@@ -825,13 +852,14 @@ export function fetchSyncedLyricsFallback(artist, title, opts = {}) {
 export async function fetchLyrics(artist, title, { album = '', duration = 0, load, spawnFn, pythonBin } = {}) {
 	const rounded = Math.round(Number(duration) || 0);
 	const key = lyricsCacheKey(artist, title, album, rounded);
-	const cached = lyricsCache.get(key);
-	if (cached && Date.now() - cached.fetchedAt < cached.ttl) return cached.lines;
+	const cached = readLyricsEntry(key);
+	if (cached) return cached.lines;
 	const getJson = load || defaultLoad;
 	try {
 		const community = await fetchCommunityLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin });
 		let lines = community?.lines || null;
 		let plainText = community?.plain || null;
+		let source = community?.source || (lines ? 'community' : null);
 		if (!lines) {
 			const params = new URLSearchParams({ artist_name: artist, track_name: title });
 			if (album) params.set('album_name', album);
@@ -851,18 +879,27 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 			}
 			lines = lyricsFromHit(hit, query);
 			plainText = hit?.plainLyrics || lyricsToPlainText(lines);
+			if (lines) source = hit?.syncedLyrics ? 'lrclib-synced' : 'lrclib-plain';
 		}
 		if (lines) lines = dropNonLyricLines(lines, { artist, title });
-		lyricsCache.set(key, {
+		if (lines && !lines.length) lines = null;
+		const wordLevel = Boolean(lines) && hasRealWordTiming(lines);
+		writeLyricsEntry(key, {
+			artist,
+			title,
+			album,
+			duration: rounded,
+			source: lines ? source : null,
+			wordLevel,
 			lines,
 			plainText,
 			fetchedAt: Date.now(),
-			ttl: lines ? LYRICS_HIT_TTL : LYRICS_MISS_TTL
+			ttl: !lines ? LYRICS_MISS_TTL : wordLevel ? LYRICS_WORD_LEVEL_TTL : LYRICS_HIT_TTL
 		});
 		return lines;
 	} catch (error) {
 		console.error('lyrics fetch error:', error.message);
-		lyricsCache.set(key, { lines: null, plainText: null, fetchedAt: Date.now(), ttl: LYRICS_MISS_TTL });
+		writeLyricsEntry(key, { lines: null, plainText: null, fetchedAt: Date.now(), ttl: LYRICS_MISS_TTL });
 		return null;
 	}
 }
@@ -877,9 +914,24 @@ const lyricsInFlight = new Set();
  *  trip on every cold track. */
 export function peekLyrics(artist, title, album = '', duration = 0) {
 	const rounded = Math.round(Number(duration) || 0);
-	const cached = lyricsCache.get(lyricsCacheKey(artist, title, album, rounded));
-	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) return { known: false, lines: null };
+	const cached = readLyricsEntry(lyricsCacheKey(artist, title, album, rounded));
+	if (!cached) return { known: false, lines: null };
 	return { known: true, lines: cached.lines };
+}
+
+/** Like peekLyrics() but with the provenance the store keeps alongside the
+ *  lines: `source` (community provider id / lrclib) and `wordLevel`. */
+export function peekLyricsInfo(artist, title, album = '', duration = 0) {
+	const rounded = Math.round(Number(duration) || 0);
+	const cached = readLyricsEntry(lyricsCacheKey(artist, title, album, rounded));
+	if (!cached) return { known: false, lines: null, plainText: null, source: null, wordLevel: false };
+	return {
+		known: true,
+		lines: cached.lines,
+		plainText: cached.plainText || lyricsToPlainText(cached.lines),
+		source: cached.source || null,
+		wordLevel: Boolean(cached.wordLevel) || hasRealWordTiming(cached.lines)
+	};
 }
 
 /** Kicks off (at most once per track, de-duplicated across overlapping
@@ -901,18 +953,17 @@ export function ensureLyricsCached(artist, title, opts = {}) {
 export async function fetchPlainLyricsText(artist, title, opts = {}) {
 	const rounded = Math.round(Number(opts.duration) || 0);
 	const key = lyricsCacheKey(artist, title, opts.album || '', rounded);
-	const cached = lyricsCache.get(key);
-	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) {
+	if (!readLyricsEntry(key)) {
 		await fetchLyrics(artist, title, opts);
 	}
-	const next = lyricsCache.get(key);
+	const next = readLyricsEntry(key);
 	return next?.plainText || lyricsToPlainText(next?.lines) || null;
 }
 
 export function peekPlainLyrics(artist, title, album = '', duration = 0) {
 	const rounded = Math.round(Number(duration) || 0);
-	const cached = lyricsCache.get(lyricsCacheKey(artist, title, album, rounded));
-	if (!cached || Date.now() - cached.fetchedAt >= cached.ttl) return null;
+	const cached = readLyricsEntry(lyricsCacheKey(artist, title, album, rounded));
+	if (!cached) return null;
 	return cached.plainText || lyricsToPlainText(cached.lines);
 }
 
