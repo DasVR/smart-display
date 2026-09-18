@@ -1,43 +1,83 @@
 /**
  * Turns the radar raster into vector regions instead of a stretched bitmap.
  * RainViewer tops out at z7, so a city zoom would otherwise blow each source
- * pixel up to ~12 CSS px. `extractField` reduces a frame's native mosaic to
- * a dense intensity grid (plus a representative color per band, sampled from
- * the real pixels), `marchingSquares` traces those cells, and a light
- * Chaikin pass (or none) keeps the original cell footprint instead of
- * rounding it into a metaball. `lerpFields`/`lerpColor` blend two frames so
- * a transition can re-trace contours - cells grow, shrink, split, and merge
- * instead of cross-fading two rasters in place.
+ * pixel up to ~12 CSS px. `extractField` classifies each mosaic pixel against
+ * RainViewer's Universal Blue rain/snow palette (scheme 2), then traces one
+ * contour per rain type so drizzle, light rain, heavy rain, and hail keep
+ * their own colors instead of averaging into one cyan blob. `lerpFields` /
+ * `lerpColor` blend two frames so cells grow, shrink, split, and merge.
  */
 
-/** Intensity bands (0-1 alpha) contours are traced at, lightest to heaviest.
- *  Dense enough that RainViewer's color steps stay distinct instead of
- *  collapsing into four averaged blobs. */
-export const RADAR_THRESHOLDS = [
-	0.06, 0.14, 0.22, 0.3, 0.38, 0.46, 0.54, 0.62, 0.7, 0.78, 0.86, 0.94
+/** Universal Blue rain stops (RainViewer scheme 2). dBZ is the official
+ *  table; RGB is the tile color for that type. */
+export const RADAR_RAIN_PALETTE = [
+	{ dbz: 10, r: 206, g: 192, b: 135 }, // drizzle / virga
+	{ dbz: 15, r: 136, g: 221, b: 238 }, // light rain
+	{ dbz: 20, r: 0, g: 163, b: 224 }, // light-moderate
+	{ dbz: 25, r: 0, g: 119, b: 170 }, // moderate
+	{ dbz: 30, r: 0, g: 85, b: 136 }, // moderate-heavy
+	{ dbz: 35, r: 255, g: 238, b: 0 }, // heavy
+	{ dbz: 40, r: 255, g: 170, b: 0 }, // very heavy
+	{ dbz: 45, r: 255, g: 68, b: 0 }, // intense
+	{ dbz: 50, r: 193, g: 0, b: 0 }, // severe
+	{ dbz: 55, r: 255, g: 170, b: 255 }, // extreme
+	{ dbz: 60, r: 255, g: 119, b: 255 }, // violent
+	{ dbz: 65, r: 255, g: 255, b: 255 } // hail
 ];
 
-/** Used only when a band has no sampled pixels in a given frame (so nothing
- *  using it will actually be visible) - a safe fallback color to avoid an
- *  undefined fillStyle, not a claim about real intensity. */
-export const RADAR_FALLBACK_COLORS = [
-	'rgb(76, 130, 190)',
-	'rgb(70, 150, 180)',
-	'rgb(64, 170, 150)',
-	'rgb(84, 170, 120)',
-	'rgb(140, 180, 80)',
-	'rgb(210, 190, 70)',
-	'rgb(220, 150, 60)',
-	'rgb(210, 110, 55)',
-	'rgb(200, 90, 70)',
-	'rgb(190, 70, 90)',
-	'rgb(180, 50, 120)',
-	'rgb(160, 40, 140)'
+/** Snow colors from the same table, used only to classify tiles (`1_1.png`
+ *  paints snow separately). Intensity still follows dBZ. */
+export const RADAR_SNOW_PALETTE = [
+	{ dbz: 10, r: 191, g: 255, b: 255 },
+	{ dbz: 20, r: 127, g: 191, b: 255 },
+	{ dbz: 30, r: 79, g: 143, b: 255 },
+	{ dbz: 40, r: 47, g: 111, b: 255 },
+	{ dbz: 50, r: 15, g: 79, b: 255 },
+	{ dbz: 60, r: 0, g: 47, b: 255 }
 ];
+
+const RADAR_MATCH_PALETTE = [...RADAR_RAIN_PALETTE, ...RADAR_SNOW_PALETTE];
+
+const DBZ_MIN = 8;
+const DBZ_MAX = 65;
+
+export function dbzToIntensity(dbz) {
+	return Math.max(0, Math.min(1, (dbz - DBZ_MIN) / (DBZ_MAX - DBZ_MIN)));
+}
+
+/** Slight see-through so the map reads under the rain. Heavier types sit a
+ *  bit more solid, but nothing is fully opaque. */
+export function rainFillAlpha(dbz) {
+	const t = dbzToIntensity(dbz);
+	return 0.64 + 0.22 * t;
+}
+
+export const RADAR_THRESHOLDS = RADAR_RAIN_PALETTE.map((p) => dbzToIntensity(p.dbz));
+
+export const RADAR_FALLBACK_COLORS = RADAR_RAIN_PALETTE.map((p) => `rgb(${p.r}, ${p.g}, ${p.b})`);
+
+export const RADAR_BAND_ALPHAS = RADAR_RAIN_PALETTE.map((p) => rainFillAlpha(p.dbz));
 
 /** Light corner-cut so marching-squares facets do not read as a mesh, without
  *  the two-iteration metaball shrink that used to invent blob shapes. */
 export const CONTOUR_CHAIKIN_ITERATIONS = 1;
+
+/** Nearest Universal Blue rain or snow stop for a sample RGB. */
+export function nearestRadarColor(r, g, b) {
+	let best = null;
+	let bestD = Infinity;
+	for (const swatch of RADAR_MATCH_PALETTE) {
+		const dr = r - swatch.r;
+		const dg = g - swatch.g;
+		const db = b - swatch.b;
+		const d = dr * dr + dg * dg + db * db;
+		if (d < bestD) {
+			bestD = d;
+			best = swatch;
+		}
+	}
+	return best;
+}
 
 /** Linearly interpolates the crossing point of `threshold` along the edge
  *  from `pa` (value `va`) to `pb` (value `vb`). Must be called with the same
@@ -243,12 +283,18 @@ export function lerpColor(colorA, colorB, t) {
 	return `rgb(${r}, ${g}, ${bl})`;
 }
 
+function bandOpacitiesFor(thresholds) {
+	if (thresholds === RADAR_THRESHOLDS) return RADAR_BAND_ALPHAS.slice();
+	const last = Math.max(1, thresholds.length - 1);
+	return thresholds.map((_, i) => 0.64 + 0.22 * (i / last));
+}
+
 /**
- * Reduces a composited radar frame's pixels (an object shaped like
- * `ImageData` - `{data, width, height}` with `data` a flat RGBA byte array)
- * to an alpha intensity grid plus one representative color per threshold
- * band, averaged from the real pixels that actually fall in that band -
- * so the fill color is sampled from the source tile, not invented.
+ * Classifies a composited radar frame (`ImageData`-shaped) by RainViewer
+ * rain type: each pixel snaps to the nearest Universal Blue stop, the
+ * intensity grid follows that stop's dBZ, and each band's fill is the
+ * average of pixels of that type (so yellow heavy rain cannot mix into
+ * the light-rain cyan band).
  */
 export function extractField(imageData, thresholds = RADAR_THRESHOLDS, fallbackColors = RADAR_FALLBACK_COLORS) {
 	const { data, width, height } = imageData;
@@ -257,14 +303,21 @@ export function extractField(imageData, thresholds = RADAR_THRESHOLDS, fallbackC
 	const bins = thresholds.map(() => ({ r: 0, g: 0, b: 0, n: 0 }));
 
 	for (let i = 0; i < n; i++) {
-		const a = data[i * 4 + 3] / 255;
-		alpha[i] = a;
+		const o = i * 4;
+		const a = data[o + 3];
+		if (a < 12) {
+			alpha[i] = 0;
+			continue;
+		}
+		const match = nearestRadarColor(data[o], data[o + 1], data[o + 2]);
+		const intensity = match ? dbzToIntensity(match.dbz) : a / 255;
+		alpha[i] = intensity;
 		for (let b = thresholds.length - 1; b >= 0; b--) {
-			if (a >= thresholds[b]) {
+			if (intensity >= thresholds[b]) {
 				const bin = bins[b];
-				bin.r += data[i * 4];
-				bin.g += data[i * 4 + 1];
-				bin.b += data[i * 4 + 2];
+				bin.r += data[o];
+				bin.g += data[o + 1];
+				bin.b += data[o + 2];
 				bin.n++;
 				break;
 			}
@@ -277,7 +330,7 @@ export function extractField(imageData, thresholds = RADAR_THRESHOLDS, fallbackC
 			: fallbackColors[i]
 	);
 
-	return { alpha, cols: width, rows: height, colors };
+	return { alpha, cols: width, rows: height, colors, opacities: bandOpacitiesFor(thresholds) };
 }
 
 /** Upper bound on field rows. High enough that a ~192-col square radar
