@@ -2,6 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { EventEmitter } from 'node:events';
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+// Keep the persistent cache out of the repo's data/ dir while testing.
+process.env.LYRICS_DB_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'lyrics-db-')), 'lyrics.db');
 
 import {
 	ensureLyricsCached,
@@ -11,6 +17,7 @@ import {
 	fetchSyncedLyricsFallback,
 	hasRealWordTiming,
 	linesFromCommunityPayload,
+	lyricsCacheKey,
 	lyricsFromHit,
 	dropNonLyricLines,
 	parseKrc,
@@ -19,12 +26,14 @@ import {
 	parseTTML,
 	parseYrc,
 	peekLyrics,
+	peekLyricsInfo,
 	peekTrackDuration,
 	pickBestLyricsHit,
 	pickItunesDuration,
 	scoreLyricsHit,
 	synthesizeWordTiming
 } from '../src/lib/server/lyrics.js';
+import { getLyricsRow, lyricsDbStats } from '../src/lib/server/lyricsStore.js';
 
 function fakePythonChild(stdout) {
 	const proc = new EventEmitter();
@@ -580,4 +589,70 @@ test('fetchSyncedLyricsFallback accepts a word-level community payload', async (
 	});
 	assert.equal(lines[0].words[0].text, "I'm");
 	assert.equal(hasRealWordTiming(lines), true);
+});
+
+test('fetchLyrics persists a hit to the SQLite store with its source and word-level flag', async () => {
+	const artist = `Persist Artist ${Date.now()}`;
+	const title = 'Persist Song';
+	const lines = await fetchLyrics(artist, title, {
+		duration: 200,
+		spawnFn: () =>
+			fakePythonChild(
+				JSON.stringify({
+					source: 'netease-yrc',
+					wordLevel: true,
+					lines: [
+						{ time: 1, text: 'Hello there', words: [{ time: 1, text: 'Hello' }, { time: 1.4, text: 'there' }] },
+						{ time: 3, text: 'friend of mine', words: [{ time: 3, text: 'friend' }, { time: 3.3, text: 'of' }, { time: 3.5, text: 'mine' }] }
+					]
+				})
+			)
+	});
+	assert.equal(lines.length, 2);
+	const row = getLyricsRow(lyricsCacheKey(artist, title, '', 200));
+	assert.ok(row, 'hit should be written to the store');
+	assert.equal(row.source, 'netease-yrc');
+	assert.equal(row.wordLevel, true);
+	assert.equal(row.artist, artist);
+	assert.equal(row.duration, 200);
+	assert.equal(row.lines[1].words[2].text, 'mine');
+	assert.equal(row.plainText, 'Hello there\nfriend of mine');
+	// A karaoke-grade hit is kept far longer than the old 6h memory TTL.
+	assert.ok(row.ttl >= 300 * 24 * 60 * 60 * 1000);
+	const info = peekLyricsInfo(artist, title, '', 200);
+	assert.equal(info.known, true);
+	assert.equal(info.source, 'netease-yrc');
+	assert.equal(info.wordLevel, true);
+	assert.equal(info.plainText, 'Hello there\nfriend of mine');
+});
+
+test('fetchLyrics tags an LRCLIB line-synced hit and keeps it for a shorter retry window', async () => {
+	const artist = `Lrclib Artist ${Date.now()}`;
+	const title = 'Lrclib Song';
+	const load = async (url) => {
+		if (url.includes('/api/get')) {
+			return { trackName: title, artistName: artist, duration: 180, syncedLyrics: '[00:10.00]Line one here\n[00:14.00]Line two here' };
+		}
+		throw new Error('unexpected ' + url);
+	};
+	await fetchLyrics(artist, title, { duration: 180, load, spawnFn: () => fakePythonChild(JSON.stringify({ synced: null })) });
+	const row = getLyricsRow(lyricsCacheKey(artist, title, '', 180));
+	assert.ok(row);
+	assert.equal(row.source, 'lrclib-synced');
+	assert.equal(row.wordLevel, false, 'synthesized word timing is not word-level');
+	assert.ok(row.ttl < 300 * 24 * 60 * 60 * 1000);
+	assert.ok(row.ttl >= 24 * 60 * 60 * 1000);
+	const stats = lyricsDbStats();
+	assert.equal(stats.available, true);
+	assert.ok(stats.lyrics >= 2);
+});
+
+test('fetchLyrics does not persist a miss', async () => {
+	const artist = `Miss Artist ${Date.now()}`;
+	const title = 'Miss Song';
+	const load = async () => [];
+	const lines = await fetchLyrics(artist, title, { duration: 180, load, spawnFn: () => fakePythonChild(JSON.stringify({ synced: null })) });
+	assert.equal(lines, null);
+	assert.equal(peekLyrics(artist, title, '', 180).known, true, 'miss is remembered in memory');
+	assert.equal(getLyricsRow(lyricsCacheKey(artist, title, '', 180)), null, 'but never written to disk');
 });

@@ -9,6 +9,8 @@ build/
 .station/
 data/display-schedule.json
 data/forced-align-cache/
+data/lyrics.db
+data/lyrics.db-*
 
 .claude/buzz/
 __pycache__/
