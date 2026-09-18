@@ -23,6 +23,7 @@ import {
 	ensureLyricsCached,
 	ensureTrackDurationCached,
 	hasRealWordTiming,
+	isCollapsedAlignment,
 	lyricsCacheKey,
 	peekLyricsInfo,
 	peekTrackDuration
@@ -346,7 +347,8 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 
 /** Chooses what the Music view paints from the two caches. A per-song
  *  remote pick wins. Otherwise a precise on-device alignment (Qwen3 / MMS
- *  / MFA / aeneas) beats everything; a community word-level file beats an
+ *  / MFA / aeneas) beats everything unless its clocks collapsed onto a
+ *  handful of timestamps; a community word-level file beats an
  *  energy-envelope guess; an energy guess beats synthesized per-line
  *  timing; anything beats nothing. */
 function alignedLinesForDisplay(aligned, community) {
@@ -357,7 +359,10 @@ export function pickDisplayLyrics({ community, aligned, pick } = {}) {
 	const communityLines = community?.lines || null;
 	const communityWordLevel = Boolean(communityLines) && (Boolean(community?.wordLevel) || hasRealWordTiming(communityLines));
 	const alignedLines = alignedLinesForDisplay(aligned, community);
-	const alignedUsable = Boolean(alignedLines) && hasRealWordTiming(alignedLines);
+	const alignedUsable =
+		Boolean(alignedLines) &&
+		hasRealWordTiming(alignedLines) &&
+		!isCollapsedAlignment(aligned?.lines || alignedLines);
 	const wanted = String(pick?.displaySource || '').trim();
 	if (wanted) {
 		if (wanted.startsWith('align:') && alignedLines) {
@@ -377,6 +382,9 @@ export function pickDisplayLyrics({ community, aligned, pick } = {}) {
 		return { lyrics: alignedLines, source: `align:${aligned.engine || 'energy'}` };
 	}
 	if (communityLines) return { lyrics: communityLines, source: community?.source || null };
+	if (alignedLines) {
+		return { lyrics: alignedLines, source: `align:${aligned.engine || 'unknown'}` };
+	}
 	return { lyrics: null, source: null };
 }
 

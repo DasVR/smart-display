@@ -111,6 +111,15 @@
 			<p class="hint" class:ok={data.engine?.precise} class:warn={data.inFlight}>
 				{engineHint(data.engine)}{#if data.inFlight} · aligning{/if}
 			</p>
+			{#if data.canonical}
+				<p class="hint">
+					Aligner text: {data.canonical.label}
+					· {data.canonical.lineCount} lines
+				</p>
+			{/if}
+			{#if data.providers.some((p) => p.collapsed && p.id !== data.displaySource)}
+				<p class="hint warn">Qwen clocks collapsed. Community is on screen until you pin the aligner.</p>
+			{/if}
 			{#if data.pick?.pinned}
 				<p class="hint">Pinned main: {data.pick.displaySource}</p>
 			{/if}
@@ -137,10 +146,14 @@
 					{provider.lineCount} lines
 					{#if provider.wordLevel} · word clocks{/if}
 					{#if provider.precise} · precise{/if}
+					{#if provider.collapsed} · clocks collapsed{/if}
 					{#if provider.id === data.displaySource} · showing{/if}
 					{#if data.pick?.pinned && data.pick.displaySource === provider.id} · main{/if}
 					{#if data.pick?.cacheSource === provider.id} · cache{/if}
 				</p>
+				{#if provider.collapsed}
+					<p class="hint warn">Whole lines share a handful of timestamps, so karaoke stacks and clips. Keep community as main unless you want this anyway.</p>
+				{/if}
 				<div class="actions">
 					<button
 						type="button"

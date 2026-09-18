@@ -11,6 +11,7 @@ import {
 import { getNowPlaying, getDemoNowPlaying, pickDisplayLyrics } from './hostData.js';
 import {
 	hasRealWordTiming,
+	isCollapsedAlignment,
 	lyricsCacheKey,
 	lyricsToPlainText,
 	peekLyricsInfo,
@@ -25,12 +26,14 @@ export function providerLabel(id) {
 	if (key.startsWith('align:')) {
 		const engine = key.slice(6);
 		if (engine === 'qwen') return 'Qwen aligner';
+		if (engine === 'whisperx') return 'WhisperX';
 		if (engine === 'energy') return 'Energy guess';
 		if (engine === 'ctc') return 'CTC aligner';
 		if (engine === 'aeneas') return 'Aeneas';
 		if (engine === 'mfa') return 'MFA';
 		return `Align (${engine})`;
 	}
+	if (key === 'genius') return 'Genius';
 	if (key === 'amll-ttml') return 'AMLL TTML';
 	if (key === 'kugou-krc') return 'Kugou KRC';
 	if (key === 'netease-yrc') return 'NetEase YRC';
@@ -79,12 +82,14 @@ export function availableLyricProviders({ community, aligned } = {}) {
 	}
 	if (aligned?.lines?.length) {
 		const id = `align:${aligned.engine || 'unknown'}`;
+		const collapsed = isCollapsedAlignment(aligned.lines);
 		providers.push({
 			id,
 			kind: 'align',
 			label: providerLabel(id),
 			wordLevel: hasRealWordTiming(aligned.lines),
-			precise: Boolean(aligned.precise) || isPreciseEngine(aligned.engine),
+			precise: !collapsed && (Boolean(aligned.precise) || isPreciseEngine(aligned.engine)),
+			collapsed,
 			engine: aligned.engine || null,
 			lineCount: aligned.lines.length,
 			lines: compactLines(aligned.lines)
@@ -118,6 +123,7 @@ export async function getLyricMonitor({ demo = false } = {}) {
 			pick: null,
 			engine,
 			inFlight: false,
+			canonical: null,
 			providers: []
 		};
 	}
@@ -127,6 +133,10 @@ export async function getLyricMonitor({ demo = false } = {}) {
 	const key = lyricsCacheKey(track.artist, track.title, track.album, track.duration);
 	const pick = getLyricPick(key);
 	const chosen = pickDisplayLyrics({ community: peeked, aligned, pick });
+	const canonicalLines = String(peeked.plainText || '')
+		.split(/\n/)
+		.map((line) => line.trim())
+		.filter(Boolean);
 	return {
 		track,
 		fingerprint: fp,
@@ -135,6 +145,14 @@ export async function getLyricMonitor({ demo = false } = {}) {
 		pick,
 		engine,
 		inFlight: isAlignmentInFlight(fp),
+		canonical: peeked.plainText
+			? {
+					source: peeked.plainSource || 'plain',
+					label: providerLabel(peeked.plainSource || 'lrclib-plain'),
+					lineCount: canonicalLines.length,
+					preview: canonicalLines.slice(0, 6)
+				}
+			: null,
 		providers: availableLyricProviders({ community: peeked, aligned })
 	};
 }

@@ -42,6 +42,7 @@ test('lyrics rows round-trip with provenance and honor their ttl', () => {
 			wordLevel: true,
 			lines,
 			plainText: 'Hello there',
+			plainSource: 'genius',
 			fetchedAt: Date.now(),
 			ttl: 60_000
 		}),
@@ -52,6 +53,7 @@ test('lyrics rows round-trip with provenance and honor their ttl', () => {
 	assert.equal(row.wordLevel, true);
 	assert.deepEqual(row.lines, lines);
 	assert.equal(row.plainText, 'Hello there');
+	assert.equal(row.plainSource, 'genius');
 	assert.equal(row.duration, 200);
 
 	putLyricsRow('stale', {

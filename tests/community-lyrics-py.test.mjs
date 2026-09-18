@@ -7,6 +7,7 @@ import path from 'node:path';
 
 const PY = process.env.LYRICS_PYTHON_BIN || 'python3';
 const COMMUNITY = path.join(process.cwd(), 'scripts/forced_align/community_lyrics.py');
+const CANONICAL = path.join(process.cwd(), 'scripts/forced_align/canonical_lyrics.py');
 const ALIGN = path.join(process.cwd(), 'scripts/forced_align/align.py');
 
 function runPython(args, extra = {}) {
@@ -15,6 +16,13 @@ function runPython(args, extra = {}) {
 
 test('community_lyrics.py --self-test', () => {
 	const result = runPython([COMMUNITY, '--self-test']);
+	assert.equal(result.status, 0, result.stderr || result.stdout);
+	const parsed = JSON.parse(result.stdout);
+	assert.equal(parsed.ok, true);
+});
+
+test('canonical_lyrics.py --self-test', () => {
+	const result = runPython([CANONICAL, '--self-test']);
 	assert.equal(result.status, 0, result.stderr || result.stdout);
 	const parsed = JSON.parse(result.stdout);
 	assert.equal(parsed.ok, true);
@@ -32,7 +40,7 @@ test('align.py --probe always lists the stdlib energy engine and says whether th
 	const parsed = JSON.parse(result.stdout);
 	assert.ok(parsed.available.includes('energy'));
 	assert.equal(typeof parsed.precise, 'boolean');
-	assert.equal(parsed.precise, ['qwen', 'ctc', 'aeneas', 'mfa'].includes(parsed.engine));
+	assert.equal(parsed.precise, ['whisperx', 'qwen', 'ctc', 'aeneas', 'mfa'].includes(parsed.engine));
 	const forced = runPython([ALIGN, '--probe'], { env: { ...process.env, FORCED_ALIGN_ENGINE: 'energy' } });
 	const forcedParsed = JSON.parse(forced.stdout);
 	assert.equal(forcedParsed.engine, 'energy');

@@ -5,24 +5,31 @@ text, emit a start (and end) clock for every word.
 Engines, best first. FORCED_ALIGN_ENGINE=auto picks the first one that is
 installed, never MFA unless asked (Demucs+MFA is too heavy for the kiosk):
 
-	qwen    - Qwen3-ForcedAligner-0.6B via the qwen-asr package. Single
-	          non-autoregressive pass, ~40 ms mean error, 11 languages.
-	ctc     - torchaudio MMS_FA (wav2vec2 CTC) Viterbi alignment, 20 ms frames.
-	aeneas  - DTW aligner, line-level fragments split by syllable weight.
-	mfa     - Demucs vocals + Montreal Forced Aligner (opt-in).
-	energy  - stdlib RMS envelope vs lyric weights. Always available; a
-	          stand-in, not a measurement.
+	whisperx - Whisper transcription + wav2vec2 phoneme alignment, then
+	           sequence-match onto the canonical lyric sheet. Built for
+	           singing; the sheet is the source of truth, Whisper only
+	           donates clocks.
+	ctc      - torchaudio MMS_FA (wav2vec2 CTC) Viterbi on the known sheet,
+	           20 ms frames. Speech model, but it cannot collapse a verse
+	           onto one timestamp the way Qwen does.
+	qwen     - Qwen3-ForcedAligner-0.6B. Speech NAR; often stamps a whole
+	           sung verse at one clock. Kept, but auto no longer prefers it.
+	aeneas   - DTW aligner, line-level fragments split by syllable weight.
+	mfa      - Demucs vocals + Montreal Forced Aligner (opt-in).
+	energy   - stdlib RMS envelope vs lyric weights. Always available; a
+	           stand-in, not a measurement.
 
-qwen / ctc / aeneas / mfa are "precise": their clocks come from an acoustic
-model, so lyrics.js lets them override community word timing. energy is
-not, so it only fills in when nobody published word clocks.
+whisperx / ctc / qwen / aeneas / mfa are "precise": their clocks come from
+an acoustic model, so lyrics.js lets them override community word timing
+unless those clocks collapsed. energy is not precise.
 
 Usage:
 	python3 align.py --probe
 	python3 align.py <wav_path> <lyrics_txt_path> <out_json_path>
 
 Env:
-	FORCED_ALIGN_ENGINE      auto | qwen | ctc | aeneas | mfa | energy
+	FORCED_ALIGN_ENGINE      auto | whisperx | ctc | qwen | aeneas | mfa | energy
+	FORCED_ALIGN_WHISPER_MODEL  faster-whisper size for whisperx (default base)
 	FORCED_ALIGN_OFFSET      seconds to add when recording began mid-track
 	FORCED_ALIGN_LANGUAGE    qwen language name (default English)
 	FORCED_ALIGN_DEVICE      cuda | cuda:0 | cpu (default: cuda if available)
@@ -48,7 +55,8 @@ except ImportError:
 
 SILENCE_MARKS = {"sil", "sp", "spn", ""}
 WORD_RE = re.compile(r"[A-Za-z0-9']+")
-PRECISE_ENGINES = {"qwen", "ctc", "aeneas", "mfa"}
+PRECISE_ENGINES = {"whisperx", "qwen", "ctc", "aeneas", "mfa"}
+AUTO_ENGINE_ORDER = ("whisperx", "ctc", "qwen", "aeneas")
 QWEN_DEFAULT_MODEL = "Qwen/Qwen3-ForcedAligner-0.6B"
 QWEN_DEFAULT_MAX_SEC = 240.0
 QWEN_ASSIGN_SLACK_SEC = 12.0
@@ -311,6 +319,15 @@ def _frac_to_time(cum, frac, frame, rate):
 # ------------------------------------------------------------ discovery
 
 
+def has_whisperx():
+	try:
+		import whisperx  # noqa: F401
+
+		return True
+	except Exception:
+		return False
+
+
 def has_qwen():
 	try:
 		import qwen_asr  # noqa: F401
@@ -344,10 +361,12 @@ def has_mfa():
 
 def available_engines():
 	found = []
-	if has_qwen():
-		found.append("qwen")
+	if has_whisperx():
+		found.append("whisperx")
 	if has_ctc():
 		found.append("ctc")
+	if has_qwen():
+		found.append("qwen")
 	if has_aeneas():
 		found.append("aeneas")
 	if has_mfa():
@@ -358,14 +377,12 @@ def available_engines():
 
 def pick_engine():
 	wanted = (os.environ.get("FORCED_ALIGN_ENGINE") or "auto").strip().lower()
-	if wanted in {"energy", "qwen", "ctc", "aeneas", "mfa"}:
+	if wanted in {"energy", "whisperx", "qwen", "ctc", "aeneas", "mfa"}:
 		return wanted
-	if has_qwen():
-		return "qwen"
-	if has_ctc():
-		return "ctc"
-	if has_aeneas():
-		return "aeneas"
+	installed = set(available_engines())
+	for engine in AUTO_ENGINE_ORDER:
+		if engine in installed:
+			return engine
 	return "energy"
 
 
@@ -387,7 +404,7 @@ def want_separation(engine):
 		return False
 	if mode in {"1", "yes", "on", "true"}:
 		return bool(shutil.which("demucs"))
-	return engine in {"qwen", "ctc"} and bool(shutil.which("demucs"))
+	return engine in {"whisperx", "qwen", "ctc"} and bool(shutil.which("demucs"))
 
 
 # ------------------------------------------------------------------ qwen
@@ -402,11 +419,28 @@ def _item_field(item, *names):
 	return None
 
 
+MATCH_LOOKAHEAD = 24
+
+
+def clocks_collapsed(pairs, min_words=8, unique_ratio=0.25, flat_ratio=0.6):
+	"""True when a run of word clocks shares a handful of timestamps or
+	has no duration. Qwen (a speech model) does this on singing: a whole
+	verse lands on 0:00.2, then the next hit is 13s later."""
+	if len(pairs) < min_words:
+		return False
+	starts = [round(float(p[0]), 1) for p in pairs]
+	if (len(set(starts)) / len(starts)) < unique_ratio:
+		return True
+	flat = sum(1 for start, end in pairs if float(end) - float(start) <= 0.02)
+	return flat / len(pairs) > flat_ratio
+
+
 def match_qwen_units(tokens, units):
 	"""Zip the aligner's returned units back onto our tokens. Counts match
-	when the aligner keeps our whitespace tokenization; if it split or merged
-	something, walk both lists by normalized text and fill any token the
-	aligner skipped from its neighbors."""
+	when the aligner keeps our whitespace tokenization; if it split, merged,
+	or collapsed something, walk both lists by normalized text and spread
+	skipped tokens across the neighbor span instead of pinning them all to
+	the previous end."""
 	timed = [None] * len(tokens)
 
 	def norm(value):
@@ -417,32 +451,118 @@ def match_qwen_units(tokens, units):
 		end = float(_item_field(unit, "end_time", "end") or 0.0)
 		return (start, max(start, end))
 
-	if len(units) == len(tokens):
-		for i, unit in enumerate(units):
-			timed[i] = clocks(unit)
+	unit_clocks = [clocks(unit) for unit in units]
+	same_len = len(units) == len(tokens)
+	if same_len and not clocks_collapsed(unit_clocks):
+		for i, pair in enumerate(unit_clocks):
+			timed[i] = pair
 	else:
 		u = 0
 		for i, tok in enumerate(tokens):
 			target = norm(tok)
 			j = u
-			while j < len(units) and j < u + 6:
+			while j < len(units) and j < u + MATCH_LOOKAHEAD:
 				if norm(_item_field(units[j], "text", "word")) == target:
 					break
 				j += 1
-			if j < len(units) and j < u + 6:
-				timed[i] = clocks(units[j])
+			if j < len(units) and j < u + MATCH_LOOKAHEAD:
+				timed[i] = unit_clocks[j]
 				u = j + 1
-	# Fill gaps: a skipped token borrows the end of the previous timed word
-	# and the start of the next one.
-	out = []
+	out = [None] * len(tokens)
 	for i, tok in enumerate(tokens):
 		if timed[i] is not None:
-			out.append((round(timed[i][0], 3), tok, round(timed[i][1], 3)))
+			out[i] = (round(timed[i][0], 3), tok, round(timed[i][1], 3))
+	i = 0
+	while i < len(tokens):
+		if out[i] is not None:
+			i += 1
 			continue
-		prev_end = next((timed[j][1] for j in range(i - 1, -1, -1) if timed[j] is not None), 0.0)
-		next_start = next((timed[j][0] for j in range(i + 1, len(tokens)) if timed[j] is not None), prev_end + 0.3)
-		out.append((round(prev_end, 3), tok, round(max(prev_end, next_start), 3)))
+		j = i
+		while j < len(tokens) and out[j] is None:
+			j += 1
+		prev_end = out[i - 1][2] if i else 0.0
+		gap = j - i
+		next_start = out[j][0] if j < len(tokens) else prev_end + max(0.3, 0.22 * gap)
+		span = max(0.22 * gap, next_start - prev_end)
+		for k, tok in enumerate(tokens[i:j]):
+			start = prev_end + span * (k / gap)
+			end = prev_end + span * ((k + 1) / gap)
+			out[i + k] = (round(start, 3), tok, round(end, 3))
+		i = j
 	return out
+
+
+def _fill_missing_clocks(tokens, timed):
+	out = [None] * len(tokens)
+	for i, tok in enumerate(tokens):
+		if timed[i] is not None:
+			start, end = timed[i]
+			out[i] = (round(float(start), 3), tok, round(float(end), 3))
+	i = 0
+	while i < len(tokens):
+		if out[i] is not None:
+			i += 1
+			continue
+		j = i
+		while j < len(tokens) and out[j] is None:
+			j += 1
+		prev_end = out[i - 1][2] if i else 0.0
+		gap = max(1, j - i)
+		next_start = out[j][0] if j < len(tokens) else prev_end + max(0.3, 0.22 * gap)
+		span = max(0.22 * gap, next_start - prev_end)
+		for k, tok in enumerate(tokens[i:j]):
+			start = prev_end + span * (k / gap)
+			end = prev_end + span * ((k + 1) / gap)
+			out[i + k] = (round(start, 3), tok, round(end, 3))
+		i = j
+	return out
+
+
+def match_asr_to_lyrics(tokens, asr_words):
+	"""Canonical lyric tokens are the source of truth. ASR / Whisper words
+	only donate clocks: equal matches copy timestamps, substitutions spread
+	the ASR span, and skipped sung words interpolate from neighbors."""
+	import difflib
+
+	if not tokens:
+		return []
+	asr = []
+	for item in asr_words or []:
+		start = float(item[0] or 0.0)
+		word = item[1]
+		end = item[2] if len(item) > 2 else None
+		end = float(end) if end is not None else start
+		asr.append((start, word, max(start, end)))
+	if not asr:
+		return _fill_missing_clocks(tokens, [None] * len(tokens))
+
+	def norm(value):
+		return re.sub(r"[^a-z0-9']", "", str(value or "").lower())
+
+	left = [norm(item[1]) for item in asr]
+	right = [norm(tok) for tok in tokens]
+	timed = [None] * len(tokens)
+	sm = difflib.SequenceMatcher(a=left, b=right, autojunk=False)
+	for tag, i1, i2, j1, j2 in sm.get_opcodes():
+		if tag == "equal":
+			for k in range(i2 - i1):
+				start, _word, end = asr[i1 + k]
+				timed[j1 + k] = (start, end)
+		elif tag == "replace" and i1 < i2 and j1 < j2:
+			span_start = asr[i1][0]
+			span_end = asr[i2 - 1][2]
+			n = j2 - j1
+			width = max(0.05, span_end - span_start)
+			for k in range(n):
+				timed[j1 + k] = (span_start + width * (k / n), span_start + width * ((k + 1) / n))
+		elif tag == "insert" and j1 < j2:
+			prev_end = asr[i1 - 1][2] if i1 else (asr[0][0] if asr else 0.0)
+			next_start = asr[i1][0] if i1 < len(asr) else prev_end + 0.3
+			n = j2 - j1
+			width = max(0.22 * n, next_start - prev_end)
+			for k in range(n):
+				timed[j1 + k] = (prev_end + width * (k / n), prev_end + width * ((k + 1) / n))
+	return _fill_missing_clocks(tokens, timed)
 
 
 def lines_for_segments(usable, coarse_words, segments, slack=0.0):
@@ -479,6 +599,64 @@ def line_overflowed(words, piece_sec, margin=0.3):
 		return True
 	flat = sum(1 for start, _tok, end in words if end - start <= 1e-6)
 	return flat * 2 >= len(words)
+
+
+def whisperx_align(wav_path, lyric_lines):
+	"""Whisper transcribes the singing; wav2vec2 stamps those words; then
+	we map the clocks onto the canonical lyric sheet so ASR typos never
+	replace the published text."""
+	import whisperx
+
+	usable = usable_lines(lyric_lines)
+	tokens = []
+	for line in usable:
+		tokens.extend(word_tokens(line, lower=False))
+	if not tokens:
+		return []
+	device = pick_device()
+	dev = "cuda" if str(device).startswith("cuda") else "cpu"
+	compute = "float16" if dev == "cuda" else "int8"
+	model_name = os.environ.get("FORCED_ALIGN_WHISPER_MODEL") or "base"
+	language = (os.environ.get("FORCED_ALIGN_LANGUAGE") or "English").strip()
+	lang = "en" if language.lower() in {"english", "en"} else language.lower()[:2]
+	model = whisperx.load_model(model_name, dev, compute_type=compute, language=lang)
+	audio = whisperx.load_audio(wav_path)
+	result = model.transcribe(audio, batch_size=8 if dev == "cuda" else 4, language=lang)
+	try:
+		align_model, metadata = whisperx.load_align_model(language_code=lang, device=dev)
+		result = whisperx.align(
+			result.get("segments") or [],
+			align_model,
+			metadata,
+			audio,
+			dev,
+			return_char_alignments=False,
+		)
+	except Exception as exc:
+		log(f"whisperx phoneme align skipped: {exc}")
+	asr_words = []
+	for seg in result.get("segments") or []:
+		words = seg.get("words") or []
+		if words:
+			for word in words:
+				text = str(word.get("word") or word.get("text") or "").strip()
+				if not text:
+					continue
+				start = float(word["start"] if word.get("start") is not None else seg.get("start") or 0)
+				end = float(word["end"] if word.get("end") is not None else start)
+				asr_words.append((start, text, end))
+			continue
+		seg_tokens = word_tokens(str(seg.get("text") or ""), lower=False)
+		if not seg_tokens:
+			continue
+		start = float(seg.get("start") or 0)
+		end = float(seg.get("end") or start)
+		span = max(0.05, end - start)
+		for i, tok in enumerate(seg_tokens):
+			asr_words.append(
+				(start + span * (i / len(seg_tokens)), tok, start + span * ((i + 1) / len(seg_tokens)))
+			)
+	return match_asr_to_lyrics(tokens, asr_words)
 
 
 def qwen_align(wav_path, lyric_lines):
@@ -734,12 +912,14 @@ def write_result(out_json_path, result):
 
 def align_with(engine, wav_path, lyric_lines, work_dir):
 	source = wav_path
-	if engine in {"qwen", "ctc"} and want_separation(engine):
+	if engine in {"whisperx", "qwen", "ctc"} and want_separation(engine):
 		try:
 			source = isolate_vocals(wav_path, work_dir)
 		except Exception as exc:  # demucs is optional; the mix still aligns
 			log(f"vocal separation skipped: {exc}")
 			source = wav_path
+	if engine == "whisperx":
+		return whisperx_align(source, lyric_lines)
 	if engine == "qwen":
 		return qwen_align(source, lyric_lines)
 	if engine == "ctc":
@@ -750,6 +930,41 @@ def align_with(engine, wav_path, lyric_lines, work_dir):
 		vocals_path = isolate_vocals(wav_path, work_dir)
 		return mfa_align_words(vocals_path, lyric_lines, work_dir)
 	return energy_align(wav_path, lyric_lines)
+
+
+def timed_pairs(timed_words):
+	pairs = []
+	for item in timed_words or []:
+		start = float(item[0] or 0.0)
+		end = float(item[2]) if len(item) > 2 and item[2] is not None else start
+		pairs.append((start, end))
+	return pairs
+
+
+def run_align(wav_path, lyric_lines, work_dir):
+	"""Try singing-capable engines first. Auto skips a pass whose clocks
+	collapsed onto a handful of timestamps (Qwen's usual singing failure)."""
+	wanted = (os.environ.get("FORCED_ALIGN_ENGINE") or "auto").strip().lower()
+	installed = set(available_engines())
+	if wanted and wanted != "auto":
+		candidates = [wanted]
+	else:
+		candidates = [engine for engine in AUTO_ENGINE_ORDER if engine in installed]
+	if not candidates:
+		candidates = ["energy"]
+	for engine in candidates:
+		try:
+			timed = align_with(engine, wav_path, lyric_lines, work_dir)
+			if not timed:
+				log(f"{engine} produced no words")
+				continue
+			if engine != "energy" and clocks_collapsed(timed_pairs(timed)):
+				log(f"{engine} clocks collapsed, trying next")
+				continue
+			return engine, timed
+		except Exception as exc:
+			log(f"{engine} align failed: {exc}")
+	return "energy", energy_align(wav_path, lyric_lines)
 
 
 def self_test():
@@ -808,10 +1023,29 @@ def self_test():
 	)
 	assert short["lines"][0]["text"] == "I walk a lonely road"
 	assert [w["text"] for w in short["lines"][0]["words"]] == ["I", "walk", "a", "lonely", "road"]
+	# Skipped tokens spread across the gap instead of stacking on 0:00.2.
+	spread = match_qwen_units(
+		["you", "can", "do", "it", "until", "the", "break"],
+		[Unit("you", 0.2, 0.45), Unit("break", 13.5, 13.8)],
+	)
+	assert spread[0][0] == 0.2
+	assert spread[-1][0] == 13.5
+	assert spread[1][0] < spread[2][0] < spread[3][0] < spread[-1][0]
+	assert clocks_collapsed([(0.2, 0.2)] * 12) is True
+	assert clocks_collapsed([(i * 0.3, i * 0.3 + 0.2) for i in range(12)]) is False
+	mapped = match_asr_to_lyrics(
+		["I", "walk", "a", "lonely", "road"],
+		[(8.0, "i", 8.2), (8.2, "walk", 8.4), (8.4, "the", 8.6), (8.8, "lonely", 9.1), (9.1, "road", 9.4)],
+	)
+	assert [item[1] for item in mapped] == ["I", "walk", "a", "lonely", "road"]
+	assert mapped[0][0] == 8.0
+	assert mapped[-1][0] == 9.1
+	assert mapped[2][0] < mapped[3][0]
+	assert "whisperx" in PRECISE_ENGINES and "energy" not in PRECISE_ENGINES
 	assert apply_offset([(1.0, "a", 1.5)], 2.0) == [(3.0, "a", 3.5)]
 	assert "energy" in available_engines()
 	assert "energy" not in PRECISE_ENGINES and "qwen" in PRECISE_ENGINES
-	print(json.dumps({"ok": True, "tests": 9}))
+	print(json.dumps({"ok": True, "tests": 13}))
 	return 0
 
 
@@ -826,7 +1060,7 @@ def main():
 					"engine": engine,
 					"precise": engine in PRECISE_ENGINES,
 					"available": available_engines(),
-					"device": pick_device() if engine in {"qwen", "ctc"} else None,
+					"device": pick_device() if engine in {"whisperx", "qwen", "ctc"} else None,
 					"separate": want_separation(engine),
 				}
 			)
@@ -843,17 +1077,10 @@ def main():
 	except ValueError:
 		offset = 0.0
 
-	engine = pick_engine()
+	engine = "energy"
 	timed_words = []
 	with tempfile.TemporaryDirectory(prefix="smart-display-align-") as work_dir:
-		try:
-			timed_words = align_with(engine, wav_path, lyric_lines, work_dir)
-			if not timed_words:
-				raise RuntimeError("no words aligned")
-		except Exception as exc:
-			log(f"{engine} align failed, falling back to energy: {exc}")
-			engine = "energy"
-			timed_words = energy_align(wav_path, lyric_lines)
+		engine, timed_words = run_align(wav_path, lyric_lines, work_dir)
 
 	timed_words = apply_offset(timed_words, offset)
 	result = to_lines_json(lyric_lines, timed_words)
