@@ -67,7 +67,8 @@ test('voice demo staggers a reply and tucks a chorus echo under the lead', () =>
 	assert.equal(VOICE_DEMO_LINES[0].part, 'lead');
 	assert.equal(VOICE_DEMO_LINES[1].part, 'reply');
 	assert.equal(VOICE_DEMO_LINES[1].side, 'right');
-	assert.equal(VOICE_DEMO_LINES[2].background[0].text, 'now');
+	assert.equal(VOICE_DEMO_LINES[2].text, 'Keep the line');
+	assert.equal(VOICE_DEMO_LINES[2].background[0].text, '(now)');
 	assert.equal(VOICE_DEMO_LINES[2].background[1].text, 'hold it');
 	assert.equal(VOICE_DEMO_LINES[3].speaker, 'alex');
 	assert.equal(VOICE_DEMO_LINES[3].part, 'lead');
@@ -185,6 +186,48 @@ test('annotateLyricVoices does not tuck a short next verse under the lead', () =
 	assert.equal(lines[0].background, undefined);
 	assert.equal(lines[1].text, 'Take care');
 	assert.equal(isLyricReply(lines[1]), false);
+});
+
+test('annotateLyricVoices peels trailing parentheticals into chorus under the lead', () => {
+	const lines = annotateLyricVoices([
+		{
+			time: 10,
+			end: 14,
+			text: 'Keep the line (now)',
+			words: [
+				{ time: 10, text: 'Keep', end: 11 },
+				{ time: 11, text: 'the', end: 12 },
+				{ time: 12, text: 'line', end: 12.6 },
+				{ time: 12.6, text: '(now)', end: 13.4 }
+			]
+		},
+		{ time: 16, text: 'Next verse starts' }
+	]);
+	assert.equal(lines.length, 2);
+	assert.equal(lines[0].text, 'Keep the line');
+	assert.equal(lines[0].words.map((w) => w.text).join(' '), 'Keep the line');
+	assert.equal(lines[0].background[0].text, '(now)');
+	assert.equal(lines[0].background[0].words[0].time, 12.6);
+	assert.equal(lines[1].text, 'Next verse starts');
+});
+
+test('annotateLyricVoices tucks a later parenthetical line under the lead', () => {
+	const lines = annotateLyricVoices([
+		{ time: 10, end: 12, text: 'Keep the line', words: [{ time: 10, text: 'Keep', end: 12 }] },
+		{ time: 14.2, end: 15, text: '(yeah yeah)', words: [{ time: 14.2, text: '(yeah', end: 14.6 }, { time: 14.6, text: 'yeah)', end: 15 }] },
+		{ time: 18, text: 'Next verse starts' }
+	]);
+	assert.equal(lines.length, 2);
+	assert.equal(lines[0].background[0].text, '(yeah yeah)');
+	assert.equal(lines[1].text, 'Next verse starts');
+});
+
+test('annotateLyricVoices leaves a repeat mark on the lead line', () => {
+	const lines = annotateLyricVoices([
+		{ time: 10, text: 'Keep the line (x2)', words: [{ time: 10, text: 'Keep' }, { time: 10.4, text: 'the' }, { time: 10.8, text: 'line' }, { time: 11.2, text: '(x2)' }] }
+	]);
+	assert.equal(lines[0].text, 'Keep the line (x2)');
+	assert.equal(lines[0].background, undefined);
 });
 
 test('parseTTML splits a top-level br into a smaller row under the lead', () => {

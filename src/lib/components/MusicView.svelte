@@ -420,26 +420,28 @@
 								class:reply={isLyricReply(line)}
 								data-lyric={i}
 							>
-								{#if line.words?.length}
-									{#each line.words as word, w (w)}
-										{#if w > 0 && !shouldGlueLyricTokens(line.words[w - 1].text, word.text)}{' '}{/if}<span
-											class="lyric-word"
-											class:sung={wordSung(i, w)}
-											class:filling={paint.singing && w === paint.wordIdx}
-											class:held={paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}
-											style={paint.singing && w === paint.wordIdx ? `--wp: ${paint.fill}` : undefined}
-										>{#if paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}{#each wordChars(word.text) as ch, ci (ci)}<span class="lyric-letter" style="--fill: {heldLetterFill(paint.fill, ci, word.text)}; --wave: {letterWave(heldLetterFill(paint.fill, ci, word.text))}">{ch}</span>{/each}{:else}{word.text}{/if}</span>
-									{/each}
-								{:else if line.text}
-									{line.text}
-								{:else}
-									<span class="lyric-dots" aria-hidden="true">
-										{#each instrumentalDots as _, d (d)}
-											{@const b = dotBrightness(i, d)}
-											<span class="dot" style="opacity: {b}; --o: {b}"></span>
+								<span class="lyric-lead">
+									{#if line.words?.length}
+										{#each line.words as word, w (w)}
+											{#if w > 0 && !shouldGlueLyricTokens(line.words[w - 1].text, word.text)}{' '}{/if}<span
+												class="lyric-word"
+												class:sung={wordSung(i, w)}
+												class:filling={paint.singing && w === paint.wordIdx}
+												class:held={paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}
+												style={paint.singing && w === paint.wordIdx ? `--wp: ${paint.fill}` : undefined}
+											>{#if paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}{#each wordChars(word.text) as ch, ci (ci)}<span class="lyric-letter" style="--fill: {heldLetterFill(paint.fill, ci, word.text)}; --wave: {letterWave(heldLetterFill(paint.fill, ci, word.text))}">{ch}</span>{/each}{:else}{word.text}{/if}</span>
 										{/each}
-									</span>
-								{/if}
+									{:else if line.text}
+										{line.text}
+									{:else}
+										<span class="lyric-dots" aria-hidden="true">
+											{#each instrumentalDots as _, d (d)}
+												{@const b = dotBrightness(i, d)}
+												<span class="dot" style="opacity: {b}; --o: {b}"></span>
+											{/each}
+										</span>
+									{/if}
+								</span>
 								{#if line.background?.length}
 									{#each line.background as bg, b (`${bg.time}:${bg.text}`)}
 										{@const bgPaint = paintFor(bg, line.background[b + 1]?.time ?? line.end)}
@@ -775,10 +777,9 @@
 		font-style: normal;
 		line-height: 1.35;
 		color: var(--text-tertiary);
-		opacity: 0.38;
+		opacity: 1;
 		transform-origin: left center;
 		transform: translate3d(0, 14px, 0) scale(0.96);
-		filter: blur(0.35px);
 		transition:
 			color 560ms var(--spring-smooth),
 			opacity 640ms var(--spring-smooth),
@@ -786,14 +787,27 @@
 			filter 560ms var(--spring-smooth),
 			padding-bottom 720ms var(--ease-out);
 	}
+	.lyric-lead {
+		display: block;
+		opacity: 0.42;
+		filter: blur(0.35px);
+		transition:
+			color 560ms var(--spring-smooth),
+			opacity 640ms var(--spring-smooth),
+			filter 560ms var(--spring-smooth);
+	}
 	.lyric-line.near {
-		opacity: 0.55;
-		filter: none;
 		transform: translate3d(-2px, 8px, 0) scale(0.985);
 	}
+	.lyric-line.near .lyric-lead {
+		opacity: 0.62;
+		filter: none;
+	}
 	.lyric-line.past {
-		opacity: 0.22;
 		transform: translate3d(0, -14px, 0) scale(0.94);
+	}
+	.lyric-line.past .lyric-lead {
+		opacity: 0.28;
 		filter: blur(0.45px);
 	}
 	.lyric-line.resting {
@@ -801,9 +815,12 @@
 	}
 	.lyric-line.active {
 		color: var(--foreground);
+		transform: translate3d(0, 0, 0) scale(1.03);
+	}
+	.lyric-line.active .lyric-lead {
 		opacity: 1;
 		filter: none;
-		transform: translate3d(0, 0, 0) scale(1.03);
+		color: var(--foreground);
 	}
 	.lyric-line.reply {
 		align-self: flex-start;
@@ -825,17 +842,45 @@
 	}
 	.lyric-bg {
 		display: block;
-		margin-top: 0.28em;
-		font-size: 0.62em;
-		font-weight: 500;
+		margin-top: 0.32em;
+		font-size: 0.7em;
+		font-weight: 600;
 		letter-spacing: 0.01em;
 		line-height: 1.35;
-		color: color-mix(in srgb, var(--foreground) 72%, transparent);
-		opacity: 0.55;
+		color: color-mix(in srgb, var(--foreground) 82%, transparent);
+		opacity: 0.78;
+		filter: none;
+	}
+	.lyric-line.near .lyric-bg {
+		opacity: 0.86;
+	}
+	.lyric-line.past .lyric-bg {
+		opacity: 0.62;
 	}
 	.lyric-line.active .lyric-bg,
 	.lyric-bg.singing {
-		opacity: 0.88;
+		opacity: 0.96;
+		color: color-mix(in srgb, var(--foreground) 94%, transparent);
+	}
+	.lyric-bg .lyric-word {
+		opacity: 0.8;
+	}
+	.lyric-line.active .lyric-bg .lyric-word.sung,
+	.lyric-bg .lyric-word.sung,
+	.lyric-bg .lyric-word.filling {
+		opacity: 1;
+	}
+	.lyric-line.past .lyric-bg .lyric-word {
+		opacity: 1;
+	}
+	.lyric-bg .lyric-word.filling:not(.held) {
+		background-image: linear-gradient(
+			to right,
+			var(--foreground) 0%,
+			var(--foreground) calc(var(--wp, 0) * 100%),
+			color-mix(in srgb, var(--foreground) 64%, transparent) calc(var(--wp, 0) * 100%),
+			color-mix(in srgb, var(--foreground) 64%, transparent) 100%
+		);
 	}
 	.lyrics-stack.instant .lyric-line {
 		transition: none;
@@ -848,7 +893,9 @@
 		.lyric-line.reply,
 		.lyric-line.reply.near,
 		.lyric-line.reply.active,
-		.lyric-line.reply.past {
+		.lyric-line.reply.past,
+		.lyric-lead,
+		.lyric-line.past .lyric-lead {
 			transform: none;
 			filter: none;
 		}

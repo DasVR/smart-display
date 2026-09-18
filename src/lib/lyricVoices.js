@@ -6,6 +6,7 @@
  *  call-and-response read as a single sequential karaoke. */
 
 const PAREN_LINE_RE = /^\s*[\(\[\{].+[\)\]\}]\s*$/;
+const REPEAT_MARK_RE = /^\s*[\(\[\{]\s*(x?\d+|repeat)\s*[\)\]\}]\s*$/i;
 const SPEAKER_PREFIX_RE = /^([A-Z][A-Za-z][A-Za-z'’.\-]{0,18})\s*:\s*\S/;
 const NOT_SPEAKER_RE =
 	/^(verse|chorus|bridge|intro|outro|hook|refrain|pre-?chorus|interlude|instrumental|solo|breakdown|ending|title|lyrics|composer|producer|feat|ft|rap|spoken|talking|narrator)$/i;
@@ -46,17 +47,66 @@ function looksLikeChorusEcho(prev, line) {
 	const n = wordCount(text);
 	const prevN = wordCount(prev.text);
 	const start = Number(line.time) || 0;
-	const prevStart = Number(prev.time) || 0;
 	const prevEnd = lastSungTime(prev, start);
 	const during = start < prevEnd - 0.02;
-	const rightAfter = start - prevEnd <= 0.55 && start >= prevStart;
-	// Parentheticals can sit just after the lead. Other short lines only
-	// tuck under while the lead is still singing - a 2-word next verse
-	// is just the next karaoke row.
-	if (PAREN_LINE_RE.test(text) && (during || rightAfter)) return true;
+	// Parentheses mark backing vocals even a bar later. Other short lines
+	// only tuck under while the lead is still singing.
+	if (isParenGroup(text) && start - prevEnd <= 6) return true;
 	if (!during) return false;
 	if (n <= 2 && n < prevN) return true;
 	return n <= 3 && n <= Math.max(1, Math.floor(prevN * 0.45));
+}
+
+function peelTrailingParentheticals(line) {
+	if (!line || isParenGroup(line.text)) return line;
+	const extras = [];
+	let words = Array.isArray(line.words) ? line.words.map((word) => ({ ...word })) : null;
+	let text = String(line.text || '');
+	if (words?.length) {
+		while (words.length >= 2) {
+			let peeled = false;
+			for (let n = 1; n <= Math.min(6, words.length - 1); n++) {
+				const tail = words.slice(words.length - n);
+				const joined = tail.map((word) => word.text).join(' ');
+				if (!isParenGroup(joined)) continue;
+				const lastEnd = Number(tail[tail.length - 1].end);
+				extras.unshift(
+					asBackgroundPart({
+						time: tail[0].time,
+						end: Number.isFinite(lastEnd) ? lastEnd : undefined,
+						text: joined,
+						words: tail
+					})
+				);
+				words = words.slice(0, words.length - n);
+				peeled = true;
+				break;
+			}
+			if (!peeled) break;
+		}
+		text = words.map((word) => word.text).join(' ');
+	} else {
+		const trailing = /^(.*?)\s+([\(\[\{][^)\]\}]+[\)\]\}])\s*$/;
+		let m = text.trim().match(trailing);
+		while (m && m[1].trim() && isParenGroup(m[2])) {
+			extras.unshift(asBackgroundPart({ time: line.time, end: line.end, text: m[2] }));
+			text = m[1].trim();
+			m = text.match(trailing);
+		}
+	}
+	if (!extras.length) return line;
+	const background = [...extras, ...(line.background || [])];
+	const next = { ...line, text, background };
+	if (words) {
+		if (words.length) next.words = words;
+		else delete next.words;
+	}
+	return next;
+}
+
+function isParenGroup(text) {
+	const t = String(text || '').trim();
+	return PAREN_LINE_RE.test(t) && !REPEAT_MARK_RE.test(t);
 }
 
 function asBackgroundPart(line) {
@@ -163,7 +213,7 @@ export function annotateLyricVoices(lines) {
 	const src = stampSpeakers(Array.isArray(lines) ? lines : []);
 	const out = [];
 	for (let i = 0; i < src.length; i++) {
-		const line = { ...src[i] };
+		const line = peelTrailingParentheticals({ ...src[i] });
 		if (Array.isArray(line.background) && line.background.length) {
 			line.background = line.background.map((part) => ({ ...part }));
 		}
