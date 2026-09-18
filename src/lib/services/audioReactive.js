@@ -52,6 +52,10 @@ function lerp(a, b, k) {
 	return a + (b - a) * k;
 }
 
+const PUBLISH_MS = 33;
+let lastPublish = 0;
+let publishedBass = -1;
+
 function loop() {
 	if (paused) return;
 	const now = performance.now();
@@ -71,8 +75,14 @@ function loop() {
 		}
 	}
 
-	bassLevel.set(currentBass);
-	spectrum.set(currentBins.slice());
+	if (now - lastPublish >= PUBLISH_MS) {
+		lastPublish = now;
+		if (Math.abs(currentBass - publishedBass) > 0.008) {
+			publishedBass = currentBass;
+			bassLevel.set(currentBass);
+		}
+		spectrum.set(currentBins.slice());
+	}
 	rafId = requestAnimationFrame(loop);
 }
 

@@ -97,6 +97,7 @@ test('airplay metadata parser marks seeking on a flush and clears it on the next
 		item('73736e63', '70726772', '0/441000/12039300') +
 		item('73736e63', '70666c73');
 	assert.equal(parse(midFlush).seeking, true);
+	assert.ok(parse(midFlush).positionAt > 0, 'flush bakes the clock so karaoke does not rewind');
 
 	const afterSeek =
 		item('636f7265', '6d696e6d', 'My Way') +

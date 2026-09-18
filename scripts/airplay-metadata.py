@@ -224,6 +224,10 @@ def apply_item(typ, code, data):
 	elif code == "pfls":
 		# Flush fires on skip/seek. Audio is still the AirPlay session, but
 		# the position we're holding is now stale until the next prgr lands.
+		# Bake the extrapolated clock first so karaoke does not rewind to
+		# the last prgr, then freeze until that landing (or the client
+		# expires a stuck seeking flag).
+		freeze_position()
 		state["seeking"] = True
 		changed = True
 	elif code == "prsm":
