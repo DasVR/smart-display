@@ -843,27 +843,29 @@
 	.lyric-bg {
 		display: block;
 		margin-top: 0.32em;
-		font-size: 0.7em;
-		font-weight: 600;
+		font-size: 0.72em;
+		font-weight: 650;
 		letter-spacing: 0.01em;
 		line-height: 1.35;
-		color: color-mix(in srgb, var(--foreground) 82%, transparent);
-		opacity: 0.78;
+		color: color-mix(in srgb, var(--foreground) 90%, transparent);
+		opacity: 0.9;
 		filter: none;
 	}
 	.lyric-line.near .lyric-bg {
-		opacity: 0.86;
+		opacity: 0.94;
 	}
 	.lyric-line.past .lyric-bg {
-		opacity: 0.62;
+		opacity: 0.78;
+		color: color-mix(in srgb, var(--foreground) 84%, transparent);
 	}
 	.lyric-line.active .lyric-bg,
-	.lyric-bg.singing {
-		opacity: 0.96;
-		color: color-mix(in srgb, var(--foreground) 94%, transparent);
+	.lyric-line .lyric-bg.singing,
+	.lyric-line.past .lyric-bg.singing {
+		opacity: 1;
+		color: color-mix(in srgb, var(--foreground) 96%, transparent);
 	}
 	.lyric-bg .lyric-word {
-		opacity: 0.8;
+		opacity: 0.9;
 	}
 	.lyric-line.active .lyric-bg .lyric-word.sung,
 	.lyric-bg .lyric-word.sung,
@@ -878,8 +880,8 @@
 			to right,
 			var(--foreground) 0%,
 			var(--foreground) calc(var(--wp, 0) * 100%),
-			color-mix(in srgb, var(--foreground) 64%, transparent) calc(var(--wp, 0) * 100%),
-			color-mix(in srgb, var(--foreground) 64%, transparent) 100%
+			color-mix(in srgb, var(--foreground) 78%, transparent) calc(var(--wp, 0) * 100%),
+			color-mix(in srgb, var(--foreground) 78%, transparent) 100%
 		);
 	}
 	.lyrics-stack.instant .lyric-line {

@@ -91,18 +91,56 @@ export function wordEndTime(words, index, lineEndTime, nextLineStart) {
 	return end;
 }
 
+/** Last clock on chorus / parenthetical rows tucked under this lead. */
+function lastBackgroundEnd(line, nextLineStart) {
+	const parts = line?.background;
+	if (!Array.isArray(parts) || !parts.length) return 0;
+	let last = 0;
+	for (const part of parts) {
+		const words = part?.words;
+		if (Array.isArray(words) && words.length) {
+			last = Math.max(
+				last,
+				wordEndTime(words, words.length - 1, part.end, nextLineStart)
+			);
+			continue;
+		}
+		const end = Number(part?.end);
+		if (Number.isFinite(end) && end > last) {
+			last = end;
+			continue;
+		}
+		const start = Number(part?.time) || 0;
+		if (start > last) last = start + DEFAULT_WORD_SPAN_SEC;
+	}
+	return last;
+}
+
+function lastVoiceEnd(line, nextLineStart) {
+	const bgEnd = lastBackgroundEnd(line, nextLineStart);
+	const words = line?.words;
+	if (Array.isArray(words) && words.length) {
+		return Math.max(
+			wordEndTime(words, words.length - 1, line.end, nextLineStart),
+			bgEnd
+		);
+	}
+	const start = Number(line?.time) || 0;
+	const lineEnd = Number(line?.end);
+	if (Number.isFinite(lineEnd) && lineEnd > start) return Math.max(lineEnd, bgEnd);
+	return bgEnd;
+}
+
 /** True once playback has passed the last sung clock on this line. Blank
- *  instrumental markers never count — those stay "on" so the dots can run. */
+ *  instrumental markers never count — those stay "on" so the dots can run.
+ *  Parenthetical chorus rows under the lead keep the line live until the
+ *  echo finishes, so the smaller text does not dim as soon as the lead does. */
 export function lineSungThrough(line, position, nextLineStart) {
 	if (!line?.text) return false;
 	const t = Number(position) || 0;
-	const words = line.words;
-	if (Array.isArray(words) && words.length) {
-		return t >= wordEndTime(words, words.length - 1, line.end, nextLineStart);
-	}
-	const lineEnd = Number(line.end);
-	if (Number.isFinite(lineEnd) && lineEnd > (Number(line.time) || 0)) return t >= lineEnd;
-	return false;
+	const end = lastVoiceEnd(line, nextLineStart);
+	if (!(end > 0)) return false;
+	return t >= end;
 }
 
 /** True while playback is inside this line's sung window. Overlapping
@@ -242,17 +280,23 @@ const DEFAULT_OUTRO_SWEEP_SEC = 12;
 export function lineEndClock(line, nextLineStart) {
 	if (!line) return 0;
 	if (!line.text) return Number(line.time) || 0;
+	const bgEnd = lastBackgroundEnd(line, nextLineStart);
 	const words = line.words;
 	if (Array.isArray(words) && words.length) {
-		return wordEndTime(words, words.length - 1, line.end, nextLineStart);
+		return Math.max(
+			wordEndTime(words, words.length - 1, line.end, nextLineStart),
+			bgEnd
+		);
 	}
 	const start = Number(line.time) || 0;
 	const lineEnd = Number(line.end);
 	if (Number.isFinite(lineEnd) && lineEnd > start) {
-		if (lineEnd - start >= INSTRUMENTAL_GAP_SEC) return start + DEFAULT_LINE_HOLD_SEC;
-		return lineEnd;
+		if (lineEnd - start >= INSTRUMENTAL_GAP_SEC) {
+			return Math.max(start + DEFAULT_LINE_HOLD_SEC, bgEnd);
+		}
+		return Math.max(lineEnd, bgEnd);
 	}
-	return start + DEFAULT_LINE_HOLD_SEC;
+	return Math.max(start + DEFAULT_LINE_HOLD_SEC, bgEnd);
 }
 
 function restEndFromLength(start, length) {
