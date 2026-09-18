@@ -63,12 +63,79 @@ test('annotateLyricVoices tucks a parenthetical chorus under the lead', () => {
 });
 
 test('voice demo staggers a reply and tucks a chorus echo under the lead', () => {
-	assert.equal(VOICE_DEMO_LINES.length, 3);
+	assert.equal(VOICE_DEMO_LINES.length, 4);
 	assert.equal(VOICE_DEMO_LINES[0].part, 'lead');
 	assert.equal(VOICE_DEMO_LINES[1].part, 'reply');
 	assert.equal(VOICE_DEMO_LINES[1].side, 'right');
 	assert.equal(VOICE_DEMO_LINES[2].background[0].text, 'now');
 	assert.equal(VOICE_DEMO_LINES[2].background[1].text, 'hold it');
+	assert.equal(VOICE_DEMO_LINES[3].part, 'lead');
+	assert.equal(VOICE_DEMO_LINES[3].side, 'left');
+	assert.equal(isLyricReply(VOICE_DEMO_LINES[3]), false);
+});
+
+test('annotateLyricVoices does not indent back-to-back agent turns', () => {
+	const lines = annotateLyricVoices([
+		{
+			time: 1,
+			end: 3,
+			agent: 'v1',
+			text: 'Call it out',
+			words: [
+				{ time: 1, text: 'Call', end: 1.4 },
+				{ time: 1.4, text: 'it', end: 1.7 },
+				{ time: 1.7, text: 'out', end: 2.9 }
+			]
+		},
+		{
+			time: 3.05,
+			end: 5.2,
+			agent: 'v2',
+			text: 'Send it back',
+			words: [
+				{ time: 3.05, text: 'Send', end: 3.4 },
+				{ time: 3.4, text: 'it', end: 3.7 },
+				{ time: 3.7, text: 'back', end: 5.1 }
+			]
+		}
+	]);
+	assert.equal(lines.length, 2);
+	assert.equal(lines[0].part, 'lead');
+	assert.equal(lines[0].side, 'left');
+	assert.equal(lines[1].part, 'lead');
+	assert.equal(lines[1].side, 'left');
+	assert.equal(isLyricReply(lines[1]), false);
+});
+
+test('annotateLyricVoices ignores a tiny clock abutment as overlap', () => {
+	const lines = annotateLyricVoices([
+		{ time: 10, end: 12.5, text: 'Keep the line', words: [{ time: 10, text: 'Keep', end: 12.45 }] },
+		{ time: 12.4, end: 14.5, text: 'Then walk on', words: [{ time: 12.4, text: 'Then', end: 14.4 }] }
+	]);
+	assert.equal(lines.length, 2);
+	assert.equal(isLyricReply(lines[1]), false);
+	assert.equal(lines[1].part, 'lead');
+});
+
+test('annotateLyricVoices does not tuck a short next verse under the lead', () => {
+	const lines = annotateLyricVoices([
+		{
+			time: 10,
+			end: 12,
+			text: 'Keep the line going',
+			words: [
+				{ time: 10, text: 'Keep', end: 10.4 },
+				{ time: 10.4, text: 'the', end: 10.7 },
+				{ time: 10.7, text: 'line', end: 11.2 },
+				{ time: 11.2, text: 'going', end: 12 }
+			]
+		},
+		{ time: 12.3, end: 13.6, text: 'Take care', words: [{ time: 12.3, text: 'Take', end: 12.8 }, { time: 12.8, text: 'care', end: 13.6 }] }
+	]);
+	assert.equal(lines.length, 2);
+	assert.equal(lines[0].background, undefined);
+	assert.equal(lines[1].text, 'Take care');
+	assert.equal(isLyricReply(lines[1]), false);
 });
 
 test('parseTTML splits a top-level br into a smaller row under the lead', () => {

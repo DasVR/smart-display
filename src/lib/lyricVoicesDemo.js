@@ -64,6 +64,13 @@ export const VOICE_DEMO_LINES = annotateLyricVoices([
 				words: [word(5.7, 'hold', 6.0), word(6.0, 'it', 6.3)]
 			}
 		]
+	},
+	{
+		time: 6.8,
+		end: 9.2,
+		agent: 'v2',
+		text: 'Then walk on',
+		words: [word(6.8, 'Then', 7.1), word(7.1, 'walk', 7.6), word(7.6, 'on', 9.0)]
 	}
 ]);
 

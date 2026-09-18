@@ -13,17 +13,19 @@ function wordCount(text) {
 		.filter(Boolean).length;
 }
 
-function lineEndGuess(line, nextTime) {
+/** Last clock this line is still singing. Prefer the last word's end so a
+ *  TTML `<p end>` that lands on the next row does not look like overlap. */
+function lastSungTime(line, nextTime) {
+	const start = Number(line?.time) || 0;
 	const words = line?.words;
 	if (Array.isArray(words) && words.length) {
 		const last = words[words.length - 1];
 		const end = Number(last.end);
-		if (Number.isFinite(end) && end > 0) return end;
+		if (Number.isFinite(end) && end > start) return end;
 		const t = Number(last.time);
-		if (Number.isFinite(t)) return t;
+		if (Number.isFinite(t)) return t + 0.55;
 	}
 	const stamped = Number(line?.end);
-	const start = Number(line?.time) || 0;
 	if (Number.isFinite(stamped) && stamped > start) return stamped;
 	const next = Number(nextTime);
 	if (Number.isFinite(next) && next > start) return Math.min(next, start + 2.4);
@@ -40,13 +42,16 @@ function looksLikeChorusEcho(prev, line) {
 	const prevN = wordCount(prev.text);
 	const start = Number(line.time) || 0;
 	const prevStart = Number(prev.time) || 0;
-	const prevEnd = lineEndGuess(prev, start);
+	const prevEnd = lastSungTime(prev, start);
 	const during = start < prevEnd - 0.02;
 	const rightAfter = start - prevEnd <= 0.55 && start >= prevStart;
-	if (!(during || rightAfter)) return false;
-	if (PAREN_LINE_RE.test(text)) return true;
-	if (n <= 2 && n < prevN && (during || rightAfter)) return true;
-	return during && n <= 3 && n <= Math.max(1, Math.floor(prevN * 0.45));
+	// Parentheticals can sit just after the lead. Other short lines only
+	// tuck under while the lead is still singing - a 2-word next verse
+	// is just the next karaoke row.
+	if (PAREN_LINE_RE.test(text) && (during || rightAfter)) return true;
+	if (!during) return false;
+	if (n <= 2 && n < prevN) return true;
+	return n <= 3 && n <= Math.max(1, Math.floor(prevN * 0.45));
 }
 
 function asBackgroundPart(line) {
@@ -60,31 +65,23 @@ function asBackgroundPart(line) {
 	return part;
 }
 
+/** Simultaneous singing, not turn-taking. Back-to-back vocals often share
+ *  a 50-200ms clock abutment or a `<p end>` that equals the next begin. */
+const MIN_CONVERSATION_OVERLAP_SEC = 0.45;
+
 function overlapsConversation(prev, line) {
 	if (!prev?.text || !line?.text) return false;
 	const start = Number(line.time) || 0;
 	const prevStart = Number(prev.time) || 0;
 	if (!(start > prevStart)) return false;
-	const prevEnd = lineEndGuess(prev, start);
-	return start < prevEnd - 0.12;
+	const prevEnd = lastSungTime(prev, start);
+	return prevEnd - start >= MIN_CONVERSATION_OVERLAP_SEC;
 }
 
 function assignConversationSides(lines) {
-	const agents = [];
-	for (const line of lines) {
-		const agent = String(line?.agent || '').trim();
-		if (agent && !agents.includes(agent)) agents.push(agent);
-	}
-	const duet = agents.length >= 2;
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 		if (!line?.text) continue;
-		if (duet && line.agent) {
-			const idx = agents.indexOf(String(line.agent));
-			line.side = idx % 2 === 0 ? 'left' : 'right';
-			line.part = line.part || (line.side === 'right' ? 'reply' : 'lead');
-			continue;
-		}
 		const prev = lines[i - 1];
 		if (prev?.text && overlapsConversation(prev, line)) {
 			const prevRight = prev.side === 'right';
