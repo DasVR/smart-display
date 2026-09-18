@@ -77,6 +77,12 @@
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
 
+	function selectView(v) {
+		if (!VIEWS.includes(v) || $currentView === v) return;
+		currentView.set(v);
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: v }));
+	}
+
 	function updateIndicator() {
 		const idx = VIEWS.indexOf($currentView);
 		const btn = tabRefs[idx];
@@ -165,7 +171,7 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
-					if (!lockMusicDemo) currentView.set(msg.view);
+					if (!lockMusicDemo && msg.view && msg.view !== $currentView) currentView.set(msg.view);
 				}
 				if (msg.type === 'notify') {
 					pushIslandEvent({
@@ -201,7 +207,7 @@
 					applyAudioFrame(msg);
 				}
 				if (msg.type === 'init') {
-					if (msg.view && !lockMusicDemo) currentView.set(msg.view);
+					if (msg.view && !lockMusicDemo && msg.view !== $currentView) currentView.set(msg.view);
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
 				}
@@ -346,10 +352,10 @@
 		let idx = VIEWS.indexOf($currentView);
 		if (idx === -1) idx = 0;
 		if (e.key === 'ArrowRight') {
-			currentView.set(VIEWS[(idx + 1) % VIEWS.length]);
+			selectView(VIEWS[(idx + 1) % VIEWS.length]);
 		}
 		if (e.key === 'ArrowLeft') {
-			currentView.set(VIEWS[(idx - 1 + VIEWS.length) % VIEWS.length]);
+			selectView(VIEWS[(idx - 1 + VIEWS.length) % VIEWS.length]);
 		}
 	}
 
@@ -651,11 +657,11 @@
 						style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
 						aria-hidden="true"
 					></span>
-					{#each VIEWS as v, i}
+					{#each VIEWS as v, i (v)}
 						<button
 							class="view-tab"
 							class:active={$currentView === v}
-							onclick={() => currentView.set(v)}
+							onclick={() => selectView(v)}
 							aria-current={$currentView === v ? 'page' : undefined}
 							bind:this={tabRefs[i]}
 						>
@@ -773,7 +779,7 @@
 		z-index: 1;
 		background-size: cover;
 		background-position: center;
-		filter: blur(90px) saturate(1.3) brightness(0.65);
+		filter: blur(42px) saturate(1.25) brightness(0.65);
 		transform: translateZ(0);
 		pointer-events: none;
 	}
@@ -1012,6 +1018,7 @@
 		justify-content: stretch;
 		align-items: stretch;
 		pointer-events: auto;
+		animation: none;
 	}
 	.music-pane :global(.music-view) {
 		flex: 1;

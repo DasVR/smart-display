@@ -316,7 +316,7 @@
 	}
 	.island-pill.active {
 		opacity: 1;
-		pointer-events: auto;
+		pointer-events: none;
 		border-radius: 0 0 1.75rem 1.75rem;
 		box-shadow:
 			0 20px 46px color-mix(in srgb, var(--abyss) 78%, transparent),

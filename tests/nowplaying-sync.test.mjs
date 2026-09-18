@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { livePlaybackPosition } from '../src/lib/playbackClock.js';
-import { mergeNowPlayingSample, OPTIMISTIC_HOLD_MS } from '../src/lib/nowPlayingMerge.js';
+import { livePlaybackPosition, SEEK_STALE_MS } from '../src/lib/playbackClock.js';
+import { mergeNowPlayingSample, OPTIMISTIC_HOLD_MS, reuseLyrics } from '../src/lib/nowPlayingMerge.js';
 
 const live = {
 	playing: true,
@@ -192,4 +192,31 @@ test('mergeNowPlayingSample takes a paused AirPlay sample instead of dropping th
 	assert.equal(merged.paused, true);
 	assert.equal(merged.title, 'Daylight');
 	assert.equal(merged.position, 44.2);
+});
+
+test('mergeNowPlayingSample keeps the same lyrics array across identical polls', () => {
+	const lyrics = [{ time: 1, text: 'one' }, { time: 4, text: 'two' }];
+	const current = { ...live, lyrics, lyricsSource: 'community' };
+	const incoming = {
+		...live,
+		position: 14.2,
+		positionAt: 5_000,
+		lyrics: [{ time: 1, text: 'one' }, { time: 4, text: 'two' }],
+		lyricsSource: 'community'
+	};
+	const merged = mergeNowPlayingSample(current, incoming, 5_000);
+	assert.equal(merged.lyrics, lyrics);
+	assert.equal(reuseLyrics(current, incoming).lyrics, lyrics);
+});
+
+test('mergeNowPlayingSample lets a stale stuck seek start moving again', () => {
+	const current = {
+		...live,
+		position: 40,
+		positionAt: 1_000,
+		seeking: true
+	};
+	const incoming = { ...live, position: 40, positionAt: 1_000, seeking: true };
+	const merged = mergeNowPlayingSample(current, incoming, 1_000 + SEEK_STALE_MS + 200);
+	assert.ok(livePlaybackPosition(merged, 1_000 + SEEK_STALE_MS + 200) >= 40);
 });

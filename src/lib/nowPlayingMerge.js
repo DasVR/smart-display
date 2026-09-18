@@ -1,4 +1,4 @@
-import { isPlaybackJump, livePlaybackPosition } from './playbackClock.js';
+import { isPlaybackJump, isSeekingClock, livePlaybackPosition } from './playbackClock.js';
 
 export const OPTIMISTIC_HOLD_MS = 1200;
 /** After a kiosk scrub, keep the chosen clock until a nearby sample
@@ -65,7 +65,7 @@ export function adoptPlaybackClock(current, incoming, now = Date.now()) {
 	if (!incoming) return current ?? null;
 	if (!current) return incoming;
 	if (!sameTrack(current, incoming)) return incoming;
-	if (incoming.seeking) return incoming;
+	if (incoming.seeking && isSeekingClock(incoming, now)) return incoming;
 	if (Boolean(incoming.playing) !== Boolean(current.playing)) return incoming;
 
 	const liveCur = livePlaybackPosition(current, now);
@@ -107,6 +107,26 @@ export function adoptPlaybackClock(current, incoming, now = Date.now()) {
 	return incoming;
 }
 
+function lyricsFingerprint(track) {
+	const lines = track?.lyrics;
+	if (!Array.isArray(lines) || !lines.length) return `${track?.lyricsSource || ''}:0`;
+	const first = lines[0];
+	const last = lines[lines.length - 1];
+	return `${track.lyricsSource || ''}:${lines.length}:${first?.time}:${first?.text}:${last?.time}:${last?.text}`;
+}
+
+/** Keep the on-screen lyric array identity across polls that only restamp
+ *  the same file, so the Music view does not reconcile hundreds of word
+ *  spans every second. */
+export function reuseLyrics(current, incoming) {
+	if (!incoming || incoming.lyrics === current?.lyrics) return incoming;
+	if (!current?.lyrics || !incoming.lyrics) return incoming;
+	if (lyricsFingerprint(current) === lyricsFingerprint(incoming)) {
+		return { ...incoming, lyrics: current.lyrics };
+	}
+	return incoming;
+}
+
 /** Merge a freshly polled sample over the on-screen track. Disconnect
  *  always wins. Mid-hold, keep the optimistic transport/clock unless the
  *  server has actually landed on that seek (or matched play/pause). */
@@ -119,29 +139,40 @@ export function mergeNowPlayingSample(current, incoming, now = Date.now()) {
 
 	const until = Number(current.optimisticUntil) || 0;
 	const holding = until > now;
-	if (!holding) return adoptPlaybackClock(current, incoming, now);
-
-	const sameTransport = incoming.playing === current.playing;
-	if (sameTransport && !current.seeking) {
-		return { ...adoptPlaybackClock(current, incoming, now), optimisticUntil: 0 };
-	}
-
-	if (current.seeking) {
-		if (!incoming.seeking && nearSeekTarget(current, incoming)) {
-			return restampLanding(incoming, now);
+	let merged;
+	if (!holding) {
+		merged = adoptPlaybackClock(current, incoming, now);
+	} else {
+		const sameTransport = incoming.playing === current.playing;
+		if (sameTransport && !current.seeking) {
+			merged = { ...adoptPlaybackClock(current, incoming, now), optimisticUntil: 0 };
+		} else if (current.seeking) {
+			if (!incoming.seeking && nearSeekTarget(current, incoming)) {
+				merged = restampLanding(incoming, now);
+			} else if (isPlaybackJump(current, incoming, now) && nearSeekTarget(current, incoming)) {
+				merged = restampLanding(incoming, now);
+			} else {
+				merged = {
+					...incoming,
+					playing: current.playing,
+					paused: current.paused,
+					position: current.position,
+					positionAt: current.positionAt,
+					seeking: current.seeking,
+					optimisticUntil: until
+				};
+			}
+		} else {
+			merged = {
+				...incoming,
+				playing: current.playing,
+				paused: current.paused,
+				position: current.position,
+				positionAt: current.positionAt,
+				seeking: current.seeking,
+				optimisticUntil: until
+			};
 		}
-		if (isPlaybackJump(current, incoming, now) && nearSeekTarget(current, incoming)) {
-			return restampLanding(incoming, now);
-		}
 	}
-
-	return {
-		...incoming,
-		playing: current.playing,
-		paused: current.paused,
-		position: current.position,
-		positionAt: current.positionAt,
-		seeking: current.seeking,
-		optimisticUntil: until
-	};
+	return reuseLyrics(current, merged);
 }

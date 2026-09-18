@@ -17,8 +17,12 @@ import {
 	letterWave,
 	livePlaybackPosition,
 	LYRIC_LEAD_SEC,
+	lyricFocusIndex,
+	lyricWindowStart,
+	LYRIC_WINDOW_SIZE,
 	lyricsAreSynced,
 	MAX_LAST_WORD_SEC,
+	SEEK_STALE_MS,
 	singingLyricIndex,
 	wordEndTime,
 	wordProgress,
@@ -69,6 +73,12 @@ test('livePlaybackPosition freezes at the last sample while seeking, instead of 
 	// mid-seek, `position` is about to go stale, so it should hold still.
 	assert.equal(livePlaybackPosition(track, 3_000), 10);
 	assert.equal(livePlaybackPosition({ ...track, seeking: false }, 3_000), 12);
+});
+
+test('livePlaybackPosition resumes after a stuck seek so karaoke keeps moving', () => {
+	const track = { playing: true, position: 40, positionAt: 1_000, length: 200, seeking: true };
+	assert.equal(livePlaybackPosition(track, 1_000 + SEEK_STALE_MS), 40);
+	assert.ok(livePlaybackPosition(track, 1_000 + SEEK_STALE_MS + 1_000) > 40.9);
 });
 
 test('activeLyricIndex follows the last line that has started', () => {
@@ -487,4 +497,23 @@ test('isLineSinging lets overlapping duet lines paint at the same clock', () => 
 	assert.equal(isLineSinging(reply, 11.5, undefined), true);
 	assert.equal(isLineSinging(lead, 9.5, reply.time), false);
 	assert.equal(isLineSinging(lead, 14.2, reply.time), false);
+});
+
+test('lyricFocusIndex stays on a singing line then the rest after it', () => {
+	const lines = [
+		{ time: 1, text: 'one', words: [{ time: 1, end: 1.4, text: 'one' }] },
+		{ time: 8, text: 'two', words: [{ time: 8, end: 8.4, text: 'two' }] }
+	];
+	assert.equal(lyricFocusIndex(lines, 1.1, 40), 0);
+	assert.equal(lyricFocusIndex(lines, 4, 40), 0);
+	assert.equal(lyricFocusIndex(lines, 8.1, 40), 1);
+});
+
+test('lyricWindowStart only shifts when the origin walks near an edge', () => {
+	assert.equal(lyricWindowStart(12, 5, 0), 0);
+	assert.equal(lyricWindowStart(80, 5, 0), 0);
+	const shifted = lyricWindowStart(80, 40, 0);
+	assert.ok(shifted > 0);
+	assert.equal(lyricWindowStart(80, shifted + 8, shifted), shifted);
+	assert.notEqual(lyricWindowStart(80, shifted + LYRIC_WINDOW_SIZE - 2, shifted), shifted);
 });
