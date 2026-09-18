@@ -48,15 +48,9 @@ export const VOICE_DEMO_LINES = annotateLyricVoices([
 		time: 3.5,
 		end: 6.4,
 		agent: 'v1',
-		text: 'Keep the line',
-		words: [word(3.5, 'Keep', 3.9), word(3.9, 'the', 4.2), word(4.2, 'line', 6.2)],
+		text: 'Keep the line (now)',
+		words: [word(3.5, 'Keep', 3.9), word(3.9, 'the', 4.2), word(4.2, 'line', 4.7), word(4.7, '(now)', 5.6)],
 		background: [
-			{
-				time: 4.7,
-				end: 5.6,
-				text: 'now',
-				words: [word(4.7, 'now', 5.6)]
-			},
 			{
 				time: 5.7,
 				end: 6.3,
