@@ -4,8 +4,9 @@
  * Cider highlights lyrics against the player's sample time (MusicKit /
  * HTMLAudio currentTime), not against a stale HTTP poll. This kiosk is not
  * an Apple Music client, so it cannot read AMP TTML syllable-lyrics. The
- * analogue we do have is a stamped sample: AirPlay `prgr` RTP clocks at
- * 44100 Hz, MPRIS `playerctl position`, then extrapolate while playing.
+ * analogue we do have is a stamped sample: AirPlay `prgr` RTP clocks
+ * (scaled to the track's `astm` duration so 48kHz AirPlay 2 does not run
+ * fast), MPRIS `playerctl position`, then extrapolate while playing.
  *
  * Heartbeats and polls must refresh liveness (`updatedAt`) without moving
  * `positionAt`. Using `updatedAt` as the sample time rewinds lyrics every

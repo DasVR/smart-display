@@ -31,6 +31,7 @@ ITEM_RE = re.compile(
 )
 
 FRAMES = 44100
+FRAMES_48000 = 48000
 RTP_MOD = 2**32
 
 state = {
@@ -51,6 +52,12 @@ state = {
 	# "don't trust position/positionAt for extrapolation right now" instead
 	# of quietly drifting further from reality on every heartbeat.
 	"seeking": False,
+	# Last AirPlay `prgr` RTP triple. Kept so a later `astm` duration can
+	# rescale a 48kHz clock; dividing those timestamps by 44100 made a
+	# mid-song scrub land about 10 seconds fast.
+	"_rtp": None,
+	"_astm_length": 0.0,
+	"sampleRate": FRAMES,
 }
 
 
@@ -118,6 +125,9 @@ def clear_session():
 	state["positionAt"] = 0
 	state["length"] = 0
 	state["seeking"] = False
+	state["_rtp"] = None
+	state["_astm_length"] = 0.0
+	state["sampleRate"] = FRAMES
 
 
 def write_state():
@@ -125,9 +135,10 @@ def write_state():
 	directory = os.path.dirname(STATE_PATH)
 	if directory:
 		os.makedirs(directory, exist_ok=True)
+	public = {key: value for key, value in state.items() if not str(key).startswith("_")}
 	tmp = STATE_PATH + ".tmp"
 	with open(tmp, "w", encoding="utf-8") as handle:
-		json.dump(state, handle)
+		json.dump(public, handle)
 	os.replace(tmp, STATE_PATH)
 
 
@@ -146,6 +157,41 @@ def parse_int(data):
 	return None
 
 
+def infer_sample_rate(rtp_len, duration):
+	if duration > 1 and rtp_len > 0:
+		rate = rtp_len / duration
+		if abs(rate - FRAMES_48000) < abs(rate - FRAMES):
+			return FRAMES_48000
+		return FRAMES
+	return int(state.get("sampleRate") or FRAMES)
+
+
+def apply_clock(stamp=False):
+	rtp = state.get("_rtp")
+	if not rtp:
+		return False
+	start, current, end = rtp
+	rtp_len = rtp_delta(start, end)
+	rtp_pos = rtp_delta(start, current)
+	if rtp_len <= 0:
+		return False
+	duration = float(state.get("_astm_length") or 0)
+	rate = infer_sample_rate(rtp_len, duration)
+	state["sampleRate"] = rate
+	if duration > 1:
+		length = duration
+		position = rtp_pos * duration / rtp_len
+	else:
+		length = rtp_len / rate
+		position = rtp_pos / rate
+	state["length"] = length
+	state["position"] = min(position, length) if length else position
+	if stamp:
+		state["seeking"] = False
+		stamp_position()
+	return True
+
+
 def apply_progress(data):
 	text = data.decode("utf-8", errors="replace").strip()
 	parts = text.split("/")
@@ -155,15 +201,8 @@ def apply_progress(data):
 		start, current, end = (int(part) for part in parts)
 	except ValueError:
 		return False
-	length = rtp_delta(start, end) / FRAMES
-	position = rtp_delta(start, current) / FRAMES
-	if length <= 0:
-		return False
-	state["length"] = length
-	state["position"] = min(position, length)
-	state["seeking"] = False
-	stamp_position()
-	return True
+	state["_rtp"] = (start, current, end)
+	return apply_clock(stamp=True)
 
 
 def apply_item(typ, code, data):
@@ -208,6 +247,8 @@ def apply_item(typ, code, data):
 		title = data.decode("utf-8", errors="replace")
 		if title != state["title"]:
 			state["position"] = 0
+			state["_rtp"] = None
+			state["_astm_length"] = 0.0
 			# Until the next `prgr` lands, treat a title change like a
 			# flush so the client will accept a start-of-track clock.
 			state["seeking"] = True
@@ -224,10 +265,24 @@ def apply_item(typ, code, data):
 	elif code == "asal":
 		state["album"] = data.decode("utf-8", errors="replace")
 		changed = True
+	elif code == "ofps":
+		# Output rate from shairport-sync, usually "44100" or "48000".
+		rate = parse_int(data)
+		if not rate and data:
+			try:
+				rate = int(float(data.decode("utf-8", errors="ignore").strip()))
+			except ValueError:
+				rate = 0
+		if rate in (FRAMES, FRAMES_48000) and rate != state.get("sampleRate"):
+			state["sampleRate"] = rate
+			apply_clock(stamp=False)
+			changed = True
 	elif code == "astm":
 		millis = parse_int(data)
 		if millis and millis > 0:
-			state["length"] = millis / 1000.0
+			state["_astm_length"] = millis / 1000.0
+			if not apply_clock(stamp=False):
+				state["length"] = state["_astm_length"]
 			changed = True
 	elif code == "PICT" and data:
 		art_dir = os.path.dirname(ART_PATH)
