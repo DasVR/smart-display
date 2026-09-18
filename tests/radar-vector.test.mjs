@@ -1,6 +1,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+	RADAR_THRESHOLDS,
+	RADAR_FALLBACK_COLORS,
+	CONTOUR_CHAIKIN_ITERATIONS,
+	FIELD_MAX_ROWS,
 	marchingSquares,
 	chaikinSmooth,
 	lerpFields,
@@ -89,7 +93,32 @@ describe('marchingSquares', () => {
 	});
 });
 
+describe('radar contour fidelity', () => {
+	it('keeps enough intensity bands that RainViewer color steps stay distinct', () => {
+		assert.ok(RADAR_THRESHOLDS.length >= 10);
+		assert.equal(RADAR_FALLBACK_COLORS.length, RADAR_THRESHOLDS.length);
+		for (let i = 1; i < RADAR_THRESHOLDS.length; i++) {
+			assert.ok(RADAR_THRESHOLDS[i] > RADAR_THRESHOLDS[i - 1]);
+		}
+	});
+
+	it('uses at most one Chaikin pass so cells are not rounded into metaballs', () => {
+		assert.ok(CONTOUR_CHAIKIN_ITERATIONS <= 1);
+	});
+});
+
 describe('chaikinSmooth', () => {
+	it('returns the original polygon when asked for zero iterations', () => {
+		const square = [
+			[0, 0],
+			[10, 0],
+			[10, 10],
+			[0, 10]
+		];
+		const none = chaikinSmooth(square, 0);
+		assert.deepEqual(none, square);
+	});
+
 	it('roughly doubles the point count per iteration', () => {
 		const square = [
 			[0, 0],
@@ -166,6 +195,16 @@ describe('extractField', () => {
 		const field = extractField(imageData, [0.5], ['rgb(1, 2, 3)']);
 		assert.equal(field.colors[0], 'rgb(1, 2, 3)');
 	});
+
+	it('emits one sampled color per default intensity band', () => {
+		const imageData = {
+			width: 1,
+			height: 1,
+			data: new Uint8ClampedArray([10, 20, 30, 0])
+		};
+		const field = extractField(imageData);
+		assert.equal(field.colors.length, RADAR_THRESHOLDS.length);
+	});
 });
 
 describe('fieldExtent', () => {
@@ -208,6 +247,18 @@ describe('fieldGridSize', () => {
 		const wide = fieldGridSize(100000, 100, 72);
 		assert.ok(wide.rows >= 24);
 		const tall = fieldGridSize(100, 100000, 72);
-		assert.ok(tall.rows <= 140);
+		assert.ok(tall.rows <= FIELD_MAX_ROWS);
+		assert.equal(FIELD_MAX_ROWS, 256);
+	});
+
+	it('keeps a 192-col square radar from clamping below native cell density', () => {
+		const { cols, rows } = fieldGridSize(1600, 1600, 192);
+		assert.equal(cols, 192);
+		assert.equal(rows, 192);
+	});
+
+	it('defaults to a 192-col grid so city zoom samples near native rain pixels', () => {
+		const { cols } = fieldGridSize(1600, 1200);
+		assert.equal(cols, 192);
 	});
 });
