@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { availableLyricProviders, providerLabel } from '../src/lib/server/lyricMonitor.js';
+import { availableLyricProviders, getLyricMonitor, providerLabel } from '../src/lib/server/lyricMonitor.js';
 
 const communityLines = [
 	{
@@ -56,4 +56,12 @@ test('availableLyricProviders does not double-list Qwen copied into the lyrics c
 	});
 	assert.equal(providers.length, 1);
 	assert.equal(providers[0].id, 'align:qwen');
+});
+
+test('getLyricMonitor demo mode uses the No Surprises preview track', async () => {
+	const data = await getLyricMonitor({ demo: true });
+	assert.equal(data.track.title, 'No Surprises');
+	assert.equal(data.track.artist, 'Radiohead');
+	assert.ok(Array.isArray(data.providers));
+	assert.ok(data.engine?.engine);
 });

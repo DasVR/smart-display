@@ -8,7 +8,7 @@ import {
 	readCachedAlignmentInfo,
 	trackFingerprint
 } from './forcedAlign.js';
-import { getNowPlaying, pickDisplayLyrics } from './hostData.js';
+import { getNowPlaying, getDemoNowPlaying, pickDisplayLyrics } from './hostData.js';
 import {
 	hasRealWordTiming,
 	lyricsCacheKey,
@@ -107,8 +107,8 @@ function trackFromNowPlaying(np) {
 	};
 }
 
-export async function getLyricMonitor() {
-	const np = await getNowPlaying();
+export async function getLyricMonitor({ demo = false } = {}) {
+	const np = demo ? getDemoNowPlaying() : await getNowPlaying();
 	const track = trackFromNowPlaying(np);
 	const engine = alignEngineInfo() || { engine: 'energy', precise: false, available: ['energy'] };
 	if (!track) {
@@ -139,8 +139,8 @@ export async function getLyricMonitor() {
 	};
 }
 
-export async function applyLyricAction({ action, source } = {}) {
-	const np = await getNowPlaying();
+export async function applyLyricAction({ action, source, demo = false } = {}) {
+	const np = demo ? getDemoNowPlaying() : await getNowPlaying();
 	const track = trackFromNowPlaying(np);
 	if (!track) return { ok: false, error: 'nothing playing' };
 	const peeked = peekLyricsInfo(track.artist, track.title, track.album, track.duration);

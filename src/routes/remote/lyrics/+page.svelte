@@ -11,6 +11,8 @@
 	let error = $state('');
 	let busy = $state('');
 	let openSource = $state('');
+	const demo = typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo');
+	const lyricsUrl = demo ? '/api/lyrics?demo=1' : '/api/lyrics';
 
 	function clock(sec) {
 		const t = Math.max(0, Number(sec) || 0);
@@ -28,7 +30,7 @@
 
 	async function refresh(signal) {
 		try {
-			const r = await fetch('/api/lyrics', { signal });
+			const r = await fetch(lyricsUrl, { signal });
 			if (!r.ok) throw new Error(`lyrics ${r.status}`);
 			data = await r.json();
 			status = data.track ? 'live' : 'idle';
@@ -44,10 +46,10 @@
 	async function act(action, source) {
 		busy = `${action}:${source || ''}`;
 		try {
-			const r = await fetch('/api/lyrics', {
+			const r = await fetch(lyricsUrl, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action, source })
+				body: JSON.stringify({ action, source, demo })
 			});
 			const next = await r.json();
 			if (!r.ok || next.ok === false) throw new Error(next.error || `lyrics ${r.status}`);
