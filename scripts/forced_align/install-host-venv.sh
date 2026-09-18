@@ -3,6 +3,12 @@
 # Not a container, not this Cursor Cloud pod. Bare `pip install whisperx`
 # pulls CUDA torch (~2.5 GB) and fights numpy 2. This recipe does not.
 #
+# The live kiosk checkout is origin/master and does not contain this file.
+# Run it from a copy:
+#   curl -fsSL -o /tmp/install-host-venv.sh \
+#     https://raw.githubusercontent.com/DasVR/smart-display/cursor/whisperx-cpu-host-d064/scripts/forced_align/install-host-venv.sh
+#   bash /tmp/install-host-venv.sh --apply-systemd
+#
 # Target:  das-server host venv  (~/venvs/lyrix)
 # Device:  CPU (Ryzen iGPU; no NVIDIA CUDA wheels)
 set -euo pipefail
@@ -24,6 +30,10 @@ Installs a CPU-only lyrix venv on the kiosk host:
   pip install "numpy<2" whisperx demucs syncedlyrics
   sudo apt-get install -y ffmpeg
 
+This file is not on origin/master. Download it from the branch, or paste
+the same pip commands by hand. Live align.py on master has no whisperx
+engine until that code is deployed; the installer still builds the venv.
+
 Refuses to run inside the Cursor Cloud agent pod unless LYRIX_ALLOW_CLOUD=1.
 Diarization stays off. No HuggingFace token is required.
 lyricsgenius is not installed: Genius is an unsynced optional sheet.
@@ -43,8 +53,10 @@ looks_like_cloud_pod() {
 
 if looks_like_cloud_pod && [[ "${LYRIX_ALLOW_CLOUD:-0}" != "1" ]] && [[ "$DRY" != 1 ]]; then
 	echo "refusing: this looks like the Cursor Cloud pod, not das-server" >&2
-	echo "run on the kiosk host as user das:" >&2
-	echo "  /home/das/projects/smart-display/scripts/forced_align/install-host-venv.sh" >&2
+	echo "the live kiosk tree is origin/master and does not ship this script." >&2
+	echo "on das-server:" >&2
+	echo "  curl -fsSL -o /tmp/install-host-venv.sh https://raw.githubusercontent.com/DasVR/smart-display/cursor/whisperx-cpu-host-d064/scripts/forced_align/install-host-venv.sh" >&2
+	echo "  bash /tmp/install-host-venv.sh --apply-systemd" >&2
 	exit 1
 fi
 
@@ -61,6 +73,23 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install "numpy<2" whisperx demucs syncedlyrics
 sudo apt-get install -y ffmpeg
 EOF
+}
+
+write_drop_in() {
+	# Self-contained so a curl'd copy in /tmp still works.
+	sudo mkdir -p /etc/systemd/system/smart-display-server.service.d
+	sudo tee /etc/systemd/system/smart-display-server.service.d/lyrix.conf >/dev/null <<EOF
+[Service]
+Environment="LYRICS_PYTHON_BIN=${VENV}/bin/python"
+Environment="FORCED_ALIGN_ENGINE=whisperx"
+Environment="FORCED_ALIGN_DEVICE=cpu"
+Environment="FORCED_ALIGN_WHISPER_MODEL=large-v3"
+Environment="FORCED_ALIGN_ALIGN_MODEL=jonatasgrosman/wav2vec2-large-xlsr-53-english"
+Environment="FORCED_ALIGN_SEPARATE=1"
+Environment="PATH=${VENV}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EOF
+	sudo systemctl daemon-reload
+	echo "Wrote systemd drop-in. Restart smart-display-server when ready."
 }
 
 if [[ "$DRY" == 1 ]]; then
@@ -107,14 +136,10 @@ echo "  FORCED_ALIGN_ALIGN_MODEL=jonatasgrosman/wav2vec2-large-xlsr-53-english"
 echo "  FORCED_ALIGN_SEPARATE=1"
 echo
 echo "First align downloads faster-whisper large-v3. Diarization is off."
-echo "Probe: LYRICS_PYTHON_BIN=$VENV/bin/python python3 scripts/forced_align/align.py --probe"
+echo "Live origin/master align.py has no whisperx engine yet."
+echo "Probe after fetching that script, or:"
+echo "  $VENV/bin/python /home/das/projects/smart-display/scripts/forced_align/align.py --probe"
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
-DROP_IN_SRC="$HERE/smart-display-server.lyrix.conf"
 if [[ "$APPLY" == 1 ]]; then
-	sudo mkdir -p /etc/systemd/system/smart-display-server.service.d
-	# Rewrite the venv path in case LYRIX_VENV was overridden.
-	sed "s|/home/das/venvs/lyrix|$VENV|g" "$DROP_IN_SRC" | sudo tee /etc/systemd/system/smart-display-server.service.d/lyrix.conf >/dev/null
-	sudo systemctl daemon-reload
-	echo "Wrote systemd drop-in. Restart smart-display-server when ready."
+	write_drop_in
 fi
