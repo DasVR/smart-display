@@ -18,6 +18,7 @@ import {
 	trackFingerprint
 } from './forcedAlign.js';
 import { DEMO_TRACK, demoNowPlaying } from '../musicDemo.js';
+import { voiceDemoNowPlaying } from '../lyricVoicesDemo.js';
 import {
 	ensureLyricsCached,
 	ensureTrackDurationCached,
@@ -375,6 +376,10 @@ export function getDemoNowPlaying() {
 		lyricsPending: !peeked.known,
 		lyricsSource: source
 	});
+}
+
+export function getVoiceDemoNowPlaying(position, freeze) {
+	return voiceDemoNowPlaying(undefined, { position, freeze });
 }
 
 /** Parse `git status -sb` tracking, e.g. `## master...origin/master [behind 2]`. */

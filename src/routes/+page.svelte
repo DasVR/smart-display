@@ -22,6 +22,7 @@
 	import { islandWeatherSlip, splitNwsAlerts, tickerText } from '$lib/nwsAlerts.js';
 	import { shortDateline } from '$lib/dateline.js';
 	import { DEMO_START_SEC, demoNowPlaying } from '$lib/musicDemo.js';
+	import { voiceDemoNowPlaying } from '$lib/lyricVoicesDemo.js';
 	import {
 		EMPTY_INSTALL_PROGRESS,
 		applyUpgradeEvent,
@@ -66,9 +67,12 @@
 	// `?demo=music` pins the Music view. The kiosk websocket init/navigate
 	// payload would otherwise snap back to Clock as soon as /ws connects.
 	let lockMusicDemo = false;
-	if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('demo') === 'music') {
-		lockMusicDemo = true;
-		currentView.set('music');
+	if (typeof window !== 'undefined') {
+		const demo = new URLSearchParams(window.location.search).get('demo');
+		if (demo === 'music' || demo === 'voices') {
+			lockMusicDemo = true;
+			currentView.set('music');
+		}
 	}
 
 	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
@@ -352,8 +356,9 @@
 	onMount(() => {
 		const preview = new URLSearchParams(window.location.search);
 		const islandPreview = preview.get('island');
-		const musicDemo = islandPreview === 'music' || preview.get('demo') === 'music';
-		if (preview.get('demo') === 'music') {
+		const demoKind = preview.get('demo');
+		const musicDemo = islandPreview === 'music' || demoKind === 'music' || demoKind === 'voices';
+		if (demoKind === 'music' || demoKind === 'voices') {
 			lockMusicDemo = true;
 			currentView.set('music');
 		}
@@ -382,7 +387,16 @@
 			});
 		}
 		let demoLyricsPoll = 0;
-		if (musicDemo) {
+		if (demoKind === 'voices') {
+			currentView.set('music');
+			const t = Number(preview.get('t'));
+			nowPlaying.set(
+				voiceDemoNowPlaying(undefined, {
+					position: Number.isFinite(t) ? t : 1.6,
+					freeze: preview.get('freeze') === '1'
+				})
+			);
+		} else if (musicDemo) {
 			if (preview.get('demo') === 'music') currentView.set('music');
 			const t = Number(preview.get('t'));
 			nowPlaying.set(

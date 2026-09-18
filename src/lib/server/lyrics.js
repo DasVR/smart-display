@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { coalesceLyricWords, lineWithCoalescedWords } from '../lyricWords.js';
+import { annotateLyricVoices } from '../lyricVoices.js';
 import { getLyricsRow, putLyricsRow } from './lyricsStore.js';
 
 // Hits persist in data/lyrics.db (see lyricsStore.js). A karaoke-grade hit
@@ -110,7 +111,7 @@ export function dropNonLyricLines(lines, query = {}) {
 	while (kept.length && isTrailingCreditLine(kept[kept.length - 1]?.text)) {
 		kept.pop();
 	}
-	return kept;
+	return annotateLyricVoices(kept);
 }
 
 function timedWord(time, text, end) {
@@ -269,14 +270,172 @@ function stripMarkup(html) {
 }
 
 const TTML_P_TAG = /<p\b([^>]*)>([\s\S]*?)<\/p>/gi;
-const TTML_SPAN_TAG = /<span\b([^>]*)>([\s\S]*?)<\/span>/gi;
+const SPAN_OPEN_RE = /<span\b([^>]*)>/i;
+const SPAN_CLOSE_RE = /<\/span\s*>/i;
+
+function ttmlRole(attrs) {
+	return xmlAttr(attrs, 'ttm:role') || xmlAttr(attrs, 'role');
+}
+
+function ttmlAgent(attrs) {
+	return xmlAttr(attrs, 'ttm:agent') || xmlAttr(attrs, 'itunes:agent') || xmlAttr(attrs, 'agent');
+}
+
+/** Top-level `<span>` nodes, including nested ones, with source offsets so
+ *  we can see the whitespace between words. A naive non-greedy regex stops
+ *  at the first `</span>` and drops Apple Music `x-bg` wrappers. */
+function extractTopLevelSpans(html) {
+	const src = String(html || '');
+	const out = [];
+	let i = 0;
+	while (i < src.length) {
+		const slice = src.slice(i);
+		const open = slice.match(SPAN_OPEN_RE);
+		if (!open) break;
+		const abs = i + open.index;
+		const attrs = open[1];
+		let depth = 1;
+		let pos = abs + open[0].length;
+		const contentStart = pos;
+		while (pos < src.length && depth > 0) {
+			const rest = src.slice(pos);
+			const nextOpen = rest.search(/<span\b/i);
+			const nextClose = rest.search(SPAN_CLOSE_RE);
+			if (nextClose < 0) {
+				pos = src.length;
+				break;
+			}
+			if (nextOpen >= 0 && nextOpen < nextClose) {
+				const openTag = rest.slice(nextOpen).match(SPAN_OPEN_RE);
+				depth += 1;
+				pos += nextOpen + (openTag ? openTag[0].length : 6);
+			} else {
+				const closeTag = rest.slice(nextClose).match(SPAN_CLOSE_RE);
+				const closeLen = closeTag ? closeTag[0].length : 7;
+				depth -= 1;
+				if (depth === 0) {
+					out.push({
+						attrs,
+						inner: src.slice(contentStart, pos + nextClose),
+						start: abs,
+						end: pos + nextClose + closeLen
+					});
+					i = pos + nextClose + closeLen;
+					break;
+				}
+				pos += nextClose + closeLen;
+			}
+		}
+		if (depth > 0) break;
+	}
+	return out;
+}
+
+function collectTimedWords(html) {
+	const src = String(html || '');
+	const words = [];
+	let cursor = 0;
+	for (const span of extractTopLevelSpans(src)) {
+		const between = src.slice(cursor, span.start);
+		cursor = span.end;
+		const role = ttmlRole(span.attrs);
+		if (role === 'x-translation' || role === 'x-bg') continue;
+		const nested = extractTopLevelSpans(span.inner);
+		if (nested.length) {
+			words.push(...collectTimedWords(span.inner));
+			continue;
+		}
+		const wordBegin = parseTimecode(xmlAttr(span.attrs, 'begin'));
+		const wordEnd = parseTimecode(xmlAttr(span.attrs, 'end'));
+		const raw = decodeLyricChunk(span.inner);
+		const wordText = raw.replace(/\s+/g, ' ').trim();
+		if (wordBegin == null || !wordText) continue;
+		const breakBefore = /\s/.test(decodeLyricChunk(between)) || /^\s/.test(raw);
+		words.push({
+			...timedWord(wordBegin, wordText, wordEnd),
+			...(breakBefore ? { breakBefore: true } : {})
+		});
+	}
+	return words;
+}
+
+function backgroundPartFromSpan(span) {
+	const words = coalesceLyricWords(collectTimedWords(span.inner));
+	const text = words.length ? words.map((w) => w.text).join(' ') : stripMarkup(span.inner);
+	if (!text) return null;
+	const begin = parseTimecode(xmlAttr(span.attrs, 'begin')) ?? (words.length ? words[0].time : null);
+	const lastEnd = words.length ? Number(words[words.length - 1].end) : null;
+	const end = parseTimecode(xmlAttr(span.attrs, 'end')) ?? (Number.isFinite(lastEnd) ? lastEnd : null);
+	const part = { time: begin ?? 0, text };
+	if (Number.isFinite(end) && end > part.time) part.end = end;
+	if (words.length) part.words = words;
+	return part;
+}
+
+function collectBackgroundParts(html) {
+	const parts = [];
+	for (const span of extractTopLevelSpans(html)) {
+		const role = ttmlRole(span.attrs);
+		if (role === 'x-translation') continue;
+		if (role === 'x-bg') {
+			const part = backgroundPartFromSpan(span);
+			if (part) parts.push(part);
+			continue;
+		}
+		parts.push(...collectBackgroundParts(span.inner));
+	}
+	return parts;
+}
+
+/** Apple / AMLL TTML uses a top-level `<br/>` inside a timed `<p>` to put
+ *  a second vocal row under the lead (often without `ttm:role="x-bg"`).
+ *  Nested `<br/>` inside a span is just a space, not a row split. */
+function splitTopLevelByBr(html) {
+	const src = String(html || '');
+	if (!src) return [''];
+	const spans = extractTopLevelSpans(src);
+	const insideSpan = (idx) => spans.some((s) => idx >= s.start && idx < s.end);
+	const rows = [];
+	let last = 0;
+	const brRe = /<br\s*\/?>/gi;
+	let m;
+	while ((m = brRe.exec(src)) !== null) {
+		if (insideSpan(m.index)) continue;
+		rows.push(src.slice(last, m.index));
+		last = m.index + m[0].length;
+	}
+	rows.push(src.slice(last));
+	return rows;
+}
+
+function rowToBackgroundParts(html, fallbackTime) {
+	const src = String(html || '');
+	const nestedBg = collectBackgroundParts(src);
+	const words = coalesceLyricWords(collectTimedWords(src));
+	if (!words.length) {
+		if (nestedBg.length) return nestedBg;
+		const text = stripMarkup(src);
+		if (!text) return [];
+		return [{ time: Number(fallbackTime) || 0, text }];
+	}
+	const lastEnd = Number(words[words.length - 1].end);
+	const part = {
+		time: words[0].time,
+		text: words.map((w) => w.text).join(' ')
+	};
+	if (Number.isFinite(lastEnd) && lastEnd > part.time) part.end = lastEnd;
+	part.words = words;
+	return [part, ...nestedBg];
+}
 
 /** Parses Apple Music-style TTML (word/syllable spans inside timed <p>
  *  lines, e.g. `<span begin="00:01.230" end="00:01.540">word</span>`) into
  *  the same `{time, text, words}` shape `parseLRC` produces, so the lyrics
  *  UI doesn't need to know which source a line came from. A <p> with no
  *  spans and no text (an empty timed line) is kept as an instrumental
- *  marker, matching LRC's bare-timestamp convention. */
+ *  marker, matching LRC's bare-timestamp convention. Background vocals
+ *  (`ttm:role="x-bg"`) and top-level `<br/>` rows stay attached under the
+ *  lead line instead of merging into its karaoke sweep. */
 export function parseTTML(text) {
 	const lines = [];
 	TTML_P_TAG.lastIndex = 0;
@@ -286,36 +445,25 @@ export function parseTTML(text) {
 		const begin = parseTimecode(xmlAttr(pAttrs, 'begin'));
 		if (begin == null) continue;
 		const lineEnd = parseTimecode(xmlAttr(pAttrs, 'end'));
-		const words = [];
-		TTML_SPAN_TAG.lastIndex = 0;
-		let sm;
-		let cursor = 0;
-		while ((sm = TTML_SPAN_TAG.exec(inner)) !== null) {
-			const between = inner.slice(cursor, sm.index);
-			cursor = sm.index + sm[0].length;
-			const [, sAttrs, sInner] = sm;
-			if (/ttm:role\s*=\s*"x-translation"/i.test(sAttrs || '')) continue;
-			const wordBegin = parseTimecode(xmlAttr(sAttrs, 'begin'));
-			const wordEnd = parseTimecode(xmlAttr(sAttrs, 'end'));
-			const raw = decodeLyricChunk(sInner);
-			const wordText = raw.replace(/\s+/g, ' ').trim();
-			if (wordBegin == null || !wordText) continue;
-			const breakBefore = /\s/.test(decodeLyricChunk(between)) || /^\s/.test(raw);
-			words.push({
-				...timedWord(wordBegin, wordText, wordEnd),
-				...(breakBefore ? { breakBefore: true } : {})
-			});
-		}
-		const coalesced = coalesceLyricWords(words);
-		const lineText = coalesced.length ? coalesced.map((w) => w.text).join(' ') : stripMarkup(inner);
+		const agent = ttmlAgent(pAttrs);
+		const rows = splitTopLevelByBr(inner);
+		const leadHtml = rows[0] ?? inner;
+		const words = coalesceLyricWords(collectTimedWords(leadHtml));
+		const background = [
+			...collectBackgroundParts(leadHtml),
+			...rows.slice(1).flatMap((row) => rowToBackgroundParts(row, begin))
+		];
+		const lineText = words.length ? words.map((w) => w.text).join(' ') : stripMarkup(leadHtml);
 		lines.push({
 			time: begin,
 			text: lineText,
 			...(lineEnd != null && lineEnd > begin ? { end: lineEnd } : {}),
-			...(coalesced.length ? { words: coalesced } : {})
+			...(agent ? { agent } : {}),
+			...(words.length ? { words } : {}),
+			...(background.length ? { background } : {})
 		});
 	}
-	return lines.sort((a, b) => a.time - b.time);
+	return annotateLyricVoices(lines.sort((a, b) => a.time - b.time));
 }
 
 /** Parses Musixmatch's rich-sync shape - an array of
