@@ -27,7 +27,7 @@ let DatabaseSync = null;
 	}
 }
 
-export const LYRICS_DB_SCHEMA_VERSION = 1;
+export const LYRICS_DB_SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 	PRAGMA journal_mode = WAL;
@@ -55,6 +55,17 @@ const SCHEMA = `
 		precise INTEGER NOT NULL DEFAULT 0,
 		lines TEXT NOT NULL,
 		created_at INTEGER NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS lyric_picks (
+		key TEXT PRIMARY KEY,
+		artist TEXT NOT NULL DEFAULT '',
+		title TEXT NOT NULL DEFAULT '',
+		album TEXT NOT NULL DEFAULT '',
+		duration INTEGER NOT NULL DEFAULT 0,
+		display_source TEXT,
+		cache_source TEXT,
+		pinned INTEGER NOT NULL DEFAULT 0,
+		updated_at INTEGER NOT NULL
 	);
 	CREATE TABLE IF NOT EXISTS meta (
 		key TEXT PRIMARY KEY,
@@ -271,6 +282,84 @@ export function putAlignmentRow(fingerprint, entry) {
 		return true;
 	} catch (error) {
 		console.error('lyrics db write failed:', error.message);
+		return false;
+	}
+}
+
+export function getLyricPick(key) {
+	const handle = open();
+	if (!handle || !key) return null;
+	try {
+		const row = handle
+			.prepare(
+				'SELECT artist, title, album, duration, display_source, cache_source, pinned, updated_at FROM lyric_picks WHERE key = ?'
+			)
+			.get(key);
+		if (!row) return null;
+		return {
+			artist: row.artist,
+			title: row.title,
+			album: row.album,
+			duration: Number(row.duration) || 0,
+			displaySource: row.display_source || null,
+			cacheSource: row.cache_source || null,
+			pinned: Boolean(row.pinned),
+			updatedAt: Number(row.updated_at) || 0
+		};
+	} catch (error) {
+		console.error('lyrics db pick read failed:', error.message);
+		return null;
+	}
+}
+
+export function putLyricPick(key, entry) {
+	const handle = open();
+	if (!handle || !key) return false;
+	try {
+		handle
+			.prepare(
+				`INSERT OR REPLACE INTO lyric_picks
+					(key, artist, title, album, duration, display_source, cache_source, pinned, updated_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+			)
+			.run(
+				key,
+				String(entry.artist || ''),
+				String(entry.title || ''),
+				String(entry.album || ''),
+				Math.round(Number(entry.duration) || 0),
+				entry.displaySource || null,
+				entry.cacheSource || null,
+				entry.pinned ? 1 : 0,
+				Number(entry.updatedAt) || Date.now()
+			);
+		return true;
+	} catch (error) {
+		console.error('lyrics db pick write failed:', error.message);
+		return false;
+	}
+}
+
+export function deleteLyricPick(key) {
+	const handle = open();
+	if (!handle || !key) return false;
+	try {
+		handle.prepare('DELETE FROM lyric_picks WHERE key = ?').run(key);
+		return true;
+	} catch (error) {
+		console.error('lyrics db pick delete failed:', error.message);
+		return false;
+	}
+}
+
+export function deleteAlignmentRow(fingerprint) {
+	const handle = open();
+	if (!handle || !fingerprint) return false;
+	try {
+		handle.prepare('DELETE FROM alignments WHERE fingerprint = ?').run(fingerprint);
+		return true;
+	} catch (error) {
+		console.error('lyrics db alignment delete failed:', error.message);
 		return false;
 	}
 }

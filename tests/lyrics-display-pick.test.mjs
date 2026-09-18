@@ -67,3 +67,45 @@ test('an alignment without usable word clocks never replaces community lines', (
 	});
 	assert.equal(picked.lyrics, synthesized);
 });
+
+test('a remote pick of community beats a precise Qwen alignment', () => {
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: wordLevel, wordLevel: true, source: 'amll-ttml' },
+		aligned: { lines: modelLines, engine: 'qwen', precise: true },
+		pick: { displaySource: 'amll-ttml' }
+	});
+	assert.equal(picked.lyrics, wordLevel);
+	assert.equal(picked.source, 'amll-ttml');
+});
+
+test('a remote pick of Qwen still uses the alignment when asked', () => {
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: wordLevel, wordLevel: true, source: 'amll-ttml' },
+		aligned: { lines: modelLines, engine: 'qwen', precise: true },
+		pick: { displaySource: 'align:qwen' }
+	});
+	assert.equal(picked.lyrics, modelLines);
+	assert.equal(picked.source, 'align:qwen');
+});
+
+test('a clipped Qwen line is filled from the community text while staying the align source', () => {
+	const clipped = [
+		{
+			time: 8,
+			text: 'i walk a',
+			words: [
+				{ time: 8, text: 'i', end: 8.2 },
+				{ time: 8.2, text: 'walk', end: 8.4 },
+				{ time: 8.4, text: 'a', end: 8.6 }
+			]
+		}
+	];
+	const communityLines = [{ time: 8, text: 'I walk a lonely road', words: [{ time: 8, text: 'I' }] }];
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: communityLines, wordLevel: true, source: 'amll-ttml' },
+		aligned: { lines: clipped, engine: 'qwen', precise: true }
+	});
+	assert.equal(picked.source, 'align:qwen');
+	assert.equal(picked.lyrics[0].text, 'I walk a lonely road');
+	assert.equal(picked.lyrics[0].words.length, 3);
+});

@@ -24,7 +24,7 @@
 		wordProgress
 	} from '$lib/playbackClock.js';
 	import { rememberNowPlaying } from '$lib/artCarousel.js';
-	import { shouldGlueLyricTokens } from '$lib/lyricWords.js';
+	import { displayLyricWords, shouldGlueLyricTokens } from '$lib/lyricWords.js';
 	import { isLyricReply } from '$lib/lyricVoices.js';
 	import { applyTransportOptimistic, nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
 	import AlbumStage from '$lib/components/AlbumStage.svelte';
@@ -316,7 +316,7 @@
 	}
 
 	function lineWords(line) {
-		return Array.isArray(line?.words) ? line.words : [];
+		return displayLyricWords(line);
 	}
 
 	function wordChars(text) {
@@ -675,18 +675,23 @@
 		flex-direction: column;
 		align-items: stretch;
 		gap: var(--space-5);
-		padding: 0 var(--space-4);
+		padding: 0 var(--space-6);
+		box-sizing: border-box;
 		will-change: transform;
 		/* Vertical travel is lerped in rAF (`easeToward`) so line changes and
 		   instrumental rests glide instead of waiting on a CSS custom-prop. */
 	}
 	.lyric-line {
 		margin: 0;
+		max-width: 100%;
+		box-sizing: border-box;
 		font-family: var(--font-body);
 		font-size: clamp(1.15rem, 2.2vw, 1.85rem);
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1.35;
+		overflow-wrap: anywhere;
+		hyphens: manual;
 		color: var(--text-tertiary);
 		opacity: 0.38;
 		transform-origin: left center;

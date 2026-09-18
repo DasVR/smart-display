@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import { recordToWavFile } from './audioCapture.js';
 import { normalizeLyricText } from './lyrics.js';
-import { getAlignmentRow, putAlignmentRow } from './lyricsStore.js';
+import { getAlignmentRow, putAlignmentRow, deleteAlignmentRow } from './lyricsStore.js';
 
 const ALIGN_SCRIPT = fileURLToPath(new URL('../../../scripts/forced_align/align.py', import.meta.url));
 
@@ -80,6 +80,12 @@ export function readCachedAlignmentInfo(fp) {
 	}
 	if (info) alignmentCache.set(fp, info);
 	return info;
+}
+
+export function forgetCachedAlignment(fp) {
+	if (!fp) return false;
+	alignmentCache.delete(fp);
+	return deleteAlignmentRow(fp);
 }
 
 /** Line array only; kept for callers that predate the engine metadata. */
