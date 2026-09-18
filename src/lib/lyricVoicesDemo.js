@@ -67,10 +67,15 @@ export const VOICE_DEMO_LINES = annotateLyricVoices([
 	},
 	{
 		time: 6.8,
-		end: 9.2,
-		agent: 'v2',
-		text: 'Then walk on',
-		words: [word(6.8, 'Then', 7.1), word(7.1, 'walk', 7.6), word(7.6, 'on', 9.0)]
+		end: 8.2,
+		text: 'Alex: You coming',
+		words: [word(6.8, 'Alex:', 7.1), word(7.1, 'You', 7.4), word(7.4, 'coming', 8.1)]
+	},
+	{
+		time: 8.4,
+		end: 10.4,
+		text: 'Sam: In a minute',
+		words: [word(8.4, 'Sam:', 8.7), word(8.7, 'In', 8.95), word(8.95, 'a', 9.15), word(9.15, 'minute', 10.3)]
 	}
 ]);
 

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { parseTTML } from '../src/lib/server/lyrics.js';
+import { parseLRC, parseTTML } from '../src/lib/server/lyrics.js';
 import { annotateLyricVoices, isLyricReply } from '../src/lib/lyricVoices.js';
 import { isLineSinging } from '../src/lib/playbackClock.js';
 import { VOICE_DEMO_LINES } from '../src/lib/lyricVoicesDemo.js';
@@ -63,15 +63,19 @@ test('annotateLyricVoices tucks a parenthetical chorus under the lead', () => {
 });
 
 test('voice demo staggers a reply and tucks a chorus echo under the lead', () => {
-	assert.equal(VOICE_DEMO_LINES.length, 4);
+	assert.equal(VOICE_DEMO_LINES.length, 5);
 	assert.equal(VOICE_DEMO_LINES[0].part, 'lead');
 	assert.equal(VOICE_DEMO_LINES[1].part, 'reply');
 	assert.equal(VOICE_DEMO_LINES[1].side, 'right');
 	assert.equal(VOICE_DEMO_LINES[2].background[0].text, 'now');
 	assert.equal(VOICE_DEMO_LINES[2].background[1].text, 'hold it');
+	assert.equal(VOICE_DEMO_LINES[3].speaker, 'alex');
 	assert.equal(VOICE_DEMO_LINES[3].part, 'lead');
 	assert.equal(VOICE_DEMO_LINES[3].side, 'left');
-	assert.equal(isLyricReply(VOICE_DEMO_LINES[3]), false);
+	assert.equal(VOICE_DEMO_LINES[4].speaker, 'sam');
+	assert.equal(VOICE_DEMO_LINES[4].part, 'reply');
+	assert.equal(VOICE_DEMO_LINES[4].side, 'right');
+	assert.equal(isLyricReply(VOICE_DEMO_LINES[4]), true);
 });
 
 test('annotateLyricVoices does not indent back-to-back agent turns', () => {
@@ -105,6 +109,51 @@ test('annotateLyricVoices does not indent back-to-back agent turns', () => {
 	assert.equal(lines[1].part, 'lead');
 	assert.equal(lines[1].side, 'left');
 	assert.equal(isLyricReply(lines[1]), false);
+});
+
+test('annotateLyricVoices staggers Name: speaker prefixes as a back-and-forth', () => {
+	const lines = annotateLyricVoices([
+		{ time: 20, end: 22, text: 'Alex: You coming' },
+		{ time: 22.4, end: 24.5, text: 'Sam: In a minute' },
+		{ time: 24.8, end: 26.5, text: 'Alex: Hurry up then' }
+	]);
+	assert.equal(lines.length, 3);
+	assert.equal(lines[0].speaker, 'alex');
+	assert.equal(lines[0].part, 'lead');
+	assert.equal(lines[0].side, 'left');
+	assert.equal(lines[1].speaker, 'sam');
+	assert.equal(lines[1].part, 'reply');
+	assert.equal(lines[1].side, 'right');
+	assert.equal(isLyricReply(lines[1]), true);
+	assert.equal(lines[2].speaker, 'alex');
+	assert.equal(lines[2].part, 'lead');
+	assert.equal(lines[2].side, 'left');
+});
+
+test('parseLRC staggers Matt/Karl-style speaker tags in community lyrics', () => {
+	const lines = parseLRC(
+		'[00:20.00]Alex: You coming\n[00:22.40]Sam: In a minute\n[00:28.00]Keep the line'
+	);
+	const alex = lines.find((line) => line.speaker === 'alex');
+	const sam = lines.find((line) => line.speaker === 'sam');
+	const verse = lines.find((line) => line.text === 'Keep the line');
+	assert.equal(alex.part, 'lead');
+	assert.equal(sam.part, 'reply');
+	assert.equal(isLyricReply(sam), true);
+	assert.equal(verse.part, 'lead');
+	assert.equal(isLyricReply(verse), false);
+});
+
+test('annotateLyricVoices ignores a section header and a lone Wait: lyric', () => {
+	const chorus = annotateLyricVoices([
+		{ time: 1, text: 'Chorus: Keep the line' },
+		{ time: 4, text: 'Then walk on' }
+	]);
+	assert.equal(chorus[0].speaker, undefined);
+	assert.equal(isLyricReply(chorus[1]), false);
+	const lone = annotateLyricVoices([{ time: 1, text: 'Wait: hold on' }]);
+	assert.equal(lone[0].speaker, undefined);
+	assert.equal(lone[0].part, 'lead');
 });
 
 test('annotateLyricVoices ignores a tiny clock abutment as overlap', () => {
