@@ -1,8 +1,8 @@
 <!--
 	Hallmark design scores
 	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4
-	Full-bleed rectangular Largo radar: ESRI z11, RainViewer z7 stretched,
-	Tampa Bay intro zoom, home mark only. Tokens only. No other views restyled.
+	Full-bleed rectangular Largo radar: ESRI z11, RainViewer z7 at native
+	512px with high-quality upsample, Tampa Bay intro zoom, home mark only.
 -->
 <script>
 	import { onMount, untrack } from 'svelte';
@@ -23,18 +23,10 @@
 		scaleForGroundRadius,
 		metersPerPixel,
 		radarDrawSize,
-		BASEMAP_GAP_FILL
+		BASEMAP_GAP_FILL,
+		RADAR_TILE_PX
 	} from '$lib/radarMap.js';
-	import {
-		RADAR_THRESHOLDS,
-		marchingSquares,
-		chaikinSmooth,
-		lerpFields,
-		lerpColor,
-		extractField,
-		fieldGridSize,
-		fieldExtent
-	} from '$lib/radarVector.js';
+	import { extractField, fieldGridSize } from '$lib/radarVector.js';
 
 	let { data = null } = $props();
 
@@ -92,12 +84,10 @@
 	// motion rather than a slideshow.
 	const CROSSFADE_MS = 260;
 	const RADAR_SIZE = radarDrawSize(BASE_ZOOM);
-	// The precip layer is rendered as vector regions (marching squares over a
-	// small intensity grid, corner-smoothed), not a stretched bitmap - so it
-	// scales cleanly at any zoom without pixelating, and a transition can
-	// re-trace the contours through a blended grid instead of cross-fading
-	// two rasters in place.
-	const FIELD_TARGET_COLS = 72;
+	// Coverage still samples a coarse intensity grid. The precip layer
+	// itself is the native RainViewer raster, upsampled with the browser's
+	// high-quality filter so the shape stays the original cells.
+	const FIELD_TARGET_COLS = 96;
 	const BAYER_4X4 = [
 		[0, 8, 2, 10],
 		[12, 4, 14, 6],
@@ -354,91 +344,23 @@
 		return raw.endsWith('ms') || !raw.endsWith('s') ? n * 1.6 : n * 1600;
 	}
 
-	/** Fills one smoothed contour polygon (in fractional grid coordinates),
-	 *  mapped into world space and rendered as a quadratic curve through
-	 *  each smoothed point's midpoint - a cheap, standard way to turn a
-	 *  polyline into the soft, rounded outline a metaball blend reads as. */
-	function fillContour(points, cellW, cellH, originX, originY, color, alpha) {
-		if (points.length < 3 || alpha <= 0) return;
-		const smoothed = chaikinSmooth(points, 2);
-		const toWorld = (p) => [originX + p[0] * cellW, originY + p[1] * cellH];
-		const world = smoothed.map(toWorld);
-		const n = world.length;
-		const midOf = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-		ctx.beginPath();
-		const firstMid = midOf(world[0], world[n - 1]);
-		ctx.moveTo(firstMid[0], firstMid[1]);
-		for (let i = 0; i < n; i++) {
-			const cur = world[i];
-			const next = world[(i + 1) % n];
-			const mid = midOf(cur, next);
-			ctx.quadraticCurveTo(cur[0], cur[1], mid[0], mid[1]);
-		}
-		ctx.closePath();
-		ctx.fillStyle = color;
+	/** Native RainViewer mosaic for one frame, placed in world pixels. */
+	function drawPrecip(raster, originX, originY, alpha) {
+		if (!raster || !composed || alpha <= 0) return;
 		ctx.globalAlpha = alpha;
-		ctx.fill();
+		ctx.drawImage(
+			raster,
+			originX + composed.precipOriginX,
+			originY + composed.precipOriginY,
+			composed.precipWorldW,
+			composed.precipWorldH
+		);
 		ctx.globalAlpha = 1;
 	}
 
-	/** Fills the field's whole world-space extent with a flat color - the
-	 *  case a threshold's contour would otherwise miss entirely: when the
-	 *  intensity grid never dips below it anywhere in view (a storm filling
-	 *  the whole radar circle), there's no boundary for marching squares to
-	 *  trace, but the right picture is solid coverage, not nothing. */
-	function fillWholeField(field, cellW, cellH, originX, originY, color, alpha) {
-		ctx.fillStyle = color;
-		ctx.globalAlpha = alpha;
-		ctx.fillRect(originX, originY, field.cols * cellW, field.rows * cellH);
-		ctx.globalAlpha = 1;
-	}
-
-	/** Traces and fills every intensity band of one field as vector regions -
-	 *  no raster involved, so this scales cleanly with the view transform at
-	 *  any zoom instead of stretching a fixed-resolution bitmap. */
-	function drawField(field, cellW, cellH, originX, originY, alphaMul) {
-		if (!field) return;
-		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
-			const threshold = RADAR_THRESHOLDS[i];
-			const extent = fieldExtent(field.alpha);
-			if (extent.max < threshold) continue;
-			if (extent.min >= threshold) {
-				fillWholeField(field, cellW, cellH, originX, originY, field.colors[i], 0.85 * alphaMul);
-				continue;
-			}
-			const polys = marchingSquares(field.alpha, field.cols, field.rows, threshold);
-			for (const poly of polys) {
-				fillContour(poly, cellW, cellH, originX, originY, field.colors[i], 0.85 * alphaMul);
-			}
-		}
-	}
-
-	/** Blends two frames' intensity grids at `t` and re-traces contours
-	 *  through the blend - the shapes actually grow/shrink/merge/split
-	 *  between the two real frames, not a cross-fade of two fixed images. */
-	function drawMorph(fieldA, fieldB, t, cellW, cellH, originX, originY) {
-		if (!fieldA) return drawField(fieldB, cellW, cellH, originX, originY, 1);
-		if (!fieldB) return drawField(fieldA, cellW, cellH, originX, originY, 1);
-		const blended = lerpFields(fieldA.alpha, fieldB.alpha, t);
-		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
-			const threshold = RADAR_THRESHOLDS[i];
-			const extent = fieldExtent(blended);
-			const color = lerpColor(fieldA.colors[i], fieldB.colors[i], t);
-			if (extent.max < threshold) continue;
-			if (extent.min >= threshold) {
-				fillWholeField(fieldA, cellW, cellH, originX, originY, color, 0.85);
-				continue;
-			}
-			const polys = marchingSquares(blended, fieldA.cols, fieldA.rows, threshold);
-			for (const poly of polys) {
-				fillContour(poly, cellW, cellH, originX, originY, color, 0.85);
-			}
-		}
-	}
-
-	/** `crossfadeT` of 1 (the default) means "just the current frame", as if
-	 *  no morph were in flight; `runCrossfade` drives it from 0->1 while
-	 *  blending `crossfadeFromIndex`'s field into the current one. */
+	/** `crossfadeT` of 1 (the default) means "just the current frame".
+	 *  `runCrossfade` drives it from 0->1 while blending the previous
+	 *  raster into the current one, so the original cells stay intact. */
 	function drawCurrent(crossfadeT = 1) {
 		if (!ctx || !canvas || !composed) return;
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -452,12 +374,14 @@
 		if (composed.basemap) {
 			ctx.drawImage(composed.basemap, originX, originY);
 		}
-		const newField = composed.fields[frameIndex];
-		const oldField = crossfadeFromIndex != null ? composed.fields[crossfadeFromIndex] : null;
-		if (oldField) {
-			drawMorph(oldField, newField, crossfadeT, composed.fieldCellW, composed.fieldCellH, originX, originY);
+		const rasters = composed.rasters || [];
+		const next = rasters[frameIndex];
+		const prev = crossfadeFromIndex != null ? rasters[crossfadeFromIndex] : null;
+		if (prev && crossfadeT < 1) {
+			drawPrecip(prev, originX, originY, 1 - crossfadeT);
+			drawPrecip(next, originX, originY, crossfadeT);
 		} else {
-			drawField(newField, composed.fieldCellW, composed.fieldCellH, originX, originY, 1);
+			drawPrecip(next, originX, originY, 1);
 		}
 		ctx.restore();
 	}
@@ -570,18 +494,43 @@
 			);
 		}
 
-		// Each frame's precip tiles get composited onto a small canvas the
-		// browser itself downsamples (imageSmoothingQuality: high does the
-		// averaging), then reduced to an intensity grid - the vector contours
-		// traced from that grid are what actually gets drawn, so resolution
-		// here only affects how finely the shapes are described, never how
-		// blocky the final render looks.
+		// Native RainViewer mosaic (512px tiles) is what gets drawn. A
+		// smaller intensity grid is sampled only so adaptive zoom can tell
+		// whether a storm is filling the view.
 		const worldW = cols * TILE_SIZE;
 		const worldH = rows * TILE_SIZE;
 		const { cols: fieldCols, rows: fieldRows } = fieldGridSize(worldW, worldH, FIELD_TARGET_COLS);
 		const k = RADAR_SIZE / TILE_SIZE;
+		const rainCols = rain.x1 - rain.x0 + 1;
+		const rainRows = rain.y1 - rain.y0 + 1;
+		const precipOriginX = (rain.x0 * k - esri.x0) * TILE_SIZE;
+		const precipOriginY = (rain.y0 * k - esri.y0) * TILE_SIZE;
+		const precipWorldW = rainCols * RADAR_SIZE;
+		const precipWorldH = rainRows * RADAR_SIZE;
 		const fields = [];
+		const rasters = [];
 		for (const frame of nextFrames) {
+			const precip = document.createElement('canvas');
+			precip.width = Math.max(1, rainCols * RADAR_TILE_PX);
+			precip.height = Math.max(1, rainRows * RADAR_TILE_PX);
+			const pctx = precip.getContext('2d', { alpha: true });
+			pctx.imageSmoothingEnabled = true;
+			pctx.imageSmoothingQuality = 'high';
+			for (const t of rain.tiles) {
+				const img = await loadTile(
+					radarTileUrl(host, frame.urlTemplate, RADAR_ZOOM, t.wrappedX, t.wrappedY)
+				);
+				if (!img) continue;
+				pctx.drawImage(
+					img,
+					(t.tx - rain.x0) * RADAR_TILE_PX,
+					(t.ty - rain.y0) * RADAR_TILE_PX,
+					RADAR_TILE_PX,
+					RADAR_TILE_PX
+				);
+			}
+			rasters.push(precip);
+
 			const fieldCanvas = document.createElement('canvas');
 			fieldCanvas.width = fieldCols;
 			fieldCanvas.height = fieldRows;
@@ -590,19 +539,13 @@
 			fctx.imageSmoothingQuality = 'high';
 			const sx = fieldCols / worldW;
 			const sy = fieldRows / worldH;
-			for (const t of rain.tiles) {
-				const img = await loadTile(
-					radarTileUrl(host, frame.urlTemplate, RADAR_ZOOM, t.wrappedX, t.wrappedY)
-				);
-				if (!img) continue;
-				fctx.drawImage(
-					img,
-					(t.tx * k - esri.x0) * TILE_SIZE * sx,
-					(t.ty * k - esri.y0) * TILE_SIZE * sy,
-					RADAR_SIZE * sx,
-					RADAR_SIZE * sy
-				);
-			}
+			fctx.drawImage(
+				precip,
+				precipOriginX * sx,
+				precipOriginY * sy,
+				precipWorldW * sx,
+				precipWorldH * sy
+			);
 			fields.push(extractField(fctx.getImageData(0, 0, fieldCols, fieldRows)));
 		}
 		if (my !== gen) return;
@@ -610,6 +553,11 @@
 		composed = {
 			basemap,
 			fields,
+			rasters,
+			precipOriginX,
+			precipOriginY,
+			precipWorldW,
+			precipWorldH,
 			fieldCellW: worldW / fieldCols,
 			fieldCellH: worldH / fieldRows,
 			x0: esri.x0,
