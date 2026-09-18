@@ -6,12 +6,15 @@ import path from 'node:path';
 
 import {
 	closeLyricsDb,
+	deleteLyricPick,
 	getAlignmentRow,
+	getLyricPick,
 	getLyricsRow,
 	lyricsDbAvailable,
 	lyricsDbPath,
 	lyricsDbStats,
 	putAlignmentRow,
+	putLyricPick,
 	putLyricsRow
 } from '../src/lib/server/lyricsStore.js';
 
@@ -114,4 +117,24 @@ test('legacy forced-align-cache json files are imported once on open', () => {
 	} finally {
 		delete process.env.FORCED_ALIGN_CACHE_DIR;
 	}
+});
+
+test('lyric picks round-trip a per-song display and cache source', () => {
+	freshDb();
+	assert.equal(
+		putLyricPick('green|boulevard||262', {
+			artist: 'Green Day',
+			title: 'Boulevard of Broken Dreams',
+			displaySource: 'amll-ttml',
+			cacheSource: 'amll-ttml',
+			pinned: true
+		}),
+		true
+	);
+	const pick = getLyricPick('green|boulevard||262');
+	assert.equal(pick.displaySource, 'amll-ttml');
+	assert.equal(pick.cacheSource, 'amll-ttml');
+	assert.equal(pick.pinned, true);
+	deleteLyricPick('green|boulevard||262');
+	assert.equal(getLyricPick('green|boulevard||262'), null);
 });

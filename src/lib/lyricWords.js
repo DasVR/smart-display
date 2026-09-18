@@ -67,6 +67,12 @@ export function coalesceLyricWords(words) {
 	return out.map(cleanWord);
 }
 
+function lyricLetters(value) {
+	return String(value || '')
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '');
+}
+
 export function lineWithCoalescedWords(line) {
 	if (!line?.words?.length) return line;
 	const words = coalesceLyricWords(line.words);
@@ -74,5 +80,101 @@ export function lineWithCoalescedWords(line) {
 		const { words: _w, ...rest } = line;
 		return rest;
 	}
-	return { ...line, words, text: words.map((w) => w.text).join(' ') };
+	const fromWords = words.map((w) => w.text).join(' ');
+	const original = String(line.text || '').trim();
+	// Qwen used to store a truncated word list while keeping the full line
+	// text. Keep that fuller text. YRC/TTML pass the unglued join ("don ' t")
+	// as `text`; prefer the coalesced words in that case.
+	const keepOriginal = original && lyricLetters(original).length > lyricLetters(fromWords).length;
+	return { ...line, words, text: keepOriginal ? original : fromWords || original };
+}
+
+const DISPLAY_TOKEN_RE = /[A-Za-z0-9']+/g;
+
+function sameToken(a, b) {
+	return String(a || '').toLowerCase() === String(b || '').toLowerCase();
+}
+
+function preferLineToken(timedText, tok) {
+	if (!tok) return timedText;
+	if (timedText === tok || sameToken(timedText, tok)) return tok;
+	const a = String(timedText || '').toLowerCase();
+	const b = String(tok || '').toLowerCase();
+	if (b.startsWith(a) || a.startsWith(b)) return tok;
+	return timedText;
+}
+
+/** Karaoke paints `line.words`, not `line.text`. Qwen's older remap could
+ *  store three timed tokens for "I walk a lonely road" and the stack would
+ *  show "i walk a". Fill missing tokens from the original line and restore
+ *  that line's spelling when the aligner only lowercased it. */
+export function displayLyricWords(line) {
+	const text = String(line?.text || '').trim();
+	const words = Array.isArray(line?.words)
+		? line.words.filter((word) => word && String(word.text || '').trim())
+		: [];
+	if (!text) return words;
+	const tokens = text.match(DISPLAY_TOKEN_RE);
+	if (!tokens?.length) return words;
+	if (words.length >= tokens.length) {
+		return words.map((timed, i) => {
+			const tok = tokens[i];
+			if (!tok || timed.text === tok || !sameToken(timed.text, tok)) return timed;
+			return { ...timed, text: tok };
+		});
+	}
+	const out = [];
+	for (let i = 0; i < tokens.length; i++) {
+		const tok = tokens[i];
+		const timed = words[i];
+		if (timed) {
+			const next = preferLineToken(timed.text, tok);
+			out.push(next === timed.text ? timed : { ...timed, text: next });
+			continue;
+		}
+		const prev = out[out.length - 1] || {};
+		const t = Number(prev.end) || Number(prev.time) || Number(line.time) || 0;
+		out.push({ time: t, text: tok, end: t });
+	}
+	return out;
+}
+
+/** When a precise aligner stored a clipped line ("i walk a") and the
+ *  community file still has the rest of the sentence, copy that fuller
+ *  text onto the aligned clocks so the kiosk can paint the missing words. */
+export function overlayCommunityText(alignedLines, communityLines) {
+	if (!Array.isArray(alignedLines) || !alignedLines.length) return alignedLines;
+	if (!Array.isArray(communityLines) || !communityLines.length) return alignedLines;
+	const unused = communityLines.slice();
+	let changed = false;
+	const out = alignedLines.map((line) => {
+		const alignedText = String(line?.text || '').trim();
+		const a = lyricLetters(alignedText);
+		if (!a) return line;
+		let best = null;
+		let bestIdx = -1;
+		for (let i = 0; i < unused.length; i++) {
+			const communityText = String(unused[i]?.text || '').trim();
+			const c = lyricLetters(communityText);
+			if (!c) continue;
+			if (c === a) {
+				best = unused[i];
+				bestIdx = i;
+				break;
+			}
+			if (c.startsWith(a) && c.length > a.length) {
+				best = unused[i];
+				bestIdx = i;
+				break;
+			}
+		}
+		if (bestIdx >= 0) unused.splice(bestIdx, 1);
+		const fuller = String(best?.text || '').trim();
+		if (fuller && lyricLetters(fuller).length > a.length) {
+			changed = true;
+			return { ...line, text: fuller };
+		}
+		return line;
+	});
+	return changed ? out : alignedLines;
 }

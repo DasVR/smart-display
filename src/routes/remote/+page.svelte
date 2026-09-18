@@ -442,6 +442,7 @@
 			<span>{status}</span>
 		</div>
 		<div class="bar-end">
+			<a class="stats-link" href="/remote/lyrics">Lyrics</a>
 			<a class="stats-link" href="/remote/stats">Stats</a>
 			<p class="panel" class:off={hdmi === 'off'}>{hdmi === 'off' ? 'Panel off' : 'Panel on'}</p>
 		</div>

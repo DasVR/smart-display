@@ -23,9 +23,12 @@ import {
 	ensureLyricsCached,
 	ensureTrackDurationCached,
 	hasRealWordTiming,
+	lyricsCacheKey,
 	peekLyricsInfo,
 	peekTrackDuration
 } from './lyrics.js';
+import { overlayCommunityText } from '../lyricWords.js';
+import { getLyricPick } from './lyricsStore.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -315,7 +318,8 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			const fp = trackFingerprint(merged.artist, merged.title, duration);
 			cancelOtherAlignments(fp);
 			const aligned = readCachedAlignmentInfo(fp);
-			({ lyrics, source: lyricsSource } = pickDisplayLyrics({ community: peeked, aligned }));
+			const pick = getLyricPick(lyricsCacheKey(merged.artist, merged.title, merged.album || '', duration));
+			({ lyrics, source: lyricsSource } = pickDisplayLyrics({ community: peeked, aligned, pick }));
 			if (!peeked.known) {
 				lyricsPending = true;
 				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
@@ -340,15 +344,29 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 	}
 }
 
-/** Chooses what the Music view paints from the two caches. A precise
- *  on-device alignment (Qwen3 / MMS / MFA / aeneas) beats everything; a
- *  community word-level file beats an energy-envelope guess; an energy
- *  guess beats synthesized per-line timing; anything beats nothing. */
-export function pickDisplayLyrics({ community, aligned } = {}) {
+/** Chooses what the Music view paints from the two caches. A per-song
+ *  remote pick wins. Otherwise a precise on-device alignment (Qwen3 / MMS
+ *  / MFA / aeneas) beats everything; a community word-level file beats an
+ *  energy-envelope guess; an energy guess beats synthesized per-line
+ *  timing; anything beats nothing. */
+function alignedLinesForDisplay(aligned, community) {
+	return overlayCommunityText(aligned?.lines || null, community?.lines || null);
+}
+
+export function pickDisplayLyrics({ community, aligned, pick } = {}) {
 	const communityLines = community?.lines || null;
 	const communityWordLevel = Boolean(communityLines) && (Boolean(community?.wordLevel) || hasRealWordTiming(communityLines));
-	const alignedLines = aligned?.lines || null;
+	const alignedLines = alignedLinesForDisplay(aligned, community);
 	const alignedUsable = Boolean(alignedLines) && hasRealWordTiming(alignedLines);
+	const wanted = String(pick?.displaySource || '').trim();
+	if (wanted) {
+		if (wanted.startsWith('align:') && alignedLines) {
+			return { lyrics: alignedLines, source: `align:${aligned.engine || wanted.slice(6)}` };
+		}
+		if (communityLines && !wanted.startsWith('align:')) {
+			return { lyrics: communityLines, source: community?.source || wanted };
+		}
+	}
 	if (alignedUsable && aligned.precise) {
 		return { lyrics: alignedLines, source: `align:${aligned.engine || 'precise'}` };
 	}
@@ -370,7 +388,8 @@ export function getDemoNowPlaying() {
 	if (!peeked.known) ensureLyricsCached(artist, title, { album, duration: length });
 	const fp = trackFingerprint(artist, title, length);
 	const aligned = readCachedAlignmentInfo(fp);
-	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned });
+	const pick = getLyricPick(lyricsCacheKey(artist, title, album, length));
+	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned, pick });
 	return demoNowPlaying(undefined, {
 		lyrics,
 		lyricsPending: !peeked.known,
