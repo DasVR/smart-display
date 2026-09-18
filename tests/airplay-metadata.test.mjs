@@ -120,6 +120,28 @@ test('airplay metadata parser reads duration and progress', () => {
 	assert.ok(state.positionAt > 0);
 });
 
+test('airplay metadata parser scales 48kHz AirPlay 2 progress against astm duration', () => {
+	// This kiosk's AirPlay 2 path is 48kHz. Dividing RTP by 44100 made a
+	// 2:00 scrub land at ~2:10 (120 * 48000/44100).
+	const xml =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('636f7265', '6173746d', '200000') +
+		item('73736e63', '70726772', '0/5760000/9600000');
+	const state = parse(xml);
+	assert.equal(state.length, 200);
+	assert.ok(Math.abs(state.position - 120) < 0.05);
+});
+
+test('airplay metadata parser rescales an earlier 48kHz prgr once astm duration arrives', () => {
+	const xml =
+		item('636f7265', '6d696e6d', 'My Way') +
+		item('73736e63', '70726772', '0/5760000/9600000') +
+		item('636f7265', '6173746d', '200000');
+	const state = parse(xml);
+	assert.equal(state.length, 200);
+	assert.ok(Math.abs(state.position - 120) < 0.05);
+});
+
 test('airplay metadata parser does not restamp the clock on a play-status while already playing', () => {
 	const xml =
 		item('636f7265', '6d696e6d', 'My Way') +

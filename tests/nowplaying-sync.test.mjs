@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { livePlaybackPosition } from '../src/lib/playbackClock.js';
 import { mergeNowPlayingSample, OPTIMISTIC_HOLD_MS } from '../src/lib/nowPlayingMerge.js';
 
 const live = {
@@ -67,6 +68,47 @@ test('mergeNowPlayingSample keeps a local seek until the player lands nearby', (
 	);
 	assert.equal(landed.position, 80.4);
 	assert.equal(landed.optimisticUntil, 0);
+});
+
+test('mergeNowPlayingSample does not treat an expired local seek as a flush landing on a stale poll', () => {
+	const held = {
+		...live,
+		position: 80,
+		positionAt: 4_000,
+		seeking: true,
+		optimisticUntil: 4_000 + OPTIMISTIC_HOLD_MS
+	};
+	const stale = {
+		...live,
+		position: 70,
+		positionAt: 4_000,
+		seeking: false
+	};
+	const merged = mergeNowPlayingSample(held, stale, 4_000 + OPTIMISTIC_HOLD_MS + 50);
+	assert.equal(merged.position, 80);
+	assert.equal(merged.seeking, true);
+});
+
+test('mergeNowPlayingSample restamps a late landing so lyrics do not run 10s past the scrub', () => {
+	const held = {
+		...live,
+		position: 80,
+		positionAt: 10_000,
+		seeking: true,
+		optimisticUntil: 10_000 + OPTIMISTIC_HOLD_MS
+	};
+	const late = {
+		...live,
+		position: 80.2,
+		positionAt: 1_000,
+		seeking: false
+	};
+	const now = 11_400;
+	const merged = mergeNowPlayingSample(held, late, now);
+	assert.ok(Math.abs(merged.position - 80.2) < 0.01);
+	assert.equal(merged.seeking, false);
+	assert.ok(now - merged.positionAt < 50);
+	assert.ok(Math.abs(livePlaybackPosition(merged, now) - 80.2) < 0.05);
 });
 
 test('mergeNowPlayingSample does not rewind lyrics on a restamped progress sample', () => {
