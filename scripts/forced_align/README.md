@@ -95,17 +95,24 @@ clocks collapsed and tries the next engine.
 ### Installing the recommended aligner
 
 Run this **on the das-server host** as user `das`, in a venv. Not in a
-container, not in the Cursor Cloud agent pod. The box is CPU / Ryzen iGPU:
-bare `pip install whisperx` drags CUDA torch (~2.5 GB) and WhisperX 3.x
-fights numpy 2.
+container, not in the Cursor Cloud agent pod. The box is CPU / Ryzen iGPU.
+WhisperX 3.8 needs Python 3.10-3.13 and numpy 2. System python 3.14 cannot
+import it. Do not `pip install "numpy<2" whisperx`: that resolves WhisperX
+3.3 and `ctranslate2==4.4.0`, which has no 3.14 wheel.
 
 ```sh
-scripts/forced_align/install-host-venv.sh
-# or by hand:
-python3 -m venv ~/venvs/lyrix && . ~/venvs/lyrix/bin/activate
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
-pip install "numpy<2" whisperx demucs syncedlyrics
-sudo apt-get install -y ffmpeg
+# origin/master still has the python3.14 + numpy<2 recipe. Curl this copy:
+curl -fsSL -o /tmp/install-host-venv.sh \
+  https://raw.githubusercontent.com/DasVR/smart-display/cursor/lyrix-py312-d064/scripts/forced_align/install-host-venv.sh
+bash /tmp/install-host-venv.sh --apply-systemd --recreate
+sudo systemctl restart smart-display-server
+# or by hand, on Python 3.12 (wipe a leftover 3.14 venv first):
+sudo apt-get install -y python3.12 python3.12-venv python3.12-dev ffmpeg
+rm -rf ~/venvs/lyrix
+python3.12 -m venv ~/venvs/lyrix && . ~/venvs/lyrix/bin/activate
+pip install -U pip
+pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0 --index-url https://download.pytorch.org/whl/cpu
+pip install "whisperx>=3.7,<4" demucs syncedlyrics
 ```
 
 Then point systemd at that interpreter (the script's `--apply-systemd`

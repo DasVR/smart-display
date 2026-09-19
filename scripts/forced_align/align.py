@@ -57,6 +57,9 @@ SILENCE_MARKS = {"sil", "sp", "spn", ""}
 WORD_RE = re.compile(r"[A-Za-z0-9']+")
 PRECISE_ENGINES = {"whisperx", "qwen", "ctc", "aeneas", "mfa"}
 AUTO_ENGINE_ORDER = ("whisperx", "ctc", "qwen", "aeneas")
+# WhisperX 3.8: requires-python >=3.10,<3.14 (no 3.14 wheel / import).
+WHISPERX_PY_MIN = (3, 10)
+WHISPERX_PY_MAX = (3, 14)
 WHISPER_DEFAULT_MODEL = "large-v3"
 # XLSR English CTC: more tolerant of sung vowels than WhisperX's LibriSpeech default.
 SINGING_ALIGN_MODEL = "jonatasgrosman/wav2vec2-large-xlsr-53-english"
@@ -333,6 +336,23 @@ def _frac_to_time(cum, frac, frame, rate):
 
 
 # ------------------------------------------------------------ discovery
+
+
+def whisperx_supports_python(major, minor):
+	return WHISPERX_PY_MIN <= (int(major), int(minor)) < WHISPERX_PY_MAX
+
+
+def whisperx_python_note(version_info=None):
+	info = version_info or sys.version_info
+	ver = f"{info[0]}.{info[1]}.{info[2]}" if len(info) > 2 else f"{info[0]}.{info[1]}"
+	if not whisperx_supports_python(info[0], info[1]):
+		return (
+			f"python {ver} cannot import whisperx (needs >=3.10,<3.14); "
+			"rebuild ~/venvs/lyrix with scripts/forced_align/install-host-venv.sh"
+		)
+	if not has_whisperx():
+		return "whisperx not installed; run scripts/forced_align/install-host-venv.sh"
+	return None
 
 
 def has_whisperx():
@@ -1118,6 +1138,9 @@ def self_test():
 	assert mapped[0][0] == 8.0
 	assert mapped[-1][0] == 9.1
 	assert mapped[2][0] < mapped[3][0]
+	assert whisperx_supports_python(3, 12) and whisperx_supports_python(3, 13)
+	assert not whisperx_supports_python(3, 14) and not whisperx_supports_python(3, 9)
+	assert "3.14" in whisperx_python_note((3, 14, 0))
 	assert "whisperx" in PRECISE_ENGINES and "energy" not in PRECISE_ENGINES
 	assert apply_offset([(1.0, "a", 1.5)], 2.0) == [(3.0, "a", 3.5)]
 	assert "energy" in available_engines()
@@ -1131,7 +1154,7 @@ def self_test():
 	assert packed[0]["text"].startswith("I walk")
 	assert "ever known" in packed[1]["text"]
 	assert overlay_canonical_on_segments([], ["one line"], duration=12)[0]["text"] == "one line"
-	print(json.dumps({"ok": True, "tests": 15}))
+	print(json.dumps({"ok": True, "tests": 16}))
 	return 0
 
 
@@ -1140,20 +1163,21 @@ def main():
 		return self_test()
 	if len(sys.argv) >= 2 and sys.argv[1] == "--probe":
 		engine = pick_engine()
-		print(
-			json.dumps(
-				{
-					"engine": engine,
-					"precise": engine in PRECISE_ENGINES,
-					"available": available_engines(),
-					"device": pick_device() if engine in {"whisperx", "qwen", "ctc"} else None,
-					"separate": want_separation(engine),
-					"whisper_model": whisper_model_name() if engine == "whisperx" else None,
-					"align_model": align_model_name() if engine == "whisperx" else None,
-					"python": sys.executable,
-				}
-			)
-		)
+		payload = {
+			"engine": engine,
+			"precise": engine in PRECISE_ENGINES,
+			"available": available_engines(),
+			"device": pick_device() if engine in {"whisperx", "qwen", "ctc"} else None,
+			"separate": want_separation(engine),
+			"whisper_model": whisper_model_name() if engine == "whisperx" else None,
+			"align_model": align_model_name() if engine == "whisperx" else None,
+			"python": sys.executable,
+			"python_version": sys.version.split()[0],
+		}
+		note = whisperx_python_note()
+		if note:
+			payload["note"] = note
+		print(json.dumps(payload))
 		return 0
 	if len(sys.argv) != 4:
 		print("usage: align.py <wav_path> <lyrics_txt_path> <out_json_path>", file=sys.stderr)

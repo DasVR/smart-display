@@ -32,7 +32,7 @@ test('align.py --self-test', () => {
 	const result = runPython([ALIGN, '--self-test']);
 	assert.equal(result.status, 0, result.stderr || result.stdout);
 	assert.equal(JSON.parse(result.stdout).ok, true);
-	assert.equal(JSON.parse(result.stdout).tests, 15);
+	assert.equal(JSON.parse(result.stdout).tests, 16);
 });
 
 test('align.py --probe always lists the stdlib energy engine and says whether the pick is precise', () => {
@@ -43,9 +43,13 @@ test('align.py --probe always lists the stdlib energy engine and says whether th
 	assert.equal(typeof parsed.precise, 'boolean');
 	assert.equal(parsed.precise, ['whisperx', 'qwen', 'ctc', 'aeneas', 'mfa'].includes(parsed.engine));
 	assert.ok(parsed.python);
+	assert.ok(parsed.python_version);
 	if (parsed.engine === 'whisperx') {
 		assert.equal(parsed.whisper_model, 'large-v3');
 		assert.ok(parsed.align_model);
+		assert.equal(parsed.note, undefined);
+	} else if (parsed.note) {
+		assert.match(parsed.note, /whisperx/i);
 	}
 	const forced = runPython([ALIGN, '--probe'], { env: { ...process.env, FORCED_ALIGN_ENGINE: 'energy' } });
 	const forcedParsed = JSON.parse(forced.stdout);
