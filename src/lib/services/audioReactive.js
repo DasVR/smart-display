@@ -15,6 +15,7 @@ const STALE_MS = 1500;
 const SMOOTH = 0.35;
 
 let rafId = 0;
+let idleTimer = 0;
 let paused = false;
 let unsubPlaying = null;
 let playing = false;
@@ -83,7 +84,22 @@ function loop() {
 		}
 		spectrum.set(currentBins.slice());
 	}
+	if (!playing && !hasFreshFrame) {
+		idleTimer = setTimeout(() => {
+			idleTimer = 0;
+			rafId = requestAnimationFrame(loop);
+		}, 240);
+		return;
+	}
 	rafId = requestAnimationFrame(loop);
+}
+
+function stopLoop() {
+	paused = true;
+	if (rafId) cancelAnimationFrame(rafId);
+	if (idleTimer) clearTimeout(idleTimer);
+	rafId = 0;
+	idleTimer = 0;
 }
 
 export function startAudioReactive() {
@@ -94,9 +110,7 @@ export function startAudioReactive() {
 	paused = false;
 	loop();
 	return () => {
-		paused = true;
-		if (rafId) cancelAnimationFrame(rafId);
-		rafId = 0;
+		stopLoop();
 		unsubPlaying?.();
 		unsubPlaying = null;
 	};
@@ -104,9 +118,7 @@ export function startAudioReactive() {
 
 export function setAudioPaused(next) {
 	if (next && !paused) {
-		paused = true;
-		if (rafId) cancelAnimationFrame(rafId);
-		rafId = 0;
+		stopLoop();
 		return;
 	}
 	if (!next && paused) {

@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import {
 	isBluetoothDeviceConnected,
 	parseAnyBluetoothConnected,
-	resetBluetoothConnectionCache
+	resetBluetoothConnectionCache,
+	setBluetoothConnectionCache
 } from '../src/lib/server/bluetoothConnection.js';
 
 test('parseAnyBluetoothConnected reads bluetoothctl device rows', () => {
@@ -45,4 +46,19 @@ test('isBluetoothDeviceConnected awaits an async run function too', async () => 
 	resetBluetoothConnectionCache();
 	const run = async () => 'Device AA:BB:CC:DD:EE:FF iPhone\n';
 	assert.equal(await isBluetoothDeviceConnected({ run, now: 1, force: true }), true);
+});
+
+test('setBluetoothConnectionCache skips bluetoothctl until TTL', async () => {
+	resetBluetoothConnectionCache();
+	let calls = 0;
+	const run = () => {
+		calls += 1;
+		return 'Device AA:BB:CC:DD:EE:FF iPhone\n';
+	};
+	setBluetoothConnectionCache(false, 1000);
+	assert.equal(await isBluetoothDeviceConnected({ run, now: 1100 }), false);
+	assert.equal(calls, 0);
+	setBluetoothConnectionCache(true, 1000);
+	assert.equal(await isBluetoothDeviceConnected({ run, now: 1100 }), true);
+	assert.equal(calls, 0);
 });

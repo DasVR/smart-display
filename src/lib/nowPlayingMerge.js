@@ -120,6 +120,14 @@ function lyricsFingerprint(track) {
  *  spans every second. */
 export function reuseLyrics(current, incoming) {
 	if (!incoming || incoming.lyrics === current?.lyrics) return incoming;
+	if (!incoming.lyrics && current?.lyrics && sameTrack(current, incoming)) {
+		return {
+			...incoming,
+			lyrics: current.lyrics,
+			lyricsSource: incoming.lyricsSource || current.lyricsSource,
+			lyricsPending: incoming.lyricsPending ?? current.lyricsPending
+		};
+	}
 	if (!current?.lyrics || !incoming.lyrics) return incoming;
 	if (lyricsFingerprint(current) === lyricsFingerprint(incoming)) {
 		return { ...incoming, lyrics: current.lyrics };

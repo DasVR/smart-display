@@ -9,6 +9,7 @@ import re
 import select
 import sys
 import time
+import urllib.request
 
 STATE_PATH = os.environ.get(
 	"AIRPLAY_NOWPLAYING_PATH",
@@ -23,6 +24,8 @@ PIPE = os.environ.get(
 	os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/run/user/1000"), "shairport-sync-metadata"),
 )
 ART_URL = os.environ.get("AIRPLAY_ART_URL", "/api/nowplaying/art")
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000")
+HEARTBEAT_STALE_S = 8.0
 
 ITEM_RE = re.compile(
 	rb"<item>\s*<type>([^<]+)</type>\s*<code>([^<]+)</code>\s*<length>(\d+)</length>"
@@ -59,6 +62,28 @@ state = {
 	"_astm_length": 0.0,
 	"sampleRate": FRAMES,
 }
+
+last_live = time.time()
+
+
+def touch_live():
+	global last_live
+	last_live = time.time()
+
+
+def notify_disconnected(name="Apple Music"):
+	payload = json.dumps({"name": name}).encode("utf-8")
+	try:
+		req = urllib.request.Request(
+			f"{DASHBOARD_URL}/api/airplay/disconnected",
+			method="POST",
+			data=payload,
+			headers={"Content-Type": "application/json"},
+		)
+		urllib.request.urlopen(req, timeout=2)
+		print("notified dashboard: airplay disconnected", flush=True)
+	except Exception as exc:
+		print(f"failed to notify dashboard: {exc}", file=sys.stderr, flush=True)
 
 
 def decode_tag(raw):
@@ -211,6 +236,7 @@ def apply_item(typ, code, data):
 		return False
 	if code == "pbeg":
 		resume_clock()
+		touch_live()
 		changed = True
 	elif code == "pend":
 		# Pause and disconnect both look like stream end. Keep a titled
@@ -218,6 +244,7 @@ def apply_item(typ, code, data):
 		# still tears down. Stale timeout handles a phone that left.
 		if state.get("title") or state.get("artist"):
 			pause_clock()
+			touch_live()
 		else:
 			clear_session()
 		changed = True
@@ -229,23 +256,31 @@ def apply_item(typ, code, data):
 		# expires a stuck seeking flag).
 		freeze_position()
 		state["seeking"] = True
+		touch_live()
 		changed = True
 	elif code == "prsm":
 		resume_clock()
+		touch_live()
 		changed = True
 	elif code == "prgr":
 		changed = apply_progress(data)
+		if changed:
+			touch_live()
 	elif code in ("phbt", "phb0"):
 		# Heartbeats are the liveness signal for both playing and paused.
 		# A paused session that stops getting them is a disconnect.
 		changed = state["playing"] or state["paused"]
+		if changed:
+			touch_live()
 	elif code == "caps":
 		status = parse_int(data)
 		if status == 3:
 			pause_clock()
+			touch_live()
 			changed = True
 		elif status == 2:
 			resume_clock()
+			touch_live()
 			changed = True
 	elif code == "minm":
 		title = data.decode("utf-8", errors="replace")
@@ -262,6 +297,7 @@ def apply_item(typ, code, data):
 		if not state.get("paused"):
 			state["playing"] = True
 			state["paused"] = False
+		touch_live()
 		changed = True
 	elif code == "asar":
 		state["artist"] = data.decode("utf-8", errors="replace")
@@ -346,9 +382,15 @@ def main():
 			while True:
 				ready, _, _ = select.select([pipe], [], [], 1.0)
 				if not ready:
-					# Do not keepalive from title leftovers or a paused clock.
-					# Progress and heartbeats refresh updatedAt; rewriting the
-					# file here hid AirPlay disconnects (especially while paused).
+					# Heartbeats keep a paused session alive. Once they stop,
+					# this is a phone that left, not a pause we should hold
+					# for five minutes.
+					if (state.get("playing") or state.get("paused")) and (
+						time.time() - last_live > HEARTBEAT_STALE_S
+					):
+						clear_session()
+						write_state()
+						notify_disconnected()
 					continue
 				chunk = os.read(pipe.fileno(), 4096)
 				if not chunk:

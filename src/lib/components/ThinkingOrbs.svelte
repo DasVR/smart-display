@@ -1,16 +1,20 @@
 <script>
-	let { phase = 'idle' } = $props();
+	let { phase = 'idle', size = 'sm' } = $props();
 
-	const DOTS = Array.from({ length: 9 }, (_, i) => ({
-		i,
-		left: `${0.35 + (i % 3) * 0.7}rem`,
-		top: `${0.35 + Math.floor(i / 3) * 0.7}rem`
-	}));
+	let cell = $derived(size === 'lg' ? 1.8 : 0.7);
+	let origin = $derived(size === 'lg' ? 0.7 : 0.35);
+	let DOTS = $derived(
+		Array.from({ length: 9 }, (_, i) => ({
+			i,
+			left: `${origin + (i % 3) * cell}rem`,
+			top: `${origin + Math.floor(i / 3) * cell}rem`
+		}))
+	);
 
 	let dim = $derived(phase === 'idle' || phase === 'done');
 </script>
 
-<div class="orbs" data-phase={phase} class:dim aria-hidden="true">
+<div class="orbs" data-phase={phase} data-size={size} class:dim aria-hidden="true">
 	{#each DOTS as d (d.i)}
 		<span class="p" style="--i: {d.i}; left: {d.left}; top: {d.top}"></span>
 	{/each}
@@ -28,6 +32,14 @@
 		--orb-travel: 5px;
 		--orb-scale: 1;
 		opacity: 0.4;
+	}
+	.orbs[data-size='lg'] {
+		width: 6.5rem;
+		height: 6.5rem;
+	}
+	.orbs[data-size='lg'] .p {
+		width: 0.85rem;
+		height: 0.85rem;
 	}
 	.orbs[data-phase='searching'] {
 		--orb-a: var(--scan);

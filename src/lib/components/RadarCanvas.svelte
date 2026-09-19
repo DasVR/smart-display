@@ -38,7 +38,7 @@
 		fieldExtent
 	} from '$lib/radarVector.js';
 
-	let { data = null } = $props();
+	let { data = null, paused = false } = $props();
 
 	let canvas = $state(null);
 	let ditherUrl = $state('');
@@ -201,7 +201,7 @@
 			clearInterval(animTimer);
 			animTimer = 0;
 		}
-		if (reducedMotion || frames.length < 2) return;
+		if (reducedMotion || frames.length < 2 || paused) return;
 		animTimer = setInterval(() => {
 			const from = frameIndex;
 			frameIndex = (frameIndex + 1) % frames.length;
@@ -712,6 +712,11 @@
 			gen += 1;
 			stopAnim();
 		};
+	});
+
+	$effect(() => {
+		if (paused) stopAnim();
+		else if (composed && hasIntroduced && !reducedMotion) startAnim();
 	});
 
 	onMount(() => {

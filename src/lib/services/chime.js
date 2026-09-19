@@ -7,7 +7,7 @@
 
 import { volumeTickPitch } from '../chimeKind.js';
 
-export { chimeKindForEvent, volumeTickPitch } from '../chimeKind.js';
+export { chimeKindForEvent, islandOwnsChime, volumeTickPitch } from '../chimeKind.js';
 
 let ctx;
 let noiseBuffer;
@@ -210,19 +210,37 @@ const PROFILES = {
 		{ kind: 'tap', tone: 0.32, peak: 0.18 },
 		{ kind: 'tap', at: 0.11, tone: 0.22, peak: 0.18 }
 	],
-	// Distinct finish scribbles so Cursor / Claude / Hermes / Ollama don't
-	// all collapse into the same `ok` double-tap.
-	'done-cursor': [{ kind: 'scribble', dir: 1, peak: 0.2, dur: 0.2 }],
+	// Distinct, layered finish flourishes so Cursor / Claude / Hermes /
+	// Ollama read from across the room. Louder than the quiet island taps.
+	'done-cursor': [
+		{ kind: 'key', pitch: 0.42, peak: 0.18 },
+		{ kind: 'scribble', at: 0.05, dir: 1, peak: 0.28, dur: 0.26 },
+		{ kind: 'tap', at: 0.28, tone: 0.78, peak: 0.22 },
+		{ kind: 'key', at: 0.4, pitch: 0.82, peak: 0.18 }
+	],
 	'done-claude': [
-		{ kind: 'tap', tone: 0.55, peak: 0.16 },
-		{ kind: 'scribble', at: 0.08, dir: 1, peak: 0.19, dur: 0.18 }
+		{ kind: 'tap', tone: 0.5, peak: 0.2 },
+		{ kind: 'tap', at: 0.09, tone: 0.68, peak: 0.21 },
+		{ kind: 'scribble', at: 0.16, dir: 1, peak: 0.28, dur: 0.24 },
+		{ kind: 'key', at: 0.42, pitch: 0.74, peak: 0.2 }
 	],
 	'done-hermes': [
-		{ kind: 'tap', tone: 0.48, peak: 0.16 },
-		{ kind: 'tap', at: 0.07, tone: 0.62, peak: 0.16 },
-		{ kind: 'scribble', at: 0.14, dir: 1, peak: 0.18, dur: 0.16 }
+		{ kind: 'key', pitch: 0.38, peak: 0.18 },
+		{ kind: 'tap', at: 0.07, tone: 0.55, peak: 0.2 },
+		{ kind: 'tap', at: 0.14, tone: 0.72, peak: 0.2 },
+		{ kind: 'scribble', at: 0.22, dir: 1, peak: 0.26, dur: 0.22 }
 	],
-	'done-ollama': [{ kind: 'scribble', dir: 1, peak: 0.17, dur: 0.18 }]
+	'done-ollama': [
+		{ kind: 'tap', tone: 0.45, peak: 0.19 },
+		{ kind: 'scribble', at: 0.08, dir: 1, peak: 0.24, dur: 0.22 },
+		{ kind: 'tap', at: 0.3, tone: 0.72, peak: 0.2 }
+	],
+	// A two-key start so a run beginning is audible without stealing the
+	// finish flourish.
+	working: [
+		{ kind: 'key', pitch: 0.38, peak: 0.16 },
+		{ kind: 'key', at: 0.08, pitch: 0.64, peak: 0.17 }
+	]
 };
 
 /** Plays a short tactile sound for the given kind. Safe to call from

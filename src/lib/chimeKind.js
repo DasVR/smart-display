@@ -24,6 +24,7 @@ export function chimeKindForEvent({
 	if (k === 'schedule') return 'schedule';
 	if (k === 'install') return 'install';
 	if (k === 'update') return sev === 'ok' ? 'success' : 'update';
+	if (k === 'working' || k === 'start') return 'working';
 	if (k === 'done' || /\bfinished$/i.test(String(title || ''))) {
 		if (src.includes('cursor')) return 'done-cursor';
 		if (src.includes('claude')) return 'done-claude';
@@ -35,4 +36,11 @@ export function chimeKindForEvent({
 	if (k === 'briefing') return 'info';
 	if (sev === 'ok' || sev === 'warn' || sev === 'error' || sev === 'info') return sev;
 	return 'info';
+}
+
+/** Agent start/finish chimes play as soon as `/api/notify` arrives, so the
+ *  island does not double-hit them when the slip later becomes active. */
+export function islandOwnsChime(kind = '') {
+	const k = String(kind || '').toLowerCase();
+	return k !== 'done' && k !== 'working' && k !== 'start';
 }

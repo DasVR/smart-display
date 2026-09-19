@@ -1,12 +1,12 @@
 import { get } from 'svelte/store';
-import { pushIslandEvent, setIslandActivity, clearIslandActivity, installProgress } from '$lib/stores.js';
+import { pushIslandEvent, setIslandActivity, clearIslandActivity, installProgress, pushTelemetrySample } from '$lib/stores.js';
 import { islandActivityForUpdates } from '$lib/hostUpdatesModel.js';
 
 /**
  * Polls host telemetry independent of whichever view is mounted, so the
  * Dynamic Island can surface "docker broke" events even while looking at
- * Weather or Music. DevHub polls the same endpoint for its own detailed
- * view; this runs in parallel purely for event detection.
+ * Weather or Music. The Agents host peek reads the same endpoint while
+ * that view is up.
  */
 
 const POLL_MS = 6000;
@@ -37,6 +37,7 @@ async function poll() {
 		const r = await fetch('/api/telemetry');
 		if (r.ok) {
 			const data = await r.json();
+			pushTelemetrySample(data);
 			diffContainers(data?.stats?.containers);
 		}
 	} catch {

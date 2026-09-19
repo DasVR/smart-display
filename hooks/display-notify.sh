@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ping the smart display Dynamic Island for a named event.
 # Usage: display-notify.sh <event> [source] [body] [severity]
-# Events: done, install, update
+# Events: done, working, install, update
 # DISPLAY_HOST defaults to http://localhost:3000
 set -euo pipefail
 

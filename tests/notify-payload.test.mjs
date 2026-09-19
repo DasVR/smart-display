@@ -5,7 +5,9 @@ import {
 	DEFAULT_NOTIFY_TTL,
 	agentFinishedNotify,
 	parseAirplayConnectedPayload,
+	parseAirplayDisconnectedPayload,
 	parseBtConnectedPayload,
+	parseBtDisconnectedPayload,
 	parseNotifyPayload,
 	scheduleNotify
 } from '../src/lib/server/notifyPayload.js';
@@ -59,6 +61,19 @@ test('bluetooth payload uses the device name when present', () => {
 	assert.equal(parseBtConnectedPayload('not-json').notify.title, 'Phone connected');
 });
 
+test('bluetooth disconnect payload is immediate and short-lived', () => {
+	assert.equal(parseBtDisconnectedPayload('').notify.title, 'Phone disconnected');
+	assert.equal(parseBtDisconnectedPayload('{"name":"Pixel 9"}').notify.title, 'Pixel 9 disconnected');
+	assert.equal(parseBtDisconnectedPayload('').notify.body, 'Playback stopped');
+	assert.equal(parseBtDisconnectedPayload('').notify.ttl, 4000);
+});
+
+test('airplay disconnect payload names Apple Music', () => {
+	assert.equal(parseAirplayDisconnectedPayload('').notify.title, 'AirPlay disconnected');
+	assert.equal(parseAirplayDisconnectedPayload('{"name":"Apple Music"}').notify.title, 'Apple Music disconnected');
+	assert.equal(parseAirplayDisconnectedPayload('').notify.source, 'AirPlay');
+});
+
 test('airplay payload names Apple Music and keeps the AirPlay source', () => {
 	assert.equal(parseAirplayConnectedPayload('').notify.title, 'AirPlay connected');
 	assert.equal(parseAirplayConnectedPayload('').notify.body, 'Apple Music can play here');
@@ -73,6 +88,17 @@ test('agentFinishedNotify is the Ollama idle island event', () => {
 	assert.equal(msg.severity, 'ok');
 	assert.equal(msg.ttl, DEFAULT_NOTIFY_TTL);
 	assert.equal(msg.kind, 'done');
+});
+
+test('event working fills Claude Code / Cursor / Agent titles', () => {
+	assert.equal(
+		parseNotifyPayload({ event: 'working', source: 'Claude Code' }).notify.title,
+		'Claude Code working'
+	);
+	assert.equal(parseNotifyPayload({ event: 'working', source: 'Cursor' }).notify.kind, 'working');
+	assert.equal(parseNotifyPayload({ event: 'start', source: 'Cursor' }).notify.kind, 'working');
+	assert.equal(parseNotifyPayload({ event: 'working' }).notify.title, 'Agent working');
+	assert.equal(parseNotifyPayload({ event: 'working' }).notify.severity, 'info');
 });
 
 test('event install and update fill titles', () => {

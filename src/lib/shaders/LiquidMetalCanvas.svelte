@@ -9,10 +9,12 @@
 	import { onMount } from 'svelte';
 	import { bassLevel as bassStore, startAudioReactive, setAudioPaused } from '$lib/services/audioReactive.js';
 
-	let { isLowPower = false, sun = 1, twilight = 0, rain = 0, wind = 0, cloud = 0, windDir = 0 } = $props();
+	let { isLowPower = false, quality = 'full', sun = 1, twilight = 0, rain = 0, wind = 0, cloud = 0, windDir = 0 } = $props();
 
 	const INTERNAL_W = 1280;
 	const INTERNAL_H = 720;
+	const ECO_W = 640;
+	const ECO_H = 360;
 	/** Virtual pixel block for Bayer + field sampling. Override with ?pixel=4..8 */
 	const PIXEL_SIZE = 6;
 
@@ -33,6 +35,9 @@
 	let pauseAccum = 0;
 	let pausedAt = 0;
 	let frozen = false;
+	let drawW = INTERNAL_W;
+	let drawH = INTERNAL_H;
+	let lastDraw = 0;
 	let bass = 0.12;
 	let unsubBass = null;
 	let stopAudio = null;
@@ -348,15 +353,25 @@ void main() {
 		return (now - startTime - pauseAccum - pausedSlice) / 1000;
 	}
 
+	function syncSize() {
+		const eco = quality === 'eco' && !isLowPower;
+		drawW = eco ? ECO_W : INTERNAL_W;
+		drawH = eco ? ECO_H : INTERNAL_H;
+		if (canvas && (canvas.width !== drawW || canvas.height !== drawH)) {
+			canvas.width = drawW;
+			canvas.height = drawH;
+		}
+	}
+
 	function drawFrame() {
 		if (!gl || !program || destroyed) return;
-		gl.viewport(0, 0, INTERNAL_W, INTERNAL_H);
+		gl.viewport(0, 0, drawW, drawH);
 		gl.uniform1f(uTimeLoc, elapsed());
-		gl.uniform2f(uResLoc, INTERNAL_W, INTERNAL_H);
+		gl.uniform2f(uResLoc, drawW, drawH);
 		gl.uniform1f(uBassLoc, bass);
-		gl.uniform1i(uPanelCountLoc, panelCount);
+		gl.uniform1i(uPanelCountLoc, quality === 'eco' || isLowPower ? 0 : panelCount);
 		gl.uniform4fv(uPanelsLoc, panelData);
-		gl.uniform1f(uPixelSizeLoc, readPixelSize());
+		gl.uniform1f(uPixelSizeLoc, quality === 'eco' ? Math.max(readPixelSize(), 8) : readPixelSize());
 		gl.uniform2f(uMouseLoc, mouseSmooth.x, mouseSmooth.y);
 		gl.uniform1f(uMouseStrengthLoc, mouseStrength);
 		gl.uniform1f(uSunLoc, wxSmooth.sun);
@@ -383,7 +398,12 @@ void main() {
 	function loop() {
 		if (destroyed || frozen) return;
 		stepMouse();
-		drawFrame();
+		const now = performance.now();
+		const minDt = quality === 'eco' ? 33 : 0;
+		if (now - lastDraw >= minDt) {
+			lastDraw = now;
+			drawFrame();
+		}
 		rafId = requestAnimationFrame(loop);
 	}
 
@@ -413,8 +433,7 @@ void main() {
 
 	function initGL() {
 		if (!canvas) return false;
-		canvas.width = INTERNAL_W;
-		canvas.height = INTERNAL_H;
+		syncSize();
 		const glOpts = {
 			alpha: false,
 			antialias: false,
@@ -490,8 +509,12 @@ void main() {
 
 	$effect(() => {
 		if (!gl || destroyed) return;
+		syncSize();
 		if (isLowPower) freeze();
-		else resume();
+		else {
+			resume();
+			setAudioPaused(quality === 'eco');
+		}
 	});
 
 	onMount(() => {
