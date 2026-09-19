@@ -101,7 +101,11 @@ import it. Do not `pip install "numpy<2" whisperx`: that resolves WhisperX
 3.3 and `ctranslate2==4.4.0`, which has no 3.14 wheel.
 
 ```sh
-scripts/forced_align/install-host-venv.sh --apply-systemd
+# origin/master still has the python3.14 + numpy<2 recipe. Curl this copy:
+curl -fsSL -o /tmp/install-host-venv.sh \
+  https://raw.githubusercontent.com/DasVR/smart-display/cursor/lyrix-py312-d064/scripts/forced_align/install-host-venv.sh
+bash /tmp/install-host-venv.sh --apply-systemd --recreate
+sudo systemctl restart smart-display-server
 # or by hand, on Python 3.12 (wipe a leftover 3.14 venv first):
 sudo apt-get install -y python3.12 python3.12-venv python3.12-dev ffmpeg
 rm -rf ~/venvs/lyrix

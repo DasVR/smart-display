@@ -9,6 +9,12 @@
 #
 # Target:  das-server host venv  (~/venvs/lyrix) on Python 3.12
 # Device:  CPU (Ryzen iGPU; no NVIDIA CUDA wheels)
+#
+# The live kiosk checkout is origin/master and still has the old
+# python3 + numpy<2 recipe. Run this copy:
+#   curl -fsSL -o /tmp/install-host-venv.sh \
+#     https://raw.githubusercontent.com/DasVR/smart-display/cursor/lyrix-py312-d064/scripts/forced_align/install-host-venv.sh
+#   bash /tmp/install-host-venv.sh --apply-systemd --recreate
 set -euo pipefail
 
 VENV="${LYRIX_VENV:-$HOME/venvs/lyrix}"
@@ -31,8 +37,11 @@ Installs a CPU-only lyrix venv on Python 3.12 (WhisperX rejects 3.14):
   sudo apt-get install -y ffmpeg
 
 A leftover Python 3.14 venv is recreated automatically. Pass --recreate
-to wipe any existing venv. Diarization stays off. No HuggingFace token.
-lyricsgenius is not installed: Genius is an unsynced optional sheet.
+to wipe any existing venv. The live kiosk tree on origin/master still
+ships the old python3 + numpy<2 recipe, so curl this file from the
+lyrix-py312 branch rather than running the copy in ~/projects/smart-display.
+Diarization stays off. No HuggingFace token. lyricsgenius is not installed:
+Genius is an unsynced optional sheet.
 EOF
 			exit 0
 			;;
@@ -49,8 +58,10 @@ looks_like_cloud_pod() {
 
 if looks_like_cloud_pod && [[ "${LYRIX_ALLOW_CLOUD:-0}" != "1" ]] && [[ "$DRY" != 1 ]]; then
 	echo "refusing: this looks like the Cursor Cloud pod, not das-server" >&2
+	echo "the live kiosk tree is origin/master and still pins numpy<2 on python 3.14." >&2
 	echo "on das-server:" >&2
-	echo "  /home/das/projects/smart-display/scripts/forced_align/install-host-venv.sh --apply-systemd" >&2
+	echo "  curl -fsSL -o /tmp/install-host-venv.sh https://raw.githubusercontent.com/DasVR/smart-display/cursor/lyrix-py312-d064/scripts/forced_align/install-host-venv.sh" >&2
+	echo "  bash /tmp/install-host-venv.sh --apply-systemd --recreate" >&2
 	exit 1
 fi
 
