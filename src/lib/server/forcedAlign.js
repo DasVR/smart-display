@@ -26,7 +26,7 @@ const PROBE_TIMEOUT_MS = 90_000;
  *  as opposed to `energy`, which spreads words across loud regions and is
  *  only a stand-in when nothing better is installed. Mirrors
  *  PRECISE_ENGINES in align.py. */
-export const PRECISE_ENGINES = new Set(['whisperx', 'qwen', 'ctc', 'aeneas', 'mfa']);
+export const PRECISE_ENGINES = new Set(['wav2vec', 'whisperx', 'qwen', 'ctc', 'aeneas', 'mfa']);
 
 const inFlight = new Set();
 const recorders = new Map();

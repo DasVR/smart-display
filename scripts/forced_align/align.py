@@ -5,11 +5,14 @@ text, emit a start (and end) clock for every word.
 Engines, best first. FORCED_ALIGN_ENGINE=auto picks the first one that is
 installed, never MFA unless asked (Demucs+MFA is too heavy for the kiosk):
 
-	whisperx - Demucs vocals, Whisper timeboxes, singing wav2vec2 stamps
-	           the canonical sheet. Whisper does not replace published text.
+	wav2vec  - Demucs vocals, then wav2vec2 CTC Viterbi on the known sheet
+	           (default jonatasgrosman XLSR English). True forced alignment:
+	           published words are the transcript, not Whisper's guess.
 	ctc      - torchaudio MMS_FA (wav2vec2 CTC) Viterbi on the known sheet,
-	           20 ms frames. Speech model, but it cannot collapse a verse
-	           onto one timestamp the way Qwen does.
+	           20 ms frames. Speech MMS; fallback when transformers is missing.
+	whisperx - Demucs vocals, Whisper timeboxes, singing wav2vec2 stamps
+	           the canonical sheet. Whisper often invents sung words; the
+	           overlay is a timebox, not a transcript. Third because of that.
 	qwen     - Qwen3-ForcedAligner-0.6B. Speech NAR; often stamps a whole
 	           sung verse at one clock. Kept, but auto no longer prefers it.
 	aeneas   - DTW aligner, line-level fragments split by syllable weight.
@@ -17,18 +20,20 @@ installed, never MFA unless asked (Demucs+MFA is too heavy for the kiosk):
 	energy   - stdlib RMS envelope vs lyric weights. Always available; a
 	           stand-in, not a measurement.
 
-whisperx / ctc / qwen / aeneas / mfa are "precise": their clocks come from
-an acoustic model, so lyrics.js lets them override community word timing
-unless those clocks collapsed. energy is not precise.
+wav2vec / whisperx / ctc / qwen / aeneas / mfa are "precise": their clocks
+come from an acoustic model, so lyrics.js lets them override community word
+timing unless those clocks collapsed. energy is not precise.
 
 Usage:
 	python3 align.py --probe
+	python3 align.py --compare <wav_path> <lyrics_txt_path>
 	python3 align.py <wav_path> <lyrics_txt_path> <out_json_path>
 
 Env:
-	FORCED_ALIGN_ENGINE      auto | whisperx | ctc | qwen | aeneas | mfa | energy
+	FORCED_ALIGN_ENGINE      auto | wav2vec | whisperx | ctc | qwen | aeneas | mfa | energy
 	FORCED_ALIGN_WHISPER_MODEL  faster-whisper size (default large-v3)
-	FORCED_ALIGN_ALIGN_MODEL    wav2vec2 id for singing; empty = WhisperX language default
+	FORCED_ALIGN_ALIGN_MODEL    wav2vec2 id for singing (wav2vec + WhisperX)
+	FORCED_ALIGN_W2V_MODEL      override wav2vec model (default ALIGN_MODEL)
 	FORCED_ALIGN_OFFSET      seconds to add when recording began mid-track
 	FORCED_ALIGN_LANGUAGE    language name (default English)
 	FORCED_ALIGN_DEVICE      cuda | cuda:0 | cpu (default: cuda if available)
@@ -55,8 +60,10 @@ except ImportError:
 
 SILENCE_MARKS = {"sil", "sp", "spn", ""}
 WORD_RE = re.compile(r"[A-Za-z0-9']+")
-PRECISE_ENGINES = {"whisperx", "qwen", "ctc", "aeneas", "mfa"}
-AUTO_ENGINE_ORDER = ("whisperx", "ctc", "qwen", "aeneas")
+PRECISE_ENGINES = {"wav2vec", "whisperx", "qwen", "ctc", "aeneas", "mfa"}
+# Known-text CTC on a singing-tolerant wav2vec2 beats Whisper ASR overlay
+# (Whisper rewrites sung words) and speech Qwen (collapses verses).
+AUTO_ENGINE_ORDER = ("wav2vec", "ctc", "whisperx", "aeneas", "qwen")
 # WhisperX 3.8: requires-python >=3.10,<3.14 (no 3.14 wheel / import).
 WHISPERX_PY_MIN = (3, 10)
 WHISPERX_PY_MAX = (3, 14)
@@ -382,6 +389,17 @@ def has_ctc():
 		return False
 
 
+def has_wav2vec():
+	if not has_ctc():
+		return False
+	try:
+		import transformers  # noqa: F401
+
+		return True
+	except Exception:
+		return False
+
+
 def has_aeneas():
 	try:
 		import aeneas  # noqa: F401
@@ -397,6 +415,8 @@ def has_mfa():
 
 def available_engines():
 	found = []
+	if has_wav2vec():
+		found.append("wav2vec")
 	if has_whisperx():
 		found.append("whisperx")
 	if has_ctc():
@@ -413,7 +433,7 @@ def available_engines():
 
 def pick_engine():
 	wanted = (os.environ.get("FORCED_ALIGN_ENGINE") or "auto").strip().lower()
-	if wanted in {"energy", "whisperx", "qwen", "ctc", "aeneas", "mfa"}:
+	if wanted in {"energy", "wav2vec", "whisperx", "qwen", "ctc", "aeneas", "mfa"}:
 		return wanted
 	installed = set(available_engines())
 	for engine in AUTO_ENGINE_ORDER:
@@ -445,13 +465,18 @@ def align_model_name():
 	return raw.strip()
 
 
+def w2v_model_name():
+	raw = (os.environ.get("FORCED_ALIGN_W2V_MODEL") or "").strip()
+	return raw or align_model_name() or SINGING_ALIGN_MODEL
+
+
 def want_separation(engine):
 	mode = (os.environ.get("FORCED_ALIGN_SEPARATE") or "auto").strip().lower()
 	if mode in {"0", "no", "off", "false"}:
 		return False
 	if mode in {"1", "yes", "on", "true"}:
 		return bool(demucs_bin())
-	return engine in {"whisperx", "qwen", "ctc"} and bool(demucs_bin())
+	return engine in {"wav2vec", "whisperx", "qwen", "ctc"} and bool(demucs_bin())
 
 
 # ------------------------------------------------------------------ qwen
@@ -480,6 +505,52 @@ def clocks_collapsed(pairs, min_words=8, unique_ratio=0.25, flat_ratio=0.6):
 		return True
 	flat = sum(1 for start, end in pairs if float(end) - float(start) <= 0.02)
 	return flat / len(pairs) > flat_ratio
+
+
+def score_alignment(timed, duration, n_expected):
+	"""Rank a timed word list. Higher is better. Used by --compare and tests.
+	Known-text CTC should spread clocks across the song; Qwen-on-singing
+	collapses a verse onto one timestamp and scores near the floor."""
+	if not timed:
+		return {
+			"score": -1000.0,
+			"collapsed": True,
+			"unique_ratio": 0.0,
+			"coverage": 0.0,
+			"count_ratio": 0.0,
+			"spread": 0.0,
+			"words": 0,
+			"expected": int(n_expected or 0),
+		}
+	pairs = timed_pairs(timed)
+	n = len(pairs)
+	starts = [float(p[0]) for p in pairs]
+	ends = [float(p[1]) for p in pairs]
+	unique_ratio = len({round(s, 1) for s in starts}) / max(n, 1)
+	span = max(0.0, max(ends) - min(starts))
+	dur = max(float(duration or 0.0), 1e-3)
+	coverage = max(0.0, min(1.0, span / dur))
+	expected = max(int(n_expected or 0), 1)
+	count_ratio = min(n, expected) / max(n, expected)
+	median = starts[n // 2]
+	spread = max(0.0, min(1.0, median / (0.45 * dur)))
+	monotonic = all(starts[i] <= starts[i + 1] + 1e-4 for i in range(n - 1))
+	collapsed = clocks_collapsed(pairs)
+	score = unique_ratio * 4.0 + coverage * 3.0 + count_ratio * 2.0 + spread
+	if not monotonic:
+		score -= 2.0
+	if collapsed:
+		score -= 10.0
+	return {
+		"score": round(score, 3),
+		"collapsed": collapsed,
+		"unique_ratio": round(unique_ratio, 3),
+		"coverage": round(coverage, 3),
+		"count_ratio": round(count_ratio, 3),
+		"spread": round(spread, 3),
+		"words": n,
+		"expected": int(n_expected or 0),
+	}
 
 
 def match_qwen_units(tokens, units):
@@ -836,13 +907,70 @@ def qwen_align(wav_path, lyric_lines):
 # ------------------------------------------------------------------- ctc
 
 
+def words_from_ctc_emissions(emissions, frames_per_sec, lyric_lines, char_to_id, blank=0):
+	"""Viterbi over CTC log-probs onto the canonical sheet, then merge
+	character spans back into words. Shared by MMS_FA and HuggingFace wav2vec2."""
+	import torch
+	from torchaudio.functional import forced_align, merge_tokens
+
+	words = []
+	for line in usable_lines(lyric_lines):
+		words.extend(word_tokens(line))
+	token_groups = []
+	kept_words = []
+	for word in words:
+		ids = []
+		for ch in word:
+			idx = char_to_id.get(ch)
+			if idx is None:
+				idx = char_to_id.get(ch.lower())
+			if idx is None:
+				idx = char_to_id.get(ch.upper())
+			if idx is not None:
+				ids.append(idx)
+		if ids:
+			token_groups.append(ids)
+			kept_words.append(word)
+	if not token_groups:
+		raise RuntimeError("ctc: transcript has no alignable characters")
+
+	flat = [tok for group in token_groups for tok in group]
+	targets = torch.tensor(flat, dtype=torch.int32).unsqueeze(0)
+	aligned, scores = forced_align(emissions.unsqueeze(0), targets, blank=int(blank))
+	spans = merge_tokens(aligned[0], scores[0].exp())
+	if len(spans) != len(flat):
+		raise RuntimeError(f"ctc: {len(spans)} spans for {len(flat)} tokens")
+
+	timed = []
+	cursor = 0
+	for word, group in zip(kept_words, token_groups):
+		word_spans = spans[cursor : cursor + len(group)]
+		cursor += len(group)
+		start = word_spans[0].start / frames_per_sec
+		end = word_spans[-1].end / frames_per_sec
+		timed.append((round(start, 3), word, round(max(end, start + 0.04), 3)))
+
+	if len(kept_words) != len(words):
+		merged = []
+		k = 0
+		for word in words:
+			if k < len(kept_words) and kept_words[k] == word:
+				merged.append(timed[k])
+				k += 1
+			else:
+				prev_end = merged[-1][2] if merged else 0.0
+				next_start = timed[k][0] if k < len(timed) else prev_end + 0.3
+				merged.append((round(prev_end, 3), word, round(max(prev_end, next_start), 3)))
+		timed = merged
+	return timed
+
+
 def ctc_align(wav_path, lyric_lines):
 	"""torchaudio MMS_FA: wav2vec2 CTC emissions (computed in 30 s chunks so
 	a full song fits in CPU memory) plus Viterbi forced alignment over the
 	whole transcript, then token spans merged per word. 20 ms frames."""
 	import torch
 	import torchaudio
-	from torchaudio.functional import forced_align, merge_tokens
 
 	bundle = torchaudio.pipelines.MMS_FA
 	model = bundle.get_model()
@@ -858,20 +986,6 @@ def ctc_align(wav_path, lyric_lines):
 	except TypeError:
 		dictionary = bundle.get_dict()
 
-	usable = usable_lines(lyric_lines)
-	words = []
-	for line in usable:
-		words.extend(word_tokens(line))
-	token_groups = []
-	kept_words = []
-	for word in words:
-		ids = [dictionary[ch] for ch in word if ch in dictionary]
-		if ids:
-			token_groups.append(ids)
-			kept_words.append(word)
-	if not token_groups:
-		raise RuntimeError("ctc: transcript has no alignable characters")
-
 	chunk = int(CTC_CHUNK_SEC * sample_rate)
 	pieces = []
 	with torch.inference_mode():
@@ -880,38 +994,74 @@ def ctc_align(wav_path, lyric_lines):
 			pieces.append(emission[0].cpu())
 	emissions = torch.cat(pieces, dim=0)
 	frames_per_sec = emissions.size(0) / (waveform.size(1) / float(sample_rate))
+	return words_from_ctc_emissions(emissions, frames_per_sec, lyric_lines, dictionary, blank=0)
 
-	flat = [tok for group in token_groups for tok in group]
-	targets = torch.tensor(flat, dtype=torch.int32).unsqueeze(0)
-	aligned, scores = forced_align(emissions.unsqueeze(0), targets, blank=0)
-	spans = merge_tokens(aligned[0], scores[0].exp())
-	if len(spans) != len(flat):
-		raise RuntimeError(f"ctc: {len(spans)} spans for {len(flat)} tokens")
 
-	timed = []
-	cursor = 0
-	for word, group in zip(kept_words, token_groups):
-		word_spans = spans[cursor : cursor + len(group)]
-		cursor += len(group)
-		start = word_spans[0].start / frames_per_sec
-		end = word_spans[-1].end / frames_per_sec
-		timed.append((round(start, 3), word, round(max(end, start + 0.04), 3)))
+_W2V = {}
 
-	if len(kept_words) != len(words):
-		# Words made only of characters outside the model's alphabet were
-		# skipped for alignment; give them a slot between their neighbors.
-		merged = []
-		k = 0
-		for word in words:
-			if k < len(kept_words) and kept_words[k] == word:
-				merged.append(timed[k])
-				k += 1
-			else:
-				prev_end = merged[-1][2] if merged else 0.0
-				next_start = timed[k][0] if k < len(timed) else prev_end + 0.3
-				merged.append((round(prev_end, 3), word, round(max(prev_end, next_start), 3)))
-		timed = merged
-	return timed
+
+def wav2vec_char_map(tokenizer):
+	"""Lowercase letters (and apostrophe) to CTC ids. Skip specials and '|'."""
+	vocab = tokenizer.get_vocab()
+	mapping = {}
+	for token, idx in vocab.items():
+		if not token or token.startswith("<") or token.startswith("["):
+			continue
+		if token in {"|", "[PAD]", "<pad>", "<s>", "</s>", "<unk>"}:
+			continue
+		if len(token) != 1:
+			continue
+		mapping[token] = idx
+		mapping[token.lower()] = idx
+		mapping[token.upper()] = idx
+	blank = tokenizer.pad_token_id
+	if blank is None:
+		blank = vocab.get("<pad>", vocab.get("[PAD]", 0))
+	return mapping, int(blank)
+
+
+def wav2vec_align(wav_path, lyric_lines):
+	"""HuggingFace wav2vec2 CTC on the canonical sheet. Default model is
+	the singing-tolerant XLSR English already used as WhisperX's aligner,
+	but here it times the published words instead of Whisper's transcript."""
+	import torch
+	import torchaudio
+	from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
+
+	model_id = w2v_model_name()
+	if not model_id:
+		raise RuntimeError("wav2vec: no model id (set FORCED_ALIGN_W2V_MODEL or FORCED_ALIGN_ALIGN_MODEL)")
+	if model_id not in _W2V:
+		log(f"wav2vec loading {model_id}")
+		processor = Wav2Vec2Processor.from_pretrained(model_id)
+		model = Wav2Vec2ForCTC.from_pretrained(model_id)
+		model.eval()
+		_W2V[model_id] = (processor, model)
+	processor, model = _W2V[model_id]
+	device = pick_device()
+	dev = "cuda" if str(device).startswith("cuda") else "cpu"
+	model = model.to(dev)
+
+	sample_rate, samples = read_wav_mono(wav_path)
+	target_rate = int(getattr(processor.feature_extractor, "sampling_rate", None) or 16000)
+	waveform = torch.tensor(samples, dtype=torch.float32).unsqueeze(0)
+	if sample_rate != target_rate:
+		waveform = torchaudio.functional.resample(waveform, sample_rate, target_rate)
+		sample_rate = target_rate
+
+	chunk = int(CTC_CHUNK_SEC * sample_rate)
+	pieces = []
+	with torch.inference_mode():
+		for lo in range(0, waveform.size(1), chunk):
+			audio = waveform[0, lo : lo + chunk].cpu().numpy()
+			vals = processor(audio, sampling_rate=sample_rate, return_tensors="pt").input_values.to(dev)
+			logits = model(vals).logits[0].cpu()
+			pieces.append(torch.log_softmax(logits.float(), dim=-1))
+	emissions = torch.cat(pieces, dim=0)
+	frames_per_sec = emissions.size(0) / (waveform.size(1) / float(sample_rate))
+	char_to_id, blank = wav2vec_char_map(processor.tokenizer)
+	log(f"wav2vec model={model_id} device={dev} blank={blank} frames/s={frames_per_sec:.2f}")
+	return words_from_ctc_emissions(emissions, frames_per_sec, lyric_lines, char_to_id, blank=blank)
 
 
 # ---------------------------------------------------------------- aeneas
@@ -1009,12 +1159,14 @@ def write_result(out_json_path, result):
 
 def align_with(engine, wav_path, lyric_lines, work_dir):
 	source = wav_path
-	if engine in {"whisperx", "qwen", "ctc"} and want_separation(engine):
+	if engine in {"wav2vec", "whisperx", "qwen", "ctc"} and want_separation(engine):
 		try:
 			source = isolate_vocals(wav_path, work_dir)
 		except Exception as exc:  # demucs is optional; the mix still aligns
 			log(f"vocal separation skipped: {exc}")
 			source = wav_path
+	if engine == "wav2vec":
+		return wav2vec_align(source, lyric_lines)
 	if engine == "whisperx":
 		return whisperx_align(source, lyric_lines)
 	if engine == "qwen":
@@ -1062,6 +1214,49 @@ def run_align(wav_path, lyric_lines, work_dir):
 		except Exception as exc:
 			log(f"{engine} align failed: {exc}")
 	return "energy", energy_align(wav_path, lyric_lines)
+
+
+def expected_word_count(lyric_lines):
+	return sum(len(word_tokens(line, lower=False)) for line in usable_lines(lyric_lines))
+
+
+def compare_engines(wav_path, lyric_lines, work_dir):
+	"""Run every installed engine on the same wav and rank by score_alignment.
+	Does not write a cache row; this is the bake-off."""
+	duration = wav_duration_sec(wav_path)
+	n_expected = expected_word_count(lyric_lines)
+	installed = available_engines()
+	order = [engine for engine in AUTO_ENGINE_ORDER if engine in installed]
+	if "energy" not in order:
+		order.append("energy")
+	ranked = []
+	for engine in order:
+		entry = {"engine": engine}
+		try:
+			timed = align_with(engine, wav_path, lyric_lines, work_dir)
+			metrics = score_alignment(timed, duration, n_expected)
+			entry.update(metrics)
+			entry["ok"] = True
+			entry["precise"] = engine in PRECISE_ENGINES
+		except Exception as exc:
+			entry.update(
+				{
+					"ok": False,
+					"error": str(exc),
+					"score": -1000.0,
+					"collapsed": True,
+					"precise": engine in PRECISE_ENGINES,
+				}
+			)
+			log(f"{engine} compare failed: {exc}")
+		ranked.append(entry)
+	ranked.sort(key=lambda item: (item.get("score") is not None, item.get("score", -1000.0)), reverse=True)
+	return {
+		"duration": round(duration, 3),
+		"expected": n_expected,
+		"winner": ranked[0]["engine"] if ranked else "energy",
+		"engines": ranked,
+	}
 
 
 def self_test():
@@ -1154,7 +1349,25 @@ def self_test():
 	assert packed[0]["text"].startswith("I walk")
 	assert "ever known" in packed[1]["text"]
 	assert overlay_canonical_on_segments([], ["one line"], duration=12)[0]["text"] == "one line"
-	print(json.dumps({"ok": True, "tests": 16}))
+	assert w2v_model_name() == SINGING_ALIGN_MODEL
+	assert "wav2vec" in PRECISE_ENGINES
+	assert AUTO_ENGINE_ORDER[0] == "wav2vec"
+	assert AUTO_ENGINE_ORDER.index("wav2vec") < AUTO_ENGINE_ORDER.index("whisperx")
+	assert AUTO_ENGINE_ORDER.index("ctc") < AUTO_ENGINE_ORDER.index("qwen")
+	spread = [(i * 0.4, "w", i * 0.4 + 0.2) for i in range(12)]
+	collapsed = [(0.2, "w", 0.2) for _ in range(12)]
+	spread_s = score_alignment(spread, 6.0, 12)
+	collapsed_s = score_alignment(collapsed, 6.0, 12)
+	assert spread_s["collapsed"] is False
+	assert collapsed_s["collapsed"] is True
+	assert spread_s["score"] > collapsed_s["score"]
+	mapping, blank = wav2vec_char_map(
+		type("T", (), {"get_vocab": lambda self: {"<pad>": 0, "|": 1, "a": 2, "B": 3, "c": 4}, "pad_token_id": 0})()
+	)
+	assert mapping["a"] == 2 and mapping["A"] == 2
+	assert mapping["b"] == 3 and mapping["c"] == 4
+	assert blank == 0
+	print(json.dumps({"ok": True, "tests": 17}))
 	return 0
 
 
@@ -1167,10 +1380,10 @@ def main():
 			"engine": engine,
 			"precise": engine in PRECISE_ENGINES,
 			"available": available_engines(),
-			"device": pick_device() if engine in {"whisperx", "qwen", "ctc"} else None,
+			"device": pick_device() if engine in {"wav2vec", "whisperx", "qwen", "ctc"} else None,
 			"separate": want_separation(engine),
 			"whisper_model": whisper_model_name() if engine == "whisperx" else None,
-			"align_model": align_model_name() if engine == "whisperx" else None,
+			"align_model": align_model_name() if engine in {"whisperx", "wav2vec"} else None,
 			"python": sys.executable,
 			"python_version": sys.version.split()[0],
 		}
@@ -1178,6 +1391,16 @@ def main():
 		if note:
 			payload["note"] = note
 		print(json.dumps(payload))
+		return 0
+	if len(sys.argv) >= 2 and sys.argv[1] == "--compare":
+		if len(sys.argv) != 4:
+			print("usage: align.py --compare <wav_path> <lyrics_txt_path>", file=sys.stderr)
+			return 1
+		wav_path, lyrics_txt_path = sys.argv[2], sys.argv[3]
+		with open(lyrics_txt_path, "r", encoding="utf-8") as fh:
+			lyric_lines = fh.read().splitlines()
+		with tempfile.TemporaryDirectory(prefix="smart-display-compare-") as work_dir:
+			print(json.dumps(compare_engines(wav_path, lyric_lines, work_dir)))
 		return 0
 	if len(sys.argv) != 4:
 		print("usage: align.py <wav_path> <lyrics_txt_path> <out_json_path>", file=sys.stderr)

@@ -61,8 +61,9 @@ default `auto`), best first:
 
 | Engine | Needs | Precise | Notes |
 |---|---|---|---|
-| `whisperx` | CPU venv via `install-host-venv.sh` | yes | Demucs vocals, Whisper large-v3 timeboxes, singing-tolerant wav2vec2 stamps the canonical sheet. Auto's first pick. Do not `pip install whisperx` with bare pip. |
-| `ctc` | `pip install torch torchaudio` | yes | Meta MMS_FA wav2vec2 CTC + Viterbi on the known sheet. 20 ms frames. Speech model, but it cannot collapse a verse onto one timestamp. Auto's second pick. |
+| `wav2vec` | `torch`, `torchaudio`, `transformers` (WhisperX venv has these) | yes | Demucs vocals, then wav2vec2 CTC Viterbi on the **published** lyric sheet. Default model is `jonatasgrosman/wav2vec2-large-xlsr-53-english`. Auto's first pick: known-text FA, not ASR. |
+| `ctc` | `pip install torch torchaudio` | yes | Meta MMS_FA wav2vec2 CTC + Viterbi on the known sheet. 20 ms frames. Speech MMS; used when transformers is missing. |
+| `whisperx` | CPU venv via `install-host-venv.sh` | yes | Demucs vocals, Whisper large-v3 timeboxes, then wav2vec2 stamps the canonical sheet. Whisper often invents sung words, so this is third. Do not `pip install whisperx` with bare pip. |
 | `qwen` | `pip install qwen-asr` (pulls torch) | yes | [Qwen3-ForcedAligner-0.6B](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B): speech NAR. On singing it often stamps a whole verse at one clock. Auto tries it last among precise engines and skips a collapsed pass. |
 | `aeneas` | `pip install aeneas` plus espeak/ffmpeg | yes | DTW aligner; line-level fragments split by word weight. |
 | `mfa` | Demucs + Montreal Forced Aligner | yes | Opt-in only. Heavy. Not used by `auto`. |
@@ -85,12 +86,20 @@ run and whether it is precise; the server runs this once at boot. Skipping a
 track cancels the in-flight recording so a leftover WAV capture does not
 keep running.
 
-`align.py` auto order is **whisperx, then CTC, then Qwen**. Qwen is a speech
-model: on singing it often stamps a whole verse at one clock. CTC Viterbi
-on the canonical sheet, and WhisperX (Demucs vocals + Whisper timeboxes +
-wav2vec2, then a match onto that sheet), are the singing-capable paths.
+`align.py` auto order is **wav2vec, then CTC, then WhisperX, then Qwen**.
+Qwen is a speech NAR: on singing it often stamps a whole verse at one clock.
+Wav2vec and CTC both Viterbi the **canonical sheet** onto wav2vec2 emissions
+(the difference is the acoustic model: singing-tolerant XLSR vs speech MMS).
+WhisperX still runs Whisper ASR for timeboxes, then overlays the sheet;
+sung vocals make Whisper invent words, so it sits behind known-text CTC.
 `FORCED_ALIGN_ENGINE=qwen` still forces Qwen. Auto also skips a pass whose
 clocks collapsed and tries the next engine.
+
+Bake-off on a recorded wav (ranks installed engines, does not write cache):
+
+```sh
+python3 scripts/forced_align/align.py --compare track.wav lyrics.txt
+```
 
 ### Installing the recommended aligner
 
@@ -101,10 +110,7 @@ import it. Do not `pip install "numpy<2" whisperx`: that resolves WhisperX
 3.3 and `ctranslate2==4.4.0`, which has no 3.14 wheel.
 
 ```sh
-# origin/master still has the python3.14 + numpy<2 recipe. Curl this copy:
-curl -fsSL -o /tmp/install-host-venv.sh \
-  https://raw.githubusercontent.com/DasVR/smart-display/cursor/lyrix-py312-d064/scripts/forced_align/install-host-venv.sh
-bash /tmp/install-host-venv.sh --apply-systemd --recreate
+scripts/forced_align/install-host-venv.sh --apply-systemd --recreate
 sudo systemctl restart smart-display-server
 # or by hand, on Python 3.12 (wipe a leftover 3.14 venv first):
 sudo apt-get install -y python3.12 python3.12-venv python3.12-dev ffmpeg
@@ -120,7 +126,7 @@ flag writes the drop-in):
 
 ```
 LYRICS_PYTHON_BIN=/home/das/venvs/lyrix/bin/python
-FORCED_ALIGN_ENGINE=whisperx
+FORCED_ALIGN_ENGINE=auto
 FORCED_ALIGN_DEVICE=cpu
 FORCED_ALIGN_WHISPER_MODEL=large-v3
 FORCED_ALIGN_ALIGN_MODEL=jonatasgrosman/wav2vec2-large-xlsr-53-english
@@ -171,14 +177,15 @@ Then start the server with `FORCED_ALIGN_ENGINE=mfa` and that env on `PATH`.
 
 - `LYRICS_DB_PATH` - SQLite file (default `data/lyrics.db`).
 - `LYRICS_PYTHON_BIN` - python for community lookup and alignment (default `python3`).
-- `FORCED_ALIGN_ENGINE` - `auto` / `whisperx` / `ctc` / `qwen` / `aeneas` / `mfa` / `energy`.
+- `FORCED_ALIGN_ENGINE` - `auto` / `wav2vec` / `whisperx` / `ctc` / `qwen` / `aeneas` / `mfa` / `energy`.
 - `FORCED_ALIGN_DEVICE` - `cuda:0` / `cpu` (default: CUDA when available).
 - `FORCED_ALIGN_LANGUAGE` - language name passed to Qwen / WhisperX (default `English`).
 - `FORCED_ALIGN_WHISPER_MODEL` - faster-whisper size for whisperx (default `large-v3`).
-- `FORCED_ALIGN_ALIGN_MODEL` - wav2vec2 id for singing (default `jonatasgrosman/wav2vec2-large-xlsr-53-english`; empty uses WhisperX's language default).
+- `FORCED_ALIGN_ALIGN_MODEL` - wav2vec2 id for singing (default `jonatasgrosman/wav2vec2-large-xlsr-53-english`; empty uses WhisperX's language default). Also the default `wav2vec` model.
+- `FORCED_ALIGN_W2V_MODEL` - override the `wav2vec` HuggingFace id (default ALIGN_MODEL).
 - `FORCED_ALIGN_QWEN_MODEL` - HF id or local dir (default `Qwen/Qwen3-ForcedAligner-0.6B`).
 - `FORCED_ALIGN_QWEN_MAX_SEC` - seconds per Qwen pass before chunking (default 240).
-- `FORCED_ALIGN_SEPARATE` - `auto` / `1` / `0`: run Demucs before `whisperx` / `qwen` / `ctc`.
+- `FORCED_ALIGN_SEPARATE` - `auto` / `1` / `0`: run Demucs before `wav2vec` / `whisperx` / `qwen` / `ctc`.
 - `FORCED_ALIGN_DEMUCS` - optional path to the demucs CLI (defaults to the venv sibling of `LYRICS_PYTHON_BIN`).
 - `GENIUS_ACCESS_TOKEN` - optional. Unsynced Genius sheet only; timed lyrics come from syncedlyrics.
 - `FORCED_ALIGN_CACHE_DIR` - legacy JSON cache dir, imported into the DB (default `data/forced-align-cache/`).
