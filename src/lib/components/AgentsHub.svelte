@@ -59,11 +59,6 @@
 			</li>
 		{/each}
 	</ul>
-
-	<p class="hint">
-		Ping <code>working</code> when a run starts and <code>done</code> when it finishes.
-		Claude Code hooks and <code>hooks/display-done.sh</code> already do this.
-	</p>
 </div>
 
 <style>
@@ -97,16 +92,15 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0;
-		flex: 1;
 		min-height: 0;
 	}
 	.roster li {
 		display: flex;
 		align-items: center;
 		gap: var(--space-4);
-		min-height: 4.25rem;
+		min-height: 3.5rem;
 		min-width: 0;
-		padding: var(--space-5) 0;
+		padding: var(--space-4) 0;
 		border-bottom: 1px solid var(--hairline);
 		background: none;
 		box-shadow: none;
@@ -152,16 +146,5 @@
 		font-family: var(--font-body);
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
-	}
-	.hint {
-		margin: 0;
-		font-size: var(--text-sm);
-		color: var(--text-tertiary);
-		max-width: 42rem;
-	}
-	.hint code {
-		font-family: var(--font-code);
-		font-size: 0.92em;
-		color: var(--text-secondary);
 	}
 </style>
