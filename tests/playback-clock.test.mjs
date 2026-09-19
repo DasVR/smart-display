@@ -480,6 +480,29 @@ test('easeToward snaps when already close, and when dt is 0', () => {
 	assert.equal(easeToward(8, 3, 0.016, 0), 3);
 });
 
+test('isLineSinging stays true while a parenthetical chorus under the lead is still singing', () => {
+	const line = {
+		time: 3.5,
+		end: 6.4,
+		text: 'Keep the line',
+		words: [
+			{ time: 3.5, text: 'Keep', end: 3.9 },
+			{ time: 3.9, text: 'the', end: 4.2 },
+			{ time: 4.2, text: 'line', end: 4.7 }
+		],
+		background: [
+			{ time: 4.7, end: 5.6, text: '(now)', words: [{ time: 4.7, text: '(now)', end: 5.6 }] },
+			{ time: 5.7, end: 6.3, text: 'hold it', words: [{ time: 5.7, text: 'hold', end: 6.0 }, { time: 6.0, text: 'it', end: 6.3 }] }
+		]
+	};
+	assert.equal(isLineSinging(line, 4.0, 6.8), true);
+	assert.equal(isLineSinging(line, 5.2, 6.8), true, 'lead words are done; chorus is not');
+	assert.equal(lineSungThrough(line, 5.2, 6.8), false);
+	assert.equal(lineEndClock(line, 6.8), 6.3);
+	assert.equal(isLineSinging(line, 6.3, 6.8), false);
+	assert.equal(lineSungThrough(line, 6.3, 6.8), true);
+});
+
 test('isLineSinging lets overlapping duet lines paint at the same clock', () => {
 	const lead = {
 		time: 10,
