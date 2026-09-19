@@ -36,7 +36,8 @@
 		extractField,
 		fieldGridSize,
 		fieldExtent,
-		sizableContours
+		sizableContours,
+		placeFieldOnGrid
 	} from '$lib/radarVector.js';
 
 	let { data = null, paused = false } = $props();
@@ -599,11 +600,15 @@
 		const precipWorldW = rainCols * RADAR_SIZE;
 		const precipWorldH = rainRows * RADAR_SIZE;
 		const fields = [];
+		const destX = precipOriginX * (fieldCols / worldW);
+		const destY = precipOriginY * (fieldRows / worldH);
+		const destW = precipWorldW * (fieldCols / worldW);
+		const destH = precipWorldH * (fieldRows / worldH);
 		for (const frame of nextFrames) {
 			const precip = document.createElement('canvas');
 			precip.width = Math.max(1, rainCols * RADAR_TILE_PX);
 			precip.height = Math.max(1, rainRows * RADAR_TILE_PX);
-			const pctx = precip.getContext('2d', { alpha: true });
+			const pctx = precip.getContext('2d', { alpha: true, willReadFrequently: true });
 			pctx.imageSmoothingEnabled = false;
 			for (const t of rain.tiles) {
 				const img = await loadTile(
@@ -619,21 +624,11 @@
 				);
 			}
 
-			const fieldCanvas = document.createElement('canvas');
-			fieldCanvas.width = fieldCols;
-			fieldCanvas.height = fieldRows;
-			const fctx = fieldCanvas.getContext('2d', { alpha: true, willReadFrequently: true });
-			fctx.imageSmoothingEnabled = false;
-			const sx = fieldCols / worldW;
-			const sy = fieldRows / worldH;
-			fctx.drawImage(
-				precip,
-				precipOriginX * sx,
-				precipOriginY * sy,
-				precipWorldW * sx,
-				precipWorldH * sy
-			);
-			fields.push(extractField(fctx.getImageData(0, 0, fieldCols, fieldRows)));
+			// Classify and despeckle on the native 512px mosaic so 1-4 pixel
+			// Gulf speckle never becomes a city-zoom "cloud". The drawing
+			// grid is a nearest-neighbor stamp of that cleaned field.
+			const native = extractField(pctx.getImageData(0, 0, precip.width, precip.height));
+			fields.push(placeFieldOnGrid(native, fieldCols, fieldRows, destX, destY, destW, destH));
 		}
 		if (my !== gen) return;
 

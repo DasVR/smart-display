@@ -20,7 +20,11 @@ import {
 	pruneRadarSpeckle,
 	sizableContours,
 	contourArea,
-	RADAR_MIN_CLUSTER_CELLS
+	RADAR_MIN_CLUSTER_CELLS,
+	RADAR_MIN_LIGHT_CLUSTER_CELLS,
+	RADAR_MIN_CONTOUR_AREA,
+	RADAR_COLOR_MAX_DIST_SQ,
+	placeFieldOnGrid
 } from '../src/lib/radarVector.js';
 
 function shoelaceArea(points) {
@@ -294,6 +298,78 @@ describe('pruneRadarSpeckle', () => {
 		assert.ok(RADAR_MIN_CLUSTER_CELLS >= 8);
 		assert.equal(field.alpha[3 * 8 + 3], 0);
 	});
+
+	it('drops a medium cyan island with no core, keeps a small yellow core', () => {
+		const light = RADAR_RAIN_PALETTE[1];
+		const heavy = RADAR_RAIN_PALETTE[5];
+		const W = 24;
+		const H = 16;
+		const data = new Uint8ClampedArray(W * H * 4);
+		const put = (x, y, c) => {
+			const o = (y * W + x) * 4;
+			data[o] = c.r;
+			data[o + 1] = c.g;
+			data[o + 2] = c.b;
+			data[o + 3] = 255;
+		};
+		for (let y = 1; y <= 6; y++) for (let x = 1; x <= 6; x++) put(x, y, light);
+		for (let y = 9; y <= 13; y++) for (let x = 14; x <= 18; x++) put(x, y, heavy);
+		const field = extractField({ width: W, height: H, data });
+		assert.ok(RADAR_MIN_LIGHT_CLUSTER_CELLS > 36);
+		assert.equal(field.alpha[3 * W + 3], 0);
+		assert.ok(field.alpha[11 * W + 16] > 0);
+	});
+
+	it('ignores basemap gray that is not a palette stop', () => {
+		const imageData = {
+			width: 4,
+			height: 4,
+			data: new Uint8ClampedArray(4 * 4 * 4)
+		};
+		for (let i = 0; i < 16; i++) {
+			const o = i * 4;
+			imageData.data[o] = 80;
+			imageData.data[o + 1] = 80;
+			imageData.data[o + 2] = 80;
+			imageData.data[o + 3] = 255;
+		}
+		const field = extractField(imageData, undefined, undefined, { minCluster: 1 });
+		assert.ok(RADAR_COLOR_MAX_DIST_SQ > 0);
+		assert.equal(field.alpha[0], 0);
+	});
+});
+
+describe('placeFieldOnGrid', () => {
+	it('nearest-neighbor stamps a native field onto a coarser grid', () => {
+		const src = {
+			alpha: new Float32Array([0, 0.5, 0.5, 0]),
+			cols: 2,
+			rows: 2,
+			colors: ['rgb(1, 2, 3)'],
+			opacities: [0.7]
+		};
+		const placed = placeFieldOnGrid(src, 4, 4, 0, 0, 4, 4);
+		assert.equal(placed.cols, 4);
+		assert.equal(placed.rows, 4);
+		assert.equal(placed.alpha[0], 0);
+		assert.ok(placed.alpha[2] > 0);
+		assert.equal(placed.alpha[1 * 4 + 0], 0);
+		assert.ok(placed.alpha[2 * 4 + 0] > 0);
+		assert.equal(placed.colors[0], 'rgb(1, 2, 3)');
+	});
+
+	it('leaves dest cells outside the dest rect dry', () => {
+		const src = {
+			alpha: new Float32Array([1]),
+			cols: 1,
+			rows: 1,
+			colors: [],
+			opacities: []
+		};
+		const placed = placeFieldOnGrid(src, 4, 4, 2, 2, 2, 2);
+		assert.equal(placed.alpha[0], 0);
+		assert.ok(placed.alpha[2 * 4 + 2] > 0);
+	});
 });
 
 describe('sizableContours', () => {
@@ -310,8 +386,8 @@ describe('sizableContours', () => {
 			[10, 10],
 			[0, 10]
 		];
-		assert.ok(contourArea(tiny) < 4);
-		assert.deepEqual(sizableContours([tiny, big], 4), [big]);
+		assert.ok(contourArea(tiny) < RADAR_MIN_CONTOUR_AREA);
+		assert.deepEqual(sizableContours([tiny, big]), [big]);
 	});
 });
 
