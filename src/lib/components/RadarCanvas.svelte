@@ -35,7 +35,8 @@
 		lerpColor,
 		extractField,
 		fieldGridSize,
-		fieldExtent
+		fieldExtent,
+		sizableContours
 	} from '$lib/radarVector.js';
 
 	let { data = null, paused = false } = $props();
@@ -405,7 +406,9 @@
 				fillWholeField(field, cellW, cellH, originX, originY, field.colors[i], fillA);
 				continue;
 			}
-			const polys = marchingSquares(field.alpha, field.cols, field.rows, threshold);
+			const polys = sizableContours(
+				marchingSquares(field.alpha, field.cols, field.rows, threshold)
+			);
 			for (const poly of polys) {
 				fillContour(poly, cellW, cellH, originX, originY, field.colors[i], fillA);
 			}
@@ -431,7 +434,9 @@
 				fillWholeField(fieldA, cellW, cellH, originX, originY, color, fillA);
 				continue;
 			}
-			const polys = marchingSquares(blended, fieldA.cols, fieldA.rows, threshold);
+			const polys = sizableContours(
+				marchingSquares(blended, fieldA.cols, fieldA.rows, threshold)
+			);
 			for (const poly of polys) {
 				fillContour(poly, cellW, cellH, originX, originY, color, fillA);
 			}
@@ -618,8 +623,7 @@
 			fieldCanvas.width = fieldCols;
 			fieldCanvas.height = fieldRows;
 			const fctx = fieldCanvas.getContext('2d', { alpha: true, willReadFrequently: true });
-			fctx.imageSmoothingEnabled = true;
-			fctx.imageSmoothingQuality = 'high';
+			fctx.imageSmoothingEnabled = false;
 			const sx = fieldCols / worldW;
 			const sy = fieldRows / worldH;
 			fctx.drawImage(
