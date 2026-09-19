@@ -6,11 +6,31 @@
 
 	let now = $state(Date.now());
 
+	function rosterHasSignal(list) {
+		return (list || []).some((a) => Number(a.updatedAt) > 0);
+	}
+
 	onMount(() => {
-		const t = setInterval(() => {
+		const tick = setInterval(() => {
 			now = Date.now();
 		}, 1000);
-		return () => clearInterval(t);
+		async function pull() {
+			try {
+				const r = await fetch('/api/agents');
+				if (!r.ok) return;
+				const data = await r.json();
+				if (!Array.isArray(data.agents) || !rosterHasSignal(data.agents)) return;
+				agentRoster.set(data.agents);
+			} catch {
+				/* agents endpoint is optional in vite */
+			}
+		}
+		pull();
+		const poll = setInterval(pull, 2500);
+		return () => {
+			clearInterval(tick);
+			clearInterval(poll);
+		};
 	});
 
 	let working = $derived(workingAgents($agentRoster).length);
