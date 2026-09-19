@@ -209,6 +209,15 @@ test('mergeNowPlayingSample keeps the same lyrics array across identical polls',
 	assert.equal(reuseLyrics(current, incoming).lyrics, lyrics);
 });
 
+test('mergeNowPlayingSample keeps lyrics when a compact poll omits them', () => {
+	const lyrics = [{ time: 1, text: 'one' }, { time: 4, text: 'two' }];
+	const current = { ...live, lyrics, lyricsSource: 'community' };
+	const incoming = { ...live, position: 14.2, positionAt: 5_000 };
+	const merged = mergeNowPlayingSample(current, incoming, 5_000);
+	assert.equal(merged.lyrics, lyrics);
+	assert.equal(merged.lyricsSource, 'community');
+});
+
 test('mergeNowPlayingSample lets a stale stuck seek start moving again', () => {
 	const current = {
 		...live,

@@ -8,15 +8,10 @@
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
 	import { primeAudio, playChime, playVolumeTick } from '$lib/services/chime.js';
+	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
 
 	const current = writable('clock');
-	const views = [
-		{ id: 'clock', label: 'Clock' },
-		{ id: 'school', label: 'School' },
-		{ id: 'dev', label: 'Dev' },
-		{ id: 'music', label: 'Music' },
-		{ id: 'weather', label: 'Weather' }
-	];
+	const views = KIOSK_VIEWS.map((id) => ({ id, label: kioskViewLabel(id) }));
 	const weekDays = [
 		{ id: 0, short: 'S', name: 'Sunday' },
 		{ id: 1, short: 'M', name: 'Monday' },
@@ -65,7 +60,7 @@
 	}
 
 	function viewLabel(id) {
-		return views.find((v) => v.id === id)?.label || id;
+		return kioskViewLabel(id) || id;
 	}
 
 	function applyDisplay(display) {

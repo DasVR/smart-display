@@ -2,7 +2,7 @@ import { hostUpdateChanges } from '../hostUpdatesModel.js';
 import { formatDaysLabel } from './displaySchedule.js';
 
 export const NOTIFY_SEVERITIES = new Set(['info', 'ok', 'warn', 'error']);
-export const NOTIFY_EVENTS = new Set(['done', 'install', 'update']);
+export const NOTIFY_EVENTS = new Set(['done', 'install', 'update', 'working']);
 export const DEFAULT_NOTIFY_TTL = 9000;
 export const MIN_NOTIFY_TTL = 1000;
 export const MAX_NOTIFY_TTL = 30000;
@@ -19,25 +19,32 @@ function clip(value, max) {
 
 function defaultSeverity(event) {
 	if (event === 'done') return 'ok';
-	if (event === 'install') return 'info';
+	if (event === 'install' || event === 'working') return 'info';
 	if (event === 'update') return 'warn';
 	return 'info';
 }
 
 function defaultTitle(event, source, severity) {
 	if (event === 'done') return source ? `${source} finished` : 'Agent finished';
+	if (event === 'working') return source ? `${source} working` : 'Agent working';
 	if (event === 'install') return source ? `${source} installing` : 'Installing packages';
 	if (event === 'update') return severity === 'ok' ? 'Packages updated' : 'Package updates';
 	return '';
 }
 
-/** Build the WebSocket `notify` frame from a POST /api/notify body.
- *  Known `event` values fill a title when one is omitted: `done`, `install`,
- *  `update`. */
-export function parseNotifyPayload(data = {}) {
-	const event = String(data.event || '')
+function normalizeEvent(raw) {
+	const event = String(raw || '')
 		.trim()
 		.toLowerCase();
+	if (event === 'start') return 'working';
+	return event;
+}
+
+/** Build the WebSocket `notify` frame from a POST /api/notify body.
+ *  Known `event` values fill a title when one is omitted: `done`, `working`,
+ *  `install`, `update`. `start` is an alias for `working`. */
+export function parseNotifyPayload(data = {}) {
+	const event = normalizeEvent(data.event);
 	const source = clip(data.source, 40);
 	const body = clip(data.body, 240);
 	const known = NOTIFY_EVENTS.has(event);
@@ -203,7 +210,29 @@ export function airplayConnectedNotify(name = '') {
 	return audioRouteConnectedNotify({ name, source: 'AirPlay' });
 }
 
-export function parseBtConnectedPayload(raw) {
+export function audioRouteDisconnectedNotify({ name = '', source = 'Bluetooth' } = {}) {
+	const trimmed = clip(name, 80).trim();
+	const src = clip(source, 40).trim() || 'Bluetooth';
+	const isAirplay = src.toLowerCase() === 'airplay';
+	return {
+		type: 'notify',
+		title: trimmed ? `${trimmed} disconnected` : isAirplay ? 'AirPlay disconnected' : 'Phone disconnected',
+		body: 'Playback stopped',
+		severity: 'info',
+		source: src,
+		ttl: 4000
+	};
+}
+
+export function bluetoothDisconnectedNotify(name = '') {
+	return audioRouteDisconnectedNotify({ name, source: 'Bluetooth' });
+}
+
+export function airplayDisconnectedNotify(name = '') {
+	return audioRouteDisconnectedNotify({ name, source: 'AirPlay' });
+}
+
+function parseAudioRoutePayload(raw, notify) {
 	let name = '';
 	try {
 		const text = String(raw || '').trim();
@@ -212,23 +241,25 @@ export function parseBtConnectedPayload(raw) {
 			name = clip(data.name || data.alias || data.device || '', 80).trim();
 		}
 	} catch {
-		/* empty or non-JSON bodies still mean "a phone connected" */
+		/* empty or non-JSON bodies still mean a route change */
 	}
-	return { name, notify: bluetoothConnectedNotify(name) };
+	return { name, notify: notify(name) };
+}
+
+export function parseBtConnectedPayload(raw) {
+	return parseAudioRoutePayload(raw, bluetoothConnectedNotify);
 }
 
 export function parseAirplayConnectedPayload(raw) {
-	let name = '';
-	try {
-		const text = String(raw || '').trim();
-		if (text) {
-			const data = JSON.parse(text);
-			name = clip(data.name || data.alias || data.device || '', 80).trim();
-		}
-	} catch {
-		/* empty or non-JSON bodies still mean AirPlay started */
-	}
-	return { name, notify: airplayConnectedNotify(name) };
+	return parseAudioRoutePayload(raw, airplayConnectedNotify);
+}
+
+export function parseBtDisconnectedPayload(raw) {
+	return parseAudioRoutePayload(raw, bluetoothDisconnectedNotify);
+}
+
+export function parseAirplayDisconnectedPayload(raw) {
+	return parseAudioRoutePayload(raw, airplayDisconnectedNotify);
 }
 
 export function agentFinishedNotify() {
