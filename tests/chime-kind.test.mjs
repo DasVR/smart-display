@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { chimeKindForEvent, volumeTickPitch } from '../src/lib/chimeKind.js';
+import { chimeKindForEvent, islandOwnsChime, volumeTickPitch } from '../src/lib/chimeKind.js';
 
 test('volumeTickPitch clamps to 0..1', () => {
 	assert.equal(volumeTickPitch(0), 0);
@@ -27,6 +27,18 @@ test('chimeKindForEvent gives Cursor, Claude, Hermes, and Ollama their own finis
 	assert.equal(chimeKindForEvent({ kind: 'done', source: 'Ollama' }), 'done-ollama');
 	assert.equal(chimeKindForEvent({ title: 'Cursor finished', source: 'Cursor' }), 'done-cursor');
 	assert.equal(chimeKindForEvent({ kind: 'done' }), 'success');
+});
+
+test('chimeKindForEvent maps working starts', () => {
+	assert.equal(chimeKindForEvent({ kind: 'working', source: 'Claude Code' }), 'working');
+	assert.equal(chimeKindForEvent({ kind: 'start', source: 'Cursor' }), 'working');
+});
+
+test('islandOwnsChime skips agent start and finish so the page can play them', () => {
+	assert.equal(islandOwnsChime('done'), false);
+	assert.equal(islandOwnsChime('working'), false);
+	assert.equal(islandOwnsChime('volume'), true);
+	assert.equal(islandOwnsChime('ok'), true);
 });
 
 test('chimeKindForEvent keeps weather and severity fallbacks', () => {

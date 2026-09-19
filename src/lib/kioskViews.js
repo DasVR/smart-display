@@ -1,0 +1,27 @@
+/** Canonical kiosk channel order. Keep the page strip, phone remote, and
+ *  websocket swipe list on this one list so a new tab cannot land in only
+ *  one of the three. */
+
+export const KIOSK_VIEWS = ['clock', 'school', 'dev', 'agents', 'music', 'weather'];
+
+export const KIOSK_VIEW_LABELS = {
+	clock: 'Clock',
+	school: 'School',
+	dev: 'Dev',
+	agents: 'Agents',
+	music: 'Music',
+	weather: 'Weather'
+};
+
+export function kioskViewLabel(id) {
+	return KIOSK_VIEW_LABELS[id] || String(id || '');
+}
+
+export function swipeKioskView(current, dir) {
+	const n = KIOSK_VIEWS.length;
+	let idx = KIOSK_VIEWS.indexOf(current);
+	if (idx < 0) idx = 0;
+	if (dir === 'left') idx = (idx + 1) % n;
+	if (dir === 'right') idx = (idx - 1 + n) % n;
+	return KIOSK_VIEWS[idx];
+}

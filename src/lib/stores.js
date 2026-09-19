@@ -1,4 +1,6 @@
 import { writable } from 'svelte/store';
+import { emptyRoster } from './agentRoster.js';
+import { KIOSK_VIEW_LABELS } from './kioskViews.js';
 
 export const currentView = writable('clock');
 export const displayMode = writable('normal'); // normal | sleep | morning
@@ -96,13 +98,9 @@ export function clearIslandActivity(id) {
 	islandActivities.update((list) => list.filter((a) => a.id !== id));
 }
 
-export const viewNames = {
-	clock: 'Clock',
-	school: 'School',
-	dev: 'Dev',
-	music: 'Music',
-	weather: 'Weather'
-};
+export const viewNames = { ...KIOSK_VIEW_LABELS };
+
+export const agentRoster = writable(emptyRoster());
 
 const HISTORY_LEN = 40;
 

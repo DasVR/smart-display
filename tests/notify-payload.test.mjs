@@ -90,6 +90,17 @@ test('agentFinishedNotify is the Ollama idle island event', () => {
 	assert.equal(msg.kind, 'done');
 });
 
+test('event working fills Claude Code / Cursor / Agent titles', () => {
+	assert.equal(
+		parseNotifyPayload({ event: 'working', source: 'Claude Code' }).notify.title,
+		'Claude Code working'
+	);
+	assert.equal(parseNotifyPayload({ event: 'working', source: 'Cursor' }).notify.kind, 'working');
+	assert.equal(parseNotifyPayload({ event: 'start', source: 'Cursor' }).notify.kind, 'working');
+	assert.equal(parseNotifyPayload({ event: 'working' }).notify.title, 'Agent working');
+	assert.equal(parseNotifyPayload({ event: 'working' }).notify.severity, 'info');
+});
+
 test('event install and update fill titles', () => {
 	assert.equal(
 		parseNotifyPayload({ event: 'install', source: 'npm' }).notify.title,

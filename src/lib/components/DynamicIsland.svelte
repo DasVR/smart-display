@@ -2,7 +2,7 @@
 	import { fly, fade } from 'svelte/transition';
 	import { cubicOut } from 'svelte/easing';
 	import { playChime } from '$lib/services/chime.js';
-	import { chimeKindForEvent } from '$lib/chimeKind.js';
+	import { chimeKindForEvent, islandOwnsChime } from '$lib/chimeKind.js';
 	import { compactSlots } from '$lib/islandLive.js';
 
 	let {
@@ -76,6 +76,7 @@
 				if (activeEvent?.kind === 'install') return 'info';
 				if (activeEvent?.kind === 'update') return 'warn';
 				if (activeEvent?.kind === 'done') return 'ok';
+				if (activeEvent?.kind === 'working') return 'info';
 				const sev = activeEvent?.severity;
 				if (sev === 'error') return 'error';
 				if (sev === 'warn') return 'warn';
@@ -120,7 +121,8 @@
 		}
 		if (key && key !== lastChimeKey) {
 			const returning = lastChimeKey?.startsWith('event:') && key.startsWith('music:');
-			if (!returning) playChime(tone);
+			const skipAgent = mode === 'event' && !islandOwnsChime(activeEvent?.kind);
+			if (!returning && !skipAgent) playChime(tone);
 		}
 		lastChimeKey = key;
 	});

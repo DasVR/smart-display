@@ -10,10 +10,19 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
-	import { gpuLowPowerMode, displayQuality, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
+	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
+	import { chimeKindForEvent } from '$lib/chimeKind.js';
+	import {
+		applyNotifyToRoster,
+		applyOllamaHint,
+		demoRoster,
+		isAgentStatusEvent,
+		workingIslandActivity
+	} from '$lib/agentRoster.js';
+	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
 	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
@@ -37,6 +46,7 @@
 	import HeroClock from '$lib/components/HeroClock.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
 	import DevHub from '$lib/components/DevHub.svelte';
+	import AgentsHub from '$lib/components/AgentsHub.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
 	import WeatherView from '$lib/components/WeatherView.svelte';
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
@@ -66,16 +76,21 @@
 	let lastViewIdx = -1;
 	// `?demo=music` pins the Music view. The kiosk websocket init/navigate
 	// payload would otherwise snap back to Clock as soon as /ws connects.
-	let lockMusicDemo = false;
+	let lockDemoView = false;
 	if (typeof window !== 'undefined') {
 		const demo = new URLSearchParams(window.location.search).get('demo');
 		if (demo === 'music' || demo === 'voices') {
-			lockMusicDemo = true;
+			lockDemoView = true;
 			currentView.set('music');
+		}
+		if (demo === 'agents') {
+			lockDemoView = true;
+			currentView.set('agents');
+			agentRoster.set(demoRoster());
 		}
 	}
 
-	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
+	const VIEWS = KIOSK_VIEWS;
 
 	function selectView(v) {
 		if (!VIEWS.includes(v) || $currentView === v) return;
@@ -171,10 +186,10 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
-					if (!lockMusicDemo && msg.view && msg.view !== $currentView) currentView.set(msg.view);
+					if (!lockDemoView && msg.view && msg.view !== $currentView) currentView.set(msg.view);
 				}
 				if (msg.type === 'notify') {
-					pushIslandEvent({
+					const ev = {
 						title: msg.title || 'Notice',
 						body: msg.body || '',
 						severity: msg.severity || 'info',
@@ -182,7 +197,13 @@
 						source: msg.source || '',
 						kind: msg.kind || 'notice',
 						muted: Boolean(msg.muted)
-					});
+					};
+					pushIslandEvent(ev);
+					agentRoster.update((r) => applyNotifyToRoster(r, ev));
+					if (isAgentStatusEvent(ev)) playChime(chimeKindForEvent(ev));
+				}
+				if (msg.type === 'agents' && Array.isArray(msg.agents) && !lockDemoView) {
+					agentRoster.set(msg.agents);
 				}
 				if (msg.type === 'volume') {
 					announceVolume(msg);
@@ -207,9 +228,10 @@
 					applyAudioFrame(msg);
 				}
 				if (msg.type === 'init') {
-					if (msg.view && !lockMusicDemo && msg.view !== $currentView) currentView.set(msg.view);
+					if (msg.view && !lockDemoView && msg.view !== $currentView) currentView.set(msg.view);
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
+					if (Array.isArray(msg.agents) && !lockDemoView) agentRoster.set(msg.agents);
 					if (msg.power) {
 						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
 					}
@@ -378,8 +400,13 @@
 		const demoKind = preview.get('demo');
 		const musicDemo = islandPreview === 'music' || demoKind === 'music' || demoKind === 'voices';
 		if (demoKind === 'music' || demoKind === 'voices') {
-			lockMusicDemo = true;
+			lockDemoView = true;
 			currentView.set('music');
+		}
+		if (demoKind === 'agents') {
+			lockDemoView = true;
+			currentView.set('agents');
+			agentRoster.set(demoRoster());
 		}
 		connect();
 		fetchWeather();
@@ -393,18 +420,21 @@
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });
 		// Browsers block audio until a real user gesture; a touch/click/key on
-		// the kiosk unlocks it so island-event chimes can play afterward.
+		// the kiosk unlocks it so island-event and agent-finish chimes can play afterward.
 		window.addEventListener('pointerdown', primeAudio, { once: true });
 		window.addEventListener('keydown', primeAudio, { once: true });
 		updateIndicator();
 		if (preview.get('wx') === 'notify') {
-			pushIslandEvent({
+			const ev = {
 				title: 'Cursor finished',
 				body: 'Radar island layout is ready',
 				severity: 'ok',
 				ttl: 12000,
-				source: 'Cursor'
-			});
+				source: 'Cursor',
+				kind: 'done'
+			};
+			pushIslandEvent(ev);
+			agentRoster.update((r) => applyNotifyToRoster(r, ev));
 		}
 		let demoLyricsPoll = 0;
 		if (demoKind === 'voices') {
@@ -503,13 +533,14 @@
 	const VIEW_TITLES = {
 		school: 'Due Work',
 		dev: 'Dev Wall',
+		agents: 'Agents',
 		music: 'Music',
 		weather: 'Weather'
 	};
 	let viewTitle = $derived(VIEW_TITLES[$currentView] ?? '');
 
 	function viewLabel(name) {
-		return name.slice(0, 1).toUpperCase() + name.slice(1);
+		return kioskViewLabel(name);
 	}
 
 	function weatherFromQuery() {
@@ -578,6 +609,16 @@
 				clearIslandActivity('update');
 			}
 		}
+	});
+
+	$effect(() => {
+		const activity = workingIslandActivity($agentRoster);
+		if (activity) setIslandActivity('agents', activity);
+		else clearIslandActivity('agents');
+	});
+
+	$effect(() => {
+		agentRoster.update((r) => applyOllamaHint(r, $ollamaStatus));
 	});
 
 	$effect(() => {
@@ -726,6 +767,10 @@
 			{:else if $currentView === 'dev'}
 				<section class="view-pane sheet dev-pane" data-glass>
 					<DevHub />
+				</section>
+			{:else if $currentView === 'agents'}
+				<section class="view-pane sheet agents-pane" data-glass>
+					<AgentsHub />
 				</section>
 			{:else if $currentView === 'music'}
 				<section class="view-pane music-pane">

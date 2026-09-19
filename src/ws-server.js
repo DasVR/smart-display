@@ -37,6 +37,12 @@ import {
 	parseNotifyPayload,
 	scheduleNotify
 } from './lib/server/notifyPayload.js';
+import {
+	getAgentRoster,
+	ingestAgentNotify,
+	ingestOllamaStatus
+} from './lib/server/agentRosterState.js';
+import { swipeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
@@ -94,6 +100,20 @@ async function audioSnapshot() {
 	const result = await getVolume();
 	if (!result.ok) return null;
 	return { volume: result.volume, muted: result.muted };
+}
+
+function broadcastAgents() {
+	broadcast({ type: 'agents', agents: getAgentRoster() });
+}
+
+function publishNotify(notify) {
+	const { roster, openAgents } = ingestAgentNotify(notify);
+	if (openAgents) {
+		currentView = 'agents';
+		broadcast({ type: 'navigate', view: 'agents', from: 'notify' });
+	}
+	broadcast(notify);
+	broadcast({ type: 'agents', agents: roster });
 }
 
 function handleAudioConnected(req, res, parse, from) {
@@ -180,7 +200,10 @@ async function pollHostLoad() {
 			broadcast(snap);
 			lastLoadBroadcast = `${snap.quality}|${snap.cpu}|${snap.ramPct}|${snap.inferring}`;
 			if (prev === 'LOW_POWER' && newState === 'HIGH_PERFORMANCE') {
-				broadcast(agentFinishedNotify());
+				publishNotify(agentFinishedNotify());
+			} else if (newState === 'LOW_POWER') {
+				const { changed } = ingestOllamaStatus('inferring');
+				if (changed) broadcastAgents();
 			}
 			return;
 		}
@@ -193,7 +216,7 @@ async function pollHostLoad() {
 		if (ollamaPowerState !== 'HIGH_PERFORMANCE') {
 			ollamaPowerState = 'HIGH_PERFORMANCE';
 			broadcast({ type: 'power', state: 'HIGH_PERFORMANCE' });
-			broadcast(agentFinishedNotify());
+			publishNotify(agentFinishedNotify());
 		}
 		broadcast(computeLoadSnapshot(getHostLoad(), false));
 	}
@@ -640,6 +663,11 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && reqPath(req) === '/api/agents') {
+		json(res, { agents: getAgentRoster() });
+		return;
+	}
+
 	if (req.method === 'POST' && req.url === '/api/notify') {
 		let body = '';
 		req.on('data', (chunk) => (body += chunk));
@@ -650,8 +678,8 @@ const server = createServer(async (req, res) => {
 					json(res, { error: parsed.error }, parsed.status || 400);
 					return;
 				}
-				broadcast(parsed.notify);
-				json(res, { ok: true });
+				publishNotify(parsed.notify);
+				json(res, { ok: true, agents: getAgentRoster() });
 			} catch {
 				json(res, { error: 'invalid payload' }, 400);
 			}
@@ -744,11 +772,7 @@ wss.on('connection', (ws, req) => {
 				broadcast({ type: 'navigate', view: msg.view, from: isRemote ? 'remote' : 'local' });
 			}
 			if (msg.type === 'swipe') {
-			const views = ['clock', 'school', 'dev', 'music', 'weather'];
-				let idx = views.indexOf(currentView);
-				if (msg.dir === 'left') idx = (idx + 1) % views.length;
-				if (msg.dir === 'right') idx = (idx - 1 + views.length) % views.length;
-				currentView = views[idx];
+				currentView = swipeKioskView(currentView, msg.dir);
 				broadcast({ type: 'navigate', view: currentView, from: 'remote' });
 			}
 			if (msg.type === 'trigger') {
@@ -777,7 +801,8 @@ wss.on('connection', (ws, req) => {
 				nowPlaying: lastNowPlaying,
 				display: displaySnapshot(),
 				audio,
-				installProgress: getInstallProgress()
+				installProgress: getInstallProgress(),
+				agents: getAgentRoster()
 			})
 		);
 	})();
