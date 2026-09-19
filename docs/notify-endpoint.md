@@ -97,6 +97,14 @@ Ollama card goes to working; when the GPU handoff returns from
 `LOW_POWER` to `HIGH_PERFORMANCE`, the server raises `Agent finished`
 itself (source `Ollama`).
 
+Cursor Cloud Agents and Claude Code cloud sessions are the same idea:
+the kiosk polls them. Put a Cursor API key in `CURSOR_API_KEY` or
+`.cursor_api_key` (Dashboard → API Keys). Claude managed sessions use
+`ANTHROPIC_API_KEY` or `.anthropic_api_key`. A running cloud agent
+lands on the Agents stage with the run name as the task; when the
+turn goes idle the card flips to finished and plays the chime. No
+LAN hook is required. Preview with `?demo=cloud`.
+
 Bluetooth is the same idea on a different endpoint: `POST /api/bt/connected`
 still jumps to Music, and also raises `Phone connected` (or `{device}
 connected` when the watcher knows the Alias). AirPlay uses
@@ -131,13 +139,14 @@ finishes, in `.claude/settings.json`:
 }
 ```
 
-**Cursor** — there is still no first-party "agent started / finished"
-hook. Closest paths that work today:
+**Cursor** — Cloud Agents are polled from `api.cursor.com` when a key
+is present, so a run like this one shows up without a LAN hook. For
+the desktop app there is still no first-party start/finish hook.
+Closest local paths:
 
 - a Cursor Task that runs `hooks/display-working.sh Cursor` then
   `hooks/display-done.sh Cursor`
 - a git `post-commit` hook that does the done ping
-- any Cloud Agent / wrap-up script that can `curl` `/api/notify`
 
 **Hermes agent** — same helpers, source `Hermes`:
 

@@ -40,8 +40,11 @@ import {
 import {
 	getAgentRoster,
 	ingestAgentNotify,
+	ingestCloudSnapshot,
 	ingestOllamaStatus
 } from './lib/server/agentRosterState.js';
+import { refreshCloudSnapshot } from './lib/server/cloudAgentsPoll.js';
+import { shouldOpenAgentsView } from './lib/agentRoster.js';
 import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -222,6 +225,29 @@ async function pollHostLoad() {
 	}
 }
 setInterval(pollHostLoad, 1000);
+
+async function pollCloudAgents() {
+	try {
+		const snapshot = await refreshCloudSnapshot({ force: true });
+		const { events, changed } = ingestCloudSnapshot(snapshot);
+		if (events.length) {
+			for (const notify of events) {
+				if (shouldOpenAgentsView(notify)) {
+					currentView = 'agents';
+					broadcast({ type: 'navigate', view: 'agents', from: 'notify' });
+				}
+				broadcast(notify);
+			}
+			broadcastAgents();
+		} else if (changed) {
+			broadcastAgents();
+		}
+	} catch {
+		/* Cursor / Claude cloud polls are optional */
+	}
+}
+setInterval(pollCloudAgents, 10_000);
+pollCloudAgents();
 
 const HOST_UPDATES_POLL_MS = 15_000;
 let lastHostUpdates = null;

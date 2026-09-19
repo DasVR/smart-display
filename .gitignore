@@ -4,6 +4,9 @@ build/
 **/.env
 .env*
 .ha_token.json
+.cursor_api_key
+.anthropic_api_key
+data/cloud-agents.json
 *.log
 .DS_Store
 .station/

@@ -1,6 +1,7 @@
 /** Live Claude Code / Cursor / Hermes / Ollama roster. Status comes from
- *  `/api/notify` (`working` / `done`) plus the local Ollama inferring hint.
- *  No invented traces: a card stays idle until a real signal lands. */
+ *  `/api/notify` (`working` / `done`), Cursor Cloud / Claude cloud polls,
+ *  and the local Ollama inferring hint. No invented traces: a card stays
+ *  idle until a real signal lands. */
 
 export const AGENT_DEFS = [
 	{ id: 'claude', name: 'Claude Code' },
@@ -28,6 +29,7 @@ export function identifyAgent(source = '', title = '') {
 	if (hay.includes('claude')) return 'claude';
 	if (hay.includes('hermes')) return 'hermes';
 	if (hay.includes('ollama')) return 'ollama';
+	if (hay.includes('cloud agent') || hay.includes('cloud code')) return 'cursor';
 	return null;
 }
 

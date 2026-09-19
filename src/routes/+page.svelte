@@ -22,6 +22,7 @@
 		isAgentStatusEvent,
 		workingIslandActivity
 	} from '$lib/agentRoster.js';
+	import { cloudDemoRoster } from '$lib/cloudAgents.js';
 	import { KIOSK_VIEWS, canonicalizeKioskView, kioskViewLabel } from '$lib/kioskViews.js';
 	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
@@ -86,6 +87,11 @@
 			lockDemoView = true;
 			currentView.set('agents');
 			agentRoster.set(demoRoster());
+		}
+		if (demo === 'cloud') {
+			lockDemoView = true;
+			currentView.set('agents');
+			agentRoster.set(cloudDemoRoster());
 		}
 	}
 
@@ -409,6 +415,11 @@
 			lockDemoView = true;
 			currentView.set('agents');
 			agentRoster.set(demoRoster());
+		}
+		if (demoKind === 'cloud') {
+			lockDemoView = true;
+			currentView.set('agents');
+			agentRoster.set(cloudDemoRoster());
 		}
 		connect();
 		fetchWeather();
