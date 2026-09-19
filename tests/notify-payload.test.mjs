@@ -5,7 +5,9 @@ import {
 	DEFAULT_NOTIFY_TTL,
 	agentFinishedNotify,
 	parseAirplayConnectedPayload,
+	parseAirplayDisconnectedPayload,
 	parseBtConnectedPayload,
+	parseBtDisconnectedPayload,
 	parseNotifyPayload,
 	scheduleNotify
 } from '../src/lib/server/notifyPayload.js';
@@ -57,6 +59,19 @@ test('bluetooth payload uses the device name when present', () => {
 	assert.equal(parseBtConnectedPayload('{"name":"Pixel 9"}').notify.title, 'Pixel 9 connected');
 	assert.equal(parseBtConnectedPayload('{"alias":"Avi\'s iPhone"}').notify.source, 'Bluetooth');
 	assert.equal(parseBtConnectedPayload('not-json').notify.title, 'Phone connected');
+});
+
+test('bluetooth disconnect payload is immediate and short-lived', () => {
+	assert.equal(parseBtDisconnectedPayload('').notify.title, 'Phone disconnected');
+	assert.equal(parseBtDisconnectedPayload('{"name":"Pixel 9"}').notify.title, 'Pixel 9 disconnected');
+	assert.equal(parseBtDisconnectedPayload('').notify.body, 'Playback stopped');
+	assert.equal(parseBtDisconnectedPayload('').notify.ttl, 4000);
+});
+
+test('airplay disconnect payload names Apple Music', () => {
+	assert.equal(parseAirplayDisconnectedPayload('').notify.title, 'AirPlay disconnected');
+	assert.equal(parseAirplayDisconnectedPayload('{"name":"Apple Music"}').notify.title, 'Apple Music disconnected');
+	assert.equal(parseAirplayDisconnectedPayload('').notify.source, 'AirPlay');
 });
 
 test('airplay payload names Apple Music and keeps the AirPlay source', () => {

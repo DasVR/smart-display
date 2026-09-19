@@ -11,10 +11,10 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
-	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
+	import { gpuLowPowerMode, displayQuality, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
-	import { startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
+	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
@@ -210,6 +210,19 @@
 					if (msg.view && !lockMusicDemo && msg.view !== $currentView) currentView.set(msg.view);
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
+					if (msg.power) {
+						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
+					}
+					if (msg.load) {
+						window.dispatchEvent(new CustomEvent('display-load', { detail: msg.load }));
+					}
+					if (msg.nowPlaying) applyNowPlayingFrame(msg.nowPlaying);
+				}
+				if (msg.type === 'nowPlaying') {
+					applyNowPlayingFrame(msg);
+				}
+				if (msg.type === 'load') {
+					window.dispatchEvent(new CustomEvent('display-load', { detail: msg }));
 				}
 				if (msg.type === 'display') {
 					applyDisplay(msg);
@@ -371,10 +384,11 @@
 		connect();
 		fetchWeather();
 		const stopSystemWatch = startSystemWatch();
+		const stopGovernor = startOllamaArbiter();
 		const clock = setInterval(() => {
 			time = new Date();
 		}, 1000);
-		const stopMusicPoll = musicDemo ? () => {} : startNowPlayingPolling(1000);
+		const stopMusicPoll = musicDemo ? () => {} : startNowPlayingPolling(2000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });
@@ -467,6 +481,7 @@
 			clearInterval(installDemo);
 			clearTimeout(reconnectTimer);
 			stopSystemWatch();
+			stopGovernor();
 			window.removeEventListener('keydown', handleKey);
 			window.removeEventListener('resize', updateIndicator);
 			window.removeEventListener('pointerdown', primeAudio);
@@ -611,9 +626,10 @@
 	</defs>
 </svg>
 
-<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
+<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
 	<LiquidMetalCanvas
-		isLowPower={$gpuLowPowerMode || mode === 'sleep'}
+		isLowPower={$gpuLowPowerMode || mode === 'sleep' || hdmiOff}
+		quality={$displayQuality}
 		sun={atm.sun}
 		twilight={atm.twilight}
 		rain={atm.rain}
@@ -718,7 +734,7 @@
 			{:else if $currentView === 'weather'}
 				<section class="view-pane sheet weather-pane" data-glass>
 					<div class="radar-bleed">
-						<RadarCanvas data={weatherData} />
+						<RadarCanvas data={weatherData} paused={$displayQuality !== 'full' || mode === 'sleep'} />
 					</div>
 					<div class="weather-trough">
 						<WeatherView data={wxForIsland || weatherData} />
@@ -739,7 +755,9 @@
 		</footer>
 	</div>
 
-	<NoiseOverlay />
+	{#if $displayQuality === 'full' && mode !== 'sleep'}
+		<NoiseOverlay />
+	{/if}
 </div>
 
 <style>
@@ -768,6 +786,17 @@
 		overflow-y: hidden;
 		position: relative;
 		background: var(--background);
+	}
+	.display-shell.eco :global(.glass-field),
+	.display-shell.frozen :global(.glass-field),
+	.display-shell.sleep :global(.glass-field) {
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+	}
+	.display-shell.eco .music-ambient,
+	.display-shell.frozen .music-ambient {
+		filter: none;
+		opacity: 0.35;
 	}
 	/* The whole screen picks up the now-playing album art as a soft, glowing
 	   backdrop - every pane is transparent over the liquid-metal canvas

@@ -42,6 +42,19 @@ export function burstNowPlayingPoll(ms = SEEK_BURST_MS) {
 	seekBurstUntil = Date.now() + ms;
 }
 
+/** Apply a websocket now-playing frame (connect / disconnect / scrub)
+ *  without waiting for the HTTP poll. Compact frames omit lyrics; merge
+ *  keeps the array already on screen for the same track. */
+export function applyNowPlayingFrame(msg, now = Date.now()) {
+	if (!msg || typeof msg !== 'object') return;
+	const sample = { ...msg };
+	delete sample.type;
+	delete sample.kind;
+	delete sample.from;
+	if (sample.seeking || sample.playing === false) burstNowPlayingPoll();
+	nowPlaying.update((cur) => mergeNowPlayingSample(cur, sample, now));
+}
+
 /** Keep a local play/pause/seek change on screen until the player reports
  *  the same transport, instead of letting the next 1s poll snap back. */
 export function applyTransportOptimistic(patch, now = Date.now()) {
@@ -55,7 +68,7 @@ export function applyTransportOptimistic(patch, now = Date.now()) {
 /** Polls now-playing on an interval, self-adjusting to SEEK_POLL_MS for a
  *  short burst whenever the last response reported `seeking`. Returns a
  *  stop function. */
-export function startNowPlayingPolling(intervalMs = 1000) {
+export function startNowPlayingPolling(intervalMs = 2000) {
 	let stopped = false;
 	let timer = 0;
 

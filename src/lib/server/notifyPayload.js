@@ -203,7 +203,29 @@ export function airplayConnectedNotify(name = '') {
 	return audioRouteConnectedNotify({ name, source: 'AirPlay' });
 }
 
-export function parseBtConnectedPayload(raw) {
+export function audioRouteDisconnectedNotify({ name = '', source = 'Bluetooth' } = {}) {
+	const trimmed = clip(name, 80).trim();
+	const src = clip(source, 40).trim() || 'Bluetooth';
+	const isAirplay = src.toLowerCase() === 'airplay';
+	return {
+		type: 'notify',
+		title: trimmed ? `${trimmed} disconnected` : isAirplay ? 'AirPlay disconnected' : 'Phone disconnected',
+		body: 'Playback stopped',
+		severity: 'info',
+		source: src,
+		ttl: 4000
+	};
+}
+
+export function bluetoothDisconnectedNotify(name = '') {
+	return audioRouteDisconnectedNotify({ name, source: 'Bluetooth' });
+}
+
+export function airplayDisconnectedNotify(name = '') {
+	return audioRouteDisconnectedNotify({ name, source: 'AirPlay' });
+}
+
+function parseAudioRoutePayload(raw, notify) {
 	let name = '';
 	try {
 		const text = String(raw || '').trim();
@@ -212,23 +234,25 @@ export function parseBtConnectedPayload(raw) {
 			name = clip(data.name || data.alias || data.device || '', 80).trim();
 		}
 	} catch {
-		/* empty or non-JSON bodies still mean "a phone connected" */
+		/* empty or non-JSON bodies still mean a route change */
 	}
-	return { name, notify: bluetoothConnectedNotify(name) };
+	return { name, notify: notify(name) };
+}
+
+export function parseBtConnectedPayload(raw) {
+	return parseAudioRoutePayload(raw, bluetoothConnectedNotify);
 }
 
 export function parseAirplayConnectedPayload(raw) {
-	let name = '';
-	try {
-		const text = String(raw || '').trim();
-		if (text) {
-			const data = JSON.parse(text);
-			name = clip(data.name || data.alias || data.device || '', 80).trim();
-		}
-	} catch {
-		/* empty or non-JSON bodies still mean AirPlay started */
-	}
-	return { name, notify: airplayConnectedNotify(name) };
+	return parseAudioRoutePayload(raw, airplayConnectedNotify);
+}
+
+export function parseBtDisconnectedPayload(raw) {
+	return parseAudioRoutePayload(raw, bluetoothDisconnectedNotify);
+}
+
+export function parseAirplayDisconnectedPayload(raw) {
+	return parseAudioRoutePayload(raw, airplayDisconnectedNotify);
 }
 
 export function agentFinishedNotify() {

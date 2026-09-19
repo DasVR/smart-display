@@ -1,5 +1,5 @@
 import { createServer } from 'http';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, watch } from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { handler } from '../build/handler.js';
@@ -31,11 +31,13 @@ import {
 	agentFinishedNotify,
 	hostUpdateNotifies,
 	parseAirplayConnectedPayload,
+	parseAirplayDisconnectedPayload,
 	parseBtConnectedPayload,
+	parseBtDisconnectedPayload,
 	parseNotifyPayload,
 	scheduleNotify
 } from './lib/server/notifyPayload.js';
-import { airplayArtPath } from './lib/server/audioNowPlaying.js';
+import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
 	debounceSignal,
@@ -52,6 +54,14 @@ import {
 import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
 import { probeAlignEngine } from './lib/server/forcedAlign.js';
 import { lyricsDbStats } from './lib/server/lyricsStore.js';
+import { getHostLoad } from './lib/server/hostLoad.js';
+import { evaluateDisplayLoad } from './lib/displayLoad.js';
+import {
+	nowPlayingPollMs,
+	nowPlayingPushKind,
+	nowPlayingPushPayload
+} from './lib/server/nowPlayingPush.js';
+import { setBluetoothConnectionCache } from './lib/server/bluetoothConnection.js';
 
 const port = process.env.PORT || 3000;
 const SCHEDULE_PATH =
@@ -91,26 +101,93 @@ function handleAudioConnected(req, res, parse, from) {
 	req.on('data', (chunk) => (raw += chunk));
 	req.on('end', () => {
 		const { notify } = parse(raw);
+		if (from === 'bluetooth') setBluetoothConnectionCache(true);
 		currentView = 'music';
 		broadcast({ type: 'navigate', view: 'music', from });
 		broadcast(notify);
 		json(res, { ok: true });
+		kickNowPlaying();
+	});
+}
+
+function handleAudioDisconnected(req, res, parse, from) {
+	let raw = '';
+	req.on('data', (chunk) => (raw += chunk));
+	req.on('end', () => {
+		const { notify } = parse(raw);
+		if (from === 'bluetooth') setBluetoothConnectionCache(false);
+		broadcast({ type: 'nowPlaying', kind: 'disconnect', playing: false, from });
+		broadcast(notify);
+		json(res, { ok: true });
+		lastNowPlaying = { playing: false };
+		kickNowPlaying();
 	});
 }
 
 let ollamaPowerState = 'HIGH_PERFORMANCE';
-async function pollOllama() {
+let displayQualityState = 'full';
+let lastLoadBroadcast = '';
+let lastLoadSnap = {
+	type: 'load',
+	cpu: 0,
+	ramPct: 0,
+	ram_used: 0,
+	ram_total: 0,
+	quality: 'full',
+	freeze: false,
+	inferring: false,
+	installing: false,
+	reasons: []
+};
+
+function loadSnapshot() {
+	return lastLoadSnap;
+}
+
+function computeLoadSnapshot(load, inferring) {
+	const installing = Boolean(getInstallProgress()?.active);
+	const next = evaluateDisplayLoad(
+		{ cpu: load.cpu, ramPct: load.ramPct, inferring, installing },
+		displayQualityState
+	);
+	displayQualityState = next.quality;
+	lastLoadSnap = {
+		type: 'load',
+		cpu: load.cpu,
+		ramPct: Math.round(load.ramPct),
+		ram_used: load.ram_used,
+		ram_total: load.ram_total,
+		quality: next.quality,
+		freeze: next.freezeShaders,
+		inferring,
+		installing,
+		reasons: next.reasons
+	};
+	return lastLoadSnap;
+}
+
+async function pollHostLoad() {
 	try {
 		const d = await getOllamaPs();
 		const hasModels = d.models && d.models.length > 0;
 		const newState = hasModels ? 'LOW_POWER' : 'HIGH_PERFORMANCE';
+		const inferring = hasModels;
+		const snap = computeLoadSnapshot(getHostLoad(), inferring);
 		if (newState !== ollamaPowerState) {
 			const prev = ollamaPowerState;
 			ollamaPowerState = newState;
-			broadcast({ type: 'power', state: newState });
+			broadcast({ type: 'power', state: newState, quality: snap.quality });
+			broadcast(snap);
+			lastLoadBroadcast = `${snap.quality}|${snap.cpu}|${snap.ramPct}|${snap.inferring}`;
 			if (prev === 'LOW_POWER' && newState === 'HIGH_PERFORMANCE') {
 				broadcast(agentFinishedNotify());
 			}
+			return;
+		}
+		const sig = `${snap.quality}|${snap.cpu}|${snap.ramPct}|${snap.inferring}`;
+		if (sig !== lastLoadBroadcast) {
+			lastLoadBroadcast = sig;
+			broadcast(snap);
 		}
 	} catch {
 		if (ollamaPowerState !== 'HIGH_PERFORMANCE') {
@@ -118,9 +195,10 @@ async function pollOllama() {
 			broadcast({ type: 'power', state: 'HIGH_PERFORMANCE' });
 			broadcast(agentFinishedNotify());
 		}
+		broadcast(computeLoadSnapshot(getHostLoad(), false));
 	}
 }
-setInterval(pollOllama, 500);
+setInterval(pollHostLoad, 1000);
 
 const HOST_UPDATES_POLL_MS = 15_000;
 let lastHostUpdates = null;
@@ -148,31 +226,62 @@ async function pollHostUpdates() {
 setTimeout(pollHostUpdates, 8_000);
 setInterval(pollHostUpdates, HOST_UPDATES_POLL_MS);
 
-// Taps system audio and streams live spectrum/bass frames so the waveform
-// and background shader actually track what's playing, instead of a
-// synthetic beat clock. Only runs while something is playing so an idle
-// kiosk isn't running an audio-capture subprocess for nothing.
-const AUDIO_PLAYING_POLL_MS = 3_000;
 const audioCapture = createAudioCapture({
 	onFrame: (frame) => broadcast({ type: 'audioSpectrum', ...frame })
 });
 let audioCaptureWanted = false;
+let lastNowPlaying = null;
+let nowPlayingTimer = 0;
+let nowPlayingSoon = 0;
+let nowPlayingInflight = false;
 
-async function pollAudioPlaying() {
+function syncAudioCapture(np) {
+	const wantsCapture = Boolean(np?.playing);
+	if (wantsCapture === audioCaptureWanted) return;
+	audioCaptureWanted = wantsCapture;
+	if (wantsCapture) audioCapture.start();
+	else audioCapture.stop();
+}
+
+async function tickNowPlaying() {
+	if (nowPlayingInflight) return;
+	nowPlayingInflight = true;
 	try {
-		const np = await getNowPlaying({ skipLyrics: true });
-		const wantsCapture = Boolean(np?.playing);
-		if (wantsCapture !== audioCaptureWanted) {
-			audioCaptureWanted = wantsCapture;
-			if (wantsCapture) audioCapture.start();
-			else audioCapture.stop();
-		}
+		const np = await getNowPlaying();
+		const kind = nowPlayingPushKind(lastNowPlaying, np);
+		if (kind) broadcast(nowPlayingPushPayload(np, kind));
+		lastNowPlaying = np;
+		syncAudioCapture(np);
 	} catch {
 		/* nowPlaying probe failed; try again next tick */
+	} finally {
+		nowPlayingInflight = false;
+		clearTimeout(nowPlayingTimer);
+		nowPlayingTimer = setTimeout(tickNowPlaying, nowPlayingPollMs(lastNowPlaying));
 	}
 }
-setInterval(pollAudioPlaying, AUDIO_PLAYING_POLL_MS);
-pollAudioPlaying();
+
+function kickNowPlaying() {
+	if (nowPlayingSoon) return;
+	nowPlayingSoon = setTimeout(() => {
+		nowPlayingSoon = 0;
+		clearTimeout(nowPlayingTimer);
+		tickNowPlaying();
+	}, 20);
+}
+
+function watchAirplayNowPlaying() {
+	const file = airplayStatePath();
+	const dir = path.dirname(file);
+	try {
+		watch(dir, (_event, filename) => {
+			if (!filename) return;
+			if (String(filename).includes('smart-display-airplay.json')) kickNowPlaying();
+		});
+	} catch {
+		/* runtime dir may not exist in tests / CI */
+	}
+}
 
 function displaySnapshot() {
 	return {
@@ -472,6 +581,11 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'GET' && reqPath(req) === '/api/load') {
+		json(res, { ...getHostLoad(), ...loadSnapshot() });
+		return;
+	}
+
 	if (req.method === 'GET' && req.url === '/api/kiosk') {
 		json(res, await getKioskStatus());
 		return;
@@ -511,8 +625,18 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
+	if (req.method === 'POST' && req.url === '/api/bt/disconnected') {
+		handleAudioDisconnected(req, res, parseBtDisconnectedPayload, 'bluetooth');
+		return;
+	}
+
 	if (req.method === 'POST' && req.url === '/api/airplay/connected') {
 		handleAudioConnected(req, res, parseAirplayConnectedPayload, 'airplay');
+		return;
+	}
+
+	if (req.method === 'POST' && req.url === '/api/airplay/disconnected') {
+		handleAudioDisconnected(req, res, parseAirplayDisconnectedPayload, 'airplay');
 		return;
 	}
 
@@ -595,6 +719,10 @@ function broadcast(data) {
 	});
 }
 
+pollHostLoad();
+watchAirplayNowPlaying();
+tickNowPlaying();
+
 setInstallProgressListener((progress) => {
 	broadcast({ ...progress, type: 'installProgress' });
 });
@@ -645,6 +773,8 @@ wss.on('connection', (ws, req) => {
 				view: currentView,
 				ts: Date.now(),
 				power: ollamaPowerState,
+				load: loadSnapshot(),
+				nowPlaying: lastNowPlaying,
 				display: displaySnapshot(),
 				audio,
 				installProgress: getInstallProgress()

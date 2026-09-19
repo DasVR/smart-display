@@ -59,3 +59,8 @@ export function resetBluetoothConnectionCache() {
 	cache.at = 0;
 	cache.connected = false;
 }
+
+export function setBluetoothConnectionCache(connected, now = Date.now()) {
+	cache.at = now;
+	cache.connected = Boolean(connected);
+}

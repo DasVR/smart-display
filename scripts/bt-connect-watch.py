@@ -19,7 +19,9 @@ import dbus
 import dbus.mainloop.glib
 from gi.repository import GLib
 
-DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000") + "/api/bt/connected"
+DASHBOARD_URL = os.environ.get("DASHBOARD_URL", "http://localhost:3000")
+CONNECTED_URL = DASHBOARD_URL + "/api/bt/connected"
+DISCONNECTED_URL = DASHBOARD_URL + "/api/bt/disconnected"
 LOOPBACK = os.environ.get(
 	"BT_LOOPBACK_SCRIPT",
 	"/home/das/projects/smart-display/scripts/bt-audio-loopback.sh",
@@ -57,20 +59,29 @@ def stop_loopback():
 		print(f"loopback stop failed: {e}")
 
 
-def notify_connected(name=""):
+def notify_dashboard(url, name=""):
 	payload = json.dumps({"name": name}).encode("utf-8")
 	try:
 		req = urllib.request.Request(
-			DASHBOARD_URL,
+			url,
 			method="POST",
 			data=payload,
 			headers={"Content-Type": "application/json"},
 		)
 		urllib.request.urlopen(req, timeout=3)
 		label = name or "device"
-		print(f"notified dashboard: bluetooth connected ({label})")
+		kind = "connected" if url.endswith("connected") else "disconnected"
+		print(f"notified dashboard: bluetooth {kind} ({label})")
 	except Exception as e:
 		print(f"failed to notify dashboard: {e}")
+
+
+def notify_connected(name=""):
+	notify_dashboard(CONNECTED_URL, name)
+
+
+def notify_disconnected(name=""):
+	notify_dashboard(DISCONNECTED_URL, name)
 
 
 def on_properties_changed(interface, changed, invalidated, path=None, bus=None):
@@ -85,6 +96,10 @@ def on_properties_changed(interface, changed, invalidated, path=None, bus=None):
 		notify_connected(name)
 		GLib.timeout_add_seconds(1, start_loopback)
 	else:
+		name = ""
+		if bus and path:
+			name = device_label(bus, path)
+		notify_disconnected(name)
 		stop_loopback()
 
 
