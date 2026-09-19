@@ -4,13 +4,25 @@
  * Cider highlights lyrics against the player's sample time (MusicKit /
  * HTMLAudio currentTime), not against a stale HTTP poll. This kiosk is not
  * an Apple Music client, so it cannot read AMP TTML syllable-lyrics. The
- * analogue we do have is a stamped sample: AirPlay `prgr` RTP clocks at
- * 44100 Hz, MPRIS `playerctl position`, then extrapolate while playing.
+ * analogue we do have is a stamped sample: AirPlay `prgr` RTP clocks
+ * (scaled to the track's `astm` duration so 48kHz AirPlay 2 does not run
+ * fast), MPRIS `playerctl position`, then extrapolate while playing.
  *
  * Heartbeats and polls must refresh liveness (`updatedAt`) without moving
  * `positionAt`. Using `updatedAt` as the sample time rewinds lyrics every
  * second because the position field is still the last `prgr` reading.
  */
+
+/** How long a flush/seek may freeze the lyric clock before we treat it as
+ *  a dropped progress report and start extrapolating again. */
+export const SEEK_STALE_MS = 2800;
+
+export function isSeekingClock(track, now = Date.now()) {
+	if (!track?.seeking) return false;
+	const sampledAt = Number(track.positionAt) || 0;
+	if (!sampledAt) return true;
+	return now - sampledAt <= SEEK_STALE_MS;
+}
 
 export function livePlaybackPosition(track, now = Date.now()) {
 	if (!track) return 0;
@@ -21,8 +33,10 @@ export function livePlaybackPosition(track, now = Date.now()) {
 	// Mid-seek, `position`/`positionAt` are the pre-seek sample and about to
 	// go stale - extrapolating off them would run the lyric highlight further
 	// from reality every frame instead of just pausing it for the beat until
-	// the next real progress report lands.
-	if (!track.playing || !sampledAt || track.seeking) return frozen;
+	// the next real progress report lands. A stuck AirPlay `pfls` (no `prgr`)
+	// used to freeze karaoke forever; after SEEK_STALE_MS we start moving
+	// again from that last baked clock.
+	if (!track.playing || !sampledAt || isSeekingClock(track, now)) return frozen;
 	const elapsed = Math.max(0, (now - sampledAt) / 1000);
 	const next = position + elapsed;
 	return length > 0 ? Math.min(next, length) : next;
@@ -154,6 +168,41 @@ export function isLineSinging(line, position, nextLineStart) {
 	return !lineSungThrough(line, t, nextLineStart);
 }
 
+/** Line the stack should keep in focus: a currently singing row, else the
+ *  rest that belongs to that clock, else the last line that has started. */
+export function lyricFocusIndex(lines, position, length = 0) {
+	if (!Array.isArray(lines) || !lines.length) return -1;
+	for (let i = 0; i < lines.length; i++) {
+		if (isLineSinging(lines[i], position, lines[i + 1]?.time)) return i;
+	}
+	const rest = instrumentalRest(lines, position, length);
+	if (rest) return rest.afterIndex;
+	return activeLyricIndex(lines, position);
+}
+
+/** Sliding window over a long lyric file so the Music view does not paint
+ *  every word of a 5-minute TTML dump at 60fps. Shifts only when `origin`
+ *  walks within `pad` of an edge. */
+export const LYRIC_WINDOW_SIZE = 28;
+export const LYRIC_WINDOW_PAD = 6;
+
+export function lyricWindowStart(
+	length,
+	origin,
+	start = 0,
+	size = LYRIC_WINDOW_SIZE,
+	pad = LYRIC_WINDOW_PAD
+) {
+	const len = Math.max(0, Number(length) || 0);
+	if (len <= size) return 0;
+	const focus = origin >= 0 ? origin : 0;
+	let next = Number.isFinite(Number(start)) ? Number(start) : 0;
+	if (focus < next + pad || focus > next + size - pad - 1) {
+		next = focus - Math.floor(size / 2);
+	}
+	return Math.min(len - size, Math.max(0, next));
+}
+
 /** Index of the line currently being sung, or -1 when the last word has
  *  already finished and the next line has not started yet (the lyric stack
  *  goes dark across that rest instead of holding the last character). */
@@ -234,7 +283,7 @@ export function letterWave(fill) {
  *  stale clock. */
 export function isPlaybackJump(prev, next, now = Date.now()) {
 	if (!prev || !next) return false;
-	if (next.seeking) return true;
+	if (isSeekingClock(next, now)) return true;
 	const prevAt = Number(prev.positionAt) || 0;
 	const nextAt = Number(next.positionAt) || 0;
 	if (prevAt && nextAt && prevAt === nextAt) return false;

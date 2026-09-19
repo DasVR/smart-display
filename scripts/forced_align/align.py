@@ -74,8 +74,9 @@ def isolate_vocals(wav_path, work_dir):
 	return vocals
 
 
-def word_tokens(text):
-	return WORD_RE.findall(text.lower())
+def word_tokens(text, *, lower=True):
+	tokens = WORD_RE.findall(text or "")
+	return [tok.lower() for tok in tokens] if lower else list(tokens)
 
 
 def usable_lines(lyric_lines):
@@ -87,34 +88,46 @@ def usable_lines(lyric_lines):
 
 def remap_to_lines(lyric_lines, timed_words):
 	"""Aligners see one flat word stream; this walks it back against the
-	original line breaks (consuming one timed word per expected token, in
-	order) so the UI can still show line-by-line lyrics. A line with no
-	matched tokens still gets a start time from its neighbors so it is
-	never dropped. `timed_words` items are (start, word) or (start, word, end)."""
-	cursor = 0
-	out_lines = []
+	original line breaks so the UI still shows the full lyric text. Matching
+	is by normalized token, not a one-shot cursor: if Qwen splits, merges, or
+	drops a word, leftover tokens stay on their line instead of truncating
+	"I walk a lonely road" to "i walk a". `timed_words` items are
+	(start, word) or (start, word, end)."""
+	groups = []
+	expected = []
 	for line in lyric_lines:
 		text = line.strip()
+		toks = word_tokens(text, lower=False) if text else []
+		groups.append((text, toks))
+		expected.extend(tok.lower() for tok in toks)
+
+	units = []
+	for item in timed_words or []:
+		start = float(item[0] or 0.0)
+		word = item[1]
+		end = item[2] if len(item) > 2 else None
+		end = float(end) if end is not None else start
+		units.append({"text": word, "start": start, "end": max(start, end)})
+	matched = match_qwen_units(expected, units) if expected else []
+
+	cursor = 0
+	out_lines = []
+	for text, toks in groups:
 		if not text:
 			out_lines.append({"time": None, "text": "", "words": []})
 			continue
-		tokens = word_tokens(text)
+		chunk = matched[cursor : cursor + len(toks)]
+		cursor += len(toks)
 		words = []
-		for _ in tokens:
-			if cursor >= len(timed_words):
-				break
-			item = timed_words[cursor]
-			start = item[0]
-			end = item[2] if len(item) > 2 else None
-			words.append((start, end))
-			cursor += 1
+		for (start, _tok, end), original in zip(chunk, toks):
+			words.append((start, end, original))
 		out_lines.append({"time": words[0][0] if words else None, "text": text, "words": words})
 
 	last_time = 0.0
 	for i, line in enumerate(out_lines):
 		if line["time"] is None:
 			following = next((l["time"] for l in out_lines[i + 1 :] if l["time"] is not None), last_time + 1)
-			line["time"] = min(last_time, following)
+			line["time"] = min(last_time, following) if last_time else following
 		last_time = line["time"]
 	return out_lines
 
@@ -123,14 +136,14 @@ def to_lines_json(lyric_lines, timed_words):
 	remapped = remap_to_lines(lyric_lines, timed_words)
 	lines = []
 	for line in remapped:
-		tokens = word_tokens(line["text"])
 		words = []
-		for (start, end), tok in zip(line["words"], tokens):
+		for item in line["words"]:
+			start, end, tok = item[0], item[1], item[2]
 			word = {"time": round(start, 3), "text": tok}
 			if end is not None and end > start:
 				word["end"] = round(end, 3)
 			words.append(word)
-		entry = {"time": round(line["time"], 3), "text": line["text"]}
+		entry = {"time": round(line["time"] or 0.0, 3), "text": line["text"]}
 		if words:
 			entry["words"] = words
 			last_end = words[-1].get("end")
@@ -782,16 +795,23 @@ def self_test():
 	assert line_overflowed([(12.0, "a", 12.3), (12.4, "b", 12.9)], 20.0) is False
 	assert line_overflowed([], 20.0) is True
 
-	# Line remap keeps word ends and fills a blank line's clock.
+	# Line remap keeps word ends, original spelling, and fills a blank line's clock.
 	result = to_lines_json(["hello there", "", "friend"], [(0.5, "hello", 0.9), (1.0, "there", 1.4), (2.0, "friend", 2.6)])
 	assert result["lines"][0]["end"] == 1.4
 	assert result["lines"][0]["words"][1] == {"time": 1.0, "text": "there", "end": 1.4}
 	assert result["lines"][1]["text"] == ""
 	assert result["lines"][2]["time"] == 2.0
+	# A short aligner stream must not clip the original line to "i walk a".
+	short = to_lines_json(
+		["I walk a lonely road"],
+		[(0.5, "i", 0.7), (0.7, "walk", 0.9), (0.9, "a", 1.1)],
+	)
+	assert short["lines"][0]["text"] == "I walk a lonely road"
+	assert [w["text"] for w in short["lines"][0]["words"]] == ["I", "walk", "a", "lonely", "road"]
 	assert apply_offset([(1.0, "a", 1.5)], 2.0) == [(3.0, "a", 3.5)]
 	assert "energy" in available_engines()
 	assert "energy" not in PRECISE_ENGINES and "qwen" in PRECISE_ENGINES
-	print(json.dumps({"ok": True, "tests": 8}))
+	print(json.dumps({"ok": True, "tests": 9}))
 	return 0
 
 

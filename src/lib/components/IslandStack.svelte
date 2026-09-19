@@ -116,7 +116,7 @@
 	}
 	.stack :global(.island-pill.active),
 	.stack :global(.orb) {
-		pointer-events: auto;
+		pointer-events: none;
 	}
 	.stack.joined :global(.island-pill) {
 		background-color: transparent;

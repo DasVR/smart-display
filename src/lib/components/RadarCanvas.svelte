@@ -1,8 +1,8 @@
 <!--
 	Hallmark design scores
 	Philosophy 4 · Hierarchy 4 · Execution 4 · Specificity 5 · Restraint 5 · Variety 4
-	Full-bleed rectangular Largo radar: ESRI z11, RainViewer z7 stretched,
-	Tampa Bay intro zoom, home mark only. Tokens only. No other views restyled.
+	Full-bleed rectangular Largo radar: ESRI z11, RainViewer z7 as high-res
+	vector contours (native mosaic sampled, not stretched), Tampa Bay intro.
 -->
 <script>
 	import { onMount, untrack } from 'svelte';
@@ -23,10 +23,12 @@
 		scaleForGroundRadius,
 		metersPerPixel,
 		radarDrawSize,
-		BASEMAP_GAP_FILL
+		BASEMAP_GAP_FILL,
+		RADAR_TILE_PX
 	} from '$lib/radarMap.js';
 	import {
 		RADAR_THRESHOLDS,
+		CONTOUR_CHAIKIN_ITERATIONS,
 		marchingSquares,
 		chaikinSmooth,
 		lerpFields,
@@ -36,7 +38,7 @@
 		fieldExtent
 	} from '$lib/radarVector.js';
 
-	let { data = null } = $props();
+	let { data = null, paused = false } = $props();
 
 	let canvas = $state(null);
 	let ditherUrl = $state('');
@@ -92,12 +94,10 @@
 	// motion rather than a slideshow.
 	const CROSSFADE_MS = 260;
 	const RADAR_SIZE = radarDrawSize(BASE_ZOOM);
-	// The precip layer is rendered as vector regions (marching squares over a
-	// small intensity grid, corner-smoothed), not a stretched bitmap - so it
-	// scales cleanly at any zoom without pixelating, and a transition can
-	// re-trace the contours through a blended grid instead of cross-fading
-	// two rasters in place.
-	const FIELD_TARGET_COLS = 72;
+	// About one sample per RainViewer source pixel at city zoom, so contours
+	// follow the original cells instead of a 72-col metaball, and scale as
+	// vectors instead of stretching the z7 raster into 12px blocks.
+	const FIELD_TARGET_COLS = 192;
 	const BAYER_4X4 = [
 		[0, 8, 2, 10],
 		[12, 4, 14, 6],
@@ -201,7 +201,7 @@
 			clearInterval(animTimer);
 			animTimer = 0;
 		}
-		if (reducedMotion || frames.length < 2) return;
+		if (reducedMotion || frames.length < 2 || paused) return;
 		animTimer = setInterval(() => {
 			const from = frameIndex;
 			frameIndex = (frameIndex + 1) % frames.length;
@@ -354,25 +354,18 @@
 		return raw.endsWith('ms') || !raw.endsWith('s') ? n * 1.6 : n * 1600;
 	}
 
-	/** Fills one smoothed contour polygon (in fractional grid coordinates),
-	 *  mapped into world space and rendered as a quadratic curve through
-	 *  each smoothed point's midpoint - a cheap, standard way to turn a
-	 *  polyline into the soft, rounded outline a metaball blend reads as. */
+	/** Fills one contour polygon (fractional grid coordinates) as a polyline
+	 *  in world space. Line-to, not quadratic midpoints, so the shape stays
+	 *  the sampled cell rather than a blob. */
 	function fillContour(points, cellW, cellH, originX, originY, color, alpha) {
 		if (points.length < 3 || alpha <= 0) return;
-		const smoothed = chaikinSmooth(points, 2);
+		const smoothed = chaikinSmooth(points, CONTOUR_CHAIKIN_ITERATIONS);
 		const toWorld = (p) => [originX + p[0] * cellW, originY + p[1] * cellH];
 		const world = smoothed.map(toWorld);
-		const n = world.length;
-		const midOf = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 		ctx.beginPath();
-		const firstMid = midOf(world[0], world[n - 1]);
-		ctx.moveTo(firstMid[0], firstMid[1]);
-		for (let i = 0; i < n; i++) {
-			const cur = world[i];
-			const next = world[(i + 1) % n];
-			const mid = midOf(cur, next);
-			ctx.quadraticCurveTo(cur[0], cur[1], mid[0], mid[1]);
+		ctx.moveTo(world[0][0], world[0][1]);
+		for (let i = 1; i < world.length; i++) {
+			ctx.lineTo(world[i][0], world[i][1]);
 		}
 		ctx.closePath();
 		ctx.fillStyle = color;
@@ -384,8 +377,8 @@
 	/** Fills the field's whole world-space extent with a flat color - the
 	 *  case a threshold's contour would otherwise miss entirely: when the
 	 *  intensity grid never dips below it anywhere in view (a storm filling
-	 *  the whole radar circle), there's no boundary for marching squares to
-	 *  trace, but the right picture is solid coverage, not nothing. */
+	 *  the whole radar), there's no boundary for marching squares to trace,
+	 *  but the right picture is solid coverage, not nothing. */
 	function fillWholeField(field, cellW, cellH, originX, originY, color, alpha) {
 		ctx.fillStyle = color;
 		ctx.globalAlpha = alpha;
@@ -394,44 +387,53 @@
 	}
 
 	/** Traces and fills every intensity band of one field as vector regions -
-	 *  no raster involved, so this scales cleanly with the view transform at
-	 *  any zoom instead of stretching a fixed-resolution bitmap. */
+	 *  scales cleanly with the view transform at city zoom instead of
+	 *  stretching a z7 bitmap. */
+	function bandAlpha(field, i, mul = 1) {
+		const base = field.opacities?.[i] ?? 0.75;
+		return base * mul;
+	}
+
 	function drawField(field, cellW, cellH, originX, originY, alphaMul) {
 		if (!field) return;
+		const extent = fieldExtent(field.alpha);
 		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
 			const threshold = RADAR_THRESHOLDS[i];
-			const extent = fieldExtent(field.alpha);
+			const fillA = bandAlpha(field, i, alphaMul);
 			if (extent.max < threshold) continue;
 			if (extent.min >= threshold) {
-				fillWholeField(field, cellW, cellH, originX, originY, field.colors[i], 0.85 * alphaMul);
+				fillWholeField(field, cellW, cellH, originX, originY, field.colors[i], fillA);
 				continue;
 			}
 			const polys = marchingSquares(field.alpha, field.cols, field.rows, threshold);
 			for (const poly of polys) {
-				fillContour(poly, cellW, cellH, originX, originY, field.colors[i], 0.85 * alphaMul);
+				fillContour(poly, cellW, cellH, originX, originY, field.colors[i], fillA);
 			}
 		}
 	}
 
 	/** Blends two frames' intensity grids at `t` and re-traces contours
-	 *  through the blend - the shapes actually grow/shrink/merge/split
-	 *  between the two real frames, not a cross-fade of two fixed images. */
+	 *  through the blend - the shapes grow/shrink/merge/split between the
+	 *  two real frames, not a cross-fade of two fixed images. */
 	function drawMorph(fieldA, fieldB, t, cellW, cellH, originX, originY) {
 		if (!fieldA) return drawField(fieldB, cellW, cellH, originX, originY, 1);
 		if (!fieldB) return drawField(fieldA, cellW, cellH, originX, originY, 1);
 		const blended = lerpFields(fieldA.alpha, fieldB.alpha, t);
+		const extent = fieldExtent(blended);
 		for (let i = 0; i < RADAR_THRESHOLDS.length; i++) {
 			const threshold = RADAR_THRESHOLDS[i];
-			const extent = fieldExtent(blended);
 			const color = lerpColor(fieldA.colors[i], fieldB.colors[i], t);
+			const a0 = fieldA.opacities?.[i] ?? 0.75;
+			const a1 = fieldB.opacities?.[i] ?? 0.75;
+			const fillA = a0 + (a1 - a0) * t;
 			if (extent.max < threshold) continue;
 			if (extent.min >= threshold) {
-				fillWholeField(fieldA, cellW, cellH, originX, originY, color, 0.85);
+				fillWholeField(fieldA, cellW, cellH, originX, originY, color, fillA);
 				continue;
 			}
 			const polys = marchingSquares(blended, fieldA.cols, fieldA.rows, threshold);
 			for (const poly of polys) {
-				fillContour(poly, cellW, cellH, originX, originY, color, 0.85);
+				fillContour(poly, cellW, cellH, originX, originY, color, fillA);
 			}
 		}
 	}
@@ -455,7 +457,15 @@
 		const newField = composed.fields[frameIndex];
 		const oldField = crossfadeFromIndex != null ? composed.fields[crossfadeFromIndex] : null;
 		if (oldField) {
-			drawMorph(oldField, newField, crossfadeT, composed.fieldCellW, composed.fieldCellH, originX, originY);
+			drawMorph(
+				oldField,
+				newField,
+				crossfadeT,
+				composed.fieldCellW,
+				composed.fieldCellH,
+				originX,
+				originY
+			);
 		} else {
 			drawField(newField, composed.fieldCellW, composed.fieldCellH, originX, originY, 1);
 		}
@@ -570,18 +580,40 @@
 			);
 		}
 
-		// Each frame's precip tiles get composited onto a small canvas the
-		// browser itself downsamples (imageSmoothingQuality: high does the
-		// averaging), then reduced to an intensity grid - the vector contours
-		// traced from that grid are what actually gets drawn, so resolution
-		// here only affects how finely the shapes are described, never how
-		// blocky the final render looks.
+		// Native RainViewer mosaic (512px tiles) is the sample source. The
+		// dense intensity grid traced as vectors is what actually gets drawn,
+		// so city zoom stays sharp instead of stretching z7 pixels.
 		const worldW = cols * TILE_SIZE;
 		const worldH = rows * TILE_SIZE;
 		const { cols: fieldCols, rows: fieldRows } = fieldGridSize(worldW, worldH, FIELD_TARGET_COLS);
 		const k = RADAR_SIZE / TILE_SIZE;
+		const rainCols = rain.x1 - rain.x0 + 1;
+		const rainRows = rain.y1 - rain.y0 + 1;
+		const precipOriginX = (rain.x0 * k - esri.x0) * TILE_SIZE;
+		const precipOriginY = (rain.y0 * k - esri.y0) * TILE_SIZE;
+		const precipWorldW = rainCols * RADAR_SIZE;
+		const precipWorldH = rainRows * RADAR_SIZE;
 		const fields = [];
 		for (const frame of nextFrames) {
+			const precip = document.createElement('canvas');
+			precip.width = Math.max(1, rainCols * RADAR_TILE_PX);
+			precip.height = Math.max(1, rainRows * RADAR_TILE_PX);
+			const pctx = precip.getContext('2d', { alpha: true });
+			pctx.imageSmoothingEnabled = false;
+			for (const t of rain.tiles) {
+				const img = await loadTile(
+					radarTileUrl(host, frame.urlTemplate, RADAR_ZOOM, t.wrappedX, t.wrappedY)
+				);
+				if (!img) continue;
+				pctx.drawImage(
+					img,
+					(t.tx - rain.x0) * RADAR_TILE_PX,
+					(t.ty - rain.y0) * RADAR_TILE_PX,
+					RADAR_TILE_PX,
+					RADAR_TILE_PX
+				);
+			}
+
 			const fieldCanvas = document.createElement('canvas');
 			fieldCanvas.width = fieldCols;
 			fieldCanvas.height = fieldRows;
@@ -590,19 +622,13 @@
 			fctx.imageSmoothingQuality = 'high';
 			const sx = fieldCols / worldW;
 			const sy = fieldRows / worldH;
-			for (const t of rain.tiles) {
-				const img = await loadTile(
-					radarTileUrl(host, frame.urlTemplate, RADAR_ZOOM, t.wrappedX, t.wrappedY)
-				);
-				if (!img) continue;
-				fctx.drawImage(
-					img,
-					(t.tx * k - esri.x0) * TILE_SIZE * sx,
-					(t.ty * k - esri.y0) * TILE_SIZE * sy,
-					RADAR_SIZE * sx,
-					RADAR_SIZE * sy
-				);
-			}
+			fctx.drawImage(
+				precip,
+				precipOriginX * sx,
+				precipOriginY * sy,
+				precipWorldW * sx,
+				precipWorldH * sy
+			);
 			fields.push(extractField(fctx.getImageData(0, 0, fieldCols, fieldRows)));
 		}
 		if (my !== gen) return;
@@ -639,10 +665,6 @@
 		canvas.style.width = '100%';
 		canvas.style.height = '100%';
 		ctx = canvas.getContext('2d', { alpha: true });
-		// Browsers default 2D canvas scaling to a cheap, blocky filter; the
-		// precip sprites get stretched well past their native size (RainViewer
-		// tops out at z7), so the better resampler is what actually keeps that
-		// stretch from looking pixelated.
 		ctx.imageSmoothingEnabled = true;
 		ctx.imageSmoothingQuality = 'high';
 		const lay = layoutForSize(nextW, nextH);
@@ -690,6 +712,11 @@
 			gen += 1;
 			stopAnim();
 		};
+	});
+
+	$effect(() => {
+		if (paused) stopAnim();
+		else if (composed && hasIntroduced && !reducedMotion) startAnim();
 	});
 
 	onMount(() => {

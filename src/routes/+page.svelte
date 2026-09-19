@@ -3,18 +3,27 @@
 	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 4 · Restraint 4 · Variety 5
 	Moody-ambient IA: the liquid-metal field is cursor-reactive and carries the
 	dithered, molten identity; glass now refracts through every view sheet
-	(school/dev/weather), not just the trough, with a single sheened+liquid-
+	(school/weather), not just the trough, with a single sheened+liquid-
 	distorted hero surface active at a time. Nav uses one sliding indicator,
 	not a static per-tab pill.
 -->
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
-	import { gpuLowPowerMode, toggleGpuLowPower } from '$lib/services/ollamaArbiter.js';
+	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
-	import { startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
+	import { chimeKindForEvent } from '$lib/chimeKind.js';
+	import {
+		applyNotifyToRoster,
+		applyOllamaHint,
+		demoRoster,
+		isAgentStatusEvent,
+		workingIslandActivity
+	} from '$lib/agentRoster.js';
+	import { KIOSK_VIEWS, canonicalizeKioskView, kioskViewLabel } from '$lib/kioskViews.js';
+	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
@@ -36,7 +45,7 @@
 	import BoardWidgets from '$lib/components/BoardWidgets.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
-	import DevHub from '$lib/components/DevHub.svelte';
+	import AgentsHub from '$lib/components/AgentsHub.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
 	import WeatherView from '$lib/components/WeatherView.svelte';
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
@@ -66,16 +75,28 @@
 	let lastViewIdx = -1;
 	// `?demo=music` pins the Music view. The kiosk websocket init/navigate
 	// payload would otherwise snap back to Clock as soon as /ws connects.
-	let lockMusicDemo = false;
+	let lockDemoView = false;
 	if (typeof window !== 'undefined') {
 		const demo = new URLSearchParams(window.location.search).get('demo');
 		if (demo === 'music' || demo === 'voices') {
-			lockMusicDemo = true;
+			lockDemoView = true;
 			currentView.set('music');
+		}
+		if (demo === 'agents') {
+			lockDemoView = true;
+			currentView.set('agents');
+			agentRoster.set(demoRoster());
 		}
 	}
 
-	const VIEWS = ['clock', 'school', 'dev', 'music', 'weather'];
+	const VIEWS = KIOSK_VIEWS;
+
+	function selectView(v) {
+		const next = canonicalizeKioskView(v);
+		if (!VIEWS.includes(next) || $currentView === next) return;
+		currentView.set(next);
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: next }));
+	}
 
 	function updateIndicator() {
 		const idx = VIEWS.indexOf($currentView);
@@ -165,10 +186,11 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
-					if (!lockMusicDemo) currentView.set(msg.view);
+					const view = canonicalizeKioskView(msg.view);
+					if (!lockDemoView && view && view !== $currentView) currentView.set(view);
 				}
 				if (msg.type === 'notify') {
-					pushIslandEvent({
+					const ev = {
 						title: msg.title || 'Notice',
 						body: msg.body || '',
 						severity: msg.severity || 'info',
@@ -176,7 +198,13 @@
 						source: msg.source || '',
 						kind: msg.kind || 'notice',
 						muted: Boolean(msg.muted)
-					});
+					};
+					pushIslandEvent(ev);
+					agentRoster.update((r) => applyNotifyToRoster(r, ev));
+					if (isAgentStatusEvent(ev)) playChime(chimeKindForEvent(ev));
+				}
+				if (msg.type === 'agents' && Array.isArray(msg.agents) && !lockDemoView) {
+					agentRoster.set(msg.agents);
 				}
 				if (msg.type === 'volume') {
 					announceVolume(msg);
@@ -201,9 +229,24 @@
 					applyAudioFrame(msg);
 				}
 				if (msg.type === 'init') {
-					if (msg.view && !lockMusicDemo) currentView.set(msg.view);
+					const view = canonicalizeKioskView(msg.view);
+					if (msg.view && !lockDemoView && view !== $currentView) currentView.set(view);
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
+					if (Array.isArray(msg.agents) && !lockDemoView) agentRoster.set(msg.agents);
+					if (msg.power) {
+						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
+					}
+					if (msg.load) {
+						window.dispatchEvent(new CustomEvent('display-load', { detail: msg.load }));
+					}
+					if (msg.nowPlaying) applyNowPlayingFrame(msg.nowPlaying);
+				}
+				if (msg.type === 'nowPlaying') {
+					applyNowPlayingFrame(msg);
+				}
+				if (msg.type === 'load') {
+					window.dispatchEvent(new CustomEvent('display-load', { detail: msg }));
 				}
 				if (msg.type === 'display') {
 					applyDisplay(msg);
@@ -346,10 +389,10 @@
 		let idx = VIEWS.indexOf($currentView);
 		if (idx === -1) idx = 0;
 		if (e.key === 'ArrowRight') {
-			currentView.set(VIEWS[(idx + 1) % VIEWS.length]);
+			selectView(VIEWS[(idx + 1) % VIEWS.length]);
 		}
 		if (e.key === 'ArrowLeft') {
-			currentView.set(VIEWS[(idx - 1 + VIEWS.length) % VIEWS.length]);
+			selectView(VIEWS[(idx - 1 + VIEWS.length) % VIEWS.length]);
 		}
 	}
 
@@ -359,32 +402,41 @@
 		const demoKind = preview.get('demo');
 		const musicDemo = islandPreview === 'music' || demoKind === 'music' || demoKind === 'voices';
 		if (demoKind === 'music' || demoKind === 'voices') {
-			lockMusicDemo = true;
+			lockDemoView = true;
 			currentView.set('music');
+		}
+		if (demoKind === 'agents') {
+			lockDemoView = true;
+			currentView.set('agents');
+			agentRoster.set(demoRoster());
 		}
 		connect();
 		fetchWeather();
 		const stopSystemWatch = startSystemWatch();
+		const stopGovernor = startOllamaArbiter();
 		const clock = setInterval(() => {
 			time = new Date();
 		}, 1000);
-		const stopMusicPoll = musicDemo ? () => {} : startNowPlayingPolling(1000);
+		const stopMusicPoll = musicDemo ? () => {} : startNowPlayingPolling(2000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
 		window.addEventListener('resize', updateIndicator, { passive: true });
 		// Browsers block audio until a real user gesture; a touch/click/key on
-		// the kiosk unlocks it so island-event chimes can play afterward.
+		// the kiosk unlocks it so island-event and agent-finish chimes can play afterward.
 		window.addEventListener('pointerdown', primeAudio, { once: true });
 		window.addEventListener('keydown', primeAudio, { once: true });
 		updateIndicator();
 		if (preview.get('wx') === 'notify') {
-			pushIslandEvent({
+			const ev = {
 				title: 'Cursor finished',
 				body: 'Radar island layout is ready',
 				severity: 'ok',
 				ttl: 12000,
-				source: 'Cursor'
-			});
+				source: 'Cursor',
+				kind: 'done'
+			};
+			pushIslandEvent(ev);
+			agentRoster.update((r) => applyNotifyToRoster(r, ev));
 		}
 		let demoLyricsPoll = 0;
 		if (demoKind === 'voices') {
@@ -461,6 +513,7 @@
 			clearInterval(installDemo);
 			clearTimeout(reconnectTimer);
 			stopSystemWatch();
+			stopGovernor();
 			window.removeEventListener('keydown', handleKey);
 			window.removeEventListener('resize', updateIndicator);
 			window.removeEventListener('pointerdown', primeAudio);
@@ -481,14 +534,13 @@
 
 	const VIEW_TITLES = {
 		school: 'Due Work',
-		dev: 'Dev Wall',
 		music: 'Music',
 		weather: 'Weather'
 	};
 	let viewTitle = $derived(VIEW_TITLES[$currentView] ?? '');
 
 	function viewLabel(name) {
-		return name.slice(0, 1).toUpperCase() + name.slice(1);
+		return kioskViewLabel(name);
 	}
 
 	function weatherFromQuery() {
@@ -560,6 +612,16 @@
 	});
 
 	$effect(() => {
+		const activity = workingIslandActivity($agentRoster);
+		if (activity) setIslandActivity('agents', activity);
+		else clearIslandActivity('agents');
+	});
+
+	$effect(() => {
+		agentRoster.update((r) => applyOllamaHint(r, $ollamaStatus));
+	});
+
+	$effect(() => {
 		wxForIsland;
 		if (typeof window === 'undefined') return;
 		maybePingWeather(wxForIsland);
@@ -605,9 +667,10 @@
 	</defs>
 </svg>
 
-<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff}>
+<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
 	<LiquidMetalCanvas
-		isLowPower={$gpuLowPowerMode || mode === 'sleep'}
+		isLowPower={$gpuLowPowerMode || mode === 'sleep' || hdmiOff}
+		quality={$displayQuality}
 		sun={atm.sun}
 		twilight={atm.twilight}
 		rain={atm.rain}
@@ -651,11 +714,11 @@
 						style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
 						aria-hidden="true"
 					></span>
-					{#each VIEWS as v, i}
+					{#each VIEWS as v, i (v)}
 						<button
 							class="view-tab"
 							class:active={$currentView === v}
-							onclick={() => currentView.set(v)}
+							onclick={() => selectView(v)}
 							aria-current={$currentView === v ? 'page' : undefined}
 							bind:this={tabRefs[i]}
 						>
@@ -683,7 +746,7 @@
 			{#if showChromeTicker}
 				<SevereTicker text={tickerPulse} />
 			{/if}
-			{#if $currentView !== 'clock' && $currentView !== 'music'}
+			{#if $currentView !== 'clock' && $currentView !== 'music' && $currentView !== 'weather' && $currentView !== 'agents'}
 				<h1 class="view-title">{viewTitle}</h1>
 			{/if}
 		</header>
@@ -701,9 +764,9 @@
 				<section class="view-pane sheet school-pane" data-glass>
 					<SchoolHub />
 				</section>
-			{:else if $currentView === 'dev'}
-				<section class="view-pane sheet dev-pane" data-glass>
-					<DevHub />
+			{:else if $currentView === 'agents'}
+				<section class="view-pane agents-pane">
+					<AgentsHub />
 				</section>
 			{:else if $currentView === 'music'}
 				<section class="view-pane music-pane">
@@ -712,7 +775,7 @@
 			{:else if $currentView === 'weather'}
 				<section class="view-pane sheet weather-pane" data-glass>
 					<div class="radar-bleed">
-						<RadarCanvas data={weatherData} />
+						<RadarCanvas data={weatherData} paused={$displayQuality !== 'full' || mode === 'sleep'} />
 					</div>
 					<div class="weather-trough">
 						<WeatherView data={wxForIsland || weatherData} />
@@ -733,7 +796,9 @@
 		</footer>
 	</div>
 
-	<NoiseOverlay />
+	{#if $displayQuality === 'full' && mode !== 'sleep'}
+		<NoiseOverlay />
+	{/if}
 </div>
 
 <style>
@@ -763,6 +828,17 @@
 		position: relative;
 		background: var(--background);
 	}
+	.display-shell.eco :global(.glass-field),
+	.display-shell.frozen :global(.glass-field),
+	.display-shell.sleep :global(.glass-field) {
+		backdrop-filter: none;
+		-webkit-backdrop-filter: none;
+	}
+	.display-shell.eco .music-ambient,
+	.display-shell.frozen .music-ambient {
+		filter: none;
+		opacity: 0.35;
+	}
 	/* The whole screen picks up the now-playing album art as a soft, glowing
 	   backdrop - every pane is transparent over the liquid-metal canvas
 	   already, so this just takes that canvas's place while music plays,
@@ -773,7 +849,7 @@
 		z-index: 1;
 		background-size: cover;
 		background-position: center;
-		filter: blur(90px) saturate(1.3) brightness(0.65);
+		filter: blur(42px) saturate(1.25) brightness(0.65);
 		transform: translateZ(0);
 		pointer-events: none;
 	}
@@ -983,6 +1059,10 @@
 		padding-top: var(--space-6);
 		padding-bottom: var(--space-6);
 	}
+	.display-root:has(.weather-pane) .center {
+		padding-top: var(--space-2);
+		padding-bottom: var(--space-2);
+	}
 	.view-pane {
 		position: relative;
 		overflow: hidden;
@@ -1012,6 +1092,7 @@
 		justify-content: stretch;
 		align-items: stretch;
 		pointer-events: auto;
+		animation: none;
 	}
 	.music-pane :global(.music-view) {
 		flex: 1;
@@ -1050,12 +1131,16 @@
 			transparent 70%
 		);
 	}
-	.dev-pane {
-		--sheet-glow: radial-gradient(
-			44rem 26rem at 92% -6%,
-			var(--glow-solve),
-			transparent 70%
-		);
+	.display-root:has(.agents-pane) .center {
+		padding-top: var(--space-2);
+		padding-bottom: var(--space-2);
+	}
+	.agents-pane {
+		min-height: 0;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		background: transparent;
 	}
 	.weather-pane {
 		min-height: 0;
@@ -1079,17 +1164,16 @@
 		position: relative;
 		z-index: 1;
 		margin-left: auto;
-		width: min(36rem, 44%);
+		width: min(22rem, 32%);
 		height: 100%;
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
-		border-left: 1px solid var(--hairline);
 		background: linear-gradient(
 			90deg,
 			transparent,
-			color-mix(in srgb, var(--abyss) 28%, transparent) 22%,
-			color-mix(in srgb, var(--abyss) 58%, transparent) 62%
+			color-mix(in srgb, var(--abyss) 18%, transparent) 24%,
+			color-mix(in srgb, var(--abyss) 46%, transparent) 72%
 		);
 	}
 	.bottom {

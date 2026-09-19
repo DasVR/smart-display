@@ -1,7 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
 	import { nowPlaying } from '$lib/stores.js';
-	import { bassLevel } from '$lib/services/audioReactive.js';
 	import {
 		activeLyricIndex as startedIndexForTime,
 		activeWordIndex,
@@ -15,6 +14,9 @@
 		letterWave,
 		livePlaybackPosition,
 		LYRIC_LEAD_SEC,
+		lyricFocusIndex as focusIndexForTime,
+		lyricWindowStart,
+		LYRIC_WINDOW_SIZE,
 		lyricsAreSynced,
 		lineSungThrough,
 		isLineSinging,
@@ -22,22 +24,26 @@
 		wordProgress
 	} from '$lib/playbackClock.js';
 	import { rememberNowPlaying } from '$lib/artCarousel.js';
-	import { shouldGlueLyricTokens } from '$lib/lyricWords.js';
+	import { displayLyricWords, shouldGlueLyricTokens } from '$lib/lyricWords.js';
 	import { isLyricReply } from '$lib/lyricVoices.js';
 	import { applyTransportOptimistic, nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
+	import AlbumStage from '$lib/components/AlbumStage.svelte';
 
-	let artFailed = $state(false);
-	let lastArtUrl = null;
+	const IDLE_PAINT = { wordIdx: -1, fill: 0, held: false, singing: false };
+
 	let displayPosition = $state(0);
-	let lyricsOffset = $state(0);
+	const stackMotion = { offset: 0 };
 	let raf = 0;
 	let lyricsViewport = $state(null);
+	let lyricsStackEl = $state(null);
 	let reducedMotion = $state(false);
 	let snapLyrics = $state(false);
 	let lastSample = null;
 	let lastEaseAt = 0;
+	let lastUiAt = 0;
 	let stackReady = false;
 	let lastTrackKey = '';
+	let windowStart = $state(0);
 	let carousel = $state({ prev: null, current: null, next: null });
 
 	let track = $derived($nowPlaying);
@@ -49,14 +55,7 @@
 	let lyricClock = $derived(track?.playing ? displayPosition + LYRIC_LEAD_SEC : displayPosition);
 	let startedLyricIndex = $derived(startedIndexForTime(synced, lyricClock));
 	let rest = $derived(instrumentalRest(synced, lyricClock, track?.length));
-	let focusLyricIndex = $derived.by(() => {
-		if (!synced?.length) return -1;
-		for (let i = 0; i < synced.length; i++) {
-			if (isLineSinging(synced[i], lyricClock, synced[i + 1]?.time)) return i;
-		}
-		if (rest) return rest.afterIndex;
-		return startedLyricIndex;
-	});
+	let focusLyricIndex = $derived(focusIndexForTime(synced, lyricClock, track?.length));
 	let progress = $derived(track?.length ? Math.min(1, displayPosition / track.length) : 0);
 	let instrumentalDots = $derived.by(() => {
 		const states = instrumentalDotStatesFromGap(rest, lyricClock);
@@ -64,7 +63,11 @@
 		return states.map((v) => 0.28 + v * 0.72);
 	});
 	let restFocus = $derived(Boolean(rest) && !rest.blank);
-	let artPulse = $derived(track?.playing ? 1 + $bassLevel * 0.045 : 1);
+	let visibleLyrics = $derived.by(() => {
+		if (!synced?.length) return [];
+		const start = Math.min(windowStart, Math.max(0, synced.length - 1));
+		return synced.slice(start, start + LYRIC_WINDOW_SIZE).map((line, j) => ({ line, i: start + j }));
+	});
 	let carouselCards = $derived.by(() => {
 		const list = [];
 		if (carousel.prev) list.push({ ...carousel.prev, slot: 'prev' });
@@ -76,13 +79,7 @@
 	});
 
 	$effect(() => {
-		const next = track;
-		if (!next) return;
-		if (next.art !== lastArtUrl) {
-			lastArtUrl = next.art;
-			artFailed = false;
-		}
-		if (next.title) carousel = rememberNowPlaying(next);
+		if (track?.title) carousel = rememberNowPlaying(track);
 	});
 
 	function measureLyricsOffset() {
@@ -94,8 +91,11 @@
 			if (restSlot.afterIndex < 0) return focusY + 28;
 			const finished = viewport.querySelector(`[data-lyric="${restSlot.afterIndex}"]`);
 			if (!finished) return null;
-			const padBottom = parseFloat(getComputedStyle(finished).paddingBottom) || 0;
-			const textBottom = finished.offsetTop + finished.offsetHeight - padBottom;
+			// Resting rows add padding-bottom for the dots. offsetHeight includes
+			// that pad; use the unpadded text box so the stack centers the line,
+			// not the empty rest gap. Avoid getComputedStyle (layout-forcing).
+			const restPad = finished.classList.contains('resting') ? finished.offsetHeight * 0.35 : 0;
+			const textBottom = finished.offsetTop + finished.offsetHeight - restPad;
 			return focusY - textBottom - 22;
 		}
 		const idx = restSlot?.blank ? restSlot.afterIndex : focusLyricIndex;
@@ -107,23 +107,45 @@
 
 	function tick(now) {
 		if (isPlaybackJump(lastSample, track)) snapLyrics = true;
-		displayPosition = livePlaybackPosition(track, Date.now());
+		const pos = livePlaybackPosition(track, Date.now());
 		lastSample = track;
+		const ts = Number(now) || (typeof performance !== 'undefined' ? performance.now() : 0);
+		if (snapLyrics || ts - lastUiAt >= 32) {
+			lastUiAt = ts;
+			displayPosition = pos;
+		}
 		const key = trackKey;
 		if (key !== lastTrackKey) {
 			lastTrackKey = key;
 			stackReady = false;
+			windowStart = 0;
+			displayPosition = pos;
+		}
+		if (synced?.length) {
+			const origin = focusLyricIndex >= 0 ? focusLyricIndex : startedLyricIndex;
+			const nextStart = lyricWindowStart(synced.length, origin, windowStart);
+			if (nextStart !== windowStart) {
+				windowStart = nextStart;
+				snapLyrics = true;
+				stackReady = false;
+			}
+		} else if (windowStart !== 0) {
+			windowStart = 0;
 		}
 		const target = measureLyricsOffset();
 		if (target != null) {
-			const ts = Number(now) || (typeof performance !== 'undefined' ? performance.now() : 0);
 			const dt = lastEaseAt ? Math.min(0.1, Math.max(0, (ts - lastEaseAt) / 1000)) : 0.016;
 			lastEaseAt = ts;
+			let nextOffset;
 			if (!stackReady || snapLyrics || reducedMotion) {
-				lyricsOffset = target;
+				nextOffset = target;
 				stackReady = true;
 			} else {
-				lyricsOffset = easeToward(lyricsOffset, target, dt, STACK_EASE_TAU_SEC);
+				nextOffset = easeToward(stackMotion.offset, target, dt, STACK_EASE_TAU_SEC);
+			}
+			stackMotion.offset = nextOffset;
+			if (lyricsStackEl) {
+				lyricsStackEl.style.transform = `translate3d(0, ${nextOffset}px, 0)`;
 			}
 		}
 		raf = requestAnimationFrame(tick);
@@ -276,8 +298,9 @@
 		return lineIndex - origin;
 	}
 
-	function paintFor(line, nextStart) {
-		const words = line?.words;
+	function paintFor(line, nextStart, near) {
+		if (!near) return IDLE_PAINT;
+		const words = Array.isArray(line?.words) ? line.words : null;
 		if (!words?.length) {
 			return { wordIdx: -1, fill: 0, held: false, singing: isLineSinging(line, lyricClock, nextStart) };
 		}
@@ -290,6 +313,10 @@
 			fill: wordProgress(words, wordIdx, lyricClock, line?.end, nextStart),
 			held: isHeldWord(words, wordIdx, line?.end, HELD_WORD_SEC, nextStart)
 		};
+	}
+
+	function lineWords(line) {
+		return displayLyricWords(line);
 	}
 
 	function wordChars(text) {
@@ -322,29 +349,7 @@
 	{:else}
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics || lyricsPending)}>
 			<div class="player-main">
-				<div class="art-slot" class:playing={track.playing} style="--pulse: {artPulse}">
-					<div class="art-stage" class:peeks={carouselCards.length > 1}>
-						{#each carouselCards as card (card.key)}
-							<div
-								class="album-card"
-								class:current={card.slot === 'current'}
-								class:prev={card.slot === 'prev'}
-								class:next={card.slot === 'next'}
-								class:playing={card.slot === 'current' && track.playing}
-								aria-hidden={card.slot !== 'current'}
-							>
-								{#if card.slot === 'current' && card.art && !artFailed}
-									<img class="art-image" src={card.art} alt="" onerror={() => (artFailed = true)} />
-								{:else if card.art}
-									<img class="art-image" src={card.art} alt="" />
-								{:else if card.slot === 'current'}
-									<div class="vinyl-groove"></div>
-									<div class="center-label"></div>
-								{/if}
-							</div>
-						{/each}
-					</div>
-				</div>
+				<AlbumStage {track} cards={carouselCards} playing={Boolean(track.playing)} />
 				<div class="track-info">
 					<h1 class="track-title">{track.title}</h1>
 					<div class="track-artist">{track.artist}{track.album ? ` · ${track.album}` : ''}</div>
@@ -407,10 +412,15 @@
 					<div
 						class="lyrics-stack"
 						class:instant={reducedMotion || snapLyrics}
-						style="transform: translate3d(0, {lyricsOffset}px, 0)"
+						bind:this={lyricsStackEl}
+						style="transform: translate3d(0, 0px, 0)"
 					>
-						{#each synced as line, i (`${line.time}:${line.side ?? ''}:${line.text}`)}
-							{@const paint = paintFor(line, synced[i + 1]?.time)}
+						{#each visibleLyrics as row (`${row.i}:${row.line.time}:${row.line.side ?? ''}:${row.line.text}`)}
+							{@const line = row.line}
+							{@const i = row.i}
+							{@const near = Math.abs(lineDelta(i)) <= 1}
+							{@const paint = paintFor(line, synced[i + 1]?.time, near)}
+							{@const words = lineWords(line)}
 							<p
 								class="lyric-line"
 								class:active={lineIsActive(i)}
@@ -421,15 +431,15 @@
 								data-lyric={i}
 							>
 								<span class="lyric-lead">
-									{#if line.words?.length}
-										{#each line.words as word, w (w)}
-											{#if w > 0 && !shouldGlueLyricTokens(line.words[w - 1].text, word.text)}{' '}{/if}<span
+									{#if words.length}
+										{#each words as word, w (`${w}:${word?.time ?? ''}`)}
+											{#if word?.text}{#if w > 0 && !shouldGlueLyricTokens(words[w - 1]?.text, word.text)}{' '}{/if}<span
 												class="lyric-word"
 												class:sung={wordSung(i, w)}
 												class:filling={paint.singing && w === paint.wordIdx}
 												class:held={paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}
 												style={paint.singing && w === paint.wordIdx ? `--wp: ${paint.fill}` : undefined}
-											>{#if paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}{#each wordChars(word.text) as ch, ci (ci)}<span class="lyric-letter" style="--fill: {heldLetterFill(paint.fill, ci, word.text)}; --wave: {letterWave(heldLetterFill(paint.fill, ci, word.text))}">{ch}</span>{/each}{:else}{word.text}{/if}</span>
+											>{#if paint.singing && w === paint.wordIdx && paint.held && !reducedMotion}{#each wordChars(word.text) as ch, ci (ci)}<span class="lyric-letter" style="--fill: {heldLetterFill(paint.fill, ci, word.text)}; --wave: {letterWave(heldLetterFill(paint.fill, ci, word.text))}">{ch}</span>{/each}{:else}{word.text}{/if}</span>{/if}
 										{/each}
 									{:else if line.text}
 										{line.text}
@@ -444,7 +454,7 @@
 								</span>
 								{#if line.background?.length}
 									{#each line.background as bg, b (`${bg.time}:${bg.text}`)}
-										{@const bgPaint = paintFor(bg, line.background[b + 1]?.time ?? line.end)}
+										{@const bgPaint = paintFor(bg, line.background[b + 1]?.time ?? line.end, near)}
 										<span class="lyric-bg" class:singing={bgPaint.singing}>
 											{#if bg.words?.length}
 												{#each bg.words as word, w (w)}
@@ -542,108 +552,11 @@
 		width: 100%;
 		height: 100%;
 	}
-
-	.art-slot {
+	.player-main :global(.art-slot) {
 		min-width: 0;
 		min-height: 0;
 		width: 100%;
 		height: 100%;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		position: relative;
-		perspective: 980px;
-	}
-	.art-stage {
-		position: relative;
-		width: min(100%, 42vh, 420px);
-		aspect-ratio: 1;
-		max-height: 100%;
-		display: grid;
-		place-items: center;
-		transform-style: preserve-3d;
-	}
-	.with-lyrics .art-stage {
-		width: min(100%, 28vh, 280px);
-	}
-	.album-card {
-		grid-area: 1 / 1;
-		width: 100%;
-		aspect-ratio: 1;
-		border-radius: var(--radius-lg);
-		border: 1px solid var(--hairline);
-		background: linear-gradient(160deg, var(--abyss-2) 0%, var(--abyss) 62%, color-mix(in srgb, var(--brand) 12%, var(--abyss)) 100%);
-		overflow: hidden;
-		box-shadow: var(--elevation-2);
-		transform-origin: center center;
-		position: relative;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-	.album-card.prev,
-	.album-card.next {
-		z-index: 0;
-		filter: brightness(0.38) saturate(0.78);
-		pointer-events: none;
-	}
-	.album-card.prev {
-		transform: translateX(-46%) rotateY(28deg) scale(0.78);
-	}
-	.album-card.next {
-		transform: translateX(46%) rotateY(-28deg) scale(0.78);
-	}
-	.album-card.current {
-		z-index: 2;
-		box-shadow: var(--elevation-3);
-		transform: scale(var(--pulse, 1));
-		filter: none;
-	}
-	@media (prefers-reduced-motion: no-preference) {
-		.album-card {
-			transition:
-				transform 620ms var(--spring-smooth),
-				filter 480ms var(--spring-smooth),
-				box-shadow 480ms var(--spring-smooth);
-		}
-		.album-card.current.playing {
-			animation: art-drift 9s ease-in-out infinite;
-		}
-	}
-	@keyframes art-drift {
-		0%, 100% { transform: scale(var(--pulse, 1)) translate3d(0, 0, 0) rotate(0deg); }
-		50% { transform: scale(var(--pulse, 1)) translate3d(0, -4px, 0) rotate(0.6deg); }
-	}
-	.art-image {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		object-position: center;
-		display: block;
-	}
-	.vinyl-groove {
-		position: absolute;
-		inset: clamp(24px, 4vh, 48px);
-		border-radius: 50%;
-		border: 2px solid var(--hairline);
-		box-shadow: inset 0 0 50px color-mix(in srgb, var(--background) 70%, transparent);
-	}
-	.vinyl-groove::before,
-	.vinyl-groove::after {
-		content: '';
-		position: absolute;
-		border-radius: 50%;
-		border: 1px solid var(--hairline);
-	}
-	.vinyl-groove::before { inset: clamp(20px, 3vh, 36px); }
-	.vinyl-groove::after { inset: clamp(48px, 7vh, 80px); }
-	.center-label {
-		width: clamp(56px, 8vh, 90px);
-		height: clamp(56px, 8vh, 90px);
-		border-radius: 50%;
-		background: var(--abyss-2);
-		border: 2px solid var(--hairline);
-		z-index: 2;
 	}
 
 	.track-info { text-align: center; min-width: 0; max-width: 100%; }
@@ -764,18 +677,23 @@
 		flex-direction: column;
 		align-items: stretch;
 		gap: var(--space-5);
-		padding: 0 var(--space-4);
+		padding: 0 var(--space-6);
+		box-sizing: border-box;
 		will-change: transform;
 		/* Vertical travel is lerped in rAF (`easeToward`) so line changes and
 		   instrumental rests glide instead of waiting on a CSS custom-prop. */
 	}
 	.lyric-line {
 		margin: 0;
+		max-width: 100%;
+		box-sizing: border-box;
 		font-family: var(--font-body);
 		font-size: clamp(1.15rem, 2.2vw, 1.85rem);
 		font-weight: 600;
 		font-style: normal;
 		line-height: 1.35;
+		overflow-wrap: anywhere;
+		hyphens: manual;
 		color: var(--text-tertiary);
 		opacity: 1;
 		transform-origin: left center;
@@ -1006,7 +924,6 @@
 		);
 		text-shadow: 0 0 calc(var(--wave, 0) * 22px) color-mix(in srgb, var(--foreground) calc(var(--wave, 0) * 70%), transparent);
 		filter: brightness(calc(1 + var(--wave, 0) * 0.45));
-		will-change: transform, filter, text-shadow;
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.lyric-letter {
@@ -1137,16 +1054,6 @@
 	.art-skeleton { width: min(42vh, 420px); height: min(42vh, 420px); border-radius: var(--radius-lg); }
 	.title-skeleton { width: 340px; height: 44px; }
 	.bar-skeleton { width: min(540px, 70vw); height: 2px; border-radius: 0; }
-
-	@media (prefers-reduced-motion: no-preference) {
-		.album-card.current.playing .vinyl-groove {
-			animation: spin 8s linear infinite;
-		}
-	}
-	@keyframes spin {
-		from { transform: rotate(0deg); }
-		to { transform: rotate(360deg); }
-	}
 
 	@media (max-width: 768px) {
 		.player-body.with-lyrics {

@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execFile } from 'node:child_process';
-import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fuseRainPrediction } from '../rainModel.js';
@@ -23,9 +22,13 @@ import {
 	ensureLyricsCached,
 	ensureTrackDurationCached,
 	hasRealWordTiming,
+	lyricsCacheKey,
 	peekLyricsInfo,
 	peekTrackDuration
 } from './lyrics.js';
+import { overlayCommunityText } from '../lyricWords.js';
+import { getLyricPick } from './lyricsStore.js';
+import { getHostLoad } from './hostLoad.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -168,46 +171,81 @@ async function getSpeakerService() {
 	return { name: `Speakers (${kind})`, status: kind !== 'dummy', uptime: pick.name };
 }
 
-export async function getTelemetry() {
-	const total = os.totalmem() / 1024 / 1024 / 1024;
-	const free = os.freemem() / 1024 / 1024 / 1024;
-	const used = total - free;
-	const load = os.loadavg()[0];
-	const cpus = os.cpus().length;
-	const cpuPct = Math.min(100, Math.round((load / cpus) * 100));
-	const net = readNetThroughput();
+const SERVICE_TTL_MS = 30_000;
+const CONTAINER_TTL_MS = 15_000;
+const serviceCache = { at: 0, services: null, inflight: null };
+const containerCache = { at: 0, count: 0, inflight: null };
 
-	async function check(url, name, uptime = '99.9%') {
-		try {
-			const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(2500) });
-			return { name, status: r.ok, uptime };
-		} catch {
-			return { name, status: false, uptime: 'down' };
-		}
+async function checkService(url, name, uptime = '99.9%') {
+	try {
+		const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(2500) });
+		return { name, status: r.ok, uptime };
+	} catch {
+		return { name, status: false, uptime: 'down' };
 	}
+}
 
-	const [services, containers] = await Promise.all([
-		Promise.all([
-			check('https://dasdev.net', 'dasdev.net', '99.9%'),
-			check('https://godmode.dasdev.net', 'godmode', '100%'),
-			check('https://leadvine.dasdev.net', 'leadvine', '100%'),
-			check('https://hermes.dasdev.net', 'hermes', '100%'),
-			check('http://127.0.0.1:8123/api/', 'home assistant', '100%'),
-			check('http://localhost:3000', 'display', '100%'),
-			getSpeakerService()
-		]),
-		run('docker ps -q 2>/dev/null | wc -l')
+async function probeServices() {
+	return Promise.all([
+		checkService('https://dasdev.net', 'dasdev.net', '99.9%'),
+		checkService('https://godmode.dasdev.net', 'godmode', '100%'),
+		checkService('https://leadvine.dasdev.net', 'leadvine', '100%'),
+		checkService('https://hermes.dasdev.net', 'hermes', '100%'),
+		checkService('http://127.0.0.1:8123/api/', 'home assistant', '100%'),
+		checkService('http://localhost:3000', 'display', '100%'),
+		getSpeakerService()
 	]);
+}
+
+async function cachedServices() {
+	const now = Date.now();
+	if (serviceCache.services && now - serviceCache.at < SERVICE_TTL_MS) return serviceCache.services;
+	if (serviceCache.inflight) return serviceCache.inflight;
+	serviceCache.inflight = probeServices()
+		.then((services) => {
+			serviceCache.services = services;
+			serviceCache.at = Date.now();
+			return services;
+		})
+		.finally(() => {
+			serviceCache.inflight = null;
+		});
+	if (serviceCache.services) return serviceCache.services;
+	return serviceCache.inflight;
+}
+
+async function cachedContainers() {
+	const now = Date.now();
+	if (now - containerCache.at < CONTAINER_TTL_MS) return containerCache.count;
+	if (containerCache.inflight) return containerCache.inflight;
+	containerCache.inflight = run('docker ps -q 2>/dev/null | wc -l')
+		.then((text) => {
+			containerCache.count = parseInt(text || '0', 10) || 0;
+			containerCache.at = Date.now();
+			return containerCache.count;
+		})
+		.finally(() => {
+			containerCache.inflight = null;
+		});
+	if (containerCache.at) return containerCache.count;
+	return containerCache.inflight;
+}
+
+export async function getTelemetry() {
+	const load = getHostLoad();
+	const net = readNetThroughput();
+	const [services, containers] = await Promise.all([cachedServices(), cachedContainers()]);
 
 	return {
 		services,
 		stats: {
-			ram_used: Math.round(used * 10) / 10,
-			ram_total: Math.round(total * 10) / 10,
-			cpu: cpuPct,
-			load,
-			cpus,
-			containers: parseInt(containers || '0', 10),
+			ram_used: load.ram_used,
+			ram_total: load.ram_total,
+			cpu: load.cpu,
+			ramPct: Math.round(load.ramPct),
+			load: load.load,
+			cpus: load.cpus,
+			containers,
 			net_rx: net.rxMbps,
 			net_tx: net.txMbps,
 			net_mbps: net.mbps
@@ -315,7 +353,8 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			const fp = trackFingerprint(merged.artist, merged.title, duration);
 			cancelOtherAlignments(fp);
 			const aligned = readCachedAlignmentInfo(fp);
-			({ lyrics, source: lyricsSource } = pickDisplayLyrics({ community: peeked, aligned }));
+			const pick = getLyricPick(lyricsCacheKey(merged.artist, merged.title, merged.album || '', duration));
+			({ lyrics, source: lyricsSource } = pickDisplayLyrics({ community: peeked, aligned, pick }));
 			if (!peeked.known) {
 				lyricsPending = true;
 				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
@@ -340,15 +379,29 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 	}
 }
 
-/** Chooses what the Music view paints from the two caches. A precise
- *  on-device alignment (Qwen3 / MMS / MFA / aeneas) beats everything; a
- *  community word-level file beats an energy-envelope guess; an energy
- *  guess beats synthesized per-line timing; anything beats nothing. */
-export function pickDisplayLyrics({ community, aligned } = {}) {
+/** Chooses what the Music view paints from the two caches. A per-song
+ *  remote pick wins. Otherwise a precise on-device alignment (Qwen3 / MMS
+ *  / MFA / aeneas) beats everything; a community word-level file beats an
+ *  energy-envelope guess; an energy guess beats synthesized per-line
+ *  timing; anything beats nothing. */
+function alignedLinesForDisplay(aligned, community) {
+	return overlayCommunityText(aligned?.lines || null, community?.lines || null);
+}
+
+export function pickDisplayLyrics({ community, aligned, pick } = {}) {
 	const communityLines = community?.lines || null;
 	const communityWordLevel = Boolean(communityLines) && (Boolean(community?.wordLevel) || hasRealWordTiming(communityLines));
-	const alignedLines = aligned?.lines || null;
+	const alignedLines = alignedLinesForDisplay(aligned, community);
 	const alignedUsable = Boolean(alignedLines) && hasRealWordTiming(alignedLines);
+	const wanted = String(pick?.displaySource || '').trim();
+	if (wanted) {
+		if (wanted.startsWith('align:') && alignedLines) {
+			return { lyrics: alignedLines, source: `align:${aligned.engine || wanted.slice(6)}` };
+		}
+		if (communityLines && !wanted.startsWith('align:')) {
+			return { lyrics: communityLines, source: community?.source || wanted };
+		}
+	}
 	if (alignedUsable && aligned.precise) {
 		return { lyrics: alignedLines, source: `align:${aligned.engine || 'precise'}` };
 	}
@@ -370,7 +423,8 @@ export function getDemoNowPlaying() {
 	if (!peeked.known) ensureLyricsCached(artist, title, { album, duration: length });
 	const fp = trackFingerprint(artist, title, length);
 	const aligned = readCachedAlignmentInfo(fp);
-	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned });
+	const pick = getLyricPick(lyricsCacheKey(artist, title, album, length));
+	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned, pick });
 	return demoNowPlaying(undefined, {
 		lyrics,
 		lyricsPending: !peeked.known,

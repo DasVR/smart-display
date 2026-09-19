@@ -1,13 +1,22 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+	RADAR_THRESHOLDS,
+	RADAR_FALLBACK_COLORS,
+	RADAR_BAND_ALPHAS,
+	RADAR_RAIN_PALETTE,
+	CONTOUR_CHAIKIN_ITERATIONS,
+	FIELD_MAX_ROWS,
 	marchingSquares,
 	chaikinSmooth,
 	lerpFields,
 	lerpColor,
 	extractField,
 	fieldGridSize,
-	fieldExtent
+	fieldExtent,
+	nearestRadarColor,
+	dbzToIntensity,
+	rainFillAlpha
 } from '../src/lib/radarVector.js';
 
 function shoelaceArea(points) {
@@ -89,7 +98,43 @@ describe('marchingSquares', () => {
 	});
 });
 
+describe('radar contour fidelity', () => {
+	it('keeps enough intensity bands that RainViewer color steps stay distinct', () => {
+		assert.ok(RADAR_THRESHOLDS.length >= 10);
+		assert.equal(RADAR_FALLBACK_COLORS.length, RADAR_THRESHOLDS.length);
+		assert.equal(RADAR_RAIN_PALETTE.length, RADAR_THRESHOLDS.length);
+		for (let i = 1; i < RADAR_THRESHOLDS.length; i++) {
+			assert.ok(RADAR_THRESHOLDS[i] > RADAR_THRESHOLDS[i - 1]);
+			assert.ok(RADAR_RAIN_PALETTE[i].dbz > RADAR_RAIN_PALETTE[i - 1].dbz);
+		}
+	});
+
+	it('uses at most one Chaikin pass so cells are not rounded into metaballs', () => {
+		assert.ok(CONTOUR_CHAIKIN_ITERATIONS <= 1);
+	});
+
+	it('fills each rain type with slight transparency, heavier a bit more solid', () => {
+		assert.equal(RADAR_BAND_ALPHAS.length, RADAR_THRESHOLDS.length);
+		for (const a of RADAR_BAND_ALPHAS) {
+			assert.ok(a >= 0.6 && a <= 0.9, `expected slight transparency, got ${a}`);
+		}
+		assert.ok(RADAR_BAND_ALPHAS[0] < RADAR_BAND_ALPHAS[RADAR_BAND_ALPHAS.length - 1]);
+		assert.ok(rainFillAlpha(15) < rainFillAlpha(50));
+	});
+});
+
 describe('chaikinSmooth', () => {
+	it('returns the original polygon when asked for zero iterations', () => {
+		const square = [
+			[0, 0],
+			[10, 0],
+			[10, 10],
+			[0, 10]
+		];
+		const none = chaikinSmooth(square, 0);
+		assert.deepEqual(none, square);
+	});
+
 	it('roughly doubles the point count per iteration', () => {
 		const square = [
 			[0, 0],
@@ -142,19 +187,42 @@ describe('lerpColor', () => {
 });
 
 describe('extractField', () => {
-	it('reads alpha directly and averages real pixel color per band', () => {
-		// 2 pixels: one fully opaque red (should land in the top band), one
-		// fully transparent (below every threshold).
+	it('maps a pixel onto the matching rain type instead of using raw alpha', () => {
+		const light = RADAR_RAIN_PALETTE[1];
 		const imageData = {
 			width: 2,
 			height: 1,
-			data: new Uint8ClampedArray([255, 0, 0, 255, 0, 0, 0, 0])
+			data: new Uint8ClampedArray([light.r, light.g, light.b, 255, 0, 0, 0, 0])
 		};
-		const field = extractField(imageData, [0.1, 0.9]);
+		const field = extractField(imageData);
 		assert.equal(field.cols, 2);
 		assert.equal(field.rows, 1);
-		assert.deepEqual(Array.from(field.alpha), [1, 0]);
-		assert.equal(field.colors[1], 'rgb(255, 0, 0)');
+		assert.equal(field.alpha[1], 0);
+		assert.ok(Math.abs(field.alpha[0] - dbzToIntensity(light.dbz)) < 1e-6);
+		assert.equal(field.colors[1], `rgb(${light.r}, ${light.g}, ${light.b})`);
+	});
+
+	it('keeps light rain and heavy rain in separate color bands', () => {
+		const light = RADAR_RAIN_PALETTE[1];
+		const heavy = RADAR_RAIN_PALETTE[5];
+		const imageData = {
+			width: 2,
+			height: 1,
+			data: new Uint8ClampedArray([
+				light.r,
+				light.g,
+				light.b,
+				255,
+				heavy.r,
+				heavy.g,
+				heavy.b,
+				255
+			])
+		};
+		const field = extractField(imageData);
+		assert.equal(field.colors[1], `rgb(${light.r}, ${light.g}, ${light.b})`);
+		assert.equal(field.colors[5], `rgb(${heavy.r}, ${heavy.g}, ${heavy.b})`);
+		assert.notEqual(field.colors[1], field.colors[5]);
 	});
 
 	it('falls back to the given fallback color for an empty band', () => {
@@ -165,6 +233,28 @@ describe('extractField', () => {
 		};
 		const field = extractField(imageData, [0.5], ['rgb(1, 2, 3)']);
 		assert.equal(field.colors[0], 'rgb(1, 2, 3)');
+	});
+
+	it('emits one sampled color and opacity per default intensity band', () => {
+		const imageData = {
+			width: 1,
+			height: 1,
+			data: new Uint8ClampedArray([10, 20, 30, 0])
+		};
+		const field = extractField(imageData);
+		assert.equal(field.colors.length, RADAR_THRESHOLDS.length);
+		assert.equal(field.opacities.length, RADAR_THRESHOLDS.length);
+		assert.deepEqual(field.opacities, RADAR_BAND_ALPHAS);
+	});
+});
+
+describe('nearestRadarColor', () => {
+	it('snaps a cyan sample to light rain, not heavy yellow', () => {
+		const light = RADAR_RAIN_PALETTE[1];
+		const match = nearestRadarColor(light.r, light.g, light.b);
+		assert.equal(match.dbz, 15);
+		const yellow = nearestRadarColor(255, 238, 0);
+		assert.equal(yellow.dbz, 35);
 	});
 });
 
@@ -208,6 +298,18 @@ describe('fieldGridSize', () => {
 		const wide = fieldGridSize(100000, 100, 72);
 		assert.ok(wide.rows >= 24);
 		const tall = fieldGridSize(100, 100000, 72);
-		assert.ok(tall.rows <= 140);
+		assert.ok(tall.rows <= FIELD_MAX_ROWS);
+		assert.equal(FIELD_MAX_ROWS, 256);
+	});
+
+	it('keeps a 192-col square radar from clamping below native cell density', () => {
+		const { cols, rows } = fieldGridSize(1600, 1600, 192);
+		assert.equal(cols, 192);
+		assert.equal(rows, 192);
+	});
+
+	it('defaults to a 192-col grid so city zoom samples near native rain pixels', () => {
+		const { cols } = fieldGridSize(1600, 1200);
+		assert.equal(cols, 192);
 	});
 });

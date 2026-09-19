@@ -293,7 +293,7 @@ Pure SVG `feGaussianBlur` + `feColorMatrix` filter. No GPU cost.
 
 - Plain HTML page at `/remote` with `ssr = false`
 - WebSocket to `/ws`, sends `{type: 'swipe', dir: 'left'}`
-- Server broadcasts `{type: 'navigate', view: 'dev'}` to all clients
+- Server broadcasts `{type: 'navigate', view: 'agents'}` to all clients
 - Display component switches view on WS message
 
 ## Power Management (Scheduled On/Off)

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { coalesceLyricWords, lineWithCoalescedWords } from '../lyricWords.js';
 import { annotateLyricVoices } from '../lyricVoices.js';
-import { getLyricsRow, putLyricsRow } from './lyricsStore.js';
+import { getLyricPick, getLyricsRow, putLyricsRow } from './lyricsStore.js';
 
 // Hits persist in data/lyrics.db (see lyricsStore.js). A karaoke-grade hit
 // does not change, so it is kept for a year; a line-only hit is retried
@@ -29,9 +29,39 @@ function readLyricsEntry(key) {
 	return stored;
 }
 
-function writeLyricsEntry(key, entry) {
+function writeLyricsEntry(key, entry, { force = false } = {}) {
+	if (!force) {
+		const pick = getLyricPick(key);
+		const existing = lyricsCache.get(key) || getLyricsRow(key);
+		if (pick?.cacheSource && existing?.lines?.length) return;
+	}
 	lyricsCache.set(key, entry);
 	if (entry.lines) putLyricsRow(key, entry);
+}
+
+/** Store a chosen provider as this track's lyrics cache row so later polls
+ *  keep it even if a community refetch would have overwritten it. */
+export function seedLyricsCache(artist, title, { album = '', duration = 0, source, lines, wordLevel, plainText } = {}) {
+	if (!Array.isArray(lines) || !lines.length) return false;
+	const rounded = Math.round(Number(duration) || 0);
+	const key = lyricsCacheKey(artist, title, album, rounded);
+	writeLyricsEntry(
+		key,
+		{
+			artist,
+			title,
+			album,
+			duration: rounded,
+			source: source || null,
+			wordLevel: Boolean(wordLevel) || hasRealWordTiming(lines),
+			lines,
+			plainText: plainText || lyricsToPlainText(lines),
+			fetchedAt: Date.now(),
+			ttl: LYRICS_WORD_LEVEL_TTL
+		},
+		{ force: true }
+	);
+	return true;
 }
 
 const SYNCEDLYRICS_SCRIPT = fileURLToPath(
@@ -497,7 +527,7 @@ export function parseYrc(text) {
 				lines.push({
 					time: begin,
 					text: lineText,
-					...(coalesced.length >= 2 ? { words: coalesced } : {})
+					...(coalesced.length ? { words: coalesced } : {})
 				});
 			} catch {
 				/* not a JSON credit line */
@@ -517,14 +547,15 @@ export function parseYrc(text) {
 			const time = Number(wm[1]) / 1000;
 			words.push(timedWord(time, word, time + Number(wm[2]) / 1000));
 		}
-		const lineText = words.map((w) => w.text).join(' ');
+		const coalesced = coalesceLyricWords(words);
+		const lineText = coalesced.map((w) => w.text).join(' ');
 		if (CREDIT_LINE_RE.test(lineText)) continue;
 		lines.push(
 			lineWithCoalescedWords({
 				time: begin,
 				end: lineEnd,
 				text: lineText,
-				...(words.length >= 2 ? { words } : {})
+				...(coalesced.length ? { words: coalesced } : {})
 			})
 		);
 	}
@@ -548,8 +579,9 @@ export function parseKrc(text) {
 			const time = begin + Number(wm[1]) / 1000;
 			words.push(timedWord(time, word, time + Number(wm[2]) / 1000));
 		}
-		const lineText = words.length
-			? words.map((w) => w.text).join(' ')
+		const coalesced = coalesceLyricWords(words);
+		const lineText = coalesced.length
+			? coalesced.map((w) => w.text).join(' ')
 			: match[3].replace(KRC_WORD_RE, '').trim();
 		if (CREDIT_LINE_RE.test(lineText)) continue;
 		lines.push(
@@ -557,7 +589,7 @@ export function parseKrc(text) {
 				time: begin,
 				end: lineEnd,
 				text: lineText,
-				...(words.length >= 2 ? { words } : {})
+				...(coalesced.length ? { words: coalesced } : {})
 			})
 		);
 	}
