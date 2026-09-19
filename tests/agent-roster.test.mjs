@@ -8,11 +8,13 @@ import {
 	emptyRoster,
 	identifyAgent,
 	isAgentStatusEvent,
+	leadAgent,
 	relativeAge,
 	shouldOpenAgentsView,
 	workingIslandActivity
 } from '../src/lib/agentRoster.js';
-import { swipeKioskView, KIOSK_VIEWS } from '../src/lib/kioskViews.js';
+import { swipeKioskView, KIOSK_VIEWS, canonicalizeKioskView } from '../src/lib/kioskViews.js';
+import { hostPeekNeeded } from '../src/lib/hostPeek.js';
 
 test('identifyAgent maps Claude Code, Cursor, Hermes, Ollama', () => {
 	assert.equal(identifyAgent('Claude Code'), 'claude');
@@ -97,9 +99,44 @@ test('relativeAge and demo roster stay readable', () => {
 	assert.equal(demo.find((a) => a.id === 'cursor').phase, 'done');
 });
 
-test('swipe order includes Agents between Dev and Music', () => {
-	assert.deepEqual(KIOSK_VIEWS, ['clock', 'school', 'dev', 'agents', 'music', 'weather']);
-	assert.equal(swipeKioskView('dev', 'left'), 'agents');
+test('swipe order is Clock School Agents Music Weather', () => {
+	assert.deepEqual(KIOSK_VIEWS, ['clock', 'school', 'agents', 'music', 'weather']);
+	assert.equal(canonicalizeKioskView('dev'), 'agents');
+	assert.equal(swipeKioskView('school', 'left'), 'agents');
 	assert.equal(swipeKioskView('agents', 'left'), 'music');
+	assert.equal(swipeKioskView('dev', 'left'), 'music');
 	assert.equal(swipeKioskView('clock', 'right'), 'weather');
+});
+
+test('leadAgent prefers a working card, then the latest finish', () => {
+	const now = 1000;
+	const roster = applyNotifyToRoster(
+		applyNotifyToRoster(
+			emptyRoster(),
+			{ kind: 'done', source: 'Cursor', title: 'Cursor finished', body: 'PR checks green' },
+			now
+		),
+		{ kind: 'working', source: 'Claude Code', title: 'Claude Code working', body: 'stage rewrite' },
+		now + 10
+	);
+	assert.equal(leadAgent(roster).id, 'claude');
+	const doneOnly = applyNotifyToRoster(emptyRoster(), {
+		kind: 'done',
+		source: 'Cursor',
+		title: 'Cursor finished'
+	}, now);
+	assert.equal(leadAgent(doneOnly).id, 'cursor');
+	assert.equal(leadAgent(emptyRoster()), null);
+});
+
+test('hostPeekNeeded opens for load, quality, or a down service', () => {
+	assert.equal(hostPeekNeeded({}), false);
+	assert.equal(hostPeekNeeded({ cpu: 60 }), true);
+	assert.equal(hostPeekNeeded({ ramPct: 80 }), true);
+	assert.equal(hostPeekNeeded({ quality: 'eco' }), true);
+	assert.equal(hostPeekNeeded({ services: [{ name: 'ha', status: false }] }), true);
+	assert.equal(hostPeekNeeded({ services: [{ name: 'ha', status: true }] }), false);
+	assert.equal(hostPeekNeeded({ force: true }), true);
+	assert.equal(hostPeekNeeded({ error: true }), true);
+	assert.equal(hostPeekNeeded({ quality: 'frozen' }), true);
 });

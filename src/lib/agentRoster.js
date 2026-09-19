@@ -110,6 +110,18 @@ export function workingAgents(roster) {
 	return (roster || []).filter((a) => a.phase === 'working');
 }
 
+/** The agent the stage should put on the poster: whoever is working,
+ *  otherwise the most recent finish, otherwise nothing (idle field). */
+export function leadAgent(roster) {
+	const list = Array.isArray(roster) ? roster : [];
+	const working = workingAgents(list).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+	if (working[0]) return working[0];
+	const done = list
+		.filter((a) => a.phase === 'done' && a.updatedAt)
+		.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+	return done[0] || null;
+}
+
 export function workingIslandActivity(roster) {
 	const working = workingAgents(roster);
 	if (!working.length) return null;

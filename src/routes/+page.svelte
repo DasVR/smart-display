@@ -3,7 +3,7 @@
 	Philosophy 5 · Hierarchy 5 · Execution 5 · Specificity 4 · Restraint 4 · Variety 5
 	Moody-ambient IA: the liquid-metal field is cursor-reactive and carries the
 	dithered, molten identity; glass now refracts through every view sheet
-	(school/dev/weather), not just the trough, with a single sheened+liquid-
+	(school/weather), not just the trough, with a single sheened+liquid-
 	distorted hero surface active at a time. Nav uses one sliding indicator,
 	not a static per-tab pill.
 -->
@@ -22,7 +22,7 @@
 		isAgentStatusEvent,
 		workingIslandActivity
 	} from '$lib/agentRoster.js';
-	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
+	import { KIOSK_VIEWS, canonicalizeKioskView, kioskViewLabel } from '$lib/kioskViews.js';
 	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
@@ -45,7 +45,6 @@
 	import BoardWidgets from '$lib/components/BoardWidgets.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
 	import SchoolHub from '$lib/components/SchoolHub.svelte';
-	import DevHub from '$lib/components/DevHub.svelte';
 	import AgentsHub from '$lib/components/AgentsHub.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
 	import WeatherView from '$lib/components/WeatherView.svelte';
@@ -93,9 +92,10 @@
 	const VIEWS = KIOSK_VIEWS;
 
 	function selectView(v) {
-		if (!VIEWS.includes(v) || $currentView === v) return;
-		currentView.set(v);
-		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: v }));
+		const next = canonicalizeKioskView(v);
+		if (!VIEWS.includes(next) || $currentView === next) return;
+		currentView.set(next);
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: next }));
 	}
 
 	function updateIndicator() {
@@ -186,7 +186,8 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
-					if (!lockDemoView && msg.view && msg.view !== $currentView) currentView.set(msg.view);
+					const view = canonicalizeKioskView(msg.view);
+					if (!lockDemoView && view && view !== $currentView) currentView.set(view);
 				}
 				if (msg.type === 'notify') {
 					const ev = {
@@ -228,7 +229,8 @@
 					applyAudioFrame(msg);
 				}
 				if (msg.type === 'init') {
-					if (msg.view && !lockDemoView && msg.view !== $currentView) currentView.set(msg.view);
+					const view = canonicalizeKioskView(msg.view);
+					if (msg.view && !lockDemoView && view !== $currentView) currentView.set(view);
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
 					if (Array.isArray(msg.agents) && !lockDemoView) agentRoster.set(msg.agents);
@@ -532,8 +534,6 @@
 
 	const VIEW_TITLES = {
 		school: 'Due Work',
-		dev: 'Dev Wall',
-		agents: 'Agents',
 		music: 'Music',
 		weather: 'Weather'
 	};
@@ -746,7 +746,7 @@
 			{#if showChromeTicker}
 				<SevereTicker text={tickerPulse} />
 			{/if}
-			{#if $currentView !== 'clock' && $currentView !== 'music' && $currentView !== 'weather'}
+			{#if $currentView !== 'clock' && $currentView !== 'music' && $currentView !== 'weather' && $currentView !== 'agents'}
 				<h1 class="view-title">{viewTitle}</h1>
 			{/if}
 		</header>
@@ -764,12 +764,8 @@
 				<section class="view-pane sheet school-pane" data-glass>
 					<SchoolHub />
 				</section>
-			{:else if $currentView === 'dev'}
-				<section class="view-pane sheet dev-pane" data-glass>
-					<DevHub />
-				</section>
 			{:else if $currentView === 'agents'}
-				<section class="view-pane sheet agents-pane" data-glass>
+				<section class="view-pane agents-pane">
 					<AgentsHub />
 				</section>
 			{:else if $currentView === 'music'}
@@ -1135,12 +1131,16 @@
 			transparent 70%
 		);
 	}
-	.dev-pane {
-		--sheet-glow: radial-gradient(
-			44rem 26rem at 92% -6%,
-			var(--glow-solve),
-			transparent 70%
-		);
+	.display-root:has(.agents-pane) .center {
+		padding-top: var(--space-2);
+		padding-bottom: var(--space-2);
+	}
+	.agents-pane {
+		min-height: 0;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		background: transparent;
 	}
 	.weather-pane {
 		min-height: 0;

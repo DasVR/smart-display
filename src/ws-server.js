@@ -42,7 +42,7 @@ import {
 	ingestAgentNotify,
 	ingestOllamaStatus
 } from './lib/server/agentRosterState.js';
-import { swipeKioskView } from './lib/kioskViews.js';
+import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
@@ -768,8 +768,8 @@ wss.on('connection', (ws, req) => {
 			const msg = JSON.parse(raw.toString());
 			if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
 			if (msg.type === 'navigate') {
-				currentView = msg.view;
-				broadcast({ type: 'navigate', view: msg.view, from: isRemote ? 'remote' : 'local' });
+				currentView = canonicalizeKioskView(msg.view);
+				broadcast({ type: 'navigate', view: currentView, from: isRemote ? 'remote' : 'local' });
 			}
 			if (msg.type === 'swipe') {
 				currentView = swipeKioskView(currentView, msg.dir);

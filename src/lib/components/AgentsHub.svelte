@@ -1,16 +1,42 @@
 <script>
 	import { onMount } from 'svelte';
 	import ThinkingOrbs from '$lib/components/ThinkingOrbs.svelte';
-	import { agentRoster } from '$lib/stores.js';
-	import { relativeAge, workingAgents } from '$lib/agentRoster.js';
+	import DitherField from '$lib/components/DitherField.svelte';
+	import HostPeek from '$lib/components/HostPeek.svelte';
+	import { agentRoster, telemetry, pushTelemetrySample } from '$lib/stores.js';
+	import { displayQuality } from '$lib/services/ollamaArbiter.js';
+	import { hostPeekNeeded } from '$lib/hostPeek.js';
+	import { leadAgent, relativeAge } from '$lib/agentRoster.js';
 
 	let now = $state(Date.now());
+	let pinned = $state(false);
+	let loading = $state(true);
+	let error = $state('');
 
 	function rosterHasSignal(list) {
 		return (list || []).some((a) => Number(a.updatedAt) > 0);
 	}
 
+	function forcePeek() {
+		if (typeof window === 'undefined') return false;
+		return new URLSearchParams(window.location.search).get('peek') === '1';
+	}
+
+	async function fetchTelemetry() {
+		try {
+			const r = await fetch('/api/telemetry');
+			if (!r.ok) throw new Error('telemetry failed');
+			pushTelemetrySample(await r.json());
+			error = '';
+		} catch {
+			error = 'live feed offline';
+		} finally {
+			loading = false;
+		}
+	}
+
 	onMount(() => {
+		fetchTelemetry();
 		const tick = setInterval(() => {
 			now = Date.now();
 		}, 1000);
@@ -33,118 +59,226 @@
 		};
 	});
 
-	let working = $derived(workingAgents($agentRoster).length);
-	let headline = $derived(working === 1 ? '1 working' : working > 1 ? `${working} working` : 'All idle');
+	let lead = $derived(leadAgent($agentRoster));
+	let others = $derived($agentRoster.filter((a) => a.id !== lead?.id));
+	let thinking = $derived(lead?.phase === 'working');
+	let paused = $derived($displayQuality !== 'full');
+	let ramPct = $derived(
+		$telemetry?.stats?.ram_total
+			? Math.round(($telemetry.stats.ram_used / $telemetry.stats.ram_total) * 100)
+			: 0
+	);
+	let cpuPct = $derived($telemetry?.stats?.cpu ?? 0);
+	let containers = $derived($telemetry?.stats?.containers ?? 0);
+	let netMbps = $derived($telemetry?.stats?.net_mbps ?? 0);
+	let services = $derived($telemetry?.services ?? []);
+	let ramHint = $derived(
+		`${$telemetry?.stats?.ram_used ?? '--'} / ${$telemetry?.stats?.ram_total ?? '--'} GB`
+	);
+	let needed = $derived(
+		hostPeekNeeded({
+			cpu: cpuPct,
+			ramPct,
+			quality: $displayQuality,
+			services,
+			error: Boolean(error),
+			force: forcePeek()
+		})
+	);
+	let peekOpen = $derived(pinned || needed);
+	let kicker = $derived(
+		!lead ? 'Standby' : lead.phase === 'working' ? 'Thinking' : lead.phase === 'done' ? 'Finished' : lead.phase
+	);
+	let title = $derived(lead?.name || 'Agents');
+	let body = $derived(lead?.task && lead.task !== 'standby' ? lead.task : thinking ? 'Working' : 'No run on the box');
 </script>
 
-<div class="agents-hub">
-	<div class="mark">
-		<span class="ctr">{headline}</span>
+<div class="agents-stage" class:peeking={peekOpen} data-phase={lead?.phase || 'idle'}>
+	<DitherField active={thinking} {paused} />
+
+	<div class="think" aria-hidden="true">
+		<ThinkingOrbs phase={lead?.phase || 'idle'} size="lg" />
 	</div>
 
-	<ul class="roster" aria-label="Claude Code, Cursor, Hermes, and Ollama">
-		{#each $agentRoster as a, i (a.id)}
-			<li data-phase={a.phase} style="--i: {i}">
+	<div class="hero">
+		<p class="kicker">{kicker}</p>
+		<h2 class="name">{title}</h2>
+		<p class="task">{body}</p>
+		{#if lead?.updatedAt}
+			<time class="age" datetime={new Date(lead.updatedAt).toISOString()}>
+				{relativeAge(lead.updatedAt, now)}
+			</time>
+		{/if}
+	</div>
+
+	<ul class="strip" aria-label="Other agents">
+		{#each others as a (a.id)}
+			<li data-phase={a.phase}>
 				<ThinkingOrbs phase={a.phase} />
 				<div class="meta">
-					<div class="name">{a.name}</div>
-					<div class="task">
-						<span class="phase">{a.phase}</span>
-						<span>{a.task}</span>
-					</div>
+					<div class="strip-name">{a.name}</div>
+					<div class="strip-task">{a.phase} · {a.task}</div>
 				</div>
-				<time class="age" datetime={a.updatedAt ? new Date(a.updatedAt).toISOString() : undefined}>
-					{relativeAge(a.updatedAt, now)}
-				</time>
 			</li>
 		{/each}
 	</ul>
+
+	<button
+		class="rail"
+		class:lit={peekOpen}
+		onclick={() => (pinned = !pinned)}
+		aria-pressed={peekOpen}
+		aria-label={peekOpen ? 'Hide host stats' : 'Show host stats'}
+	></button>
+
+	<HostPeek
+		open={peekOpen}
+		cpu={loading ? 0 : cpuPct}
+		ram={loading ? 0 : ramPct}
+		{ramHint}
+		{containers}
+		net={loading ? 0 : netMbps}
+		quality={$displayQuality}
+		{services}
+		{error}
+	/>
 </div>
 
 <style>
-	.agents-hub {
+	.agents-stage {
 		position: relative;
+		flex: 1;
 		height: 100%;
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-8);
-		padding: var(--space-8);
 		min-height: 0;
 		min-width: 0;
-		overflow: auto;
-		z-index: 1;
-	}
-	.mark {
+		overflow: hidden;
+		padding: var(--space-6) var(--space-2) var(--space-4) 0;
 		display: flex;
-		align-items: baseline;
+		flex-direction: column;
 		justify-content: flex-end;
-		flex-shrink: 0;
 	}
-	.ctr {
+	.think {
+		position: absolute;
+		z-index: 1;
+		left: 0;
+		top: 8%;
+		pointer-events: none;
+	}
+	.hero {
+		position: relative;
+		z-index: 1;
+		max-width: min(46rem, 72%);
+		padding-bottom: var(--space-6);
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+		min-width: 0;
+		transition: max-width 520ms var(--spring-smooth);
+	}
+	.agents-stage.peeking .hero,
+	.agents-stage.peeking .strip {
+		max-width: min(42rem, 56%);
+	}
+	.kicker {
+		margin: 0;
+		font-size: var(--text-xl);
+		font-weight: 500;
+		letter-spacing: -0.02em;
+		color: var(--text-tertiary);
+	}
+	.agents-stage[data-phase='working'] .kicker {
+		color: var(--ok);
+	}
+	.agents-stage[data-phase='done'] .kicker {
+		color: var(--scan);
+	}
+	.name {
+		margin: 0;
 		font-family: var(--font-body);
+		font-size: clamp(2.6rem, 6vw, 5.2rem);
+		font-weight: 700;
+		letter-spacing: -0.05em;
+		line-height: 0.92;
+		color: var(--foreground);
+		overflow-wrap: anywhere;
+	}
+	.task {
+		margin: 0;
+		font-size: clamp(1.15rem, 2.2vw, 1.75rem);
+		color: var(--text-secondary);
+		max-width: 28rem;
+		overflow-wrap: anywhere;
+	}
+	.age {
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 	}
-	.roster {
+	.strip {
+		position: relative;
+		z-index: 1;
 		list-style: none;
 		margin: 0;
 		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0;
-		min-height: 0;
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+		gap: var(--space-4);
+		max-width: min(46rem, 72%);
+		transition: max-width 520ms var(--spring-smooth);
 	}
-	.roster li {
+	.strip li {
 		display: flex;
 		align-items: center;
-		gap: var(--space-4);
-		min-height: 3.5rem;
+		gap: var(--space-3);
 		min-width: 0;
-		padding: var(--space-4) 0;
-		border-bottom: 1px solid var(--hairline);
-		background: none;
-		box-shadow: none;
+		opacity: 0.72;
 	}
-	@media (prefers-reduced-motion: no-preference) {
-		.roster li {
-			animation: today-arrive 560ms var(--spring-smooth) both;
-			animation-delay: calc(var(--i, 0) * 70ms);
-		}
+	.strip li[data-phase='working'] {
+		opacity: 1;
 	}
 	.meta {
 		min-width: 0;
-		flex: 1;
 	}
-	.name {
-		font-family: var(--font-body);
-		font-size: var(--text-2xl);
-		font-weight: 600;
-		letter-spacing: -0.03em;
+	.strip-name {
+		font-size: var(--text-lg);
+		font-weight: 500;
 		color: var(--foreground);
 		overflow-wrap: anywhere;
-		min-width: 0;
 	}
-	.task {
-		display: flex;
-		flex-wrap: wrap;
-		gap: var(--space-2);
-		font-size: var(--text-base);
-		color: var(--text-tertiary);
-	}
-	.phase {
-		color: var(--brand);
-		text-transform: lowercase;
-	}
-	.roster li[data-phase='working'] .phase {
-		color: var(--ok);
-	}
-	.roster li[data-phase='done'] .phase {
-		color: var(--scan);
-	}
-	.age {
-		flex-shrink: 0;
-		font-family: var(--font-body);
+	.strip-task {
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
+		overflow-wrap: anywhere;
+	}
+	.rail {
+		position: absolute;
+		top: 18%;
+		right: 0;
+		bottom: 18%;
+		width: 1.1rem;
+		z-index: 3;
+		border: 0;
+		padding: 0;
+		background: transparent;
+		cursor: pointer;
+	}
+	.rail::before {
+		content: '';
+		position: absolute;
+		top: 0;
+		bottom: 0;
+		right: 0.35rem;
+		width: 2px;
+		border-radius: 999px;
+		background: color-mix(in srgb, var(--foreground) 18%, transparent);
+	}
+	.rail.lit::before {
+		background: color-mix(in srgb, var(--brand) 70%, transparent);
+		box-shadow: 0 0 12px color-mix(in srgb, var(--brand) 40%, transparent);
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.hero,
+		.strip {
+			transition: none;
+		}
 	}
 </style>
