@@ -35,12 +35,19 @@
 		}
 	}
 
+	function demoLocksRoster() {
+		if (typeof window === 'undefined') return false;
+		const demo = new URLSearchParams(window.location.search).get('demo');
+		return demo === 'agents' || demo === 'cloud';
+	}
+
 	onMount(() => {
 		fetchTelemetry();
 		const tick = setInterval(() => {
 			now = Date.now();
 		}, 1000);
 		async function pull() {
+			if (demoLocksRoster()) return;
 			try {
 				const r = await fetch('/api/agents');
 				if (!r.ok) return;
