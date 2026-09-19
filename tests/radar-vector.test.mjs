@@ -320,6 +320,25 @@ describe('pruneRadarSpeckle', () => {
 		assert.ok(field.alpha[11 * W + 16] > 0);
 	});
 
+	it('drops a 9x9 cyan island that would read as a fake city-zoom cloud', () => {
+		const light = RADAR_RAIN_PALETTE[1];
+		const W = 20;
+		const H = 20;
+		const data = new Uint8ClampedArray(W * H * 4);
+		for (let y = 2; y <= 10; y++) {
+			for (let x = 2; x <= 10; x++) {
+				const o = (y * W + x) * 4;
+				data[o] = light.r;
+				data[o + 1] = light.g;
+				data[o + 2] = light.b;
+				data[o + 3] = 255;
+			}
+		}
+		const field = extractField({ width: W, height: H, data });
+		assert.ok(RADAR_MIN_LIGHT_CLUSTER_CELLS > 81);
+		assert.equal(field.alpha[6 * W + 6], 0);
+	});
+
 	it('ignores basemap gray that is not a palette stop', () => {
 		const imageData = {
 			width: 4,

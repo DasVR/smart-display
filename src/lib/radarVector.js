@@ -88,7 +88,7 @@ export const RADAR_MIN_CLUSTER_CELLS = 16;
 /** Light-rain-only islands (drizzle / cyan, no yellow core) need more
  *  area before they read as a shower. Weak Gulf speckle is almost always
  *  this band. */
-export const RADAR_MIN_LIGHT_CLUSTER_CELLS = 48;
+export const RADAR_MIN_LIGHT_CLUSTER_CELLS = 96;
 
 /** Intensity at dBZ 20 (light-moderate). Islands whose peak never exceeds
  *  this are treated as light speckle. */
