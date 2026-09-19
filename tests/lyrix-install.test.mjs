@@ -52,7 +52,6 @@ test('install-host-venv.sh --help mentions recreate and Python 3.12', () => {
 	assert.match(result.stdout, /--recreate/);
 	assert.match(result.stdout, /3\.12/);
 	assert.match(result.stdout, /3\.14/);
-	assert.match(result.stdout, /lyrix-py312/);
 	assert.doesNotMatch(result.stdout, /pip install ["']numpy<2/);
 });
 
@@ -88,7 +87,5 @@ test('install-host-venv.sh refuses the Cursor Cloud pod without LYRIX_ALLOW_CLOU
 	assert.equal(result.status, 1, result.stderr || result.stdout);
 	assert.match(result.stderr, /Cursor Cloud pod/);
 	assert.match(result.stderr, /das-server/);
-	assert.match(result.stderr, /raw\.githubusercontent\.com\/DasVR\/smart-display\/cursor\/lyrix-py312-d064/);
-	assert.match(result.stderr, /--apply-systemd --recreate/);
-	assert.doesNotMatch(result.stderr, /projects\/smart-display\/scripts\/forced_align\/install-host-venv\.sh --apply-systemd$/m);
+	assert.match(result.stderr, /install-host-venv\.sh --apply-systemd --recreate/);
 });

@@ -25,6 +25,7 @@ export function providerLabel(id) {
 	if (key === 'community') return 'Community';
 	if (key.startsWith('align:')) {
 		const engine = key.slice(6);
+		if (engine === 'wav2vec') return 'Singing CTC';
 		if (engine === 'qwen') return 'Qwen aligner';
 		if (engine === 'whisperx') return 'WhisperX';
 		if (engine === 'energy') return 'Energy guess';

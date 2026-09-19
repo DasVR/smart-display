@@ -30,7 +30,7 @@ const alignedLines = [
 test('providerLabel names community and Qwen sources', () => {
 	assert.equal(providerLabel('amll-ttml'), 'AMLL TTML');
 	assert.equal(providerLabel('align:qwen'), 'Qwen aligner');
-	assert.equal(providerLabel('align:whisperx'), 'WhisperX');
+	assert.equal(providerLabel('align:wav2vec'), 'Singing CTC');
 	assert.equal(providerLabel('genius'), 'Genius');
 	assert.equal(providerLabel('align:energy'), 'Energy guess');
 });

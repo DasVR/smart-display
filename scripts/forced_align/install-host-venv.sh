@@ -9,12 +9,7 @@
 #
 # Target:  das-server host venv  (~/venvs/lyrix) on Python 3.12
 # Device:  CPU (Ryzen iGPU; no NVIDIA CUDA wheels)
-#
-# The live kiosk checkout is origin/master and still has the old
-# python3 + numpy<2 recipe. Run this copy:
-#   curl -fsSL -o /tmp/install-host-venv.sh \
-#     https://raw.githubusercontent.com/DasVR/smart-display/cursor/lyrix-py312-d064/scripts/forced_align/install-host-venv.sh
-#   bash /tmp/install-host-venv.sh --apply-systemd --recreate
+# After install, auto prefers wav2vec CTC on the published lyric sheet.
 set -euo pipefail
 
 VENV="${LYRIX_VENV:-$HOME/venvs/lyrix}"
@@ -37,9 +32,8 @@ Installs a CPU-only lyrix venv on Python 3.12 (WhisperX rejects 3.14):
   sudo apt-get install -y ffmpeg
 
 A leftover Python 3.14 venv is recreated automatically. Pass --recreate
-to wipe any existing venv. The live kiosk tree on origin/master still
-ships the old python3 + numpy<2 recipe, so curl this file from the
-lyrix-py312 branch rather than running the copy in ~/projects/smart-display.
+to wipe any existing venv. Auto then prefers wav2vec CTC on the published
+lyric sheet (transformers, from the WhisperX install) over Whisper ASR.
 Diarization stays off. No HuggingFace token. lyricsgenius is not installed:
 Genius is an unsynced optional sheet.
 EOF
@@ -58,10 +52,8 @@ looks_like_cloud_pod() {
 
 if looks_like_cloud_pod && [[ "${LYRIX_ALLOW_CLOUD:-0}" != "1" ]] && [[ "$DRY" != 1 ]]; then
 	echo "refusing: this looks like the Cursor Cloud pod, not das-server" >&2
-	echo "the live kiosk tree is origin/master and still pins numpy<2 on python 3.14." >&2
-	echo "on das-server:" >&2
-	echo "  curl -fsSL -o /tmp/install-host-venv.sh https://raw.githubusercontent.com/DasVR/smart-display/cursor/lyrix-py312-d064/scripts/forced_align/install-host-venv.sh" >&2
-	echo "  bash /tmp/install-host-venv.sh --apply-systemd --recreate" >&2
+	echo "on das-server, after pulling master:" >&2
+	echo "  /home/das/projects/smart-display/scripts/forced_align/install-host-venv.sh --apply-systemd --recreate" >&2
 	exit 1
 fi
 
@@ -124,7 +116,7 @@ write_drop_in() {
 	sudo tee /etc/systemd/system/smart-display-server.service.d/lyrix.conf >/dev/null <<EOF
 [Service]
 Environment="LYRICS_PYTHON_BIN=${VENV}/bin/python"
-Environment="FORCED_ALIGN_ENGINE=whisperx"
+Environment="FORCED_ALIGN_ENGINE=auto"
 Environment="FORCED_ALIGN_DEVICE=cpu"
 Environment="FORCED_ALIGN_WHISPER_MODEL=large-v3"
 Environment="FORCED_ALIGN_ALIGN_MODEL=jonatasgrosman/wav2vec2-large-xlsr-53-english"
@@ -224,7 +216,7 @@ echo "ffmpeg $(command -v ffmpeg || echo missing)"
 echo
 echo "Point the kiosk at this interpreter:"
 echo "  LYRICS_PYTHON_BIN=$VENV/bin/python"
-echo "  FORCED_ALIGN_ENGINE=whisperx"
+echo "  FORCED_ALIGN_ENGINE=auto"
 echo "  FORCED_ALIGN_DEVICE=cpu"
 echo "  FORCED_ALIGN_WHISPER_MODEL=large-v3"
 echo "  FORCED_ALIGN_ALIGN_MODEL=jonatasgrosman/wav2vec2-large-xlsr-53-english"
