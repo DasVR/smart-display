@@ -233,7 +233,9 @@ test('probeAlignEngine forwards whisperx host fields from align.py --probe', asy
 					separate: true,
 					whisper_model: 'large-v3',
 					align_model: 'jonatasgrosman/wav2vec2-large-xlsr-53-english',
-					python: '/home/das/venvs/lyrix/bin/python'
+					python: '/home/das/venvs/lyrix/bin/python',
+					python_version: '3.12.3',
+					note: 'python 3.14 cannot import whisperx'
 				})
 			)
 	});
@@ -243,6 +245,8 @@ test('probeAlignEngine forwards whisperx host fields from align.py --probe', asy
 	assert.equal(info.whisperModel, 'large-v3');
 	assert.equal(info.alignModel, 'jonatasgrosman/wav2vec2-large-xlsr-53-english');
 	assert.equal(info.python, '/home/das/venvs/lyrix/bin/python');
+	assert.equal(info.pythonVersion, '3.12.3');
+	assert.match(info.note, /3\.14/);
 	resetAlignEngineProbe();
 });
 

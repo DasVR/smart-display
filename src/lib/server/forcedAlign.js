@@ -165,6 +165,8 @@ export function probeAlignEngine({ spawnFn = spawn, pythonBin, force = false } =
 				if (parsed?.whisper_model) info.whisperModel = String(parsed.whisper_model);
 				if (parsed?.align_model) info.alignModel = String(parsed.align_model);
 				if (parsed?.python) info.python = String(parsed.python);
+				if (parsed?.python_version) info.pythonVersion = String(parsed.python_version);
+				if (parsed?.note) info.note = String(parsed.note);
 				finish(info);
 			} catch {
 				finish(fallback);
