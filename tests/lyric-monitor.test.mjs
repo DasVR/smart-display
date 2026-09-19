@@ -30,6 +30,8 @@ const alignedLines = [
 test('providerLabel names community and Qwen sources', () => {
 	assert.equal(providerLabel('amll-ttml'), 'AMLL TTML');
 	assert.equal(providerLabel('align:qwen'), 'Qwen aligner');
+	assert.equal(providerLabel('align:whisperx'), 'WhisperX');
+	assert.equal(providerLabel('genius'), 'Genius');
 	assert.equal(providerLabel('align:energy'), 'Energy guess');
 });
 
@@ -49,6 +51,28 @@ test('availableLyricProviders lists community and Qwen as separate switches', ()
 	assert.equal(providers[1].lines[0].words[4].text, 'road');
 });
 
+test('availableLyricProviders marks a collapsed Qwen run so it is not treated as precise', () => {
+	const collapsed = [
+		{
+			time: 0.2,
+			text: 'i walk a lonely road the only one',
+			words: 'i walk a lonely road the only one'.split(' ').map((text) => ({
+				time: 0.2,
+				text,
+				end: 0.2
+			}))
+		}
+	];
+	const providers = availableLyricProviders({
+		community: { lines: communityLines, wordLevel: true, source: 'amll-ttml' },
+		aligned: { lines: collapsed, engine: 'qwen', precise: true }
+	});
+	const qwen = providers.find((p) => p.id === 'align:qwen');
+	assert.equal(qwen.collapsed, true);
+	assert.equal(qwen.precise, false);
+	assert.equal(providers[0].id, 'amll-ttml');
+});
+
 test('availableLyricProviders does not double-list Qwen copied into the lyrics cache', () => {
 	const providers = availableLyricProviders({
 		community: { lines: alignedLines, source: 'align:qwen', wordLevel: true },
@@ -64,6 +88,7 @@ test('getLyricMonitor demo mode uses the No Surprises preview track', async () =
 	assert.equal(data.track.artist, 'Radiohead');
 	assert.ok(Array.isArray(data.providers));
 	assert.ok(data.engine?.engine);
+	assert.ok('canonical' in data);
 });
 
 test('applyLyricAction demo pin keeps the demo track in the reply', async () => {

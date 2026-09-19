@@ -27,7 +27,7 @@ let DatabaseSync = null;
 	}
 }
 
-export const LYRICS_DB_SCHEMA_VERSION = 2;
+export const LYRICS_DB_SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 	PRAGMA journal_mode = WAL;
@@ -42,6 +42,7 @@ const SCHEMA = `
 		word_level INTEGER NOT NULL DEFAULT 0,
 		lines TEXT,
 		plain TEXT,
+		plain_source TEXT,
 		fetched_at INTEGER NOT NULL,
 		ttl INTEGER NOT NULL
 	);
@@ -90,6 +91,18 @@ function legacyAlignmentDir() {
 	return process.env.FORCED_ALIGN_CACHE_DIR || path.join(process.cwd(), 'data', 'forced-align-cache');
 }
 
+function ensureLyricColumns(handle) {
+	let cols = [];
+	try {
+		cols = handle.prepare('PRAGMA table_info(lyrics)').all().map((row) => row.name);
+	} catch {
+		return;
+	}
+	if (!cols.includes('plain_source')) {
+		handle.exec('ALTER TABLE lyrics ADD COLUMN plain_source TEXT');
+	}
+}
+
 function open() {
 	const wanted = lyricsDbPath();
 	if (db && dbPath === wanted) return db;
@@ -113,6 +126,7 @@ function open() {
 		mkdirSync(path.dirname(wanted), { recursive: true });
 		const next = new DatabaseSync(wanted);
 		next.exec(SCHEMA);
+		ensureLyricColumns(next);
 		next
 			.prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
 			.run('schema', String(LYRICS_DB_SCHEMA_VERSION));
@@ -180,7 +194,7 @@ export function getLyricsRow(key) {
 	try {
 		const row = handle
 			.prepare(
-				'SELECT artist, title, album, duration, source, word_level, lines, plain, fetched_at, ttl FROM lyrics WHERE key = ?'
+				'SELECT artist, title, album, duration, source, word_level, lines, plain, plain_source, fetched_at, ttl FROM lyrics WHERE key = ?'
 			)
 			.get(key);
 		if (!row) return null;
@@ -196,6 +210,7 @@ export function getLyricsRow(key) {
 			wordLevel: Boolean(row.word_level),
 			lines: parseJson(row.lines),
 			plainText: row.plain || null,
+			plainSource: row.plain_source || null,
 			fetchedAt,
 			ttl
 		};
@@ -212,8 +227,8 @@ export function putLyricsRow(key, entry) {
 		handle
 			.prepare(
 				`INSERT OR REPLACE INTO lyrics
-					(key, artist, title, album, duration, source, word_level, lines, plain, fetched_at, ttl)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+					(key, artist, title, album, duration, source, word_level, lines, plain, plain_source, fetched_at, ttl)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 			)
 			.run(
 				key,
@@ -225,6 +240,7 @@ export function putLyricsRow(key, entry) {
 				entry.wordLevel ? 1 : 0,
 				entry.lines ? JSON.stringify(entry.lines) : null,
 				entry.plainText || null,
+				entry.plainSource || null,
 				Number(entry.fetchedAt) || Date.now(),
 				Number(entry.ttl) || 0
 			);

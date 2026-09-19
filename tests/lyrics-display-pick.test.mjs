@@ -7,6 +7,18 @@ import path from 'node:path';
 process.env.LYRICS_DB_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'pick-db-')), 'lyrics.db');
 
 import { pickDisplayLyrics } from '../src/lib/server/hostData.js';
+import { isCollapsedAlignment } from '../src/lib/server/lyrics.js';
+
+function collapsedVerse(text = 'i walk a lonely road the only one') {
+	const tokens = text.split(' ');
+	return [
+		{
+			time: 0.2,
+			text,
+			words: tokens.map((word) => ({ time: 0.2, text: word, end: 0.2 }))
+		}
+	];
+}
 
 const wordLevel = [
 	{ time: 1, text: 'Hello there', words: [{ time: 1, text: 'Hello' }, { time: 1.4, text: 'there' }] }
@@ -86,6 +98,42 @@ test('a remote pick of Qwen still uses the alignment when asked', () => {
 	});
 	assert.equal(picked.lyrics, modelLines);
 	assert.equal(picked.source, 'align:qwen');
+});
+
+test('isCollapsedAlignment flags a verse stamped onto one clock', () => {
+	assert.equal(isCollapsedAlignment(collapsedVerse()), true);
+	assert.equal(isCollapsedAlignment(modelLines), false);
+	assert.equal(isCollapsedAlignment(wordLevel), false);
+});
+
+test('community word clocks beat a collapsed Qwen alignment', () => {
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: wordLevel, wordLevel: true, source: 'amll-ttml' },
+		aligned: { lines: collapsedVerse(), engine: 'qwen', precise: true }
+	});
+	assert.equal(picked.lyrics, wordLevel);
+	assert.equal(picked.source, 'amll-ttml');
+});
+
+test('a remote pick of collapsed Qwen still uses the alignment when asked', () => {
+	const collapsed = collapsedVerse();
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: wordLevel, wordLevel: true, source: 'amll-ttml' },
+		aligned: { lines: collapsed, engine: 'qwen', precise: true },
+		pick: { displaySource: 'align:qwen' }
+	});
+	assert.equal(picked.source, 'align:qwen');
+	assert.equal(picked.lyrics[0].text, collapsed[0].text);
+});
+
+test('collapsed Qwen is still shown when nothing else exists', () => {
+	const collapsed = collapsedVerse();
+	const picked = pickDisplayLyrics({
+		community: { known: false, lines: null },
+		aligned: { lines: collapsed, engine: 'qwen', precise: true }
+	});
+	assert.equal(picked.source, 'align:qwen');
+	assert.equal(picked.lyrics[0].text, collapsed[0].text);
 });
 
 test('a clipped Qwen line is filled from the community text while staying the align source', () => {

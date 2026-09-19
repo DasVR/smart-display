@@ -626,6 +626,52 @@ test('fetchLyrics persists a hit to the SQLite store with its source and word-le
 	assert.equal(info.plainText, 'Hello there\nfriend of mine');
 });
 
+test('fetchLyrics keeps Genius canonical text while community karaoke stays the timed file', async () => {
+	const artist = `Canon Artist ${Date.now()}`;
+	const title = 'Canon Song';
+	const lines = await fetchLyrics(artist, title, {
+		duration: 200,
+		load: async () => {
+			throw new Error('LRCLIB should not run on a community hit');
+		},
+		spawnFn: (_bin, args) => {
+			const script = String(args[0] || '');
+			if (script.includes('canonical_lyrics.py')) {
+				return fakePythonChild(
+					JSON.stringify({
+						plain: 'I walk a lonely road\nThe only one that I have ever known',
+						source: 'genius',
+						artist,
+						title
+					})
+				);
+			}
+			return fakePythonChild(
+				JSON.stringify({
+					source: 'amll-ttml',
+					wordLevel: true,
+					lines: [
+						{
+							time: 8,
+							text: 'i walk a',
+							words: [
+								{ time: 8, text: 'i' },
+								{ time: 8.2, text: 'walk' },
+								{ time: 8.4, text: 'a' }
+							]
+						}
+					]
+				})
+			);
+		}
+	});
+	assert.equal(lines[0].text, 'i walk a');
+	const info = peekLyricsInfo(artist, title, '', 200);
+	assert.equal(info.source, 'amll-ttml');
+	assert.equal(info.plainSource, 'genius');
+	assert.equal(info.plainText, 'I walk a lonely road\nThe only one that I have ever known');
+});
+
 test('fetchLyrics tags an LRCLIB line-synced hit and keeps it for a shorter retry window', async () => {
 	const artist = `Lrclib Artist ${Date.now()}`;
 	const title = 'Lrclib Song';

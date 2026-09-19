@@ -41,7 +41,7 @@ function writeLyricsEntry(key, entry, { force = false } = {}) {
 
 /** Store a chosen provider as this track's lyrics cache row so later polls
  *  keep it even if a community refetch would have overwritten it. */
-export function seedLyricsCache(artist, title, { album = '', duration = 0, source, lines, wordLevel, plainText } = {}) {
+export function seedLyricsCache(artist, title, { album = '', duration = 0, source, lines, wordLevel, plainText, plainSource } = {}) {
 	if (!Array.isArray(lines) || !lines.length) return false;
 	const rounded = Math.round(Number(duration) || 0);
 	const key = lyricsCacheKey(artist, title, album, rounded);
@@ -56,6 +56,7 @@ export function seedLyricsCache(artist, title, { album = '', duration = 0, sourc
 			wordLevel: Boolean(wordLevel) || hasRealWordTiming(lines),
 			lines,
 			plainText: plainText || lyricsToPlainText(lines),
+			plainSource: plainSource || null,
 			fetchedAt: Date.now(),
 			ttl: LYRICS_WORD_LEVEL_TTL
 		},
@@ -66,6 +67,10 @@ export function seedLyricsCache(artist, title, { album = '', duration = 0, sourc
 
 const SYNCEDLYRICS_SCRIPT = fileURLToPath(
 	new URL('../../../scripts/forced_align/syncedlyrics_lookup.py', import.meta.url)
+);
+
+const CANONICAL_SCRIPT = fileURLToPath(
+	new URL('../../../scripts/forced_align/canonical_lyrics.py', import.meta.url)
 );
 
 const LRCLIB_CLIENT = 'smart-display/1.0 (https://github.com/DasVR/smart-display)';
@@ -609,6 +614,30 @@ export function hasRealWordTiming(lines) {
 	});
 }
 
+/** Qwen (a speech aligner) often stamps a whole verse at one clock, then
+ *  jumps. That still has `words[]`, so hasRealWordTiming is true, but the
+ *  karaoke is unusable. Community word-sync should win in that case. */
+export function isCollapsedAlignment(lines) {
+	if (!Array.isArray(lines) || !lines.length) return false;
+	const stamps = [];
+	let flat = 0;
+	for (const line of lines) {
+		const words = Array.isArray(line?.words) ? line.words : [];
+		for (const word of words) {
+			if (!word || word.estimated) continue;
+			const t = Number(word.time);
+			if (!Number.isFinite(t)) continue;
+			stamps.push(t);
+			const end = Number(word.end);
+			if (!Number.isFinite(end) || end - t <= 0.02) flat += 1;
+		}
+	}
+	if (stamps.length < 8) return false;
+	const unique = new Set(stamps.map((t) => Math.round(t * 10) / 10));
+	if (unique.size / stamps.length < 0.25) return true;
+	return flat / stamps.length > 0.6;
+}
+
 export function lyricsToPlainText(lines) {
 	if (!Array.isArray(lines)) return null;
 	const texts = lines.map((line) => String(line?.text || '').trim()).filter(Boolean);
@@ -876,6 +905,67 @@ export function fetchCommunityLyrics(
 	});
 }
 
+/** Genius (if GENIUS_ACCESS_TOKEN + lyricsgenius) else LRCLIB plainLyrics.
+ *  This is the lyric *sheet* the singing aligner times against. Never rejects. */
+export function fetchCanonicalLyrics(
+	artist,
+	title,
+	{ album = '', duration = 0, spawnFn = spawn, pythonBin, timeoutMs = 22000 } = {}
+) {
+	return new Promise((resolve) => {
+		const bin = pythonBin || process.env.LYRICS_PYTHON_BIN || 'python3';
+		let child;
+		try {
+			child = spawnFn(
+				bin,
+				[CANONICAL_SCRIPT, artist, title, album || '', String(Math.round(Number(duration) || 0))],
+				{ stdio: ['ignore', 'pipe', 'ignore'] }
+			);
+		} catch {
+			resolve(null);
+			return;
+		}
+		let out = '';
+		let settled = false;
+		const finish = (value) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			resolve(value);
+		};
+		const timer = setTimeout(() => {
+			try {
+				child.kill('SIGKILL');
+			} catch {
+				/* already gone */
+			}
+			finish(null);
+		}, timeoutMs);
+		child.stdout?.on('data', (chunk) => {
+			out += chunk;
+		});
+		child.on('error', () => finish(null));
+		child.on('close', () => {
+			try {
+				const parsed = JSON.parse(out);
+				const plain = String(parsed?.plain || parsed?.plainLyrics || '').trim();
+				if (!plain) {
+					finish(null);
+					return;
+				}
+				finish({
+					plain,
+					source: parsed.source || 'lrclib-plain',
+					artist: parsed.artist || artist,
+					title: parsed.title || title
+				});
+			} catch {
+				finish(null);
+			}
+		});
+	});
+}
+
 /** @deprecated wrapper kept for existing tests - returns just the line array. */
 export function fetchSyncedLyricsFallback(artist, title, opts = {}) {
 	return fetchCommunityLyrics(artist, title, opts).then((hit) => hit?.lines || null);
@@ -888,9 +978,13 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 	if (cached) return cached.lines;
 	const getJson = load || defaultLoad;
 	try {
-		const community = await fetchCommunityLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin });
+		const [community, canonical] = await Promise.all([
+			fetchCommunityLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin }),
+			fetchCanonicalLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin })
+		]);
 		let lines = community?.lines || null;
-		let plainText = community?.plain || null;
+		let plainText = canonical?.plain || community?.plain || null;
+		let plainSource = canonical?.source || null;
 		let source = community?.source || (lines ? 'community' : null);
 		if (!lines) {
 			const params = new URLSearchParams({ artist_name: artist, track_name: title });
@@ -910,11 +1004,13 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 				hit = pickBestLyricsHit(found, query);
 			}
 			lines = lyricsFromHit(hit, query);
-			plainText = hit?.plainLyrics || lyricsToPlainText(lines);
+			if (!plainText) plainText = hit?.plainLyrics || lyricsToPlainText(lines);
+			if (!plainSource && hit?.plainLyrics) plainSource = 'lrclib-plain';
 			if (lines) source = hit?.syncedLyrics ? 'lrclib-synced' : 'lrclib-plain';
 		}
 		if (lines) lines = dropNonLyricLines(lines, { artist, title });
 		if (lines && !lines.length) lines = null;
+		if (!plainText) plainText = lyricsToPlainText(lines);
 		const wordLevel = Boolean(lines) && hasRealWordTiming(lines);
 		writeLyricsEntry(key, {
 			artist,
@@ -925,6 +1021,7 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 			wordLevel,
 			lines,
 			plainText,
+			plainSource,
 			fetchedAt: Date.now(),
 			ttl: !lines ? LYRICS_MISS_TTL : wordLevel ? LYRICS_WORD_LEVEL_TTL : LYRICS_HIT_TTL
 		});
@@ -956,11 +1053,12 @@ export function peekLyrics(artist, title, album = '', duration = 0) {
 export function peekLyricsInfo(artist, title, album = '', duration = 0) {
 	const rounded = Math.round(Number(duration) || 0);
 	const cached = readLyricsEntry(lyricsCacheKey(artist, title, album, rounded));
-	if (!cached) return { known: false, lines: null, plainText: null, source: null, wordLevel: false };
+	if (!cached) return { known: false, lines: null, plainText: null, source: null, wordLevel: false, plainSource: null };
 	return {
 		known: true,
 		lines: cached.lines,
 		plainText: cached.plainText || lyricsToPlainText(cached.lines),
+		plainSource: cached.plainSource || null,
 		source: cached.source || null,
 		wordLevel: Boolean(cached.wordLevel) || hasRealWordTiming(cached.lines)
 	};

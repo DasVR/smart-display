@@ -26,7 +26,7 @@ const PROBE_TIMEOUT_MS = 90_000;
  *  as opposed to `energy`, which spreads words across loud regions and is
  *  only a stand-in when nothing better is installed. Mirrors
  *  PRECISE_ENGINES in align.py. */
-export const PRECISE_ENGINES = new Set(['qwen', 'ctc', 'aeneas', 'mfa']);
+export const PRECISE_ENGINES = new Set(['whisperx', 'qwen', 'ctc', 'aeneas', 'mfa']);
 
 const inFlight = new Set();
 const recorders = new Map();
@@ -155,11 +155,17 @@ export function probeAlignEngine({ spawnFn = spawn, pythonBin, force = false } =
 			try {
 				const parsed = JSON.parse(out);
 				const engine = String(parsed?.engine || 'energy');
-				finish({
+				const info = {
 					engine,
 					precise: Boolean(parsed?.precise) || isPreciseEngine(engine),
 					available: Array.isArray(parsed?.available) ? parsed.available : [engine]
-				});
+				};
+				if (parsed?.device != null) info.device = parsed.device;
+				if (parsed?.separate != null) info.separate = Boolean(parsed.separate);
+				if (parsed?.whisper_model) info.whisperModel = String(parsed.whisper_model);
+				if (parsed?.align_model) info.alignModel = String(parsed.align_model);
+				if (parsed?.python) info.python = String(parsed.python);
+				finish(info);
 			} catch {
 				finish(fallback);
 			}
@@ -171,6 +177,19 @@ export function probeAlignEngine({ spawnFn = spawn, pythonBin, force = false } =
 	return enginePromise;
 }
 
+function alignEnvSnapshot() {
+	const snap = {};
+	const device = String(process.env.FORCED_ALIGN_DEVICE || '').trim();
+	if (device) snap.device = device;
+	const whisper = String(process.env.FORCED_ALIGN_WHISPER_MODEL || '').trim();
+	if (whisper) snap.whisperModel = whisper;
+	const align = String(process.env.FORCED_ALIGN_ALIGN_MODEL || '').trim();
+	if (align) snap.alignModel = align;
+	const sep = String(process.env.FORCED_ALIGN_SEPARATE || '').trim().toLowerCase();
+	if (sep) snap.separate = !['0', 'no', 'off', 'false'].includes(sep);
+	return snap;
+}
+
 /** Synchronous view of the last probe (null until it has resolved).
  *  `FORCED_ALIGN_ENGINE` set explicitly short-circuits the probe. */
 export function alignEngineInfo() {
@@ -178,7 +197,12 @@ export function alignEngineInfo() {
 		.trim()
 		.toLowerCase();
 	if (forced && forced !== 'auto') {
-		return { engine: forced, precise: isPreciseEngine(forced), available: [forced] };
+		return {
+			engine: forced,
+			precise: isPreciseEngine(forced),
+			available: [forced],
+			...alignEnvSnapshot()
+		};
 	}
 	return engineInfo;
 }
