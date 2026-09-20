@@ -21,6 +21,7 @@ function snapshot() {
 		hdmi: hdmi === 'on' || hdmi === 'off' ? hdmi : 'unknown',
 		schedule,
 		quiet: isQuietHours(new Date(), schedule),
+		hold: null,
 		phone: { wakeWindow: isPhoneWakeWindow(new Date(), schedule) }
 	};
 }

@@ -17,7 +17,7 @@ import {
 	saveStationData,
 	fetchHAStates
 } from './lib/server/hostData.js';
-import { PROJECT_ROOT, setPanelPower } from './lib/server/displayPower.js';
+import { PROJECT_ROOT, readHdmiStamp, setPanelPower } from './lib/server/displayPower.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
 import { debounceInstalling } from './lib/hostUpdatesModel.js';
 import {
@@ -47,14 +47,13 @@ import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.j
 import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
 	debounceSignal,
-	desiredHdmi,
 	isPhoneWakeWindow,
 	isQuietHours,
 	loadSchedule,
-	minutesOfDay,
 	normalizeSchedule,
 	saveSchedule,
-	scheduledAction,
+	schedulePatchAction,
+	scheduleTick,
 	daysEqual
 } from './lib/server/displaySchedule.js';
 import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
@@ -75,9 +74,11 @@ const SCHEDULE_PATH =
 const SCHEDULE_TICK_MS = 15_000;
 
 let schedule = loadSchedule(SCHEDULE_PATH);
-let hdmiState = 'on';
+let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 let lastTickMinutes = null;
+let hdmiHold = null;
 let applyingHdmi = false;
+let pendingHdmi = null;
 let phoneWatch = { entity: '', label: '', on: false, status: 'idle' };
 let lastPhoneSensor = null;
 let proximityWatch = { address: '', label: '', distanceMeters: null, near: false };
@@ -311,6 +312,7 @@ function displaySnapshot() {
 		hdmi: hdmiState,
 		schedule,
 		quiet: isQuietHours(new Date(), schedule),
+		hold: hdmiHold,
 		phone: {
 			...phoneWatch,
 			wakeWindow: isPhoneWakeWindow(new Date(), schedule)
@@ -319,19 +321,13 @@ function displaySnapshot() {
 	};
 }
 
-async function applyHdmi(state, { reason } = {}) {
-	if (state !== 'on' && state !== 'off') return hdmiState;
-	if (applyingHdmi) {
-		hdmiState = state;
-		return state;
-	}
-	applyingHdmi = true;
+function noteManualHdmi(state) {
+	if (state === 'on' || state === 'off') hdmiHold = state;
+}
+
+async function commitHdmi(state, reason) {
 	hdmiState = state;
-	try {
-		await setPanelPower(state === 'on');
-	} finally {
-		applyingHdmi = false;
-	}
+	await setPanelPower(state === 'on');
 	broadcast({ type: 'trigger', event: state === 'off' ? 'hdmi_off' : 'hdmi_on' });
 	if (reason === 'schedule' && state === 'off') {
 		broadcast({ type: 'trigger', event: 'sleep' });
@@ -340,6 +336,33 @@ async function applyHdmi(state, { reason } = {}) {
 		broadcast({ type: 'trigger', event: 'normal' });
 	}
 	broadcast({ type: 'display', ...displaySnapshot() });
+	return hdmiState;
+}
+
+async function applyHdmi(state, { reason } = {}) {
+	if (state !== 'on' && state !== 'off') return hdmiState;
+	if (reason !== 'schedule') {
+		noteManualHdmi(state);
+		pendingHdmi = { state, reason };
+	} else if (!pendingHdmi || pendingHdmi.reason === 'schedule') {
+		pendingHdmi = { state, reason };
+	} else {
+		return hdmiState;
+	}
+	if (applyingHdmi) {
+		hdmiState = state;
+		return state;
+	}
+	applyingHdmi = true;
+	try {
+		while (pendingHdmi) {
+			const next = pendingHdmi;
+			pendingHdmi = null;
+			await commitHdmi(next.state, next.reason);
+		}
+	} finally {
+		applyingHdmi = false;
+	}
 	return hdmiState;
 }
 
@@ -440,30 +463,22 @@ function proximityLoop() {
 
 async function tickSchedule() {
 	const now = new Date();
-	const curr = minutesOfDay(now, schedule.timeZone);
-	if (lastTickMinutes == null) {
-		lastTickMinutes = curr;
-		const desired = desiredHdmi(now, schedule);
-		if (desired) await applyHdmi(desired, { reason: 'schedule' });
-		return;
-	}
-	const action = scheduledAction(lastTickMinutes, curr, schedule, now);
-	lastTickMinutes = curr;
-	if (action) await applyHdmi(action, { reason: 'schedule' });
+	const result = scheduleTick({
+		lastMinutes: lastTickMinutes,
+		hold: hdmiHold,
+		schedule,
+		date: now
+	});
+	lastTickMinutes = result.lastMinutes;
+	hdmiHold = result.hold;
+	if (result.action) await applyHdmi(result.action, { reason: 'schedule' });
 }
 
-function patchSchedule(input) {
-	const prev = {
-		enabled: schedule.enabled,
-		offAt: schedule.offAt,
-		onAt: schedule.onAt,
-		wakeOnPhone: schedule.wakeOnPhone,
-		days: schedule.days
-	};
-	const wasEnabled = schedule.enabled;
+async function patchSchedule(input) {
+	const prev = { ...schedule };
 	schedule = saveSchedule(SCHEDULE_PATH, normalizeSchedule(input, schedule));
-	lastTickMinutes = null;
-	broadcast({ type: 'display', ...displaySnapshot() });
+	const patched = schedulePatchAction(prev, schedule, { hold: hdmiHold });
+	hdmiHold = patched.hold;
 	const changed =
 		prev.enabled !== schedule.enabled ||
 		prev.offAt !== schedule.offAt ||
@@ -471,11 +486,8 @@ function patchSchedule(input) {
 		prev.wakeOnPhone !== schedule.wakeOnPhone ||
 		!daysEqual(prev.days, schedule.days);
 	if (changed) broadcast(scheduleNotify(schedule));
-	if (wasEnabled && !schedule.enabled && hdmiState === 'off') {
-		applyHdmi('on');
-		return displaySnapshot();
-	}
-	tickSchedule();
+	if (patched.action) await applyHdmi(patched.action, { reason: 'schedule' });
+	else broadcast({ type: 'display', ...displaySnapshot() });
 	return displaySnapshot();
 }
 
@@ -525,12 +537,12 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
-	if (req.method === 'GET' && req.url === '/api/display') {
+	if (req.method === 'GET' && reqPath(req) === '/api/display') {
 		json(res, displaySnapshot());
 		return;
 	}
 
-	if (req.method === 'POST' && req.url === '/api/display') {
+	if (req.method === 'POST' && reqPath(req) === '/api/display') {
 		let body = '';
 		req.on('data', (chunk) => (body += chunk));
 		req.on('end', async () => {
@@ -564,7 +576,7 @@ const server = createServer(async (req, res) => {
 					data.proximityMeters !== undefined ||
 					data.schedule;
 				if (changedSchedule) {
-					json(res, { ok: true, ...patchSchedule(next) });
+					json(res, { ok: true, ...await patchSchedule(next) });
 					return;
 				}
 				json(res, { ok: true, ...displaySnapshot() });

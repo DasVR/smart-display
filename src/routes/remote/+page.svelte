@@ -31,6 +31,7 @@
 	let wakeOnPhone = $state(true);
 	let offAt = $state('22:30');
 	let onAt = $state('06:00');
+	let hold = $state(null);
 	let phone = $state({ entity: '', label: '', on: false, status: 'idle', wakeWindow: false });
 	let wakeOnProximity = $state(false);
 	let proximityDevice = $state('');
@@ -63,14 +64,24 @@
 		return kioskViewLabel(id) || id;
 	}
 
+	function clockValue(value) {
+		const match = String(value ?? '')
+			.trim()
+			.match(/^(\d{1,2}):([0-5]\d)/);
+		if (!match) return String(value ?? '');
+		return `${match[1].padStart(2, '0')}:${match[2]}`;
+	}
+
 	function applyDisplay(display) {
 		if (!display) return;
 		if (display.hdmi === 'on' || display.hdmi === 'off') hdmi = display.hdmi;
+		if (display.hold === 'on' || display.hold === 'off') hold = display.hold;
+		else if ('hold' in display) hold = null;
 		const schedule = display.schedule || {};
 		if (typeof schedule.enabled === 'boolean') autoNights = schedule.enabled;
 		if (typeof schedule.wakeOnPhone === 'boolean') wakeOnPhone = schedule.wakeOnPhone;
-		if (schedule.offAt) offAt = schedule.offAt;
-		if (schedule.onAt) onAt = schedule.onAt;
+		if (schedule.offAt) offAt = clockValue(schedule.offAt);
+		if (schedule.onAt) onAt = clockValue(schedule.onAt);
 		if (Array.isArray(schedule.days)) {
 			days = [...new Set(schedule.days.map((day) => Number(day)).filter((day) => day >= 0 && day <= 6))].sort(
 				(a, b) => a - b
@@ -132,7 +143,13 @@
 			const r = await fetch('/api/display', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ enabled: autoNights, wakeOnPhone, offAt, onAt, days })
+				body: JSON.stringify({
+					enabled: autoNights,
+					wakeOnPhone,
+					offAt: clockValue(offAt),
+					onAt: clockValue(onAt),
+					days
+				})
 			});
 			const data = await r.json();
 			applyDisplay(data);
@@ -322,8 +339,9 @@
 
 	function nightSummaryText() {
 		if (!autoNights) return 'manual';
+		const when = `${clockValue(offAt)} to ${clockValue(onAt)}`;
+		if (hold) return `${hdmi === 'off' ? 'held off' : 'held on'} · ${when}`;
 		const dayBit = daysLabel();
-		const when = `${offAt} to ${onAt}`;
 		return dayBit ? `${when} · ${dayBit}` : when;
 	}
 
@@ -457,7 +475,9 @@
 				<path d="M7.2 6.8a7 7 0 1 0 9.6 0" />
 			</svg>
 		</button>
-		<p class="power-label">{hdmi === 'off' ? 'Off' : 'On'}</p>
+		<p class="power-label">
+			{hdmi === 'off' ? 'Off' : 'On'}{#if autoNights && hold}<span class="power-hold"> · held</span>{/if}
+		</p>
 	</section>
 
 	<section class="block" aria-label="Channel">
@@ -565,7 +585,8 @@
 						aria-pressed={autoNights}
 						onclick={() => {
 							autoNights = !autoNights;
-							queueSave();
+							clearTimeout(saveTimer);
+							saveNightSchedule();
 							playChime('tap');
 						}}
 					>
@@ -577,7 +598,8 @@
 						aria-pressed={wakeOnPhone}
 						onclick={() => {
 							wakeOnPhone = !wakeOnPhone;
-							queueSave();
+							clearTimeout(saveTimer);
+							saveNightSchedule();
 							playChime('tap');
 						}}
 					>
@@ -587,11 +609,27 @@
 				<div class="times" class:disabled={!autoNights}>
 					<label>
 						<span>Off</span>
-						<input type="time" bind:value={offAt} disabled={!autoNights} onchange={queueSave} />
+						<input
+							type="time"
+							bind:value={offAt}
+							disabled={!autoNights}
+							onchange={(e) => {
+								offAt = clockValue(e.currentTarget.value);
+								queueSave();
+							}}
+						/>
 					</label>
 					<label>
 						<span>On</span>
-						<input type="time" bind:value={onAt} disabled={!autoNights} onchange={queueSave} />
+						<input
+							type="time"
+							bind:value={onAt}
+							disabled={!autoNights}
+							onchange={(e) => {
+								onAt = clockValue(e.currentTarget.value);
+								queueSave();
+							}}
+						/>
 					</label>
 				</div>
 				<p class="note">{phoneNote()}</p>
@@ -819,6 +857,10 @@
 		font-weight: 700;
 		letter-spacing: 0.04em;
 		color: var(--text-secondary);
+	}
+	.power-hold {
+		font-weight: 600;
+		color: var(--text-tertiary);
 	}
 
 	.transport {
