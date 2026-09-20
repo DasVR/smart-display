@@ -79,6 +79,101 @@ export function nearestRadarColor(r, g, b) {
 	return best;
 }
 
+/** Drop connected wet islands smaller than `minCells`. City zoom turns a
+ *  1-2 pixel RainViewer return into a round "cloud"; those specks are not
+ *  on the original mosaic at a size anyone would read as rain. Counted in
+ *  native mosaic pixels when `extractField` runs on the 512px tiles. */
+export const RADAR_MIN_CLUSTER_CELLS = 16;
+
+/** Light-rain-only islands (drizzle / cyan, no yellow core) need more
+ *  area before they read as a shower. Weak Gulf speckle is almost always
+ *  this band. */
+export const RADAR_MIN_LIGHT_CLUSTER_CELLS = 96;
+
+/** Intensity at dBZ 20 (light-moderate). Islands whose peak never exceeds
+ *  this are treated as light speckle. */
+export const RADAR_LIGHT_PEAK = dbzToIntensity(20);
+
+/** Squared RGB distance past which a sample is not a Universal Blue stop
+ *  (basemap gray, compression dirt) and stays dry. */
+export const RADAR_COLOR_MAX_DIST_SQ = 55 * 55 * 3;
+
+export function pruneRadarSpeckle(
+	field,
+	cols,
+	rows,
+	minCells = RADAR_MIN_CLUSTER_CELLS,
+	lightMinCells = RADAR_MIN_LIGHT_CLUSTER_CELLS,
+	lightPeak = RADAR_LIGHT_PEAK
+) {
+	const n = cols * rows;
+	const seen = new Uint8Array(n);
+	for (let start = 0; start < n; start++) {
+		if (seen[start] || field[start] <= 0) continue;
+		const stack = [start];
+		const cells = [];
+		seen[start] = 1;
+		let peak = 0;
+		while (stack.length) {
+			const i = stack.pop();
+			cells.push(i);
+			if (field[i] > peak) peak = field[i];
+			const x = i % cols;
+			const y = (i / cols) | 0;
+			if (x + 1 < cols) {
+				const r = i + 1;
+				if (!seen[r] && field[r] > 0) {
+					seen[r] = 1;
+					stack.push(r);
+				}
+			}
+			if (x > 0) {
+				const l = i - 1;
+				if (!seen[l] && field[l] > 0) {
+					seen[l] = 1;
+					stack.push(l);
+				}
+			}
+			if (y + 1 < rows) {
+				const d = i + cols;
+				if (!seen[d] && field[d] > 0) {
+					seen[d] = 1;
+					stack.push(d);
+				}
+			}
+			if (y > 0) {
+				const u = i - cols;
+				if (!seen[u] && field[u] > 0) {
+					seen[u] = 1;
+					stack.push(u);
+				}
+			}
+		}
+		const floor = peak <= lightPeak ? Math.max(minCells, lightMinCells) : minCells;
+		if (cells.length < floor) {
+			for (const i of cells) field[i] = 0;
+		}
+	}
+	return field;
+}
+
+export function contourArea(points) {
+	let area = 0;
+	for (let i = 0; i < points.length; i++) {
+		const [x1, y1] = points[i];
+		const [x2, y2] = points[(i + 1) % points.length];
+		area += x1 * y2 - x2 * y1;
+	}
+	return Math.abs(area) / 2;
+}
+
+/** Ignore leftover crumbs after a frame morph (area in grid cells). */
+export const RADAR_MIN_CONTOUR_AREA = 8;
+
+export function sizableContours(polys, minArea = RADAR_MIN_CONTOUR_AREA) {
+	return polys.filter((p) => contourArea(p) >= minArea);
+}
+
 /** Linearly interpolates the crossing point of `threshold` along the edge
  *  from `pa` (value `va`) to `pb` (value `vb`). Must be called with the same
  *  two corner points/values (same order) from both cells that share an
@@ -296,22 +391,53 @@ function bandOpacitiesFor(thresholds) {
  * average of pixels of that type (so yellow heavy rain cannot mix into
  * the light-rain cyan band).
  */
-export function extractField(imageData, thresholds = RADAR_THRESHOLDS, fallbackColors = RADAR_FALLBACK_COLORS) {
+export function extractField(
+	imageData,
+	thresholds = RADAR_THRESHOLDS,
+	fallbackColors = RADAR_FALLBACK_COLORS,
+	opts = {}
+) {
 	const { data, width, height } = imageData;
 	const n = width * height;
 	const alpha = new Float32Array(n);
 	const bins = thresholds.map(() => ({ r: 0, g: 0, b: 0, n: 0 }));
+	const minCluster = opts.minCluster ?? RADAR_MIN_CLUSTER_CELLS;
+	const lightMinCluster = opts.lightMinCluster ?? RADAR_MIN_LIGHT_CLUSTER_CELLS;
+	const maxDistSq = opts.maxDistSq ?? RADAR_COLOR_MAX_DIST_SQ;
 
 	for (let i = 0; i < n; i++) {
 		const o = i * 4;
 		const a = data[o + 3];
-		if (a < 12) {
+		if (a < 40) {
 			alpha[i] = 0;
 			continue;
 		}
-		const match = nearestRadarColor(data[o], data[o + 1], data[o + 2]);
-		const intensity = match ? dbzToIntensity(match.dbz) : a / 255;
-		alpha[i] = intensity;
+		const r = data[o];
+		const g = data[o + 1];
+		const b = data[o + 2];
+		const match = nearestRadarColor(r, g, b);
+		if (!match) {
+			alpha[i] = 0;
+			continue;
+		}
+		const dr = r - match.r;
+		const dg = g - match.g;
+		const db = b - match.b;
+		if (dr * dr + dg * dg + db * db > maxDistSq) {
+			alpha[i] = 0;
+			continue;
+		}
+		alpha[i] = dbzToIntensity(match.dbz);
+	}
+
+	if (minCluster > 1) {
+		pruneRadarSpeckle(alpha, width, height, minCluster, lightMinCluster);
+	}
+
+	for (let i = 0; i < n; i++) {
+		const intensity = alpha[i];
+		if (intensity <= 0) continue;
+		const o = i * 4;
 		for (let b = thresholds.length - 1; b >= 0; b--) {
 			if (intensity >= thresholds[b]) {
 				const bin = bins[b];
@@ -331,6 +457,36 @@ export function extractField(imageData, thresholds = RADAR_THRESHOLDS, fallbackC
 	);
 
 	return { alpha, cols: width, rows: height, colors, opacities: bandOpacitiesFor(thresholds) };
+}
+
+/**
+ * Nearest-neighbor stamp of a (usually native mosaic) field onto the coarser
+ * drawing grid. Cells outside the dest rect stay dry, so speckle is decided
+ * on 512px RainViewer pixels rather than after a zoom stretch.
+ */
+export function placeFieldOnGrid(src, destCols, destRows, destX, destY, destW, destH) {
+	const alpha = new Float32Array(destCols * destRows);
+	const colors = src?.colors ?? [];
+	const opacities = src?.opacities ?? [];
+	if (!src || destCols < 1 || destRows < 1 || destW <= 0 || destH <= 0) {
+		return { alpha, cols: destCols, rows: destRows, colors, opacities };
+	}
+	const x0 = Math.max(0, Math.floor(destX));
+	const y0 = Math.max(0, Math.floor(destY));
+	const x1 = Math.min(destCols, Math.ceil(destX + destW));
+	const y1 = Math.min(destRows, Math.ceil(destY + destH));
+	for (let y = y0; y < y1; y++) {
+		const fy = (y + 0.5 - destY) / destH;
+		if (fy < 0 || fy >= 1) continue;
+		const sy = Math.min(src.rows - 1, Math.max(0, Math.floor(fy * src.rows)));
+		for (let x = x0; x < x1; x++) {
+			const fx = (x + 0.5 - destX) / destW;
+			if (fx < 0 || fx >= 1) continue;
+			const sx = Math.min(src.cols - 1, Math.max(0, Math.floor(fx * src.cols)));
+			alpha[y * destCols + x] = src.alpha[sy * src.cols + sx];
+		}
+	}
+	return { alpha, cols: destCols, rows: destRows, colors, opacities };
 }
 
 /** Upper bound on field rows. High enough that a ~192-col square radar

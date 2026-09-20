@@ -16,7 +16,15 @@ import {
 	fieldExtent,
 	nearestRadarColor,
 	dbzToIntensity,
-	rainFillAlpha
+	rainFillAlpha,
+	pruneRadarSpeckle,
+	sizableContours,
+	contourArea,
+	RADAR_MIN_CLUSTER_CELLS,
+	RADAR_MIN_LIGHT_CLUSTER_CELLS,
+	RADAR_MIN_CONTOUR_AREA,
+	RADAR_COLOR_MAX_DIST_SQ,
+	placeFieldOnGrid
 } from '../src/lib/radarVector.js';
 
 function shoelaceArea(points) {
@@ -194,7 +202,7 @@ describe('extractField', () => {
 			height: 1,
 			data: new Uint8ClampedArray([light.r, light.g, light.b, 255, 0, 0, 0, 0])
 		};
-		const field = extractField(imageData);
+		const field = extractField(imageData, undefined, undefined, { minCluster: 1 });
 		assert.equal(field.cols, 2);
 		assert.equal(field.rows, 1);
 		assert.equal(field.alpha[1], 0);
@@ -219,7 +227,7 @@ describe('extractField', () => {
 				255
 			])
 		};
-		const field = extractField(imageData);
+		const field = extractField(imageData, undefined, undefined, { minCluster: 1 });
 		assert.equal(field.colors[1], `rgb(${light.r}, ${light.g}, ${light.b})`);
 		assert.equal(field.colors[5], `rgb(${heavy.r}, ${heavy.g}, ${heavy.b})`);
 		assert.notEqual(field.colors[1], field.colors[5]);
@@ -255,6 +263,150 @@ describe('nearestRadarColor', () => {
 		assert.equal(match.dbz, 15);
 		const yellow = nearestRadarColor(255, 238, 0);
 		assert.equal(yellow.dbz, 35);
+	});
+});
+
+describe('pruneRadarSpeckle', () => {
+	it('clears isolated crumbs and keeps a real cell', () => {
+		const cols = 20;
+		const rows = 12;
+		const field = new Float32Array(cols * rows);
+		field[2 * cols + 2] = 0.4;
+		field[2 * cols + 3] = 0.4;
+		for (let y = 4; y <= 10; y++) {
+			for (let x = 8; x <= 16; x++) field[y * cols + x] = 0.7;
+		}
+		pruneRadarSpeckle(field, cols, rows, 12);
+		assert.equal(field[2 * cols + 2], 0);
+		assert.equal(field[2 * cols + 3], 0);
+		assert.ok(field[7 * cols + 12] > 0);
+	});
+
+	it('drops a 1-pixel rain return from extractField by default', () => {
+		const light = RADAR_RAIN_PALETTE[1];
+		const imageData = {
+			width: 8,
+			height: 8,
+			data: new Uint8ClampedArray(8 * 8 * 4)
+		};
+		const i = (3 * 8 + 3) * 4;
+		imageData.data[i] = light.r;
+		imageData.data[i + 1] = light.g;
+		imageData.data[i + 2] = light.b;
+		imageData.data[i + 3] = 255;
+		const field = extractField(imageData);
+		assert.ok(RADAR_MIN_CLUSTER_CELLS >= 8);
+		assert.equal(field.alpha[3 * 8 + 3], 0);
+	});
+
+	it('drops a medium cyan island with no core, keeps a small yellow core', () => {
+		const light = RADAR_RAIN_PALETTE[1];
+		const heavy = RADAR_RAIN_PALETTE[5];
+		const W = 24;
+		const H = 16;
+		const data = new Uint8ClampedArray(W * H * 4);
+		const put = (x, y, c) => {
+			const o = (y * W + x) * 4;
+			data[o] = c.r;
+			data[o + 1] = c.g;
+			data[o + 2] = c.b;
+			data[o + 3] = 255;
+		};
+		for (let y = 1; y <= 6; y++) for (let x = 1; x <= 6; x++) put(x, y, light);
+		for (let y = 9; y <= 13; y++) for (let x = 14; x <= 18; x++) put(x, y, heavy);
+		const field = extractField({ width: W, height: H, data });
+		assert.ok(RADAR_MIN_LIGHT_CLUSTER_CELLS > 36);
+		assert.equal(field.alpha[3 * W + 3], 0);
+		assert.ok(field.alpha[11 * W + 16] > 0);
+	});
+
+	it('drops a 9x9 cyan island that would read as a fake city-zoom cloud', () => {
+		const light = RADAR_RAIN_PALETTE[1];
+		const W = 20;
+		const H = 20;
+		const data = new Uint8ClampedArray(W * H * 4);
+		for (let y = 2; y <= 10; y++) {
+			for (let x = 2; x <= 10; x++) {
+				const o = (y * W + x) * 4;
+				data[o] = light.r;
+				data[o + 1] = light.g;
+				data[o + 2] = light.b;
+				data[o + 3] = 255;
+			}
+		}
+		const field = extractField({ width: W, height: H, data });
+		assert.ok(RADAR_MIN_LIGHT_CLUSTER_CELLS > 81);
+		assert.equal(field.alpha[6 * W + 6], 0);
+	});
+
+	it('ignores basemap gray that is not a palette stop', () => {
+		const imageData = {
+			width: 4,
+			height: 4,
+			data: new Uint8ClampedArray(4 * 4 * 4)
+		};
+		for (let i = 0; i < 16; i++) {
+			const o = i * 4;
+			imageData.data[o] = 80;
+			imageData.data[o + 1] = 80;
+			imageData.data[o + 2] = 80;
+			imageData.data[o + 3] = 255;
+		}
+		const field = extractField(imageData, undefined, undefined, { minCluster: 1 });
+		assert.ok(RADAR_COLOR_MAX_DIST_SQ > 0);
+		assert.equal(field.alpha[0], 0);
+	});
+});
+
+describe('placeFieldOnGrid', () => {
+	it('nearest-neighbor stamps a native field onto a coarser grid', () => {
+		const src = {
+			alpha: new Float32Array([0, 0.5, 0.5, 0]),
+			cols: 2,
+			rows: 2,
+			colors: ['rgb(1, 2, 3)'],
+			opacities: [0.7]
+		};
+		const placed = placeFieldOnGrid(src, 4, 4, 0, 0, 4, 4);
+		assert.equal(placed.cols, 4);
+		assert.equal(placed.rows, 4);
+		assert.equal(placed.alpha[0], 0);
+		assert.ok(placed.alpha[2] > 0);
+		assert.equal(placed.alpha[1 * 4 + 0], 0);
+		assert.ok(placed.alpha[2 * 4 + 0] > 0);
+		assert.equal(placed.colors[0], 'rgb(1, 2, 3)');
+	});
+
+	it('leaves dest cells outside the dest rect dry', () => {
+		const src = {
+			alpha: new Float32Array([1]),
+			cols: 1,
+			rows: 1,
+			colors: [],
+			opacities: []
+		};
+		const placed = placeFieldOnGrid(src, 4, 4, 2, 2, 2, 2);
+		assert.equal(placed.alpha[0], 0);
+		assert.ok(placed.alpha[2 * 4 + 2] > 0);
+	});
+});
+
+describe('sizableContours', () => {
+	it('filters polygons below the area floor', () => {
+		const tiny = [
+			[0, 0],
+			[1, 0],
+			[1, 1],
+			[0, 1]
+		];
+		const big = [
+			[0, 0],
+			[10, 0],
+			[10, 10],
+			[0, 10]
+		];
+		assert.ok(contourArea(tiny) < RADAR_MIN_CONTOUR_AREA);
+		assert.deepEqual(sizableContours([tiny, big]), [big]);
 	});
 });
 
