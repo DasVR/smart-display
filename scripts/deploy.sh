@@ -19,9 +19,29 @@ fi
 echo "=== smart-display deploy ==="
 cd "$PROJECT_DIR"
 
+# A crashed git (or a stray status/commit on the kiosk checkout) can leave
+# .git/index.lock behind. fetch succeeds; reset --hard then dies in a few
+# seconds and the display never picks up master. Wait briefly, then drop a
+# leftover lock and retry.
+# shellcheck source=scripts/lib/git-index-lock.sh
+. "$(cd "$(dirname "$0")" && pwd)/lib/git-index-lock.sh"
+
 echo "[1/5] syncing $PROJECT_DIR to origin/master"
-git fetch origin master
-git reset --hard origin/master
+sync_ok=0
+for attempt in 1 2 3; do
+	wait_and_clear_index_lock
+	git fetch origin master
+	if git reset --hard origin/master; then
+		sync_ok=1
+		break
+	fi
+	echo "WARN: git reset failed (attempt ${attempt}/3)"
+	sleep 2
+done
+if [ "$sync_ok" != 1 ]; then
+	echo "ERROR: could not reset $PROJECT_DIR to origin/master"
+	exit 1
+fi
 HEAD_SHA="$(git rev-parse HEAD)"
 echo "HEAD $HEAD_SHA $(git log -1 --format=%s)"
 if [ -n "${GITHUB_SHA:-}" ] && [ "$HEAD_SHA" != "$GITHUB_SHA" ]; then
