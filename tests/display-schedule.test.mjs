@@ -20,6 +20,8 @@ import {
 	normalizeSchedule,
 	parseHHMM,
 	saveSchedule,
+	schedulePatchAction,
+	scheduleTick,
 	scheduledAction,
 	weekdayInZone
 } from '../src/lib/server/displaySchedule.js';
@@ -42,6 +44,14 @@ describe('parseHHMM', () => {
 		assert.equal(parseHHMM('6:00'), 6 * 60);
 		assert.equal(parseHHMM('00:00'), 0);
 		assert.equal(parseHHMM('23:59'), 23 * 60 + 59);
+	});
+
+	test('accepts seconds from time inputs', () => {
+		assert.equal(parseHHMM('22:30:00'), 22 * 60 + 30);
+		assert.equal(parseHHMM('6:00:00'), 6 * 60);
+		assert.equal(parseHHMM('07:05:09.5'), 7 * 60 + 5);
+		assert.equal(normalizeSchedule({ offAt: '22:30:00', onAt: '6:00:00' }).offAt, '22:30');
+		assert.equal(normalizeSchedule({ offAt: '22:30:00', onAt: '6:00:00' }).onAt, '06:00');
 	});
 
 	test('rejects garbage', () => {
@@ -249,5 +259,94 @@ describe('scheduled days', () => {
 describe('formatHHMM', () => {
 	test('pads hours', () => {
 		assert.equal(formatHHMM(6 * 60 + 5), '06:05');
+	});
+});
+
+describe('manual hold vs schedule', () => {
+	const overnight = {
+		enabled: true,
+		offAt: '22:30',
+		onAt: '06:00',
+		timeZone: 'UTC',
+		days: ALL_DAYS
+	};
+	const night = new Date('2026-09-12T23:00:00Z');
+	const day = new Date('2026-09-12T15:00:00Z');
+
+	test('boot follows the window when nobody held the power button', () => {
+		assert.equal(scheduleTick({ lastMinutes: null, hold: null, schedule: overnight, date: night }).action, 'off');
+		assert.equal(scheduleTick({ lastMinutes: null, hold: null, schedule: overnight, date: day }).action, 'on');
+		assert.equal(
+			scheduleTick({ lastMinutes: null, hold: null, schedule: { ...overnight, enabled: false }, date: night })
+				.action,
+			null
+		);
+	});
+
+	test('boot does not undo a manual or wake hold', () => {
+		const heldOn = scheduleTick({ lastMinutes: null, hold: 'on', schedule: overnight, date: night });
+		assert.equal(heldOn.action, null);
+		assert.equal(heldOn.hold, 'on');
+		const heldOff = scheduleTick({ lastMinutes: null, hold: 'off', schedule: overnight, date: day });
+		assert.equal(heldOff.action, null);
+		assert.equal(heldOff.hold, 'off');
+	});
+
+	test('the next off/on alarm resumes the schedule and clears the hold', () => {
+		const offAlarm = scheduleTick({
+			lastMinutes: 22 * 60 + 29,
+			hold: 'on',
+			schedule: overnight,
+			date: new Date('2026-09-12T22:30:00Z')
+		});
+		assert.equal(offAlarm.action, 'off');
+		assert.equal(offAlarm.hold, null);
+
+		const onAlarm = scheduleTick({
+			lastMinutes: 5 * 60 + 59,
+			hold: 'off',
+			schedule: overnight,
+			date: new Date('2026-09-12T06:00:00Z')
+		});
+		assert.equal(onAlarm.action, 'on');
+		assert.equal(onAlarm.hold, null);
+	});
+
+	test('saving proximity or phone-wake does not force the panel back onto the window', () => {
+		const prev = { ...overnight, wakeOnPhone: true, wakeOnProximity: false };
+		const next = { ...overnight, wakeOnPhone: false, wakeOnProximity: true, proximityDevice: 'AA:BB:CC:DD:EE:FF' };
+		assert.deepEqual(schedulePatchAction(prev, next, { hold: 'on', date: night }), {
+			action: null,
+			hold: 'on'
+		});
+	});
+
+	test('changing days or times honors a hold instead of snapping HDMI', () => {
+		const next = { ...overnight, days: [1, 2, 3], offAt: '21:00' };
+		assert.deepEqual(schedulePatchAction(overnight, next, { hold: 'on', date: night }), {
+			action: null,
+			hold: 'on'
+		});
+		assert.equal(
+			schedulePatchAction(overnight, { ...overnight, offAt: '21:00' }, { hold: null, date: night }).action,
+			'off'
+		);
+		assert.equal(schedulePatchAction(overnight, next, { hold: null, date: night }).action, 'on');
+		assert.equal(schedulePatchAction(overnight, next, { hold: null, date: day }).action, 'on');
+	});
+
+	test('the Auto rocker is a follow-this-now gesture', () => {
+		assert.deepEqual(
+			schedulePatchAction(overnight, { ...overnight, enabled: false }, { hold: 'off', date: night }),
+			{ action: 'on', hold: null }
+		);
+		assert.deepEqual(
+			schedulePatchAction({ ...overnight, enabled: false }, overnight, { hold: 'on', date: night }),
+			{ action: 'off', hold: null }
+		);
+		assert.equal(
+			schedulePatchAction({ ...overnight, enabled: false }, overnight, { hold: null, date: day }).action,
+			'on'
+		);
 	});
 });

@@ -29,7 +29,8 @@ export const DEFAULT_SCHEDULE = {
 	proximityMeters: 5
 };
 
-const HHMM = /^(\d{1,2}):([0-5]\d)$/;
+// HTML <input type="time"> may send HH:MM, HH:MM:SS, or HH:MM:SS.sss.
+const HHMM = /^(\d{1,2}):([0-5]\d)(?::[0-5]\d(?:\.\d+)?)?$/;
 
 export function parseDay(value) {
 	if (typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 6) {
@@ -185,6 +186,63 @@ export function scheduledAction(prevMinutes, currMinutes, schedule = DEFAULT_SCH
 	if (offHit) return 'off';
 	if (onHit) return 'on';
 	return null;
+}
+
+function windowFieldsChanged(prev, next) {
+	return (
+		prev.offAt !== next.offAt ||
+		prev.onAt !== next.onAt ||
+		prev.timeZone !== next.timeZone ||
+		!daysEqual(prev.days, next.days)
+	);
+}
+
+/**
+ * One schedule poll. Boot (`lastMinutes == null`) follows the window unless
+ * a manual/wake hold is in effect. Later polls only fire at off/on boundaries;
+ * a hold lasts until that next alarm, then the schedule owns the panel again.
+ */
+export function scheduleTick({ lastMinutes, hold, schedule = DEFAULT_SCHEDULE, date = new Date() } = {}) {
+	const curr = minutesOfDay(date, schedule.timeZone || DEFAULT_SCHEDULE.timeZone);
+	if (lastMinutes == null) {
+		return {
+			lastMinutes: curr,
+			hold: hold || null,
+			action: hold ? null : desiredHdmi(date, schedule)
+		};
+	}
+	const action = scheduledAction(lastMinutes, curr, schedule, date);
+	return {
+		lastMinutes: curr,
+		hold: action ? null : hold || null,
+		action
+	};
+}
+
+/**
+ * What to do after a schedule save. Manual power and phone/proximity wake
+ * must survive proximity/day tweaks; flipping Auto on/off is an explicit
+ * "follow this now" gesture and clears the hold.
+ */
+export function schedulePatchAction(prev, next, { hold, date = new Date() } = {}) {
+	const wasEnabled = prev?.enabled !== false;
+	const enabled = next?.enabled !== false;
+	if (wasEnabled && !enabled) {
+		return { action: 'on', hold: null };
+	}
+	if (!enabled) {
+		return { action: null, hold: hold || null };
+	}
+	if (!wasEnabled && enabled) {
+		return { action: desiredHdmi(date, next), hold: null };
+	}
+	if (!windowFieldsChanged(prev, next)) {
+		return { action: null, hold: hold || null };
+	}
+	if (hold) {
+		return { action: null, hold };
+	}
+	return { action: desiredHdmi(date, next), hold: null };
 }
 
 const MAC_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
