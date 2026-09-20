@@ -137,12 +137,27 @@ export function parseBluetoothShow(text = '') {
 	};
 }
 
+export function normalizeBtAddress(value) {
+	const raw = String(value || '')
+		.trim()
+		.toUpperCase();
+	return /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/.test(raw) ? raw : '';
+}
+
+export function btAddressesEqual(a, b) {
+	const left = normalizeBtAddress(a);
+	const right = normalizeBtAddress(b);
+	return Boolean(left && left === right);
+}
+
 export function parseBluetoothDevices(text = '') {
 	const devices = [];
 	for (const line of String(text || '').split('\n')) {
 		const m = line.match(/^Device\s+([0-9A-Fa-f:]{17})\s*(.*)$/);
 		if (!m) continue;
-		devices.push({ address: m[1], name: (m[2] || '').trim() });
+		const address = normalizeBtAddress(m[1]);
+		if (!address) continue;
+		devices.push({ address, name: (m[2] || '').trim() });
 	}
 	return devices;
 }
@@ -151,18 +166,78 @@ export function parseBluetoothInfo(text = '') {
 	const raw = String(text || '');
 	const rssi = (raw.match(/^\s*RSSI:\s*(-?\d+)/m) || [])[1];
 	const txPower = (raw.match(/^\s*TxPower:\s*(-?\d+)/m) || [])[1];
+	const name = (raw.match(/^\s*Name:\s*(.+)$/m) || [])[1]?.trim() || '';
+	const alias = (raw.match(/^\s*Alias:\s*(.+)$/m) || [])[1]?.trim() || '';
 	return {
 		rssi: rssi === undefined ? null : Number(rssi),
-		txPower: txPower === undefined ? null : Number(txPower)
+		txPower: txPower === undefined ? null : Number(txPower),
+		connected: /^\s*Connected:\s*yes\b/im.test(raw),
+		name: name || alias
 	};
 }
 
-// Log-distance path loss model. txPower is the RSSI expected at 1 meter
+export function parseHciToolRssi(text = '') {
+	const m = String(text || '').match(/RSSI return value:\s*(-?\d+)/i);
+	return m ? Number(m[1]) : null;
+}
+
+export function parseBusctlRssi(text = '') {
+	const m = String(text || '')
+		.trim()
+		.match(/^[in]\s+(-?\d+)\s*$/i);
+	return m ? Number(m[1]) : null;
+}
+
+export function pickRssi(...values) {
+	for (const value of values) {
+		if (typeof value === 'number' && Number.isFinite(value)) return value;
+	}
+	return null;
+}
+
+export function bluezDevicePath(address, adapter = 'hci0') {
+	const addr = normalizeBtAddress(address);
+	if (!addr) return '';
+	return `/org/bluez/${adapter}/dev_${addr.replaceAll(':', '_')}`;
+}
+
+export function mergeBluetoothDeviceRows(...lists) {
+	const out = [];
+	for (const list of lists) {
+		for (const item of list || []) {
+			const address = normalizeBtAddress(item.address);
+			if (!address) continue;
+			const existing = out.find((row) => row.address === address);
+			const name = String(item.name || '').trim();
+			if (existing) {
+				if (name && !existing.name) existing.name = name;
+				if (item.connected) existing.connected = true;
+				continue;
+			}
+			out.push({ address, name, connected: Boolean(item.connected) });
+		}
+	}
+	return out;
+}
+
+export function proximityNear(distanceMeters, threshold) {
+	if (distanceMeters == null || distanceMeters === '' || threshold == null || threshold === '') {
+		return false;
+	}
+	const distance = Number(distanceMeters);
+	const limit = Number(threshold);
+	if (!Number.isFinite(distance) || !Number.isFinite(limit)) return false;
+	return distance <= limit;
+}
+
+// Log-distance path loss model. measuredPower is the RSSI expected at 1 meter
 // (BLE beacons commonly calibrate to about -59 dBm); n=2 approximates
 // open-air/line-of-sight attenuation, higher values suit walls/clutter.
-export function estimateDistanceMeters(rssi, { txPower = -59, n = 2 } = {}) {
+// Do not pass BlueZ TxPower here: that is advertised radio dBm (often 0..12),
+// not 1-meter RSSI, and it turns a phone in the room into "kilometers away".
+export function estimateDistanceMeters(rssi, { measuredPower = -59, n = 2 } = {}) {
 	if (typeof rssi !== 'number' || Number.isNaN(rssi)) return null;
-	const ref = typeof txPower === 'number' && !Number.isNaN(txPower) ? txPower : -59;
+	const ref = typeof measuredPower === 'number' && Number.isFinite(measuredPower) ? measuredPower : -59;
 	return Number(Math.pow(10, (ref - rssi) / (10 * n)).toFixed(1));
 }
 
@@ -272,34 +347,87 @@ async function probeAirplay(env) {
 	});
 }
 
-async function probeDistance(address, env) {
-	const info = (await runFile('bluetoothctl', ['info', address], { env, timeout: 2000 })) || '';
-	const { rssi, txPower } = parseBluetoothInfo(info);
-	return { rssi, distanceMeters: estimateDistanceMeters(rssi, { txPower }) };
+export async function probeOneBluetoothDevice(address, env, run = runFile) {
+	const addr = normalizeBtAddress(address);
+	if (!addr) {
+		return { address: '', name: '', connected: false, rssi: null, distanceMeters: null };
+	}
+	const infoText = (await run('bluetoothctl', ['info', addr], { env, timeout: 2000 })) || '';
+	const parsed = parseBluetoothInfo(infoText);
+	let rssi = parsed.rssi;
+	if (rssi == null && parsed.connected) {
+		rssi = pickRssi(
+			rssi,
+			parseHciToolRssi((await run('hcitool', ['rssi', addr], { env, timeout: 1500 })) || '')
+		);
+	}
+	if (rssi == null && parsed.connected) {
+		const busText =
+			(await run(
+				'busctl',
+				['--system', 'get-property', 'org.bluez', bluezDevicePath(addr), 'org.bluez.Device1', 'RSSI'],
+				{ env, timeout: 1500 }
+			)) || '';
+		rssi = pickRssi(rssi, parseBusctlRssi(busText));
+	}
+	return {
+		address: addr,
+		name: parsed.name,
+		connected: parsed.connected,
+		rssi,
+		distanceMeters: estimateDistanceMeters(rssi)
+	};
 }
 
 /** Connected-device RSSI/distance only, without the rest of getKioskStatus's
  *  probes (AirPlay, speakers, telemetry, git...) - cheap enough to poll on
- *  its own cadence for proximity wake. */
-export async function getBluetoothProximity() {
+ *  its own cadence for proximity wake. Pass a MAC to probe that device even
+ *  when it is not in the current Connected list. */
+export async function getBluetoothProximity(watchAddress) {
 	const env = userSessionEnv();
+	if (watchAddress) {
+		const one = await probeOneBluetoothDevice(watchAddress, env);
+		return one.address ? [one] : [];
+	}
 	return (await probeBluetooth(env)).connected;
 }
 
 async function probeBluetooth(env) {
-	const [show, connectedText, agent, watch] = await Promise.all([
+	const [show, connectedText, pairedText, agent, watch] = await Promise.all([
 		runFile('bluetoothctl', ['--timeout', '3', 'show'], { env }),
 		runFile('bluetoothctl', ['--timeout', '3', 'devices', 'Connected'], { env }),
+		runFile('bluetoothctl', ['--timeout', '3', 'devices', 'Paired'], { env }),
 		unitState('smart-display-bt-agent.service'),
 		unitState('smart-display-bt-watch.service')
 	]);
 	const adapter = parseBluetoothShow(show || '');
-	const devices = parseBluetoothDevices(connectedText || '');
-	const connected = await Promise.all(
-		devices.map(async (device) => ({ ...device, ...(await probeDistance(device.address, env)) }))
+	let connectedListed = parseBluetoothDevices(connectedText || '');
+	let pairedListed = parseBluetoothDevices(pairedText || '');
+	if (!pairedListed.length && !connectedListed.length) {
+		pairedListed = parseBluetoothDevices(
+			(await runFile('bluetoothctl', ['--timeout', '3', 'devices'], { env })) || ''
+		);
+	}
+	const known = mergeBluetoothDeviceRows(
+		pairedListed,
+		connectedListed.map((device) => ({ ...device, connected: true }))
 	);
+	const detailed = await Promise.all(
+		known.map(async (device) => {
+			const live = await probeOneBluetoothDevice(device.address, env);
+			return {
+				address: device.address,
+				name: live.name || device.name,
+				connected: live.connected,
+				rssi: live.rssi,
+				distanceMeters: live.distanceMeters
+			};
+		})
+	);
+	const connected = detailed.filter((device) => device.connected);
 	return {
 		...adapter,
+		paired: detailed,
 		connected,
 		agent,
 		watch,
