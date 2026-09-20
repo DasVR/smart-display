@@ -25,7 +25,12 @@ import {
 	maybeStartHostUpgrade,
 	setInstallProgressListener
 } from './lib/server/hostUpgrade.js';
-import { getKioskStatus, getBluetoothProximity } from './lib/server/kioskStatus.js';
+import {
+	btAddressesEqual,
+	getBluetoothProximity,
+	getKioskStatus,
+	proximityNear
+} from './lib/server/kioskStatus.js';
 import { createAudioCapture } from './lib/server/audioCapture.js';
 import {
 	agentFinishedNotify,
@@ -436,20 +441,47 @@ async function handleProximityWake(source = 'ble') {
 }
 
 async function pollProximity() {
-	if (!schedule.wakeOnProximity || !schedule.proximityDevice) {
-		proximityWatch = { address: schedule.proximityDevice || '', label: '', distanceMeters: null, near: false };
+	const address = schedule.proximityDevice;
+	if (!address) {
+		const empty = { address: '', label: '', distanceMeters: null, near: false, connected: false };
+		const changed =
+			proximityWatch.address ||
+			proximityWatch.near ||
+			proximityWatch.distanceMeters != null;
+		proximityWatch = empty;
+		if (changed) broadcast({ type: 'proximity', ...proximityWatch });
 		return;
 	}
 	try {
-		const devices = await getBluetoothProximity();
-		const match = devices.find((d) => d.address === schedule.proximityDevice);
+		if (proximityDebounce.address !== address) {
+			proximityDebounce.address = address;
+			proximityDebounce.raw = undefined;
+			proximityDebounce.streak = 0;
+			proximityDebounce.confirmed = undefined;
+		}
+		const devices = await getBluetoothProximity(address);
+		const match = devices.find((d) => btAddressesEqual(d.address, address));
 		const distanceMeters = match?.distanceMeters ?? null;
-		const rawNear = distanceMeters != null && distanceMeters <= schedule.proximityMeters;
+		const rawNear = proximityNear(distanceMeters, schedule.proximityMeters);
 		// The same flicker-guard used for the update banner: a single noisy
 		// RSSI reading shouldn't be enough to wake the panel.
 		const near = debounceSignal(proximityDebounce, rawNear);
-		proximityWatch = { address: schedule.proximityDevice, label: match?.name || '', distanceMeters, near };
-		if (near) await handleProximityWake('poll');
+		const next = {
+			address,
+			label: match?.name || '',
+			distanceMeters,
+			near,
+			connected: Boolean(match?.connected)
+		};
+		const changed =
+			next.address !== proximityWatch.address ||
+			next.label !== proximityWatch.label ||
+			next.distanceMeters !== proximityWatch.distanceMeters ||
+			next.near !== proximityWatch.near ||
+			next.connected !== proximityWatch.connected;
+		proximityWatch = next;
+		if (changed) broadcast({ type: 'proximity', ...proximityWatch });
+		if (schedule.wakeOnProximity && near) await handleProximityWake('poll');
 	} catch {
 		/* bluetoothctl probe failed; try again next tick */
 	}
@@ -621,7 +653,7 @@ const server = createServer(async (req, res) => {
 		return;
 	}
 
-	if (req.method === 'GET' && req.url === '/api/kiosk') {
+	if (req.method === 'GET' && reqPath(req) === '/api/kiosk') {
 		json(res, await getKioskStatus());
 		return;
 	}

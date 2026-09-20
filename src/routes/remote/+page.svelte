@@ -36,7 +36,7 @@
 	let wakeOnProximity = $state(false);
 	let proximityDevice = $state('');
 	let proximityMeters = $state(5);
-	let proximity = $state({ address: '', label: '', distanceMeters: null, near: false });
+	let proximity = $state({ address: '', label: '', distanceMeters: null, near: false, connected: false });
 	let nearbyDevices = $state([]);
 	let proximitySaveTimer = 0;
 	let saveTimer = 0;
@@ -89,22 +89,71 @@
 		}
 		if (typeof schedule.wakeOnProximity === 'boolean') wakeOnProximity = schedule.wakeOnProximity;
 		if (typeof schedule.proximityDevice === 'string') proximityDevice = schedule.proximityDevice;
-		if (typeof schedule.proximityMeters === 'number') proximityMeters = schedule.proximityMeters;
+		if (schedule.proximityMeters != null) {
+			const meters = Number(schedule.proximityMeters);
+			if (Number.isFinite(meters)) proximityMeters = meters;
+		}
 		if (display.phone) phone = { ...phone, ...display.phone };
 		if (display.proximity) proximity = { ...proximity, ...display.proximity };
 	}
 
+	function sameAddr(a, b) {
+		return String(a || '').toUpperCase() === String(b || '').toUpperCase();
+	}
+
+	function selectedNearby() {
+		return nearbyDevices.find((d) => sameAddr(d.address, proximityDevice));
+	}
+
+	function liveDistance() {
+		const selected = selectedNearby();
+		if (selected?.distanceMeters != null) return selected.distanceMeters;
+		if (sameAddr(proximity.address, proximityDevice)) return proximity.distanceMeters;
+		return null;
+	}
+
+	function liveNear() {
+		const meters = liveDistance();
+		if (meters != null) return meters <= Number(proximityMeters);
+		return Boolean(sameAddr(proximity.address, proximityDevice) && proximity.near);
+	}
+
 	function proximityDeviceLabel(address) {
-		const found = nearbyDevices.find((d) => d.address === address);
+		const found = nearbyDevices.find((d) => sameAddr(d.address, address));
 		if (found?.name) return found.name;
+		if (sameAddr(proximity.address, address) && proximity.label) return proximity.label;
 		return address || 'none seen yet';
+	}
+
+	function nearbyOptionLabel(device) {
+		const name = device.name || device.address;
+		if (device.distanceMeters != null) return `${name} · ${device.distanceMeters}m`;
+		if (device.connected) return `${name} · connected`;
+		return name;
 	}
 
 	async function fetchNearbyDevices() {
 		try {
 			const r = await fetch('/api/kiosk');
 			const data = await r.json();
-			nearbyDevices = data?.bluetooth?.connected || [];
+			const list = data?.bluetooth?.paired?.length
+				? data.bluetooth.paired
+				: data?.bluetooth?.connected || [];
+			nearbyDevices = list;
+			const selected = selectedNearby();
+			if (selected) {
+				proximity = {
+					...proximity,
+					address: selected.address,
+					label: selected.name || proximity.label,
+					distanceMeters: selected.distanceMeters ?? null,
+					near:
+						selected.distanceMeters != null
+							? selected.distanceMeters <= Number(proximityMeters)
+							: proximity.near,
+					connected: Boolean(selected.connected)
+				};
+			}
 		} catch {
 			/* stats endpoint is optional */
 		}
@@ -121,7 +170,11 @@
 			const r = await fetch('/api/display', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ wakeOnProximity, proximityDevice, proximityMeters })
+				body: JSON.stringify({
+					wakeOnProximity,
+					proximityDevice,
+					proximityMeters: Number(proximityMeters)
+				})
 			});
 			const data = await r.json();
 			applyDisplay(data);
@@ -218,6 +271,7 @@
 					applyAudio(msg.audio);
 				}
 				if (msg.type === 'display') applyDisplay(msg);
+				if (msg.type === 'proximity') proximity = { ...proximity, ...msg };
 				if (msg.type === 'trigger' && msg.event === 'hdmi_off') hdmi = 'off';
 				if (msg.type === 'trigger' && msg.event === 'hdmi_on') hdmi = 'on';
 				if (msg.type === 'pong') status = 'connected';
@@ -695,9 +749,9 @@
 			>
 				<option value="">Choose a paired device</option>
 				{#each nearbyDevices as d (d.address)}
-					<option value={d.address}>{d.name || d.address}</option>
+					<option value={d.address}>{nearbyOptionLabel(d)}</option>
 				{/each}
-				{#if proximityDevice && !nearbyDevices.some((d) => d.address === proximityDevice)}
+				{#if proximityDevice && !nearbyDevices.some((d) => sameAddr(d.address, proximityDevice))}
 					<option value={proximityDevice}>{proximityDevice} (not seen right now)</option>
 				{/if}
 			</select>
@@ -710,18 +764,24 @@
 				max="15"
 				step="0.5"
 				bind:value={proximityMeters}
+				oninput={queueProximitySave}
 				onchange={queueProximitySave}
 			/>
 			<span class="proximity-value">{proximityMeters}m</span>
 		</label>
 		<p class="note">
 			{#if !nearbyDevices.length}
-				No Bluetooth devices connected right now - connect your phone, then walk to where you want
-				the wake boundary and watch the distance below to pick a number.
+				No paired Bluetooth devices yet. Pair your phone with this display, pick it above, then walk
+				the room and watch the distance here.
 			{:else if proximityDevice}
 				{proximityDeviceLabel(proximityDevice)} is
-				{proximity.distanceMeters == null ? 'not in range' : `~${proximity.distanceMeters}m away`}
-				{proximity.near ? '· near' : ''}
+				{#if liveDistance() != null}
+					~{liveDistance()}m away{liveNear() ? ' · near' : ''}
+				{:else if selectedNearby()?.connected}
+					connected, waiting for a range reading
+				{:else}
+					not in range
+				{/if}
 			{:else}
 				Pick a device above, then walk the room to find a good threshold.
 			{/if}
