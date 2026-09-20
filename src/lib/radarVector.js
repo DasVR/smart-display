@@ -79,19 +79,17 @@ export function nearestRadarColor(r, g, b) {
 	return best;
 }
 
-/** Drop connected wet islands smaller than `minCells`. City zoom turns a
- *  1-2 pixel RainViewer return into a round "cloud"; those specks are not
- *  on the original mosaic at a size anyone would read as rain. Counted in
- *  native mosaic pixels when `extractField` runs on the 512px tiles. */
-export const RADAR_MIN_CLUSTER_CELLS = 16;
+/** Drop connected wet islands smaller than `minCells` on the drawing
+ *  grid. City zoom turns a 1-2 pixel RainViewer return into a round
+ *  "cloud"; those specks are not a storm. Leave this low so yellow/orange
+ *  cores still pop. */
+export const RADAR_MIN_CLUSTER_CELLS = 8;
 
-/** Light-rain-only islands (drizzle / cyan, no yellow core) need more
- *  area before they read as a shower. Weak Gulf speckle is almost always
- *  this band. */
-export const RADAR_MIN_LIGHT_CLUSTER_CELLS = 96;
+/** Same floor as `RADAR_MIN_CLUSTER_CELLS`. A higher light-only floor ate
+ *  real showers that never reach a yellow core. */
+export const RADAR_MIN_LIGHT_CLUSTER_CELLS = 8;
 
-/** Intensity at dBZ 20 (light-moderate). Islands whose peak never exceeds
- *  this are treated as light speckle. */
+/** Intensity at dBZ 20 (light-moderate). Kept for the prune API. */
 export const RADAR_LIGHT_PEAK = dbzToIntensity(20);
 
 /** Squared RGB distance past which a sample is not a Universal Blue stop
@@ -167,8 +165,9 @@ export function contourArea(points) {
 	return Math.abs(area) / 2;
 }
 
-/** Ignore leftover crumbs after a frame morph (area in grid cells). */
-export const RADAR_MIN_CONTOUR_AREA = 8;
+/** Ignore leftover crumbs after a frame morph (area in grid cells). Keep
+ *  this tiny so inner heavy-rain cores are not discarded as speckle. */
+export const RADAR_MIN_CONTOUR_AREA = 2;
 
 export function sizableContours(polys, minArea = RADAR_MIN_CONTOUR_AREA) {
 	return polys.filter((p) => contourArea(p) >= minArea);
@@ -408,7 +407,7 @@ export function extractField(
 	for (let i = 0; i < n; i++) {
 		const o = i * 4;
 		const a = data[o + 3];
-		if (a < 40) {
+		if (a < 12) {
 			alpha[i] = 0;
 			continue;
 		}

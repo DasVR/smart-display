@@ -299,7 +299,7 @@ describe('pruneRadarSpeckle', () => {
 		assert.equal(field.alpha[3 * 8 + 3], 0);
 	});
 
-	it('drops a medium cyan island with no core, keeps a small yellow core', () => {
+	it('keeps a 6x6 cyan shower and a small yellow core', () => {
 		const light = RADAR_RAIN_PALETTE[1];
 		const heavy = RADAR_RAIN_PALETTE[5];
 		const W = 24;
@@ -315,12 +315,12 @@ describe('pruneRadarSpeckle', () => {
 		for (let y = 1; y <= 6; y++) for (let x = 1; x <= 6; x++) put(x, y, light);
 		for (let y = 9; y <= 13; y++) for (let x = 14; x <= 18; x++) put(x, y, heavy);
 		const field = extractField({ width: W, height: H, data });
-		assert.ok(RADAR_MIN_LIGHT_CLUSTER_CELLS > 36);
-		assert.equal(field.alpha[3 * W + 3], 0);
+		assert.equal(RADAR_MIN_LIGHT_CLUSTER_CELLS, RADAR_MIN_CLUSTER_CELLS);
+		assert.ok(field.alpha[3 * W + 3] > 0);
 		assert.ok(field.alpha[11 * W + 16] > 0);
 	});
 
-	it('drops a 9x9 cyan island that would read as a fake city-zoom cloud', () => {
+	it('keeps a 9x9 cyan island so light storms still draw', () => {
 		const light = RADAR_RAIN_PALETTE[1];
 		const W = 20;
 		const H = 20;
@@ -335,8 +335,7 @@ describe('pruneRadarSpeckle', () => {
 			}
 		}
 		const field = extractField({ width: W, height: H, data });
-		assert.ok(RADAR_MIN_LIGHT_CLUSTER_CELLS > 81);
-		assert.equal(field.alpha[6 * W + 6], 0);
+		assert.ok(field.alpha[6 * W + 6] > 0);
 	});
 
 	it('ignores basemap gray that is not a palette stop', () => {
