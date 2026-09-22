@@ -3,9 +3,16 @@
 # Syncs the live project dir (systemd WorkingDirectory), then builds and restarts.
 set -euo pipefail
 
-PROJECT_DIR="/home/das/projects/smart-display"
-NPM="/usr/bin/npm"
-LOCK="/tmp/smart-display-kiosk.lock"
+PROJECT_DIR="${SMART_DISPLAY_DIR:-/home/das/projects/smart-display}"
+NPM="${SMART_DISPLAY_NPM:-/usr/bin/npm}"
+LOCK="${SMART_DISPLAY_LOCK:-/tmp/smart-display-kiosk.lock}"
+
+# Resolve next to this file BEFORE cd. GitHub Actions runs
+# ./scripts/deploy.sh from the runner checkout, so $0 is relative.
+# After cd into the live kiosk clone, that same relative path points at
+# the previous checkout, which may not have scripts/lib yet (#98's
+# helper never reached the display because deploy died sourcing it).
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Serialize against Bluetooth Audio Setup, which git-resets the same dir
 # and restarts PipeWire. Overlapping merges were failing kiosk restarts
@@ -17,14 +24,15 @@ if ! flock -w 600 9; then
 fi
 
 echo "=== smart-display deploy ==="
-cd "$PROJECT_DIR"
 
 # A crashed git (or a stray status/commit on the kiosk checkout) can leave
 # .git/index.lock behind. fetch succeeds; reset --hard then dies in a few
 # seconds and the display never picks up master. Wait briefly, then drop a
 # leftover lock and retry.
 # shellcheck source=scripts/lib/git-index-lock.sh
-. "$(cd "$(dirname "$0")" && pwd)/lib/git-index-lock.sh"
+. "$SCRIPT_DIR/lib/git-index-lock.sh"
+
+cd "$PROJECT_DIR"
 
 echo "[1/5] syncing $PROJECT_DIR to origin/master"
 sync_ok=0
