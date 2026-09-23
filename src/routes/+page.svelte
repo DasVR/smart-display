@@ -23,6 +23,7 @@
 		workingIslandActivity
 	} from '$lib/agentRoster.js';
 	import { KIOSK_VIEWS, canonicalizeKioskView, kioskViewLabel } from '$lib/kioskViews.js';
+	import { decideSmartStack, isStandBy } from '$lib/smartStack.js';
 	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
@@ -62,13 +63,13 @@
 	let hdmiOff = $state(false);
 	let navEl = $state(null);
 	let tabRefs = $state([]);
-	let indicator = $state({ left: 0, top: 0, width: 0, height: 0, ready: false });
+	let indicator = $state({ left: 0, right: 0, top: 0, width: 0, height: 0, dir: 'right', ready: false });
 	let indicatorMorphing = $state(false);
 	let indicatorMorphTimer = 0;
 	// Plain (non-reactive) shadow of the indicator's last position. updateIndicator
 	// both reads and writes this to detect movement; using $state for that read
 	// would make the enclosing $effect depend on its own write and loop forever.
-	let lastIndicatorPos = { left: 0, top: 0, width: 0, set: false };
+	let lastIndicatorPos = { left: 0, top: 0, width: 0, dir: 'right', set: false };
 	// Same idea for the view-swap chime below: plain, not $state, so reading
 	// it in the effect that reacts to $currentView doesn't create a
 	// self-triggering loop.
@@ -91,11 +92,72 @@
 
 	const VIEWS = KIOSK_VIEWS;
 
-	function selectView(v) {
+	// Last human touch/key/remote input. Smart Stack and StandBy both key off
+	// how long the room has left the display alone.
+	let lastInput = $state(Date.now());
+	let autoFrom = null;
+	let autoSetView = '';
+	let wasPlaying = false;
+	function markInput() {
+		lastInput = Date.now();
+		autoFrom = null;
+	}
+
+	function selectView(v, { auto = false } = {}) {
 		const next = canonicalizeKioskView(v);
 		if (!VIEWS.includes(next) || $currentView === next) return;
+		if (!auto) markInput();
+		autoSetView = auto ? next : '';
 		currentView.set(next);
 		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: next }));
+	}
+
+	// Which way the last view change went, so the incoming pane slides in
+	// from the side you moved toward (shortest way round the tab strip).
+	let navDir = $state('next');
+
+	// Swipe / drag between views. The stage follows the finger with a
+	// rubber band, then commits past 18% of the width or a quick flick.
+	let drag = $state({ active: false, dx: 0 });
+	let dragStart = null;
+	function onStageDown(e) {
+		if (e.pointerType === 'mouse' && e.button !== 0) return;
+		// leave controls with their own gestures alone (the Music seek bar is a
+		// role="slider" div, not an <input>)
+		if (e.target.closest('button, a, input, select, textarea, [role="slider"], [role="scrollbar"], [data-no-swipe]')) return;
+		dragStart = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, locked: false };
+	}
+	function onStageMove(e) {
+		if (!dragStart || e.pointerId !== dragStart.id) return;
+		const dx = e.clientX - dragStart.x;
+		const dy = e.clientY - dragStart.y;
+		if (!dragStart.locked) {
+			if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+			if (Math.abs(dy) > Math.abs(dx)) {
+				dragStart = null;
+				return;
+			}
+			dragStart.locked = true;
+			e.currentTarget.setPointerCapture?.(e.pointerId);
+		}
+		// rubber band: near 1:1 at first, then more resistance the further it goes
+		const reach = (window.innerWidth || 1) * 0.22;
+		drag = { active: true, dx: (reach * dx) / (reach + Math.abs(dx)) };
+	}
+	function onStageUp(e) {
+		if (!dragStart || e.pointerId !== dragStart.id) return;
+		const dx = e.clientX - dragStart.x;
+		const dt = Math.max(1, performance.now() - dragStart.t);
+		const locked = dragStart.locked;
+		dragStart = null;
+		drag = { active: false, dx: 0 };
+		if (!locked) return;
+		const flick = Math.abs(dx) / dt > 0.6;
+		if (Math.abs(dx) < (window.innerWidth || 1) * 0.18 && !flick) return;
+		let idx = VIEWS.indexOf($currentView);
+		if (idx < 0) idx = 0;
+		const n = VIEWS.length;
+		selectView(VIEWS[dx < 0 ? (idx + 1) % n : (idx - 1 + n) % n]);
 	}
 
 	function updateIndicator() {
@@ -110,11 +172,20 @@
 		const top = btnRect.top - navRect.top;
 		const width = btnRect.width;
 		const height = btnRect.height;
+		const right = navRect.width - left - width;
 		const moved =
 			lastIndicatorPos.set &&
 			(left !== lastIndicatorPos.left || top !== lastIndicatorPos.top || width !== lastIndicatorPos.width);
-		lastIndicatorPos = { left, top, width, set: true };
-		indicator = { left, top, width, height, ready: true };
+		// read the previous direction from the plain shadow, never from
+		// `indicator` itself: this runs inside an effect that writes it
+		const dir =
+			!lastIndicatorPos.set || left === lastIndicatorPos.left
+				? lastIndicatorPos.dir
+				: left > lastIndicatorPos.left
+					? 'right'
+					: 'left';
+		lastIndicatorPos = { left, top, width, dir, set: true };
+		indicator = { left, right, top, width, height, dir, ready: true };
 		if (moved && typeof window !== 'undefined') {
 			const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 			if (!reduced) {
@@ -122,7 +193,7 @@
 				clearTimeout(indicatorMorphTimer);
 				indicatorMorphTimer = setTimeout(() => {
 					indicatorMorphing = false;
-				}, 560);
+				}, 380);
 			}
 		}
 	}
@@ -193,6 +264,10 @@
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'navigate') {
 					const view = canonicalizeKioskView(msg.view);
+					// our own Smart Stack move echoes back from the server; only a
+					// navigate we didn't send counts as someone using the remote
+					if (view === autoSetView) autoSetView = '';
+					else markInput();
 					if (!lockDemoView && view && view !== $currentView) currentView.set(view);
 				}
 				if (msg.type === 'notify') {
@@ -388,6 +463,7 @@
 	}
 
 	function handleKey(e) {
+		markInput();
 		if (e.altKey && (e.key === 'y' || e.key === 'Y')) {
 			toggleGpuLowPower();
 			return;
@@ -422,7 +498,9 @@
 		const stopGovernor = startOllamaArbiter();
 		const clock = setInterval(() => {
 			time = new Date();
+			smartStackTick();
 		}, 1000);
+		window.addEventListener('pointerdown', markInput, { passive: true });
 		const stopMusicPoll = musicDemo ? () => {} : startNowPlayingPolling(2000);
 		const wx = setInterval(fetchWeather, 300000);
 		window.addEventListener('keydown', handleKey);
@@ -523,6 +601,7 @@
 			window.removeEventListener('keydown', handleKey);
 			window.removeEventListener('resize', updateIndicator);
 			window.removeEventListener('pointerdown', primeAudio);
+			window.removeEventListener('pointerdown', markInput);
 			window.removeEventListener('keydown', primeAudio);
 			ws?.close();
 		};
@@ -536,6 +615,31 @@
 		time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
 	);
 	let atm = $derived(atmosphereFromWeather(time.getTime(), weatherData));
+
+	function smartStackTick() {
+		if (lockDemoView) return;
+		const playing = Boolean($nowPlaying?.playing);
+		const move = decideSmartStack({
+			view: $currentView,
+			now: Date.now(),
+			lastInput,
+			playing,
+			wasPlaying,
+			autoFrom
+		});
+		wasPlaying = playing;
+		if (!move) return;
+		autoFrom = move.autoFrom;
+		selectView(move.view, { auto: true });
+	}
+
+	// `?standby=1` previews StandBy without waiting for night and idle time
+	const standbyPreview =
+		typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('standby') === '1';
+	let standby = $derived(
+		(standbyPreview && $currentView === 'clock') ||
+			isStandBy({ view: $currentView, phase: atm.phase, now: time.getTime(), lastInput, mode })
+	);
 	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
 
 	const VIEW_TITLES = {
@@ -642,7 +746,15 @@
 			// as "forward"/"backward" rather than the raw index jump.
 			const n = VIEWS.length;
 			const forwardDist = (idx - lastViewIdx + n) % n;
-			playChime(forwardDist <= n / 2 ? 'swap-next' : 'swap-prev');
+			navDir = forwardDist <= n / 2 ? 'next' : 'prev';
+			playChime(navDir === 'next' ? 'swap-next' : 'swap-prev');
+			// ripple the liquid metal out from the tab that just took focus
+			const r = tabRefs[idx]?.getBoundingClientRect();
+			if (r) {
+				window.dispatchEvent(
+					new CustomEvent('liquid-impulse', { detail: { x: r.left + r.width / 2, y: r.top + r.height / 2 } })
+				);
+			}
 		}
 		lastViewIdx = idx;
 	});
@@ -654,22 +766,7 @@
 
 <a class="skip" href="#main-stage">Skip to view</a>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true">
-	<defs>
-		<filter id="nav-goo" x="-60%" y="-60%" width="220%" height="220%">
-			<feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
-			<feColorMatrix
-				in="blur"
-				mode="matrix"
-				values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -10"
-				result="goo"
-			/>
-			<feBlend in="SourceGraphic" in2="goo" />
-		</filter>
-	</defs>
-</svg>
-
-<div class="display-shell" class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
+<div class="display-shell" class:standby class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
 	<LiquidMetalCanvas
 		isLowPower={$gpuLowPowerMode || mode === 'sleep' || hdmiOff}
 		quality={$displayQuality}
@@ -704,7 +801,9 @@
 		class:morning={mode === 'morning'}
 		class:sleep={mode === 'sleep'}
 		class:wx-rain={atm.rain >= 0.35}
+		class:standby
 		data-phase={atm.phase}
+		data-dir={navDir}
 	>
 		<header class="zone top">
 			<div class="top-row">
@@ -713,7 +812,8 @@
 						class="tab-indicator"
 						class:ready={indicator.ready}
 						class:morphing={indicatorMorphing}
-						style="--ind-left: {indicator.left}px; --ind-top: {indicator.top}px; --ind-width: {indicator.width}px; --ind-height: {indicator.height}px"
+						data-dir={indicator.dir}
+						style="--ind-left: {indicator.left}px; --ind-right: {indicator.right}px; --ind-top: {indicator.top}px; --ind-height: {indicator.height}px"
 						aria-hidden="true"
 					></span>
 					{#each VIEWS as v, i (v)}
@@ -754,7 +854,16 @@
 			{/if}
 		</header>
 
-		<main id="main-stage" class="zone center">
+		<main
+			id="main-stage"
+			class="zone center"
+			class:dragging={drag.active}
+			style="--drag-x: {drag.dx}px"
+			onpointerdown={onStageDown}
+			onpointermove={onStageMove}
+			onpointerup={onStageUp}
+			onpointercancel={onStageUp}
+		>
 			{#if $currentView === 'clock'}
 				<section class="view-pane clock-pane">
 					<div class="clock-credits">
@@ -1003,34 +1112,83 @@
 		box-shadow: none;
 		box-sizing: border-box;
 	}
+	/* Liquid-glass lens under the active tab. Its two edges move on
+	   different clocks: the leading edge races ahead and the trailing edge
+	   follows, so the lens stretches toward the new tab and then settles,
+	   like the iOS 26 tab bar. While travelling it also thins a little
+	   (the .morphing class) the way a drop does in motion. */
 	.tab-indicator {
 		position: absolute;
 		top: var(--ind-top, 0);
 		left: var(--ind-left, 0);
-		width: var(--ind-width, 0);
+		right: var(--ind-right, 100%);
 		height: var(--ind-height, 100%);
 		border-radius: 999px;
-		background: color-mix(in srgb, var(--brand) 14%, transparent);
-		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
-		box-shadow: 0 0 18px color-mix(in srgb, var(--brand) 22%, transparent);
+		background:
+			linear-gradient(
+				180deg,
+				color-mix(in srgb, var(--foreground) 16%, transparent),
+				color-mix(in srgb, var(--foreground) 4%, transparent) 55%,
+				color-mix(in srgb, var(--brand) 12%, transparent)
+			);
+		backdrop-filter: blur(6px) saturate(1.8) brightness(1.15);
+		-webkit-backdrop-filter: blur(6px) saturate(1.8) brightness(1.15);
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, var(--foreground) 38%, transparent),
+			inset 0 -1px 0 color-mix(in srgb, var(--foreground) 10%, transparent),
+			inset 0 0 0 1px color-mix(in srgb, var(--foreground) 10%, transparent),
+			0 6px 18px color-mix(in srgb, var(--abyss) 45%, transparent),
+			0 0 22px color-mix(in srgb, var(--brand) 18%, transparent);
 		opacity: 0;
 		pointer-events: none;
 		z-index: 0;
+		transform-origin: center;
+	}
+	/* specular glint riding the top of the lens */
+	.tab-indicator::after {
+		content: '';
+		position: absolute;
+		inset: 1px 18% auto;
+		height: 38%;
+		border-radius: 999px;
+		background: linear-gradient(
+			180deg,
+			color-mix(in srgb, var(--foreground) 28%, transparent),
+			transparent
+		);
+		pointer-events: none;
 	}
 	.tab-indicator.ready {
 		opacity: 1;
-		transition:
-			left 520ms var(--spring-bouncy),
-			top 520ms var(--spring-bouncy),
-			width 520ms var(--spring-bouncy),
-			opacity 240ms var(--spring-smooth);
+		transition-property: left, right, top, height, transform, opacity;
+		transition-timing-function: var(--spring-bouncy), var(--spring-bouncy), var(--spring-bouncy), var(--spring-bouncy), var(--spring-smooth), var(--spring-smooth);
+		transition-duration: 560ms, 320ms, 480ms, 480ms, 260ms, 240ms;
+	}
+	.tab-indicator.ready[data-dir='left'] {
+		transition-duration: 320ms, 560ms, 480ms, 480ms, 260ms, 240ms;
 	}
 	.tab-indicator.morphing {
-		filter: url(#nav-goo);
+		transform: scaleY(0.86);
+	}
+	/* press anywhere on the strip squeezes the lens, like touching glass */
+	.view-strip:has(.view-tab:active) .tab-indicator {
+		transform: scale(0.96, 0.9);
+		transition-duration: 560ms, 320ms, 480ms, 480ms, 120ms, 240ms;
 	}
 	@media (prefers-reduced-motion: reduce) {
-		.tab-indicator.ready {
+		.tab-indicator.ready,
+		.tab-indicator.ready[data-dir='left'] {
 			transition: opacity 240ms var(--spring-smooth);
+		}
+		.tab-indicator.morphing {
+			transform: none;
+		}
+	}
+	@media (prefers-reduced-transparency: reduce) {
+		.tab-indicator {
+			backdrop-filter: none;
+			-webkit-backdrop-filter: none;
+			background: color-mix(in srgb, var(--brand) 22%, var(--abyss-2));
 		}
 	}
 	.view-tab {
@@ -1086,12 +1244,58 @@
 		min-width: 0;
 		min-height: 0;
 	}
+	/* Swipe follows the finger; on release it springs back (or the new
+	   pane takes over). No transform at rest, so nothing is promoted to its
+	   own layer while the stage is idle. */
+	.center {
+		touch-action: pan-y;
+	}
+	.center.dragging {
+		transform: translate3d(var(--drag-x, 0px), 0, 0);
+		cursor: grabbing;
+		user-select: none;
+	}
 	@media (prefers-reduced-motion: no-preference) {
 		.view-pane {
-			animation: pane-in var(--dur-pane) var(--spring-smooth) both;
+			animation: pane-in-next var(--dur-pane) var(--spring-smooth) both;
+		}
+		.display-root[data-dir='prev'] .view-pane {
+			animation-name: pane-in-prev;
 		}
 		.view-tab:hover:not(.active):not(:active) {
 			transform: translateY(-1px);
+		}
+	}
+	/* Direction-aware page transition: the new view slides in from the side
+	   you moved toward, sharpening out of a light blur. */
+	@keyframes pane-in-next {
+		from {
+			opacity: 0;
+			transform: translate3d(3.5%, 0, 0) scale(0.985);
+			filter: blur(8px);
+		}
+		55% {
+			filter: blur(0);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+			filter: none;
+		}
+	}
+	@keyframes pane-in-prev {
+		from {
+			opacity: 0;
+			transform: translate3d(-3.5%, 0, 0) scale(0.985);
+			filter: blur(8px);
+		}
+		55% {
+			filter: blur(0);
+		}
+		to {
+			opacity: 1;
+			transform: none;
+			filter: none;
 		}
 	}
 	.clock-pane {
@@ -1226,6 +1430,51 @@
 	}
 	.trough.glass-field::before {
 		display: none;
+	}
+	/* StandBy night: an idle clock after dark goes red and quiet, like an
+	   iPhone on its side at night. Red keeps the room dark-adapted; the
+	   chrome fades out so only the time is left. */
+	.display-root {
+		transition: opacity 1.2s var(--spring-smooth);
+	}
+	.display-root.standby {
+		--foreground: #ff5b4d;
+		--text-primary: #ff5b4d;
+		--text-secondary: color-mix(in srgb, #ff5b4d 72%, var(--abyss));
+		--text-tertiary: color-mix(in srgb, #ff5b4d 48%, var(--abyss));
+		--brand: #c2382e;
+		--ok: #c2382e;
+		--solve: #c2382e;
+	}
+	.display-root.standby .top,
+	.display-root.standby .bottom,
+	.display-root.standby :global(.widgets) {
+		opacity: 0;
+		transition: opacity 1.6s var(--spring-smooth);
+	}
+	.display-root .top,
+	.display-root .bottom {
+		transition: opacity 600ms var(--spring-smooth);
+	}
+	.display-shell::after {
+		content: '';
+		position: fixed;
+		inset: 0;
+		z-index: 5;
+		background: #000;
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 1.6s var(--spring-smooth);
+	}
+	.display-shell.standby::after {
+		opacity: 0.62;
+	}
+	/* the island stays readable in StandBy but stops glowing at the room */
+	.display-shell :global(.stack) {
+		transition: opacity 1.6s var(--spring-smooth);
+	}
+	.display-shell.standby :global(.stack) {
+		opacity: 0.38;
 	}
 	.sleep .display-root {
 		opacity: 0.15;

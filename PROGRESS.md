@@ -1,5 +1,31 @@
 # Smart Display Progress Log
 
+## 2026-09-23: iOS-style features and fluidity
+
+### Done
+- **Liquid-glass tab lens.** The active-tab indicator is a small refractive
+  glass lens. Its leading and trailing edges move on different clocks, so it
+  stretches toward the new tab and settles, like the iOS 26 tab bar. It thins
+  while moving and squeezes on press.
+- **Direction-aware page transitions.** The new view slides in from the side
+  you moved toward, sharpening out of a light blur.
+- **Swipe between views** with touch or mouse, with a rubber band and flick
+  detection. Vertical drags still scroll.
+- **Smart Stack** (`src/lib/smartStack.js`, with tests): jumps to Music when
+  playback starts on the Clock and returns when it stops. After 10 minutes idle
+  it goes back to Clock. It never moves within 30 seconds of human input, and
+  its own navigate echo from the server isn't counted as input.
+- **StandBy night mode.** An idle Clock after dark turns red and quiet.
+  Preview it with `?standby=1`.
+- **Liquid metal:** ripples from the chosen tab on every view change, and taps
+  stir it too (touch never fires `pointermove`).
+- **Fixes in the shader:**
+  - Easing is now frame-rate independent, so eco mode (30fps) no longer eases
+    at half speed.
+  - Wind direction eases along the shortest arc instead of swinging through
+    180 degrees.
+- Removed the unused SVG goo filter from the page.
+
 ## 2026-09-23: UI review, redesign and optimization pass
 
 ### Done

@@ -335,16 +335,31 @@ void main() {
 		}, 80);
 	}
 
-	function handlePointerMove(e) {
+	function stirAt(clientX, clientY, holdMs = 2200) {
 		const vw = window.innerWidth || 1;
 		const vh = window.innerHeight || 1;
-		mouseTarget.x = e.clientX / vw;
-		mouseTarget.y = 1 - e.clientY / vh;
+		mouseTarget.x = clientX / vw;
+		mouseTarget.y = 1 - clientY / vh;
 		pointerActive = true;
 		clearTimeout(pointerIdleTimer);
 		pointerIdleTimer = window.setTimeout(() => {
 			pointerActive = false;
-		}, 2200);
+		}, holdMs);
+	}
+
+	function handlePointerMove(e) {
+		stirAt(e.clientX, e.clientY);
+	}
+
+	// Anything can ask the metal to ripple at a point, e.g. the tab strip
+	// when the view changes, so navigation visibly disturbs the liquid.
+	function handleImpulse(e) {
+		const d = e.detail || {};
+		if (!Number.isFinite(d.x) || !Number.isFinite(d.y)) return;
+		stirAt(d.x, d.y, d.hold ?? 1400);
+		// jump the ripple centre there instead of gliding from the last spot
+		mouseSmooth.x = mouseTarget.x;
+		mouseSmooth.y = mouseTarget.y;
 	}
 
 	function elapsed() {
@@ -383,16 +398,33 @@ void main() {
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
 	}
 
+	// Easing factors were tuned per 60fps frame. Scale them by the real
+	// frame time so eco mode (30fps) eases at the same speed instead of
+	// half speed.
+	let lastStep = 0;
+	function ease(a, frames) {
+		return 1 - Math.pow(1 - a, frames);
+	}
 	function stepMouse() {
-		mouseSmooth.x += (mouseTarget.x - mouseSmooth.x) * 0.06;
-		mouseSmooth.y += (mouseTarget.y - mouseSmooth.y) * 0.06;
-		mouseStrength += ((pointerActive ? 1 : 0) - mouseStrength) * 0.03;
-		wxSmooth.sun += (sun - wxSmooth.sun) * 0.04;
-		wxSmooth.twilight += (twilight - wxSmooth.twilight) * 0.04;
-		wxSmooth.rain += (rain - wxSmooth.rain) * 0.04;
-		wxSmooth.wind += (wind - wxSmooth.wind) * 0.04;
-		wxSmooth.cloud += (cloud - wxSmooth.cloud) * 0.04;
-		wxSmooth.windDir += (windDir - wxSmooth.windDir) * 0.04;
+		const now = performance.now();
+		const frames = lastStep ? Math.min(6, (now - lastStep) / (1000 / 60)) : 1;
+		lastStep = now;
+		const kMouse = ease(0.06, frames);
+		const kStrength = ease(0.03, frames);
+		const kWx = ease(0.04, frames);
+		mouseSmooth.x += (mouseTarget.x - mouseSmooth.x) * kMouse;
+		mouseSmooth.y += (mouseTarget.y - mouseSmooth.y) * kMouse;
+		mouseStrength += ((pointerActive ? 1 : 0) - mouseStrength) * kStrength;
+		wxSmooth.sun += (sun - wxSmooth.sun) * kWx;
+		wxSmooth.twilight += (twilight - wxSmooth.twilight) * kWx;
+		wxSmooth.rain += (rain - wxSmooth.rain) * kWx;
+		wxSmooth.wind += (wind - wxSmooth.wind) * kWx;
+		wxSmooth.cloud += (cloud - wxSmooth.cloud) * kWx;
+		// Wind direction is an angle: ease along the shortest arc, or a shift
+		// from 350deg to 10deg swings the flow the long way through 180deg.
+		const TAU = Math.PI * 2;
+		const dDir = ((((windDir - wxSmooth.windDir) % TAU) + TAU * 1.5) % TAU) - Math.PI;
+		wxSmooth.windDir += dDir * kWx;
 	}
 
 	function loop() {
@@ -491,6 +523,8 @@ void main() {
 		if (panelTimer) clearTimeout(panelTimer);
 		clearTimeout(pointerIdleTimer);
 		window.removeEventListener('pointermove', handlePointerMove);
+		window.removeEventListener('pointerdown', handlePointerMove);
+		window.removeEventListener('liquid-impulse', handleImpulse);
 		unsubBass?.();
 		stopAudio?.();
 		mo?.disconnect();
@@ -532,6 +566,9 @@ void main() {
 
 		window.addEventListener('resize', schedulePanels, { passive: true });
 		window.addEventListener('pointermove', handlePointerMove, { passive: true });
+		// a touch tap never fires pointermove, so taps stir the metal too
+		window.addEventListener('pointerdown', handlePointerMove, { passive: true });
+		window.addEventListener('liquid-impulse', handleImpulse);
 		const root = document.querySelector('.display-root') || document.body;
 		mo = new MutationObserver(schedulePanels);
 		mo.observe(root, {

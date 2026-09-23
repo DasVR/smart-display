@@ -197,9 +197,17 @@ Depth comes from translucency and light, not drop shadows:
 
 ## Components
 
-- **View tabs.** Text-only pills. A single sliding indicator moves between
-  them on a bouncy spring, with a brief SVG goo filter only while it
-  moves. Pressing scales the tab to `0.96`.
+- **View tabs.** Text-only pills over a liquid-glass lens (a small
+  `backdrop-filter` with a specular top glint). The lens's two edges move
+  on different clocks, so the leading edge races ahead (320ms) and the
+  trailing edge follows (560ms). It stretches toward the new tab and then
+  settles, and thins slightly while travelling. Pressing a tab squeezes it.
+- **Page transitions.** The incoming view slides 3.5% in from the side you
+  moved toward and sharpens out of an 8px blur. Direction is the shortest
+  way round the tab strip.
+- **StandBy.** At night, an idle Clock switches its text tokens to red
+  (`#ff5b4d`) and fades the mast, trough and chips. A black veil dims the
+  shader and the island drops to 38% opacity.
 - **Dynamic Island.** It sizes itself from a hidden copy of its own
   content (the "ghost") and rounds that measurement up, so a title never
   gets an ellipsis from a sub-pixel shortfall. Titles are capped at 17ch.

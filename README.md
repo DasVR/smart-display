@@ -56,6 +56,21 @@ These query parameters show a state without needing real hardware or data:
 | `/?island=install` | Island install-progress animation |
 | `/?wx=warning` / `watch` / `advisory` / `hurricane` / `rain` | Severe-weather ticker and island states |
 | `/?wx=notify` | A sample agent-finished notification |
+| `/?standby=1` | StandBy night mode on the Clock view |
+
+### Smart behaviours
+
+- **Swipe** left or right anywhere on the stage (touch or mouse drag) to change
+  views. The stage follows your finger with a rubber band and commits past
+  18% of the width or on a quick flick.
+- **Smart Stack** (`src/lib/smartStack.js`): when music starts while the
+  Clock is showing, the display moves to Music, and goes back when playback
+  stops. After 10 minutes with no input it drifts back to Clock. It never
+  moves within 30 seconds of a touch, key press or remote command.
+- **StandBy**: after 2 minutes idle on the Clock at night, the clock turns
+  red and everything else fades, like an iPhone in StandBy. Any touch wakes it.
+- **Liquid metal** ripples out from a tab when the view changes, and follows
+  your finger while you swipe.
 
 ### Keyboard
 
