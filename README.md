@@ -102,10 +102,18 @@ These query parameters show a state without needing real hardware or data:
 
 ### Phone remote
 
-- `/remote`: panel power, channel picker, volume, night schedule, and
-  proximity wake
-- `/remote/stats`: AirPlay, speakers, Bluetooth, host load, services, updates, git
-- `/remote/lyrics`: pick the lyrics provider for the current track
+Open `/remote` on a phone and use **Add to Home Screen** to run it as an app.
+A floating tab bar at the bottom switches between:
+
+- **Remote** (`/remote`): panel power, channel picker, volume
+- **Night** (`/remote#night`): night schedule and proximity wake
+- **Lyrics** (`/remote/lyrics`): pick the lyrics provider for the current track
+- **Stats** (`/remote/stats`): AirPlay, speakers, Bluetooth, host load, services,
+  updates, git
+
+Running as a home-screen app, the pages draw under the status bar. They
+pad every edge by its safe-area inset, and keep every tap target in the
+lower, thumb-reachable part of the screen.
 
 ## Project layout
 

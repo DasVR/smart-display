@@ -9,6 +9,12 @@
 	import { writable } from 'svelte/store';
 	import { primeAudio, playChime, playVolumeTick } from '$lib/services/chime.js';
 	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
+	import { page } from '$app/state';
+	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
+
+	// Two panes on one page, picked by the bottom tab bar: the everyday
+	// controls, and the night schedule + proximity settings (#night).
+	let pane = $derived(page.url.hash === '#night' ? 'night' : 'control');
 
 	const current = writable('clock');
 	const views = KIOSK_VIEWS.map((id) => ({ id, label: kioskViewLabel(id) }));
@@ -508,290 +514,294 @@
 			<span class="dot"></span>
 			<span>{status}</span>
 		</div>
-		<div class="bar-end">
-			<a class="stats-link" href="/remote/lyrics">Lyrics</a>
-			<a class="stats-link" href="/remote/stats">Stats</a>
-			<p class="panel" class:off={hdmi === 'off'}>{hdmi === 'off' ? 'Panel off' : 'Panel on'}</p>
-		</div>
+		<p class="panel" class:off={hdmi === 'off'}>{hdmi === 'off' ? 'Panel off' : 'Panel on'}</p>
 	</header>
 
-	<section class="block power-block" aria-label="Power">
-		<button
-			class="power"
-			class:off={hdmi === 'off'}
-			onclick={togglePower}
-			disabled={status !== 'connected'}
-			aria-pressed={hdmi === 'on'}
-			aria-label={hdmi === 'off' ? 'Turn panel on' : 'Turn panel off'}
-		>
-			<svg viewBox="0 0 24 24" aria-hidden="true">
-				<path d="M12 3v9" />
-				<path d="M7.2 6.8a7 7 0 1 0 9.6 0" />
-			</svg>
-		</button>
-		<p class="power-label">
-			{hdmi === 'off' ? 'Off' : 'On'}{#if autoNights && hold}<span class="power-hold"> · held</span>{/if}
-		</p>
-	</section>
-
-	<section class="block" aria-label="Channel">
-		<p class="kicker">Channel</p>
-		<div class="transport">
-			<button class="step" aria-label="previous channel" onclick={prev}>‹</button>
-			<div class="now">
-				<p class="now-name">{viewLabel($current)}</p>
-			</div>
-			<button class="step" aria-label="next channel" onclick={next}>›</button>
-		</div>
-		<div class="pad" role="tablist" aria-label="Views">
-			{#each views as v}
+	{#if pane === 'control'}
+		<div class="pane control-pane">
+			<section class="block power-block" aria-label="Power">
 				<button
-					class="key"
-					class:active={v.id === $current}
-					onclick={() => go(v.id)}
-					role="tab"
-					aria-selected={v.id === $current}
-					aria-label={`Show ${v.label}`}
+					class="power"
+					class:off={hdmi === 'off'}
+					onclick={togglePower}
+					disabled={status !== 'connected'}
+					aria-pressed={hdmi === 'on'}
+					aria-label={hdmi === 'off' ? 'Turn panel on' : 'Turn panel off'}
 				>
-					{v.label}
+					<svg viewBox="0 0 24 24" aria-hidden="true">
+						<path d="M12 3v9" />
+						<path d="M7.2 6.8a7 7 0 1 0 9.6 0" />
+					</svg>
 				</button>
-			{/each}
-		</div>
-	</section>
+				<p class="power-label">
+					{hdmi === 'off' ? 'Off' : 'On'}{#if autoNights && hold}<span class="power-hold"> · held</span>{/if}
+				</p>
+			</section>
 
-	<section
-		class="block volume-block"
-		aria-label="Volume"
-		ontouchstart={(e) => e.stopPropagation()}
-		ontouchend={(e) => e.stopPropagation()}
-	>
-		<p class="kicker">Volume</p>
-		<div class="volume-row">
-			<button
-				class="mute-toggle"
-				class:muted
-				onclick={toggleMute}
-				aria-pressed={muted}
-				aria-label={muted ? 'Unmute' : 'Mute'}
-			>
-				<svg viewBox="0 0 24 24" aria-hidden="true">
-					<path d="M4 9v6h4l5 5V4L8 9H4z" />
-					{#if muted}
-						<path d="M16 9l5 6M21 9l-5 6" />
-					{:else}
-						<path d="M16.5 8.5a5 5 0 0 1 0 7" />
-						<path d="M19 6a8.5 8.5 0 0 1 0 12" />
-					{/if}
-				</svg>
-			</button>
-			<input
-				class="volume-slider"
-				type="range"
-				min="0"
-				max="1"
-				step="0.01"
-				bind:value={volume}
-				oninput={(e) => queueVolume(Number(e.currentTarget.value))}
-			/>
-			<span class="volume-pct">{Math.round((muted ? 0 : volume) * 100)}%</span>
-		</div>
-		{#if volumeError}
-			<p class="note">{volumeError}</p>
-		{/if}
-	</section>
-
-	<section
-		class="block night-block"
-		aria-label="Night schedule"
-		ontouchstart={(e) => e.stopPropagation()}
-		ontouchend={(e) => e.stopPropagation()}
-	>
-		<header class="night-head">
-			<span>Night</span>
-			<span class="night-summary">{nightSummaryText()}</span>
-		</header>
-		<div class="night-tabs" role="tablist" aria-label="Schedule">
-			<button
-				class="night-tab"
-				class:on={nightTab === 'times'}
-				role="tab"
-				aria-selected={nightTab === 'times'}
-				onclick={() => setNightTab('times')}
-			>
-				Times
-			</button>
-			<button
-				class="night-tab"
-				class:on={nightTab === 'days'}
-				role="tab"
-				aria-selected={nightTab === 'days'}
-				onclick={() => setNightTab('days')}
-			>
-				Days
-			</button>
-		</div>
-		<div class="night-body">
-			{#if nightTab === 'times'}
-				<div class="rockers">
-					<button
-						class="rocker"
-						class:on={autoNights}
-						aria-pressed={autoNights}
-						onclick={() => {
-							autoNights = !autoNights;
-							clearTimeout(saveTimer);
-							saveNightSchedule();
-							playChime('tap');
-						}}
-					>
-						Auto schedule
-					</button>
-					<button
-						class="rocker"
-						class:on={wakeOnPhone}
-						aria-pressed={wakeOnPhone}
-						onclick={() => {
-							wakeOnPhone = !wakeOnPhone;
-							clearTimeout(saveTimer);
-							saveNightSchedule();
-							playChime('tap');
-						}}
-					>
-						Phone wake
-					</button>
+			<section class="block" aria-label="Channel">
+				<p class="kicker">Channel</p>
+				<div class="transport">
+					<button class="step" aria-label="previous channel" onclick={prev}>‹</button>
+					<div class="now">
+						<p class="now-name">{viewLabel($current)}</p>
+					</div>
+					<button class="step" aria-label="next channel" onclick={next}>›</button>
 				</div>
-				<div class="times" class:disabled={!autoNights}>
-					<label>
-						<span>Off</span>
-						<input
-							type="time"
-							bind:value={offAt}
-							disabled={!autoNights}
-							onchange={(e) => {
-								offAt = clockValue(e.currentTarget.value);
-								queueSave();
-							}}
-						/>
-					</label>
-					<label>
-						<span>On</span>
-						<input
-							type="time"
-							bind:value={onAt}
-							disabled={!autoNights}
-							onchange={(e) => {
-								onAt = clockValue(e.currentTarget.value);
-								queueSave();
-							}}
-						/>
-					</label>
-				</div>
-				<p class="note">{phoneNote()}</p>
-			{:else}
-				<p class="kicker">Off on these nights</p>
-				<div class="day-pad" class:disabled={!autoNights} role="group" aria-label="Nights the panel turns off">
-					{#each weekDays as day}
+				<div class="pad" role="tablist" aria-label="Views">
+					{#each views as v}
 						<button
-							class="day-key"
-							class:on={days.includes(day.id)}
-							aria-pressed={days.includes(day.id)}
-							aria-label={day.name}
-							disabled={!autoNights}
-							onclick={() => toggleDay(day.id)}
+							class="key"
+							class:active={v.id === $current}
+							onclick={() => go(v.id)}
+							role="tab"
+							aria-selected={v.id === $current}
+							aria-label={`Show ${v.label}`}
 						>
-							{day.short}
+							{v.label}
 						</button>
 					{/each}
 				</div>
-				<p class="note">
-					{#if !days.length}
-						No nights selected. The panel stays on.
-					{:else if days.length === 7}
-						Every night.
+			</section>
+
+			<section
+				class="block volume-block"
+				aria-label="Volume"
+				ontouchstart={(e) => e.stopPropagation()}
+				ontouchend={(e) => e.stopPropagation()}
+			>
+				<p class="kicker">Volume</p>
+				<div class="volume-row">
+					<button
+						class="mute-toggle"
+						class:muted
+						onclick={toggleMute}
+						aria-pressed={muted}
+						aria-label={muted ? 'Unmute' : 'Mute'}
+					>
+						<svg viewBox="0 0 24 24" aria-hidden="true">
+							<path d="M4 9v6h4l5 5V4L8 9H4z" />
+							{#if muted}
+								<path d="M16 9l5 6M21 9l-5 6" />
+							{:else}
+								<path d="M16.5 8.5a5 5 0 0 1 0 7" />
+								<path d="M19 6a8.5 8.5 0 0 1 0 12" />
+							{/if}
+						</svg>
+					</button>
+					<input
+						class="volume-slider"
+						type="range"
+						min="0"
+						max="1"
+						step="0.01"
+						bind:value={volume}
+						oninput={(e) => queueVolume(Number(e.currentTarget.value))}
+					/>
+					<span class="volume-pct">{Math.round((muted ? 0 : volume) * 100)}%</span>
+				</div>
+				{#if volumeError}
+					<p class="note">{volumeError}</p>
+				{/if}
+			</section>
+
+			{#if lastAction && lastAction !== 'connected'}
+				<p class="last">{lastAction}</p>
+			{/if}
+		</div>
+	{:else}
+		<div class="pane night-pane">
+			<section
+				class="block night-block"
+				aria-label="Night schedule"
+				ontouchstart={(e) => e.stopPropagation()}
+				ontouchend={(e) => e.stopPropagation()}
+			>
+				<header class="night-head">
+					<span>Night</span>
+					<span class="night-summary">{nightSummaryText()}</span>
+				</header>
+				<div class="night-tabs" role="tablist" aria-label="Schedule">
+					<button
+						class="night-tab"
+						class:on={nightTab === 'times'}
+						role="tab"
+						aria-selected={nightTab === 'times'}
+						onclick={() => setNightTab('times')}
+					>
+						Times
+					</button>
+					<button
+						class="night-tab"
+						class:on={nightTab === 'days'}
+						role="tab"
+						aria-selected={nightTab === 'days'}
+						onclick={() => setNightTab('days')}
+					>
+						Days
+					</button>
+				</div>
+				<div class="night-body">
+					{#if nightTab === 'times'}
+						<div class="rockers">
+							<button
+								class="rocker"
+								class:on={autoNights}
+								aria-pressed={autoNights}
+								onclick={() => {
+									autoNights = !autoNights;
+									clearTimeout(saveTimer);
+									saveNightSchedule();
+									playChime('tap');
+								}}
+							>
+								Auto schedule
+							</button>
+							<button
+								class="rocker"
+								class:on={wakeOnPhone}
+								aria-pressed={wakeOnPhone}
+								onclick={() => {
+									wakeOnPhone = !wakeOnPhone;
+									clearTimeout(saveTimer);
+									saveNightSchedule();
+									playChime('tap');
+								}}
+							>
+								Phone wake
+							</button>
+						</div>
+						<div class="times" class:disabled={!autoNights}>
+							<label>
+								<span>Off</span>
+								<input
+									type="time"
+									bind:value={offAt}
+									disabled={!autoNights}
+									onchange={(e) => {
+										offAt = clockValue(e.currentTarget.value);
+										queueSave();
+									}}
+								/>
+							</label>
+							<label>
+								<span>On</span>
+								<input
+									type="time"
+									bind:value={onAt}
+									disabled={!autoNights}
+									onchange={(e) => {
+										onAt = clockValue(e.currentTarget.value);
+										queueSave();
+									}}
+								/>
+							</label>
+						</div>
+						<p class="note">{phoneNote()}</p>
 					{:else}
-						Overnight mornings follow the night that started the evening before.
+						<p class="kicker">Off on these nights</p>
+						<div class="day-pad" class:disabled={!autoNights} role="group" aria-label="Nights the panel turns off">
+							{#each weekDays as day}
+								<button
+									class="day-key"
+									class:on={days.includes(day.id)}
+									aria-pressed={days.includes(day.id)}
+									aria-label={day.name}
+									disabled={!autoNights}
+									onclick={() => toggleDay(day.id)}
+								>
+									{day.short}
+								</button>
+							{/each}
+						</div>
+						<p class="note">
+							{#if !days.length}
+								No nights selected. The panel stays on.
+							{:else if days.length === 7}
+								Every night.
+							{:else}
+								Overnight mornings follow the night that started the evening before.
+							{/if}
+						</p>
+					{/if}
+				</div>
+			</section>
+
+			<section
+				class="block proximity-block"
+				aria-label="Proximity wake"
+				ontouchstart={(e) => e.stopPropagation()}
+				ontouchend={(e) => e.stopPropagation()}
+			>
+				<header class="night-head">
+					<span>Nearby</span>
+					<span class="night-summary">{wakeOnProximity ? `within ${proximityMeters}m` : 'off'}</span>
+				</header>
+				<div class="rockers">
+					<button
+						class="rocker"
+						class:on={wakeOnProximity}
+						aria-pressed={wakeOnProximity}
+						disabled={!proximityDevice}
+						onclick={() => {
+							wakeOnProximity = !wakeOnProximity;
+							queueProximitySave();
+							playChime('tap');
+						}}
+					>
+						Wake when I'm near
+					</button>
+				</div>
+				<label class="proximity-field">
+					<span>Device</span>
+					<select
+						bind:value={proximityDevice}
+						onchange={queueProximitySave}
+					>
+						<option value="">Choose a paired device</option>
+						{#each nearbyDevices as d (d.address)}
+							<option value={d.address}>{nearbyOptionLabel(d)}</option>
+						{/each}
+						{#if proximityDevice && !nearbyDevices.some((d) => sameAddr(d.address, proximityDevice))}
+							<option value={proximityDevice}>{proximityDevice} (not seen right now)</option>
+						{/if}
+					</select>
+				</label>
+				<label class="proximity-field">
+					<span>Distance</span>
+					<input
+						type="range"
+						min="1"
+						max="15"
+						step="0.5"
+						bind:value={proximityMeters}
+						oninput={queueProximitySave}
+						onchange={queueProximitySave}
+					/>
+					<span class="proximity-value">{proximityMeters}m</span>
+				</label>
+				<p class="note">
+					{#if !nearbyDevices.length}
+						No paired Bluetooth devices yet. Pair your phone with this display, pick it above, then walk
+						the room and watch the distance here.
+					{:else if proximityDevice}
+						{proximityDeviceLabel(proximityDevice)} is
+						{#if liveDistance() != null}
+							~{liveDistance()}m away{liveNear() ? ' · near' : ''}
+						{:else if selectedNearby()?.connected}
+							connected, waiting for a range reading
+						{:else}
+							not in range
+						{/if}
+					{:else}
+						Pick a device above, then walk the room to find a good threshold.
 					{/if}
 				</p>
-			{/if}
+			</section>
 		</div>
-	</section>
-
-	<section
-		class="block proximity-block"
-		aria-label="Proximity wake"
-		ontouchstart={(e) => e.stopPropagation()}
-		ontouchend={(e) => e.stopPropagation()}
-	>
-		<header class="night-head">
-			<span>Nearby</span>
-			<span class="night-summary">{wakeOnProximity ? `within ${proximityMeters}m` : 'off'}</span>
-		</header>
-		<div class="rockers">
-			<button
-				class="rocker"
-				class:on={wakeOnProximity}
-				aria-pressed={wakeOnProximity}
-				disabled={!proximityDevice}
-				onclick={() => {
-					wakeOnProximity = !wakeOnProximity;
-					queueProximitySave();
-					playChime('tap');
-				}}
-			>
-				Wake when I'm near
-			</button>
-		</div>
-		<label class="proximity-field">
-			<span>Device</span>
-			<select
-				bind:value={proximityDevice}
-				onchange={queueProximitySave}
-			>
-				<option value="">Choose a paired device</option>
-				{#each nearbyDevices as d (d.address)}
-					<option value={d.address}>{nearbyOptionLabel(d)}</option>
-				{/each}
-				{#if proximityDevice && !nearbyDevices.some((d) => sameAddr(d.address, proximityDevice))}
-					<option value={proximityDevice}>{proximityDevice} (not seen right now)</option>
-				{/if}
-			</select>
-		</label>
-		<label class="proximity-field">
-			<span>Distance</span>
-			<input
-				type="range"
-				min="1"
-				max="15"
-				step="0.5"
-				bind:value={proximityMeters}
-				oninput={queueProximitySave}
-				onchange={queueProximitySave}
-			/>
-			<span class="proximity-value">{proximityMeters}m</span>
-		</label>
-		<p class="note">
-			{#if !nearbyDevices.length}
-				No paired Bluetooth devices yet. Pair your phone with this display, pick it above, then walk
-				the room and watch the distance here.
-			{:else if proximityDevice}
-				{proximityDeviceLabel(proximityDevice)} is
-				{#if liveDistance() != null}
-					~{liveDistance()}m away{liveNear() ? ' · near' : ''}
-				{:else if selectedNearby()?.connected}
-					connected, waiting for a range reading
-				{:else}
-					not in range
-				{/if}
-			{:else}
-				Pick a device above, then walk the room to find a good threshold.
-			{/if}
-		</p>
-	</section>
-
-	{#if lastAction && lastAction !== 'connected'}
-		<p class="last">{lastAction}</p>
 	{/if}
 </div>
+
+<RemoteTabBar active={pane} />
 
 <style>
 	:global(html, body) {
@@ -803,7 +813,11 @@
 		overflow-x: clip;
 		-webkit-tap-highlight-color: transparent;
 	}
+	/* Saved to an iPhone home screen the page runs under the status bar
+	   (viewport-fit=cover + black-translucent), so every edge respects its
+	   safe-area inset; the bottom also clears the floating tab bar. */
 	.remote {
+		--tabbar-clearance: calc(4.6rem + max(0.75rem, env(safe-area-inset-bottom)));
 		width: 100%;
 		min-height: 100dvh;
 		max-width: 22.5rem;
@@ -811,7 +825,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-5);
-		padding: var(--space-4) var(--space-5) max(var(--space-6), env(safe-area-inset-bottom));
+		padding:
+			calc(env(safe-area-inset-top) + var(--space-3))
+			calc(env(safe-area-inset-right) + var(--space-5))
+			calc(var(--tabbar-clearance) + var(--space-3))
+			calc(env(safe-area-inset-left) + var(--space-5));
 		box-sizing: border-box;
 		user-select: none;
 		-webkit-user-select: none;
@@ -822,26 +840,20 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-3);
+		min-height: 2rem;
 	}
-	.bar-end {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-3);
-		min-width: 0;
+	/* The everyday controls hug the bottom of the screen, right above the
+	   tab bar, so channel, power and volume sit in one-handed thumb reach;
+	   the status line stays up top where it only needs to be read. */
+	.pane {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-5);
+		min-height: 0;
 	}
-	.stats-link {
-		display: inline-flex;
-		align-items: center;
-		min-height: 2.75rem;
-		color: var(--text-tertiary);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		text-decoration: none;
-	}
-	.stats-link:hover { color: var(--foreground); }
-	.stats-link:focus-visible {
-		outline: 2px solid var(--brand);
-		outline-offset: 2px;
+	.control-pane {
+		justify-content: flex-end;
 	}
 	.status,
 	.panel {
@@ -908,7 +920,7 @@
 		outline: 2px solid var(--brand);
 		outline-offset: 3px;
 	}
-	.power:active { transform: scale(0.9); transition-duration: 90ms; }
+	.power:active { transform: scale(0.96); transition-duration: 90ms; }
 	.power:disabled { opacity: 0.4; cursor: not-allowed; }
 	.power.off { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
 	.power-label {
@@ -962,7 +974,7 @@
 	.rocker:active,
 	.night-tab:active,
 	.day-key:active {
-		transform: scale(0.94);
+		transform: scale(0.96);
 		transition-duration: 90ms;
 	}
 	.now-name {
@@ -1038,7 +1050,7 @@
 		stroke-linejoin: round;
 	}
 	.mute-toggle:active {
-		transform: scale(0.92);
+		transform: scale(0.96);
 		transition-duration: 90ms;
 	}
 	.mute-toggle:focus-visible {

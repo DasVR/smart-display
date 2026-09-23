@@ -5,6 +5,7 @@
 -->
 <script>
 	import '../../../app.css';
+	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 	import { onMount } from 'svelte';
 	import { islandActivityForUpdates } from '$lib/hostUpdatesModel.js';
 
@@ -97,7 +98,6 @@
 
 <div class="remote" role="region" aria-label="Kiosk stats">
 	<header class="bar">
-		<a class="back" href="/remote">Remote</a>
 		<div class="status" class:connected={status === 'live'} class:error={status === 'error'}>
 			<span class="dot"></span>
 			<span>{status}</span>
@@ -243,6 +243,8 @@
 	{/if}
 </div>
 
+<RemoteTabBar active="stats" />
+
 <style>
 	:global(html, body) {
 		margin: 0;
@@ -261,7 +263,13 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-4);
-		padding: var(--space-4) var(--space-5) max(var(--space-6), env(safe-area-inset-bottom));
+		/* home-screen app: clear the status bar, the notch sides and the
+		   floating tab bar */
+		padding:
+			calc(env(safe-area-inset-top) + var(--space-3))
+			calc(env(safe-area-inset-right) + var(--space-5))
+			calc(4.6rem + max(0.75rem, env(safe-area-inset-bottom)) + var(--space-3))
+			calc(env(safe-area-inset-left) + var(--space-5));
 		box-sizing: border-box;
 	}
 	.bar {
@@ -270,7 +278,6 @@
 		justify-content: space-between;
 		gap: var(--space-3);
 	}
-	.back,
 	.status {
 		display: inline-flex;
 		align-items: center;
@@ -282,8 +289,6 @@
 		color: var(--text-tertiary);
 		text-decoration: none;
 	}
-	.back:hover { color: var(--foreground); }
-	.back:focus-visible,
 	.status:focus-visible {
 		outline: 2px solid var(--brand);
 		outline-offset: 2px;
