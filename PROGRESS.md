@@ -1,5 +1,22 @@
 # Smart Display Progress Log
 
+## 2026-09-23: Phone remote for one-handed, home-screen use
+
+### Done
+- **Fixed the unreachable top row.** Saved to an iPhone home screen, the remote
+  runs under the status bar (`viewport-fit=cover` + `black-translucent`). The
+  pages used a flat 16px top padding, so the Lyrics/Stats links, and the only
+  way back from those pages, sat under the Dynamic Island. All three pages now
+  pad every edge by `env(safe-area-inset-*)`.
+- **Floating liquid-glass tab bar** (`RemoteTabBar.svelte`): Remote · Night ·
+  Lyrics · Stats, above the home indicator, with an iOS-style scroll-edge fade.
+- **Two panes on the Remote screen.** The everyday controls (power, channel,
+  volume) sit low, in thumb reach. The night schedule and proximity settings
+  moved to the Night tab (`/remote#night`).
+- Press feedback is `scale(0.96)` everywhere, matching the kiosk.
+- Checked on an emulated iPhone with 59px/34px safe-area insets: the header
+  clears the island, and every tap target on Stats and Lyrics is in the tab bar.
+
 ## 2026-09-23: GitHub Pages demo
 
 ### Done
