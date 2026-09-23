@@ -3,13 +3,15 @@
 	import { wsStatus } from '$lib/stores.js';
 	import BoardWidgets from './BoardWidgets.svelte';
 
-	let { atm = null, prediction = null } = $props();
+	// The clock face already shows the same Sun / Wind / Radar chips at full
+	// size, so the page turns them off here on that view instead of repeating them.
+	let { atm = null, prediction = null, showWidgets = true } = $props();
 
 	let bars = $derived($spectrum || []);
 </script>
 
 <div class="ambient-deck">
-	{#if atm}
+	{#if atm && showWidgets}
 		<BoardWidgets {atm} {prediction} compact />
 	{/if}
 	<div class="wave-bars" aria-hidden="true">
@@ -29,7 +31,7 @@
 		height: 100%;
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr) auto;
-		align-items: end;
+		align-items: center;
 		gap: var(--space-4);
 		padding: var(--space-3) var(--space-6);
 		pointer-events: none;
@@ -38,9 +40,10 @@
 	}
 	.wave-bars {
 		display: flex;
-		align-items: flex-end;
+		align-items: center;
 		justify-content: flex-start;
 		gap: var(--space-2);
+		grid-column: 2;
 		width: 100%;
 		height: 100%;
 		opacity: 0.85;
@@ -51,7 +54,9 @@
 		min-width: 0;
 		height: 100%;
 		transform: scaleY(var(--h));
-		transform-origin: center bottom;
+		/* grow from the midline so the bars sit on the same axis as the
+		   labels either side of them */
+		transform-origin: center;
 		border-radius: var(--radius-sm);
 		background: color-mix(in srgb, var(--brand) 40%, transparent);
 	}
@@ -69,7 +74,7 @@
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-tertiary);
-		padding-bottom: var(--space-1);
+		grid-column: 3;
 	}
 	.link-dot {
 		width: 0.4rem;
