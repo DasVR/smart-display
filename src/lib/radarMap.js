@@ -1,6 +1,5 @@
-/** 1706 Adams Cir S, Largo FL — parcel centroid from City of Largo GIS. */
-export const LARGO_LAT = 27.90218731;
-export const LARGO_LON = -82.7694744;
+// Home coordinates live in their own module so the Pages demo can swap them.
+export { LARGO_LAT, LARGO_LON } from './homeLocation.js';
 
 export const TILE_SIZE = 256;
 /** RainViewer radar tiles are native only through z7; z8 is a placeholder image. */

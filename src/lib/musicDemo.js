@@ -1,3 +1,9 @@
+import { PAGES_DEMO_TRACK } from './demo/demoTrack.js';
+
+// The GitHub Pages demo swaps in its own invented track (its lyrics are
+// original lines). `?.` because node tests import this file outside Vite.
+const pagesDemo = import.meta.env?.VITE_STATIC_DEMO === '1';
+
 export const DEMO_TRACK = {
 	title: 'No Surprises',
 	artist: 'Radiohead',
@@ -40,10 +46,10 @@ export function demoNowPlaying(
 	return {
 		playing: !freeze,
 		paused: freeze,
-		title: DEMO_TRACK.title,
-		artist: DEMO_TRACK.artist,
-		album: DEMO_TRACK.album,
-		art: DEMO_ART,
+		title: pagesDemo ? PAGES_DEMO_TRACK.title : DEMO_TRACK.title,
+		artist: pagesDemo ? PAGES_DEMO_TRACK.artist : DEMO_TRACK.artist,
+		album: pagesDemo ? PAGES_DEMO_TRACK.album : DEMO_TRACK.album,
+		art: pagesDemo ? PAGES_DEMO_TRACK.art : DEMO_ART,
 		position: pos,
 		positionAt: freeze ? now : now - pos * 1000,
 		length: DEMO_TRACK.length,
