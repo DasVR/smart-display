@@ -761,7 +761,7 @@
 >
 	<div class="map-clip">
 		<div class="map-zoom" class:city={zoomedIn} class:no-anim={suppressTransition}>
-			<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on 1706 Adams Circle South, Largo"></canvas>
+			<canvas bind:this={canvas} class="map" aria-label="Weather radar centered on home"></canvas>
 		</div>
 	</div>
 	{#if ditherUrl && !loading}

@@ -44,6 +44,29 @@ Run the tests (Node's built-in runner):
 npm test
 ```
 
+### Online demo (GitHub Pages)
+
+A self-contained copy of the kiosk UI runs at
+`https://<owner>.github.io/<repo>/`, with canned data and no server. A
+**Demo** button in the corner switches between scenarios: music with lyrics,
+StandBy, severe weather, agents, installs.
+
+- **One-time setup:** Settings → Pages → Source: **GitHub Actions**.
+- **Turn it on or off:** Actions → **Demo site (GitHub Pages)** → Run workflow
+  → `enable` or `disable`. Disabling replaces the site with a "demo is off"
+  page. To remove it entirely, unpublish it under Settings → Pages.
+- **Keep it fresh:** set the repository variable `DEMO_PAGES=on`, and every
+  push to `master` republishes the demo.
+- **Build locally:** `BASE_PATH=/smart-display npm run build:demo`, which writes
+  `build-demo/`.
+
+The demo build (`STATIC_DEMO=1`) swaps the Node adapter for the static one.
+`src/lib/demo/staticDemo.js` then answers `/api/*` and `/ws` in the browser.
+Its data is generic: a Chicago location, invented services, and a demo track
+with original lyrics. Vite swaps `src/lib/homeLocation.js` for a demo
+stand-in, so the kiosk's real coordinates never reach the published bundle.
+None of the demo code ends up in the kiosk build.
+
 ### Preview URLs
 
 These query parameters show a state without needing real hardware or data:

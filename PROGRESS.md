@@ -1,5 +1,24 @@
 # Smart Display Progress Log
 
+## 2026-09-23: GitHub Pages demo
+
+### Done
+- `npm run build:demo` builds a static copy of the kiosk UI. In the browser,
+  `src/lib/demo/staticDemo.js` stands in for the server: `/api/*` returns canned
+  JSON, and a fake `/ws` sends `init` frames, echoes navigation and streams a
+  spectrum. Weather is generated around the current time, with live RainViewer
+  radar over Chicago.
+- A Demo button (`src/lib/demo/DemoPanel.svelte`) picks between the existing
+  preview states.
+- `.github/workflows/demo-pages.yml` enables or disables the site from the
+  Actions tab. With `DEMO_PAGES=on`, it also republishes on every push.
+- **Privacy:**
+  - The home coordinates moved to `src/lib/homeLocation.js`, which the demo
+    build swaps for a stand-in.
+  - The radar's aria-label no longer spells out the street address.
+  - The demo track uses original lyrics.
+- The kiosk build contains none of the demo code (checked).
+
 ## 2026-09-23: iOS-style features and fluidity
 
 ### Done

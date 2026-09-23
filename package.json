@@ -8,12 +8,14 @@
     "build": "vite build",
     "preview": "vite preview --host",
     "start": "node src/ws-server.js",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build:demo": "STATIC_DEMO=1 VITE_STATIC_DEMO=1 vite build && cp build-demo/404.html build-demo/index.html && touch build-demo/.nojekyll"
   },
   "devDependencies": {
     "@fontsource-variable/fira-code": "^5.3.0",
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
     "@sveltejs/adapter-node": "^5.2.12",
+    "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.16.1",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@tailwindcss/vite": "^4.1.11",

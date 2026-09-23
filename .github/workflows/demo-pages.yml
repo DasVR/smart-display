@@ -1,0 +1,99 @@
+name: Demo site (GitHub Pages)
+
+# A self-contained demo of the kiosk UI with canned data, published to
+# https://<owner>.github.io/<repo>/. It never touches the kiosk itself.
+#
+# One-time setup: Settings → Pages → "Build and deployment" → Source:
+# "GitHub Actions".
+#
+# Turn it on or off from the Actions tab: "Demo site (GitHub Pages)" →
+# "Run workflow" → pick enable or disable.
+#   enable  - builds the demo and publishes it
+#   disable - replaces the site with a one-line "demo is off" page
+#
+# To keep the demo fresh automatically, set the repository variable
+# DEMO_PAGES to "on" (Settings → Secrets and variables → Actions →
+# Variables). Every push to master then republishes it. Any other value, or
+# no variable at all, leaves the site alone on push.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Publish the demo, or take it down
+        type: choice
+        options: [enable, disable]
+        default: enable
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: demo-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || vars.DEMO_PAGES == 'on'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        if: github.event_name == 'push' || inputs.mode == 'enable'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build demo
+        if: github.event_name == 'push' || inputs.mode == 'enable'
+        env:
+          BASE_PATH: /${{ github.event.repository.name }}
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build:demo
+
+      - name: Build "demo is off" page
+        if: github.event_name == 'workflow_dispatch' && inputs.mode == 'disable'
+        run: |
+          mkdir -p build-demo
+          cat > build-demo/index.html <<'HTML'
+          <!doctype html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta name="robots" content="noindex">
+          <title>Smart Display demo</title>
+          <style>
+            html,body{height:100%;margin:0}
+            body{display:grid;place-items:center;background:#07070b;color:#8a8a96;
+                 font:500 18px/1.5 system-ui,sans-serif}
+            b{color:#f2f2f6}
+          </style>
+          </head>
+          <body><p><b>Smart Display</b> demo is switched off.</p></body>
+          </html>
+          HTML
+          cp build-demo/index.html build-demo/404.html
+
+      # Needs Settings → Pages → Source set to "GitHub Actions" (one time).
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build-demo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
