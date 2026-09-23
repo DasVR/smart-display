@@ -62,13 +62,13 @@
 	let hdmiOff = $state(false);
 	let navEl = $state(null);
 	let tabRefs = $state([]);
-	let indicator = $state({ left: 0, width: 0, ready: false });
+	let indicator = $state({ left: 0, top: 0, width: 0, height: 0, ready: false });
 	let indicatorMorphing = $state(false);
 	let indicatorMorphTimer = 0;
 	// Plain (non-reactive) shadow of the indicator's last position. updateIndicator
 	// both reads and writes this to detect movement; using $state for that read
 	// would make the enclosing $effect depend on its own write and loop forever.
-	let lastIndicatorPos = { left: 0, width: 0, set: false };
+	let lastIndicatorPos = { left: 0, top: 0, width: 0, set: false };
 	// Same idea for the view-swap chime below: plain, not $state, so reading
 	// it in the effect that reacts to $currentView doesn't create a
 	// self-triggering loop.
@@ -105,10 +105,16 @@
 		const navRect = navEl.getBoundingClientRect();
 		const btnRect = btn.getBoundingClientRect();
 		const left = btnRect.left - navRect.left;
+		// Track the row too: on a phone the tabs wrap to two lines, and an
+		// indicator pinned to the nav's full height spanned both of them.
+		const top = btnRect.top - navRect.top;
 		const width = btnRect.width;
-		const moved = lastIndicatorPos.set && (left !== lastIndicatorPos.left || width !== lastIndicatorPos.width);
-		lastIndicatorPos = { left, width, set: true };
-		indicator = { left, width, ready: true };
+		const height = btnRect.height;
+		const moved =
+			lastIndicatorPos.set &&
+			(left !== lastIndicatorPos.left || top !== lastIndicatorPos.top || width !== lastIndicatorPos.width);
+		lastIndicatorPos = { left, top, width, set: true };
+		indicator = { left, top, width, height, ready: true };
 		if (moved && typeof window !== 'undefined') {
 			const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 			if (!reduced) {
@@ -650,10 +656,6 @@
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
 	<defs>
-		<filter id="liquid-glass" x="-20%" y="-20%" width="140%" height="140%">
-			<feTurbulence type="fractalNoise" baseFrequency="0.012" numOctaves="2" seed="7" result="noise" />
-			<feDisplacementMap in="SourceGraphic" in2="noise" scale="14" xChannelSelector="R" yChannelSelector="G" />
-		</filter>
 		<filter id="nav-goo" x="-60%" y="-60%" width="220%" height="220%">
 			<feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur" />
 			<feColorMatrix
@@ -711,7 +713,7 @@
 						class="tab-indicator"
 						class:ready={indicator.ready}
 						class:morphing={indicatorMorphing}
-						style="--ind-left: {indicator.left}px; --ind-width: {indicator.width}px"
+						style="--ind-left: {indicator.left}px; --ind-top: {indicator.top}px; --ind-width: {indicator.width}px; --ind-height: {indicator.height}px"
 						aria-hidden="true"
 					></span>
 					{#each VIEWS as v, i (v)}
@@ -726,14 +728,15 @@
 						</button>
 					{/each}
 				</nav>
-				<div class="status-cluster">
-					<p class="dateline" class:receded={islandActive}>
-						{shortDate}
+				<span class="island-slot" aria-hidden="true"></span>
+				<div class="status-cluster" class:receded={islandActive}>
+					<p class="dateline">
 						{#if $currentView !== 'clock'}
 							<span class="time num">{clockLabel}</span>
 						{/if}
+						{shortDate}
 					</p>
-					<p class="wxline" class:receded={islandActive}>
+					<p class="wxline">
 						{#if weatherLoading}
 							<span class="skeleton inline"></span>
 						{:else if $weather.temp !== '--'}
@@ -791,7 +794,11 @@
 				{/each}
 			</div>
 			<div class="trough glass-field" data-glass>
-				<AmbientDeck {atm} prediction={wxForIsland?.prediction || weatherData?.prediction} />
+				<AmbientDeck
+					{atm}
+					prediction={wxForIsland?.prediction || weatherData?.prediction}
+					showWidgets={$currentView !== 'clock'}
+				/>
 			</div>
 		</footer>
 	</div>
@@ -904,55 +911,63 @@
 	   date/weather pushed hard to the right edge — the Dynamic Island lives
 	   independently of this row now (fixed, top-center), so this is free to
 	   just be a plain left/right split. */
+	/* Three columns: nav | island slot | status. The middle column reserves
+	   the resting Dynamic Island's footprint (it is position: fixed, so it
+	   takes no space on its own), which keeps the tabs and the date line
+	   from sliding underneath it at 1920px. Expanded notifications still
+	   grow past the slot; the status cluster recedes while they do. */
 	.top-row {
-		display: flex;
+		--island-slot: 25rem;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) var(--island-slot) minmax(0, 1fr);
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-8);
+		gap: var(--space-4);
 		width: 100%;
 		min-width: 0;
 	}
+	.island-slot {
+		grid-column: 2;
+	}
 	.status-cluster {
+		grid-column: 3;
+		justify-self: end;
 		display: flex;
-		align-items: center;
-		justify-content: flex-end;
-		flex-wrap: wrap;
-		gap: var(--space-4);
-		flex-shrink: 0;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: var(--space-1);
 		min-width: 0;
+		text-align: right;
+		transition: opacity 320ms var(--spring-smooth);
+	}
+	.status-cluster.receded {
+		opacity: 0.32;
 	}
 	.dateline,
 	.wxline {
 		margin: 0;
 		font-family: var(--font-body);
-		font-size: var(--text-3xl);
-		font-weight: 600;
 		letter-spacing: -0.025em;
-		color: var(--text-secondary);
 		overflow-wrap: anywhere;
 		min-width: 0;
-		line-height: 1.2;
+		line-height: 1.15;
+	}
+	.dateline {
+		font-size: var(--text-2xl);
+		font-weight: 600;
+		color: var(--text-secondary);
+	}
+	.wxline {
+		font-size: var(--text-xl);
+		font-weight: 500;
+		color: var(--text-tertiary);
 	}
 	.wxline .num {
-		margin-right: var(--space-2);
-		color: var(--foreground);
+		margin-right: var(--space-1);
+		font-weight: 600;
+		color: var(--text-secondary);
 	}
 	.display-root.wx-rain .wxline {
 		color: var(--scan);
-	}
-	.dateline,
-	.wxline {
-		transition: opacity 320ms var(--spring-smooth);
-	}
-	.dateline.receded,
-	.wxline.receded {
-		opacity: 0.32;
-	}
-	@media (prefers-reduced-motion: reduce) {
-		.dateline,
-		.wxline {
-			transition: opacity 240ms var(--spring-smooth);
-		}
 	}
 	.view-title {
 		margin: var(--space-6) 0 0;
@@ -967,18 +982,19 @@
 		min-width: 0;
 	}
 	.dateline .time {
-		margin-left: var(--space-3);
-		padding-left: var(--space-3);
-		border-left: 1px solid var(--hairline);
-		color: var(--brand);
+		margin-right: var(--space-3);
+		padding-right: var(--space-3);
+		border-right: 1px solid var(--hairline);
+		color: var(--foreground);
 	}
 	.view-strip {
 		position: relative;
+		grid-column: 1;
 		display: flex;
 		align-items: stretch;
 		width: max-content;
 		max-width: 100%;
-		gap: var(--space-2);
+		gap: 0;
 		padding: 0;
 		min-width: 0;
 		border: 0;
@@ -989,10 +1005,10 @@
 	}
 	.tab-indicator {
 		position: absolute;
-		top: 0;
-		bottom: 0;
+		top: var(--ind-top, 0);
 		left: var(--ind-left, 0);
 		width: var(--ind-width, 0);
+		height: var(--ind-height, 100%);
 		border-radius: 999px;
 		background: color-mix(in srgb, var(--brand) 14%, transparent);
 		border: 1px solid color-mix(in srgb, var(--brand) 30%, transparent);
@@ -1005,6 +1021,7 @@
 		opacity: 1;
 		transition:
 			left 520ms var(--spring-bouncy),
+			top 520ms var(--spring-bouncy),
 			width 520ms var(--spring-bouncy),
 			opacity 240ms var(--spring-smooth);
 	}
@@ -1032,18 +1049,18 @@
 		font-weight: 500;
 		letter-spacing: -0.01em;
 		text-transform: none;
-		padding: var(--space-2) var(--space-5);
+		padding: var(--space-2) var(--space-4);
 		cursor: pointer;
 		white-space: nowrap;
-		transition:
-			color 280ms var(--spring-smooth),
-			transform 320ms var(--spring-bouncy);
+		transition-property: color, transform;
+		transition-duration: 150ms, 320ms;
+		transition-timing-function: var(--spring-smooth), var(--spring-bouncy);
 	}
 	.view-tab:hover {
 		color: var(--text-secondary);
 	}
 	.view-tab:active {
-		transform: scale(0.92);
+		transform: scale(0.96);
 		transition-duration: 90ms;
 	}
 	.view-tab.active {
@@ -1222,23 +1239,57 @@
 	.display-shell.hdmi-off {
 		background: var(--background);
 	}
-	.display-root.morning {
-		animation: morningGlow 8s var(--spring-smooth) infinite alternate;
+	/* Morning briefing: a soft green edge glow that breathes. The shadow is
+	   painted once on a pseudo-element and only its opacity animates, so the
+	   compositor handles it. Animating box-shadow directly repainted the
+	   whole 1920x1080 root every frame for as long as morning mode lasted. */
+	.display-root.morning::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		pointer-events: none;
+		box-shadow: inset 0 0 120px color-mix(in srgb, var(--ok) 8%, transparent);
+		opacity: 0;
+		animation: morning-glow 8s var(--ease-in-out) infinite alternate;
 	}
-	@keyframes morningGlow {
-		from { box-shadow: inset 0 0 0 transparent; }
-		to { box-shadow: inset 0 0 120px color-mix(in srgb, var(--ok) 8%, transparent); }
+	@keyframes morning-glow {
+		to { opacity: 1; }
+	}
+	/* Hold the glass sheen still whenever the governor has dropped quality. */
+	.display-shell.eco :global(.sheet)::after,
+	.display-shell.frozen :global(.sheet)::after,
+	.display-shell.sleep :global(.sheet)::after {
+		animation: none;
+		will-change: auto;
+	}
+
+	/* Below 1600px the five tabs no longer fit left of the island slot, so
+	   the island gets its own band and the nav and status share the row
+	   underneath it. */
+	@media (max-width: 1599px) {
+		.top-row {
+			grid-template-columns: minmax(0, 1fr) auto;
+			padding-top: 3rem;
+		}
+		.island-slot {
+			display: none;
+		}
+		.status-cluster {
+			grid-column: 2;
+		}
 	}
 
 	@media (max-aspect-ratio: 4/3) {
 		.top-row {
-			flex-wrap: wrap;
-			align-items: flex-start;
+			grid-template-columns: minmax(0, 1fr) auto;
+			align-items: start;
+		}
+		.island-slot {
+			display: none;
 		}
 		.status-cluster {
-			justify-content: flex-end;
-			width: 100%;
-			padding-bottom: 0;
+			grid-column: 2;
 		}
 		.weather-trough {
 			width: 100%;
@@ -1274,17 +1325,24 @@
 			padding-top: var(--space-4);
 		}
 		.top-row {
-			flex-direction: column;
-			align-items: stretch;
+			grid-template-columns: minmax(0, 1fr);
+			/* the fixed island covers the top ~3.5rem on a phone */
+			padding-top: 3.5rem;
+		}
+		.island-slot {
+			display: none;
 		}
 		.status-cluster {
-			justify-content: flex-end;
-			padding-bottom: 0;
+			grid-column: 1;
+			justify-self: start;
+			align-items: flex-start;
+			text-align: left;
 		}
 		.view-strip {
+			grid-column: 1;
 			width: 100%;
 			flex-wrap: wrap;
-			gap: var(--space-4);
+			gap: var(--space-2);
 			border-radius: 0;
 		}
 		.center {
@@ -1307,6 +1365,12 @@
 		}
 		.clock-credits {
 			max-width: 100%;
+		}
+		/* the chips wrap onto extra lines at phone width; let the trough
+		   grow to hold them instead of spilling out the bottom */
+		.trough {
+			height: auto;
+			min-height: 6rem;
 		}
 		.bottom {
 			min-height: 0;

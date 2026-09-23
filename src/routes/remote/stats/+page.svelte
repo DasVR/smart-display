@@ -231,7 +231,7 @@
 			</div>
 			<div class="card" aria-label="Git">
 				<p class="kicker">Git</p>
-				<p class="value">{data.git?.branch || 'unknown'}</p>
+				<p class="value branch num" title={data.git?.branch || ''}>{data.git?.branch || 'unknown'}</p>
 				<p class="meta">
 					{data.git?.sha || ''}
 					{#if data.git?.dirty}
@@ -334,6 +334,19 @@
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
+	/* Branch names are machine strings: mono, smaller, and clamped to two
+	   lines instead of breaking mid-word across four. */
+	.value.branch {
+		font-size: var(--text-base);
+		font-weight: 600;
+		letter-spacing: 0;
+		overflow-wrap: anywhere;
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+	}
 	.hint,
 	.meta,
 	.note {
@@ -344,7 +357,6 @@
 		overflow-wrap: anywhere;
 	}
 	.hint.ok,
-	.value.ok,
 	strong.ok { color: var(--ok); }
 	.hint.warn,
 	.value.warn,

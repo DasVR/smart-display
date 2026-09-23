@@ -135,9 +135,12 @@
 		if (!ghostEl) return;
 		const r = ghostEl.getBoundingClientRect();
 		if (!r.width || !r.height) return;
-		const w = Math.round(r.width);
-		const h = Math.round(r.height);
-		if (w === Math.round(pillSize.w) && h === Math.round(pillSize.h)) return;
+		// Round up: the ghost lays out at a fractional max-content width, and
+		// rounding 469.4px down to 469px left the pill a hair too narrow, so
+		// text-overflow clipped titles like "Package updates" to an ellipsis.
+		const w = Math.ceil(r.width);
+		const h = Math.ceil(r.height);
+		if (w === pillSize.w && h === pillSize.h) return;
 		pillSize = { w, h };
 		if (!ready) ready = true;
 	}
@@ -440,7 +443,9 @@
 		font-weight: 600;
 		letter-spacing: -0.02em;
 		color: var(--foreground);
-		max-width: 14ch;
+		/* 17ch fits "Package updates" and "Network restored" whole; the
+		   resting pill still clears the page's 25rem island slot. */
+		max-width: 17ch;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;

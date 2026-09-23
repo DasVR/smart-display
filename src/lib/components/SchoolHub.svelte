@@ -75,7 +75,7 @@
 	let timetableCaption = $derived.by(() => {
 		if (loading) return '';
 		if (error) return error;
-		if (events.length === 0) return 'No due work in the next 7 days';
+		if (events.length === 0) return 'Nothing due';
 		return '';
 	});
 </script>

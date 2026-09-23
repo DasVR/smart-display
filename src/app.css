@@ -114,9 +114,9 @@
 	--text-8xl: 6rem;
 	--measure: 66ch;
 
-	--font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+	--font-body: 'Plus Jakarta Sans Variable', 'Plus Jakarta Sans', system-ui, sans-serif;
 	--font-display: var(--font-body);
-	--font-code: 'Fira Code', 'JetBrains Mono', ui-monospace, monospace;
+	--font-code: 'Fira Code Variable', 'Fira Code', ui-monospace, monospace;
 
 	--dur-fast: 150ms;
 	--dur-base: 220ms;
@@ -307,10 +307,13 @@ h6 {
 .sheet::before {
 	content: '';
 	position: absolute;
-	inset: -30%;
+	inset: 0;
 	z-index: -1;
+	/* --sheet-glow is already a soft radial gradient that fades to
+	   transparent, so it needs no blur filter on top. The old 70px blur
+	   over a box 160% the pane's size cost the iGPU a large offscreen pass
+	   on every pane change and bought no visible softness. */
 	background: var(--sheet-glow, transparent);
-	filter: blur(70px);
 	opacity: 0.5;
 	pointer-events: none;
 }
@@ -318,37 +321,40 @@ h6 {
 .sheet::after {
 	content: '';
 	position: absolute;
-	inset: 0;
+	top: 0;
+	bottom: 0;
+	left: -100%;
+	width: 300%;
 	z-index: 2;
 	pointer-events: none;
+	/* One slow specular band sweeping across the glass. It animates
+	   `transform` only, which the compositor moves without repainting.
+	   The previous version animated background-position through an SVG
+	   displacement filter, which re-rasterized the whole pane every frame. */
 	background: linear-gradient(
-		115deg,
-		transparent 22%,
-		color-mix(in srgb, var(--foreground) 14%, transparent) 48%,
-		transparent 74%
+		105deg,
+		transparent 38%,
+		color-mix(in srgb, var(--foreground) 7%, transparent) 50%,
+		transparent 62%
 	);
-	background-size: 260% 260%;
-	background-position: 0% 0%;
-	opacity: 0.55;
-	filter: url(#liquid-glass);
-	animation: sheen-sweep 12s var(--spring-smooth) infinite;
+	will-change: transform;
+	animation: sheen-sweep 14s var(--ease-in-out) infinite alternate;
 }
 
 @keyframes sheen-sweep {
-	0%,
-	100% {
-		background-position: 0% 0%;
+	from {
+		transform: translate3d(-22%, 0, 0);
 	}
-	50% {
-		background-position: 100% 100%;
+	to {
+		transform: translate3d(22%, 0, 0);
 	}
 }
 
 @media (prefers-reduced-motion: reduce) {
 	.sheet::after {
 		animation: none;
-		opacity: 0.18;
-		filter: none;
+		will-change: auto;
+		opacity: 0.4;
 	}
 }
 
