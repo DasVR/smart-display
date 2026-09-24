@@ -17,6 +17,17 @@
 - **Music.** The album art is no longer cropped at the top.
 - **Kiosk scrollbars.** Hidden in every build, to match the kiosk's
   `--hide-scrollbars`.
+- **Music rebuilt as a record deck** (inspired by the vinyl crate on the
+  spacehey-personal profile):
+  - The record slides out of the sleeve and spins while playing, and tucks
+    back when paused. It holds still in eco and frozen modes.
+  - Session history leans away like sleeves in a crate.
+  - A kicker line shows live bars, the source and a session counter
+    (`artSessionPosition()`, tested).
+  - The scrub bar fits on one row, and a progress ring runs round the play
+    button.
+  - The empty state is an empty sleeve.
+  - The lyrics engine is untouched.
 - **Remote.**
   - Raw process errors ("spawn wpctl ENOENT") become a plain message.
   - The power label says what a tap does, since "Panel on" is already shown

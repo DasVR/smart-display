@@ -17,7 +17,7 @@ Ollama, the package updater).
 | **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips | `/api/weather` |
 | **School** | The next thing due, then a rolling seven-day timetable starting today | `/api/calendar` (Google Calendar, `#hw` events) |
 | **Agents** | The active coding agent, the rest of the roster, host load and services | `/api/agents`, `/api/telemetry`, `/api/ollama/ps` |
-| **Music** | Album stage, synced and aligned lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
+| **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
 | **Weather** | Live radar with a nowcast, current conditions, NWS alerts | `/api/weather`, `/api/weather/station` |
 
 On every view, the **Dynamic Island** (top-center) shows transient events:

@@ -23,7 +23,7 @@
 		STACK_EASE_TAU_SEC,
 		wordProgress
 	} from '$lib/playbackClock.js';
-	import { rememberNowPlaying } from '$lib/artCarousel.js';
+	import { artSessionPosition, rememberNowPlaying } from '$lib/artCarousel.js';
 	import { displayLyricWords, shouldGlueLyricTokens } from '$lib/lyricWords.js';
 	import { isLyricReply } from '$lib/lyricVoices.js';
 	import { applyTransportOptimistic, nudgeNowPlaying } from '$lib/services/nowPlayingSync.js';
@@ -78,9 +78,17 @@
 		return [{ key: trackKey, art: track.art, slot: 'current' }];
 	});
 
+	let session = $state({ position: 0, total: 0 });
 	$effect(() => {
-		if (track?.title) carousel = rememberNowPlaying(track);
+		if (track?.title) {
+			carousel = rememberNowPlaying(track);
+			session = artSessionPosition();
+		}
 	});
+
+	const SOURCE_LABELS = { airplay: 'AirPlay', mpris: 'Bluetooth', bluetooth: 'Bluetooth' };
+	let sourceLabel = $derived(SOURCE_LABELS[track?.source] ?? '');
+	const pad2 = (n) => String(n).padStart(2, '0');
 
 	function measureLyricsOffset() {
 		const viewport = lyricsViewport;
@@ -343,35 +351,49 @@
 		</div>
 	{:else if !hasTrack}
 		<div class="empty">
-			<p class="empty-title">Nothing playing</p>
-			<p class="empty-copy">AirPlay from Apple Music, connect Bluetooth, or start a track here.</p>
+			<div class="empty-sleeve" aria-hidden="true"><span></span></div>
+			<div class="empty-text">
+				<p class="deck-kicker"><span class="live-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="deck-state">Deck is empty</span></p>
+				<p class="empty-title">Nothing playing</p>
+				<p class="empty-copy">AirPlay from Apple Music, connect Bluetooth, or start a track here.</p>
+			</div>
 		</div>
 	{:else}
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics || lyricsPending)}>
 			<div class="player-main">
+				<p class="deck-kicker">
+					<span class="live-bars" class:live={track.playing} aria-hidden="true"><i></i><i></i><i></i></span>
+					<span class="deck-state">{track.playing ? 'Now playing' : 'Paused'}</span>
+					{#if sourceLabel}<span class="deck-via">via {sourceLabel}</span>{/if}
+					{#if session.total > 1}
+						<span class="deck-count num" aria-label="Track {session.position} of {session.total} this session">{pad2(session.position)} / {pad2(session.total)}</span>
+					{/if}
+				</p>
+
 				<AlbumStage {track} cards={carouselCards} playing={Boolean(track.playing)} />
+
 				<div class="track-info">
-					<h1 class="track-title">{track.title}</h1>
+					<h2 class="track-title">{track.title}</h2>
 					<div class="track-artist">{track.artist}{track.album ? ` · ${track.album}` : ''}</div>
 				</div>
 
-				<div class="times">
-					<span>{fmtTime(displayPosition)}</span>
-					<span>{fmtTime(track.length)}</span>
-				</div>
-				<div
-					class="progress"
-					style="--p: {progress}"
-					role="slider"
-					tabindex="0"
-					aria-label="Seek"
-					aria-valuemin="0"
-					aria-valuemax={track.length || 0}
-					aria-valuenow={displayPosition}
-					onpointerdown={onSeekPointer}
-					onkeydown={onSeekKey}
-				>
-					<div class="progress-fill"></div>
+				<div class="scrub">
+					<span class="time num">{fmtTime(displayPosition)}</span>
+					<div
+						class="progress"
+						style="--p: {progress}"
+						role="slider"
+						tabindex="0"
+						aria-label="Seek"
+						aria-valuemin="0"
+						aria-valuemax={track.length || 0}
+						aria-valuenow={displayPosition}
+						onpointerdown={onSeekPointer}
+						onkeydown={onSeekKey}
+					>
+						<div class="progress-fill"></div>
+					</div>
+					<span class="time num">{fmtTime(track.length)}</span>
 				</div>
 
 				<div class="controls">
@@ -381,19 +403,23 @@
 							<path d="M18 6 8 12l10 6V6Z" fill="currentColor" />
 						</svg>
 					</button>
+					<!-- the track position runs round the play button as a ring
+					     (after the vinyl crate's player); drawn in CSS from --p -->
 					<button
 						type="button"
 						class="play"
+						style="--p: {progress}"
 						aria-label={track.playing ? 'Pause' : 'Play'}
 						onclick={togglePlay}
 					>
 						{#if track.playing}
-							<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<svg class="glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
 								<rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
 								<rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
 							</svg>
 						{:else}
-							<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+							<!-- nudged right 1px: a triangle's optical centre sits left of its box centre -->
+							<svg class="glyph play-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true">
 								<path d="M7 5v14l13-7L7 5Z" fill="currentColor" />
 							</svg>
 						{/if}
@@ -542,7 +568,7 @@
 	}
 	.player-main {
 		display: grid;
-		grid-template-rows: minmax(0, 1fr) auto auto auto auto;
+		grid-template-rows: auto minmax(0, 1fr) auto auto auto;
 		grid-template-columns: minmax(0, 1fr);
 		justify-items: center;
 		align-content: center;
@@ -557,6 +583,62 @@
 		min-height: 0;
 		width: 100%;
 		height: 100%;
+	}
+
+	/* "▮▮▮ NOW PLAYING  via AirPlay   02 / 05" — the deck's label strip */
+	.deck-kicker {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
+		width: min(100%, 30rem);
+		margin: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+	.deck-state {
+		color: var(--text-secondary);
+	}
+	.deck-via {
+		text-transform: none;
+		letter-spacing: 0;
+		font-weight: 500;
+	}
+	.deck-count {
+		margin-left: auto;
+		letter-spacing: 0;
+	}
+	.live-bars {
+		display: inline-flex;
+		align-items: flex-end;
+		gap: 2px;
+		height: 0.8rem;
+	}
+	.live-bars i {
+		width: 3px;
+		height: 30%;
+		border-radius: 1px;
+		background: currentColor;
+	}
+	.live-bars.live {
+		color: var(--ok);
+	}
+	.live-bars.live i:nth-child(1) { height: 70%; }
+	.live-bars.live i:nth-child(2) { height: 100%; }
+	.live-bars.live i:nth-child(3) { height: 50%; }
+	@media (prefers-reduced-motion: no-preference) {
+		.live-bars.live i {
+			animation: live-bar 900ms ease-in-out infinite alternate;
+			transform-origin: bottom;
+		}
+		.live-bars.live i:nth-child(2) { animation-delay: -300ms; }
+		.live-bars.live i:nth-child(3) { animation-delay: -600ms; }
+	}
+	@keyframes live-bar {
+		from { transform: scaleY(0.35); }
+		to { transform: scaleY(1); }
 	}
 
 	.track-info { text-align: center; min-width: 0; max-width: 100%; }
@@ -581,28 +663,24 @@
 		overflow-wrap: anywhere;
 	}
 
-	.times {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		width: min(540px, 100%);
-		max-width: 100%;
+	/* elapsed | bar | length on one row: a row shorter than time-above-bar */
+	.scrub {
+		display: grid;
+		grid-template-columns: auto minmax(0, 1fr) auto;
+		align-items: center;
+		gap: var(--space-3);
+		width: min(100%, 30rem);
 		flex-shrink: 0;
-		font-family: var(--font-code);
-		font-size: var(--text-lg);
-		font-variant-numeric: tabular-nums;
-		white-space: nowrap;
-		color: var(--text-tertiary);
 	}
-	.with-lyrics .times,
-	.with-lyrics .progress {
-		width: min(100%, 28rem);
+	.scrub .time {
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
+		white-space: nowrap;
 	}
 	.progress {
-		width: min(540px, 100%);
-		max-width: 100%;
-		flex-shrink: 0;
-		height: 14px;
+		width: 100%;
+		min-width: 0;
+		height: 1.25rem;
 		display: flex;
 		align-items: center;
 		cursor: pointer;
@@ -650,14 +728,29 @@
 	.controls button:hover { color: var(--accent); background: var(--shell-fill); }
 	.controls button:active { transform: scale(0.94); }
 	.controls button.play {
+		position: relative;
 		width: 4.25rem;
 		height: 4.25rem;
 		background: var(--accent-soft);
-		border: 1px solid var(--accent-border);
 		color: var(--accent-strong);
 	}
-	.controls button.play svg { width: 1.9rem; height: 1.9rem; }
-	.controls button.play:hover { background: var(--accent); color: var(--abyss); }
+	.controls button.play .glyph { width: 1.9rem; height: 1.9rem; }
+	.controls button.play .play-glyph { transform: translateX(1px); }
+	.controls button.play:hover { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--foreground); }
+	/* progress ring: a conic sweep masked down to a 2px band at the edge */
+	.controls button.play::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		border-radius: 50%;
+		background: conic-gradient(
+			var(--accent) calc(var(--p, 0) * 1turn),
+			var(--accent-border) 0
+		);
+		-webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+		mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+		pointer-events: none;
+	}
 
 	.lyrics-viewport {
 		min-width: 0;
@@ -1025,16 +1118,43 @@
 	.empty {
 		flex: 1;
 		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: flex-end;
-		gap: var(--space-2);
-		padding-bottom: var(--space-4);
+		align-items: center;
+		gap: var(--space-8);
+		padding: 0 var(--space-6);
 		color: var(--text-tertiary);
 		font-family: var(--font-body);
 		font-size: var(--text-xl);
 		text-align: left;
 		max-width: var(--measure);
+	}
+	.empty-text {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		min-width: 0;
+	}
+	.empty-text .deck-kicker {
+		width: auto;
+		margin-bottom: var(--space-2);
+	}
+	/* an empty sleeve with the record's ghost ring, where the album would be */
+	.empty-sleeve {
+		flex-shrink: 0;
+		width: min(30vh, 16rem);
+		aspect-ratio: 1;
+		border-radius: var(--radius-sm);
+		display: grid;
+		place-items: center;
+		background: linear-gradient(160deg, var(--abyss-2), var(--abyss));
+		box-shadow:
+			0 0 0 1px color-mix(in srgb, var(--foreground) 9%, transparent),
+			0 22px 44px -14px color-mix(in srgb, #000 75%, transparent);
+	}
+	.empty-sleeve span {
+		width: 64%;
+		aspect-ratio: 1;
+		border-radius: 50%;
+		border: 1px dashed color-mix(in srgb, var(--foreground) 16%, transparent);
 	}
 	.empty-title {
 		margin: 0;
@@ -1061,9 +1181,9 @@
 			grid-template-rows: auto minmax(12rem, 1fr);
 			overflow: hidden;
 		}
-		.with-lyrics .times,
-		.with-lyrics .progress {
-			width: min(540px, 100%);
+		.empty {
+			flex-direction: column;
+			align-items: flex-start;
 		}
 		.lyrics-viewport {
 			min-height: 12rem;

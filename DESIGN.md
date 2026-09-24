@@ -199,6 +199,19 @@ Depth comes from translucency and light, not drop shadows:
   on different clocks, so the leading edge races ahead (320ms) and the
   trailing edge follows (560ms). It stretches toward the new tab and then
   settles, and thins slightly while travelling. Pressing a tab squeezes it.
+- **Music deck.** The left column reads like a record deck:
+  - A kicker line: live bars, Now playing / Paused, the source ("via
+    AirPlay"), and a session counter ("02 / 05").
+  - The album sleeve. While the track plays, the record slides 46% out to
+    the right and spins, its label cut from the album art. When paused, it
+    tucks back into the sleeve.
+  - Earlier and later tracks from the session lean away at ±58°, like
+    sleeves in a crate.
+  - The elapsed time, seek bar and length share one row.
+  - The track position runs round the play button as a ring: a CSS conic
+    gradient masked to a 2px band.
+  - These ideas come from the vinyl crate on the spacehey-personal
+    profile. The lyrics engine on the right is unchanged.
 - **Page transitions.** The incoming view slides 3.5% in from the side you
   moved toward and sharpens out of an 8px blur. Direction is the shortest
   way round the tab strip.
