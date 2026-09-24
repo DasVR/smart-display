@@ -106,7 +106,7 @@ Open `/remote` on a phone and use **Add to Home Screen** to run it as an app.
 A floating tab bar at the bottom switches between:
 
 - **Remote** (`/remote`): panel power, channel picker, volume
-- **Night** (`/remote#night`): night schedule and proximity wake
+- **Night** (`/remote#night`): night schedule and phone wake
 - **Lyrics** (`/remote/lyrics`): pick the lyrics provider for the current track
 - **Stats** (`/remote/stats`): AirPlay, speakers, Bluetooth, host load, services,
   updates, git

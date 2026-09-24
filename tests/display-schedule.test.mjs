@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
 	ALL_DAYS,
 	crossedMinute,
-	debounceSignal,
 	desiredHdmi,
 	envDefaults,
 	formatDaysLabel,
@@ -127,9 +126,6 @@ describe('persist', () => {
 				onAt: '07:05',
 				phoneWakeAfter: '05:00',
 				timeZone: 'America/New_York',
-				wakeOnProximity: false,
-				proximityDevice: '',
-				proximityMeters: 5,
 				days: ALL_DAYS
 			}
 		);
@@ -154,42 +150,16 @@ describe('persist', () => {
 		assert.equal(next.offAt, '22:30');
 	});
 
-	test('normalizeSchedule validates the proximity fields', () => {
-		const withMac = normalizeSchedule({
+	test('normalizeSchedule drops retired proximity fields', () => {
+		const next = normalizeSchedule({
 			wakeOnProximity: true,
 			proximityDevice: 'aa:bb:cc:dd:ee:ff',
 			proximityMeters: 3.25
 		});
-		assert.equal(withMac.wakeOnProximity, true);
-		assert.equal(withMac.proximityDevice, 'AA:BB:CC:DD:EE:FF');
-		assert.equal(withMac.proximityMeters, 3.3);
-
-		const badMac = normalizeSchedule({ proximityDevice: 'not-a-mac' });
-		assert.equal(badMac.proximityDevice, '');
-
-		const badMeters = normalizeSchedule({ proximityMeters: -5 }, { proximityMeters: 7 });
-		assert.equal(badMeters.proximityMeters, 7);
-
-		const clamped = normalizeSchedule({ proximityMeters: 500 });
-		assert.equal(clamped.proximityMeters, 30);
-
-		const defaults = normalizeSchedule({});
-		assert.equal(defaults.wakeOnProximity, false);
-		assert.equal(defaults.proximityDevice, '');
-		assert.equal(defaults.proximityMeters, 5);
-	});
-
-	test('debounceSignal ignores a single flickered reading', () => {
-		const state = {};
-		assert.equal(debounceSignal(state, false), false);
-		assert.equal(debounceSignal(state, true), false); // one-off blip, not confirmed yet
-		assert.equal(debounceSignal(state, false), false); // back to false before confirming
-		assert.equal(debounceSignal(state, true), false);
-		assert.equal(debounceSignal(state, true), true); // two in a row: confirmed
-		assert.equal(debounceSignal(state, false), true); // one-off blip back down
-		assert.equal(debounceSignal(state, true), true);
-		assert.equal(debounceSignal(state, false), true);
-		assert.equal(debounceSignal(state, false), false); // two in a row: confirmed off
+		assert.equal('wakeOnProximity' in next, false);
+		assert.equal('proximityDevice' in next, false);
+		assert.equal('proximityMeters' in next, false);
+		assert.equal(next.wakeOnPhone, true);
 	});
 });
 
@@ -312,9 +282,9 @@ describe('manual hold vs schedule', () => {
 		assert.equal(onAlarm.hold, null);
 	});
 
-	test('saving proximity or phone-wake does not force the panel back onto the window', () => {
-		const prev = { ...overnight, wakeOnPhone: true, wakeOnProximity: false };
-		const next = { ...overnight, wakeOnPhone: false, wakeOnProximity: true, proximityDevice: 'AA:BB:CC:DD:EE:FF' };
+	test('saving phone-wake does not force the panel back onto the window', () => {
+		const prev = { ...overnight, wakeOnPhone: true };
+		const next = { ...overnight, wakeOnPhone: false };
 		assert.deepEqual(schedulePatchAction(prev, next, { hold: 'on', date: night }), {
 			action: null,
 			hold: 'on'

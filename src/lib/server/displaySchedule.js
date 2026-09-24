@@ -21,12 +21,7 @@ export const DEFAULT_SCHEDULE = {
 	onAt: '06:00',
 	phoneWakeAfter: '05:00',
 	timeZone: 'America/New_York',
-	days: [...ALL_DAYS],
-	// BLE proximity wake: off by default since it needs a device MAC and a
-	// distance threshold picked by walking the room with /remote/stats open.
-	wakeOnProximity: false,
-	proximityDevice: '',
-	proximityMeters: 5
+	days: [...ALL_DAYS]
 };
 
 // HTML <input type="time"> may send HH:MM, HH:MM:SS, or HH:MM:SS.sss.
@@ -220,9 +215,9 @@ export function scheduleTick({ lastMinutes, hold, schedule = DEFAULT_SCHEDULE, d
 }
 
 /**
- * What to do after a schedule save. Manual power and phone/proximity wake
- * must survive proximity/day tweaks; flipping Auto on/off is an explicit
- * "follow this now" gesture and clears the hold.
+ * What to do after a schedule save. Manual power and phone wake must
+ * survive day tweaks; flipping Auto on/off is an explicit "follow this
+ * now" gesture and clears the hold.
  */
 export function schedulePatchAction(prev, next, { hold, date = new Date() } = {}) {
 	const wasEnabled = prev?.enabled !== false;
@@ -245,29 +240,6 @@ export function schedulePatchAction(prev, next, { hold, date = new Date() } = {}
 	return { action: desiredHdmi(date, next), hold: null };
 }
 
-const MAC_RE = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
-
-/** Smooths a noisy boolean (RSSI-derived "is it near?" readings jitter
- *  between polls) so a single stray reading doesn't wake or fail to wake the
- *  panel. `state` is a small object the caller keeps across polls; the same
- *  raw reading has to repeat `confirm` times in a row before the confirmed
- *  value moves. */
-export function debounceSignal(state = {}, raw, confirm = 2) {
-	const value = Boolean(raw);
-	const streak = state.raw === value ? (state.streak || 0) + 1 : 1;
-	state.raw = value;
-	state.streak = streak;
-	if (streak >= confirm) state.confirmed = value;
-	else if (state.confirmed === undefined) state.confirmed = false;
-	return state.confirmed;
-}
-
-export function normalizeProximityMeters(value, fallback = DEFAULT_SCHEDULE.proximityMeters) {
-	const n = Number(value);
-	if (!Number.isFinite(n) || n <= 0) return fallback;
-	return Math.min(30, Math.round(n * 10) / 10);
-}
-
 export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 	const base = { ...DEFAULT_SCHEDULE, ...fallback, ...input };
 	const off = parseHHMM(base.offAt);
@@ -280,7 +252,6 @@ export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 		timeZone = fallback.timeZone || DEFAULT_SCHEDULE.timeZone;
 	}
 	const fallbackDays = fallback.days == null ? ALL_DAYS : fallback.days;
-	const proximityDevice = String(base.proximityDevice ?? '').trim();
 	return {
 		enabled: base.enabled !== false,
 		wakeOnPhone: base.wakeOnPhone !== false,
@@ -291,13 +262,7 @@ export function normalizeSchedule(input = {}, fallback = DEFAULT_SCHEDULE) {
 				? fallback.phoneWakeAfter || DEFAULT_SCHEDULE.phoneWakeAfter
 				: formatHHMM(phoneWakeAfter),
 		timeZone,
-		days: normalizeDays(base.days, fallbackDays),
-		wakeOnProximity: base.wakeOnProximity === true,
-		proximityDevice: MAC_RE.test(proximityDevice) ? proximityDevice.toUpperCase() : '',
-		proximityMeters: normalizeProximityMeters(
-			base.proximityMeters,
-			fallback.proximityMeters || DEFAULT_SCHEDULE.proximityMeters
-		)
+		days: normalizeDays(base.days, fallbackDays)
 	};
 }
 
@@ -311,11 +276,6 @@ export function envDefaults(env = process.env) {
 	if (env.DISPLAY_TZ) seed.timeZone = env.DISPLAY_TZ;
 	else if (env.TZ) seed.timeZone = env.TZ;
 	if (env.DISPLAY_SCHEDULE_DAYS) seed.days = env.DISPLAY_SCHEDULE_DAYS;
-	if (env.DISPLAY_WAKE_ON_PROXIMITY === '1' || env.DISPLAY_WAKE_ON_PROXIMITY === 'true') {
-		seed.wakeOnProximity = true;
-	}
-	if (env.DISPLAY_PROXIMITY_DEVICE) seed.proximityDevice = env.DISPLAY_PROXIMITY_DEVICE;
-	if (env.DISPLAY_PROXIMITY_METERS) seed.proximityMeters = env.DISPLAY_PROXIMITY_METERS;
 	return normalizeSchedule(seed);
 }
 

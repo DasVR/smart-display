@@ -19,7 +19,6 @@ import {
 	parseSystemctlActive,
 	pickRssi,
 	probeOneBluetoothDevice,
-	proximityNear,
 	userSessionEnv
 } from '../src/lib/server/kioskStatus.js';
 
@@ -116,8 +115,8 @@ test('estimateDistanceMeters applies the log-distance path loss model', () => {
 	assert.equal(estimateDistanceMeters(-59, { measuredPower: -69 }), 0.3);
 	assert.equal(estimateDistanceMeters(null), null);
 	assert.equal(estimateDistanceMeters(NaN), null);
-	// BlueZ TxPower is advertised radio dBm. Feeding it here used to report
-	// a phone in the room as kilometers away, so Nearby never woke.
+	// BlueZ TxPower is advertised radio dBm, not 1-meter RSSI. Feeding it
+	// here reports a phone in the room as kilometers away.
 	assert.equal(estimateDistanceMeters(-62), 1.4);
 });
 
@@ -128,9 +127,6 @@ test('bluetooth addresses and RSSI fallbacks', () => {
 	assert.equal(parseHciToolRssi('RSSI return value: -8\n'), -8);
 	assert.equal(parseBusctlRssi('i -62\n'), -62);
 	assert.equal(pickRssi(null, undefined, -54), -54);
-	assert.equal(proximityNear(3.2, 5), true);
-	assert.equal(proximityNear(9, 5), false);
-	assert.equal(proximityNear(null, 5), false);
 	assert.deepEqual(
 		mergeBluetoothDeviceRows(
 			[{ address: 'aa:bb:cc:dd:ee:ff', name: 'iPhone' }],
