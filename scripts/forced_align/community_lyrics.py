@@ -18,13 +18,15 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import zlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
 UA = "smart-display/1.0 (https://github.com/DasVR/smart-display)"
 NETEASE_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
@@ -175,6 +177,22 @@ def should_glue_lyric_tokens(prev_text, next_text) -> bool:
 	return False
 
 
+_MASK_ONLY_RE = re.compile(r"^[*#]+$")
+_MASK_NEXT_RE = re.compile(r"^[\w'’*#]", re.UNICODE)
+
+
+def _glue_tokens(prev, text, break_before):
+	"""Stars of a masked swear (`this ` `*` `*` `in `) join each other and the
+	letters after them; a star after a space starts a new word."""
+	spaced = bool(prev.get("_break")) or break_before
+	prev_text = str(prev.get("text") or "")
+	if _MASK_ONLY_RE.match(text):
+		return not spaced and prev_text.endswith(("*", "#"))
+	if prev_text.endswith(("*", "#")) and not spaced and _MASK_NEXT_RE.match(text):
+		return True
+	return should_glue_lyric_tokens(prev_text, text)
+
+
 def coalesce_lyric_words(words):
 	if not words:
 		return []
@@ -189,19 +207,20 @@ def coalesce_lyric_words(words):
 		if not text:
 			continue
 		break_before = bool((raw or {}).get("breakBefore")) or bool(re.match(r"\s", original))
+		break_after = bool(re.search(r"\s$", original))
 		item = dict(raw)
 		item["text"] = text
 		item.pop("breakBefore", None)
 		prev = out[-1] if out else None
-		glue = prev is not None and should_glue_lyric_tokens(prev.get("text"), text)
-		if glue:
+		if prev is not None and _glue_tokens(prev, text, break_before):
 			prev["text"] = str(prev.get("text") or "") + text
 			end = item.get("end")
 			if end is not None and float(end) > float(prev.get("end") or prev.get("time") or 0):
 				prev["end"] = end
+			prev["_break"] = break_after
 		else:
-			if prev is not None:
-				prev.pop("_break", None)
+			if break_after:
+				item["_break"] = True
 			out.append(item)
 	for item in out:
 		item.pop("_break", None)
@@ -283,13 +302,13 @@ def parse_yrc(text: str):
 		line_end = begin + int(header.group(2)) / 1000.0
 		words = []
 		for match in YRC_WORD_RE.finditer(header.group(3)):
-			word = match.group(4).strip()
-			if not word:
+			word = match.group(4)
+			if not word.strip():
 				continue
 			start = int(match.group(1)) / 1000.0
 			dur = int(match.group(2)) / 1000.0
 			words.append(timed_word(start, word, start + dur))
-		line_text = " ".join(w["text"] for w in words)
+		line_text = " ".join(w["text"].strip() for w in words)
 		if CREDIT_LINE_RE.search(line_text):
 			continue
 		entry = {"time": round(begin, 3), "end": round(line_end, 3), "text": line_text}
@@ -314,13 +333,13 @@ def parse_krc(text: str):
 		rest = match.group(3)
 		words = []
 		for wm in KRC_WORD_RE.finditer(rest):
-			word = wm.group(4).strip()
-			if not word:
+			word = wm.group(4)
+			if not word.strip():
 				continue
 			start = begin + int(wm.group(1)) / 1000.0
 			dur = int(wm.group(2)) / 1000.0
 			words.append(timed_word(start, word, start + dur))
-		line_text = " ".join(w["text"] for w in words) if words else KRC_WORD_RE.sub("", rest).strip()
+		line_text = " ".join(w["text"].strip() for w in words) if words else KRC_WORD_RE.sub("", rest).strip()
 		if CREDIT_LINE_RE.search(line_text):
 			continue
 		entry = {"time": round(begin, 3), "end": round(line_end, 3), "text": line_text}
@@ -522,27 +541,53 @@ PROVIDERS = (
 )
 
 
-def search_community(artist, title, album="", duration=0):
+FORMAT_RANK = {"ttml": 5, "yrc": 4, "krc": 3, "enhanced-lrc": 3, "lrc": 1}
+# Whole-lookup budget, and how long to keep waiting for a better format once
+# some word-level file is already in hand. The slowest provider used to set
+# the latency for every track.
+SEARCH_BUDGET_SEC = 12.0
+WORD_HIT_GRACE_SEC = 1.5
+
+
+def _collect(fut, name):
+	try:
+		hit = fut.result()
+	except Exception as exc:  # provider bugs and network errors should not kill the lookup
+		hit = empty_result(name, str(exc))
+	if hit and (hit.get("ttml") or hit.get("lines") or hit.get("synced") or hit.get("yrc")):
+		return hit
+	return None
+
+
+def search_community(artist, title, album="", duration=0, budget=SEARCH_BUDGET_SEC, grace=WORD_HIT_GRACE_SEC):
 	want = {"artist": artist, "title": title, "album": album, "duration": duration}
 	if not artist or not title:
 		return empty_result(error="usage")
 	hits = []
-	with ThreadPoolExecutor(max_workers=4) as pool:
-		futs = {pool.submit(fn, want): name for name, fn in PROVIDERS}
-		for fut in as_completed(futs):
-			try:
-				hit = fut.result()
-			except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, OSError) as exc:
-				hit = empty_result(futs[fut], str(exc))
-			except Exception as exc:  # provider bugs should not kill the lookup
-				hit = empty_result(futs[fut], str(exc))
-			if hit and (hit.get("ttml") or hit.get("lines") or hit.get("synced") or hit.get("yrc")):
+	pool = ThreadPoolExecutor(max_workers=len(PROVIDERS))
+	futs = {pool.submit(fn, want): name for name, fn in PROVIDERS}
+	pending = set(futs)
+	started = time.monotonic()
+	deadline = started + budget
+	while pending:
+		now = time.monotonic()
+		if now >= deadline:
+			break
+		done, pending = wait(pending, timeout=deadline - now, return_when=FIRST_COMPLETED)
+		for fut in done:
+			hit = _collect(fut, futs[fut])
+			if hit:
 				hits.append(hit)
+		word = [h for h in hits if h.get("wordLevel") and h.get("score", 0) >= 70]
+		if any(h.get("format") == "ttml" for h in word):
+			break  # nothing ranks above TTML
+		if word:
+			deadline = min(deadline, time.monotonic() + grace)
+	pool.shutdown(wait=False, cancel_futures=True)
 	if not hits:
 		return empty_result(error="no community hit")
 	word_hits = [h for h in hits if h.get("wordLevel") and h.get("score", 0) >= 70]
 	ranked = word_hits or [h for h in hits if h.get("score", 0) >= 70] or hits
-	FORMAT_RANK = {"ttml": 5, "yrc": 4, "krc": 3, "enhanced-lrc": 3, "lrc": 1}
 	ranked.sort(
 		key=lambda h: (
 			1 if h.get("wordLevel") else 0,
@@ -569,8 +614,10 @@ def main(argv=None):
 		duration = float(argv[3]) if len(argv) > 3 and argv[3] else 0
 	except ValueError:
 		duration = 0
-	print(json.dumps(search_community(artist, title, album, duration), ensure_ascii=False))
-	return 0
+	print(json.dumps(search_community(artist, title, album, duration), ensure_ascii=False), flush=True)
+	# Providers still running past the budget would hold the interpreter
+	# open at exit (pool threads are joined); the answer is already out.
+	os._exit(0)
 
 
 def self_test():
@@ -618,9 +665,14 @@ def self_test():
 		]
 	)
 	assert [row["text"] for row in credits_end] == ["a real verse", "The end is near"]
+	masked = parse_yrc(
+		"[1000,900](1000,100,0)Tear (1100,100,0)this (1200,50,0)*(1250,50,0)*(1300,50,0)*(1350,100,0)in (1450,100,0)roof"
+	)
+	assert [w["text"] for w in masked[0]["words"]] == ["Tear", "this", "***in", "roof"], masked
+	assert masked[0]["text"] == "Tear this ***in roof"
 	assert score_hit("Linkin Park", "Numb", 186, {"artist": "Linkin Park", "title": "Numb", "duration": 186}) >= 90
 	assert score_hit("Frank Sinatra", "My Way", 275, {"artist": "Limp Bizkit", "title": "My Way", "duration": 273}) == 0
-	print(json.dumps({"ok": True, "tests": 9}))
+	print(json.dumps({"ok": True, "tests": 10}))
 	return 0
 
 

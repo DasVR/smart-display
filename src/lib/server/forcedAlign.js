@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { isMaskedToken, uncensorPlain } from '../lyricProfanity.js';
 import { recordToWavFile } from './audioCapture.js';
 import { normalizeLyricText } from './lyrics.js';
 import { getAlignmentRow, putAlignmentRow, deleteAlignmentRow } from './lyricsStore.js';
@@ -15,7 +16,13 @@ function legacyCacheDir() {
 	return process.env.FORCED_ALIGN_CACHE_DIR || path.join(process.cwd(), 'data', 'forced-align-cache');
 }
 
-const START_WINDOW_SEC = 6;
+const START_WINDOW_SEC = 8;
+// A recording that ran shorter than this share of the planned length was cut
+// off (skip, crash); aligning the whole sheet into it squeezes every line.
+const MIN_RECORDED_SHARE = 0.9;
+// Live clock vs the clock the recording implies. Past this the listener
+// paused or scrubbed and the capture no longer lines up with the track.
+const RECORDING_DRIFT_SEC = 2.5;
 const MIN_DURATION_SEC = 20;
 const MAX_DURATION_SEC = 20 * 60;
 // Importing torch + transformers for the probe can take a while on a cold
@@ -78,8 +85,18 @@ export function readCachedAlignmentInfo(fp) {
 		info = readLegacyAlignment(fp);
 		if (info) putAlignmentRow(fp, { ...info, createdAt: Date.now() });
 	}
+	if (info && alignedAgainstMaskedSheet(info.lines)) {
+		// Timed against a censored sheet: `f**k` became two words `f` `k`.
+		// Drop it so the next play aligns the restored text.
+		deleteAlignmentRow(fp);
+		return null;
+	}
 	if (info) alignmentCache.set(fp, info);
 	return info;
+}
+
+function alignedAgainstMaskedSheet(lines) {
+	return (lines || []).some((line) => String(line?.text || '').split(/\s+/).some(isMaskedToken));
 }
 
 export function forgetCachedAlignment(fp) {
@@ -97,14 +114,31 @@ export function isAlignmentInFlight(fp) {
 	return inFlight.has(fp);
 }
 
+/** Stops a capture and discards it: a stopped recorder still exits
+ *  cleanly, and aligning that partial WAV against the full sheet used to
+ *  store a squeezed, "precise" result that was never redone. */
 export function cancelAlignment(fp) {
-	const rec = recorders.get(fp);
+	const job = recorders.get(fp);
+	if (!job) return;
+	job.cancelled = true;
 	try {
-		rec?.stop?.();
+		job.recorder?.stop?.();
 	} catch {
 		/* already gone */
 	}
 	recorders.delete(fp);
+}
+
+/** Called on every poll while a track plays. Cancels the capture when the
+ *  listener paused or scrubbed, since the audio no longer maps onto the
+ *  offset it started with. Returns true when a capture was cancelled. */
+export function checkAlignmentRecording(fp, { playing = true, position = 0, now = Date.now() } = {}) {
+	const job = recorders.get(fp);
+	if (!job) return false;
+	const expected = job.offsetSec + (now - job.startedAt) / 1000;
+	if (playing && Math.abs((Number(position) || 0) - expected) <= RECORDING_DRIFT_SEC) return false;
+	cancelAlignment(fp);
+	return true;
 }
 
 /** Stop recordings that aren't for the track that's actually playing so a
@@ -216,6 +250,30 @@ export function resetAlignEngineProbe() {
 	alignmentCache.clear();
 }
 
+/** Seconds of audio in a PCM WAV, from its header byte rate and the file
+ *  size, or null when the file is not a WAV we can read. */
+export function wavDurationSec(file) {
+	let fd = null;
+	try {
+		const size = statSync(file).size;
+		const buf = Buffer.alloc(Math.min(size, 256));
+		fd = openSync(file, 'r');
+		readSync(fd, buf, 0, buf.length, 0);
+		if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') {
+			return null;
+		}
+		const byteRate = buf.readUInt32LE(28);
+		if (!byteRate) return null;
+		const dataAt = buf.indexOf('data', 12, 'ascii');
+		const header = dataAt >= 0 ? dataAt + 8 : 44;
+		return Math.max(0, size - header) / byteRate;
+	} catch {
+		return null;
+	} finally {
+		if (fd != null) closeSync(fd);
+	}
+}
+
 function runPythonAlign({ wavPath, lyricsTextPath, outJsonPath, spawnFn = spawn, pythonBin, offsetSec = 0 } = {}) {
 	return new Promise((resolve) => {
 		const bin = pythonBin || process.env.LYRICS_PYTHON_BIN || 'python3';
@@ -272,12 +330,15 @@ function storeAlignmentResult(fp, outJsonPath, { artist, title, duration }) {
  *    model wins (see hostData.pickDisplayLyrics).
  *  - Only `energy` is available: align only when nobody published real
  *    word clocks, and never redo an energy pass that already exists. */
-export function shouldAlign({ cached, engine, communityWordLevel = false } = {}) {
+export function shouldAlign({ cached, engine, communityWordLevel = false, force = false } = {}) {
+	if (force) return true;
 	if (cached?.precise) return false;
-	const precise = Boolean(engine?.precise);
-	if (precise) return true;
-	if (cached) return false;
-	return !communityWordLevel;
+	// Human-stamped karaoke (TTML / YRC / KRC / enhanced LRC) is already word
+	// timed and beats an acoustic guess over a full mix; recording and
+	// separating the track would only cost CPU.
+	if (communityWordLevel) return false;
+	if (engine?.precise) return true;
+	return !cached;
 }
 
 /** Records the rest of this play-through and force-aligns known plain lyric
@@ -293,6 +354,7 @@ export function ensureAlignedLyrics({
 	plainLyrics,
 	position = 0,
 	communityWordLevel = false,
+	force = false,
 	engine,
 	spawnFn,
 	findBinary,
@@ -303,7 +365,7 @@ export function ensureAlignedLyrics({
 	const cached = readCachedAlignmentInfo(fp);
 	if (inFlight.has(fp)) return fp;
 	const engineNow = engine === undefined ? alignEngineInfo() : engine;
-	if (!shouldAlign({ cached, engine: engineNow, communityWordLevel })) return cached ? fp : null;
+	if (!shouldAlign({ cached, engine: engineNow, communityWordLevel, force })) return cached ? fp : null;
 	if (!plainLyrics || !dur || dur < MIN_DURATION_SEC || dur > MAX_DURATION_SEC) return cached ? fp : null;
 	if (Number(position) > START_WINDOW_SEC) return cached ? fp : null;
 
@@ -312,9 +374,10 @@ export function ensureAlignedLyrics({
 	const wavPath = path.join(workDir, 'track.wav');
 	const lyricsTextPath = path.join(workDir, 'lyrics.txt');
 	const outJsonPath = path.join(workDir, 'aligned.json');
+	let job = null;
 	const cleanup = () => {
 		inFlight.delete(fp);
-		recorders.delete(fp);
+		if (job && recorders.get(fp) === job) recorders.delete(fp);
 		try {
 			rmSync(workDir, { recursive: true, force: true });
 		} catch {
@@ -324,7 +387,7 @@ export function ensureAlignedLyrics({
 
 	try {
 		mkdirSync(workDir, { recursive: true });
-		writeFileSync(lyricsTextPath, plainLyrics);
+		writeFileSync(lyricsTextPath, uncensorPlain(plainLyrics));
 	} catch (error) {
 		console.error('forced-align setup failed:', error.message);
 		cleanup();
@@ -334,11 +397,17 @@ export function ensureAlignedLyrics({
 	const offsetSec = Number(position) || 0;
 	const recordSec = Math.ceil(dur - offsetSec) + 2;
 	const recorder = recordToWavFile({ outPath: wavPath, durationSec: recordSec, spawnFn, findBinary });
-	recorders.set(fp, recorder);
+	job = { recorder, startedAt: Date.now(), offsetSec, cancelled: false };
+	recorders.set(fp, job);
 
 	recorder.done
 		.then((recorded) => {
-			if (!recorded || !existsSync(wavPath)) return false;
+			if (job.cancelled || !recorded || !existsSync(wavPath)) return false;
+			const captured = wavDurationSec(wavPath);
+			if (captured != null && captured < (recordSec - 2) * MIN_RECORDED_SHARE) {
+				console.error(`forced-align: capture cut short (${captured.toFixed(1)}s of ${recordSec}s), not aligning`);
+				return false;
+			}
 			return runPythonAlign({ wavPath, lyricsTextPath, outJsonPath, spawnFn, pythonBin, offsetSec });
 		})
 		.then((ok) => {

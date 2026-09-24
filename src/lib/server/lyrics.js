@@ -2,6 +2,9 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { coalesceLyricWords, lineWithCoalescedWords } from '../lyricWords.js';
 import { annotateLyricVoices } from '../lyricVoices.js';
+import { uncensorLines, uncensorPlain } from '../lyricProfanity.js';
+import { INSTRUMENTAL_GAP_SEC } from '../playbackClock.js';
+import { reconcileLyricOffset } from '../lyricAnchor.js';
 import { getLyricPick, getLyricsRow, putLyricsRow } from './lyricsStore.js';
 
 // Hits persist in data/lyrics.db (see lyricsStore.js). A karaoke-grade hit
@@ -25,8 +28,53 @@ function readLyricsEntry(key) {
 	}
 	const stored = getLyricsRow(key);
 	if (!stored) return null;
-	lyricsCache.set(key, stored);
-	return stored;
+	// Rows written before these passes existed still carry masked swears
+	// and stray blank markers; polish them once on the way into L1.
+	const polished = {
+		...stored,
+		lines: polishLyricLines(stored.lines, stored.plainText),
+		plainText: stored.plainText ? uncensorPlain(stored.plainText, lyricsToPlainText(stored.lines)) : stored.plainText
+	};
+	lyricsCache.set(key, polished);
+	return polished;
+}
+
+/** Last pass before lyrics are stored or served: masked profanity restored
+ *  (the canonical sheet first, then a dictionary) and instrumental markers
+ *  tidied. */
+export function polishLyricLines(lines, canonicalText = '') {
+	if (!Array.isArray(lines) || !lines.length) return lines;
+	return tidyInstrumentalMarkers(uncensorLines(lines, canonicalText || ''));
+}
+
+/** LRC files often stamp several blank rows in a row, or a blank "breath"
+ *  a second before the next line. Only a blank that opens a real rest
+ *  (>= INSTRUMENTAL_GAP_SEC before the next sung line) stays, and a run of
+ *  blanks collapses onto its first stamp. A trailing blank is the outro. */
+export function tidyInstrumentalMarkers(lines) {
+	if (!Array.isArray(lines) || !lines.length) return lines;
+	const out = [];
+	let changed = false;
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		if (String(line?.text || '').trim()) {
+			out.push(line);
+			continue;
+		}
+		const prev = out[out.length - 1];
+		if (prev && !String(prev.text || '').trim()) {
+			changed = true;
+			continue;
+		}
+		const next = lines.slice(i + 1).find((row) => String(row?.text || '').trim());
+		const start = Number(line?.time) || 0;
+		if (next && (Number(next.time) || 0) - start < INSTRUMENTAL_GAP_SEC) {
+			changed = true;
+			continue;
+		}
+		out.push(line);
+	}
+	return changed ? out : lines;
 }
 
 function writeLyricsEntry(key, entry, { force = false } = {}) {
@@ -146,7 +194,7 @@ export function dropNonLyricLines(lines, query = {}) {
 	while (kept.length && isTrailingCreditLine(kept[kept.length - 1]?.text)) {
 		kept.pop();
 	}
-	return annotateLyricVoices(kept);
+	return annotateLyricVoices(tidyInstrumentalMarkers(kept));
 }
 
 function timedWord(time, text, end) {
@@ -181,6 +229,12 @@ function parseEnhancedWords(content, offsetSec) {
 // synthesizeWordTiming() below estimates it instead of falling back to
 // highlighting the whole line at once.
 const SYNTH_MAX_SPAN_SEC = 8;
+// Sung syllables average roughly a third of a second. A line whose next
+// stamp is far past that estimate is followed by a rest: its words sweep at
+// singing pace and the instrumental dots take the remainder, instead of the
+// words crawling across the whole break.
+const SYNTH_SEC_PER_SYLLABLE = 0.32;
+const SYNTH_STRETCH = 1.6;
 const SYNTH_FALLBACK_WORDS_PER_SEC = 2.2;
 const SYNTH_MIN_WORD_WEIGHT = 0.6;
 // A word ending a clause reads with a small breath after it before the next
@@ -223,11 +277,14 @@ export function synthesizeWordTiming(lines) {
 		const next = list[i + 1];
 		const rawSpan =
 			next && Number.isFinite(next.time) ? next.time - line.time : tokens.length / SYNTH_FALLBACK_WORDS_PER_SEC;
-		const span = Math.max(0.4, Math.min(SYNTH_MAX_SPAN_SEC, rawSpan));
 		const weights = tokens.map((t) => {
 			const weight = estimateSyllables(t) + (CLAUSE_END_RE.test(t) ? SYNTH_CLAUSE_PAUSE_BONUS : 0);
 			return Math.max(SYNTH_MIN_WORD_WEIGHT, weight);
 		});
+		const syllables = tokens.reduce((sum, t) => sum + estimateSyllables(t), 0);
+		const natural = Math.max(0.8, syllables * SYNTH_SEC_PER_SYLLABLE);
+		const paced = rawSpan > natural * SYNTH_STRETCH ? natural * 1.25 : rawSpan;
+		const span = Math.max(0.4, Math.min(SYNTH_MAX_SPAN_SEC, paced));
 		const totalWeight = weights.reduce((a, b) => a + b, 0);
 		let elapsed = 0;
 		const words = tokens.map((text, idx) => {
@@ -547,8 +604,9 @@ export function parseYrc(text) {
 		YRC_WORD_RE.lastIndex = 0;
 		let wm;
 		while ((wm = YRC_WORD_RE.exec(header[3])) !== null) {
-			const word = wm[4].trim();
-			if (!word) continue;
+			// Untrimmed: a trailing space is the only word boundary YRC has.
+			const word = wm[4];
+			if (!word.trim()) continue;
 			const time = Number(wm[1]) / 1000;
 			words.push(timedWord(time, word, time + Number(wm[2]) / 1000));
 		}
@@ -579,8 +637,8 @@ export function parseKrc(text) {
 		KRC_WORD_RE.lastIndex = 0;
 		let wm;
 		while ((wm = KRC_WORD_RE.exec(match[3])) !== null) {
-			const word = wm[4].trim();
-			if (!word) continue;
+			const word = wm[4];
+			if (!word.trim()) continue;
 			const time = begin + Number(wm[1]) / 1000;
 			words.push(timedWord(time, word, time + Number(wm[2]) / 1000));
 		}
@@ -971,47 +1029,105 @@ export function fetchSyncedLyricsFallback(artist, title, opts = {}) {
 	return fetchCommunityLyrics(artist, title, opts).then((hit) => hit?.lines || null);
 }
 
+/** LRCLIB keyed by artist/title (and album + duration when known). `exact`
+ *  marks a `/api/get` hit whose duration matches this release, which makes
+ *  its line clocks a trustworthy reference for other files. Never rejects. */
+async function fetchLrclib(artist, title, { album = '', rounded = 0, getJson }) {
+	const query = { artist, title, album, duration: rounded };
+	const params = new URLSearchParams({ artist_name: artist, track_name: title });
+	if (album) params.set('album_name', album);
+	if (rounded) params.set('duration', String(rounded));
+	let hit = null;
+	let exact = false;
+	try {
+		hit = await getJson(`https://lrclib.net/api/get?${params}`);
+		if (scoreLyricsHit(hit, query) < 70) hit = null;
+		exact = Boolean(hit) && rounded > 0 && Math.abs((Number(hit.duration) || 0) - rounded) <= 2;
+	} catch {
+		hit = null;
+	}
+	if (!hit) {
+		try {
+			const search = new URLSearchParams({ artist_name: artist, track_name: title });
+			hit = pickBestLyricsHit(await getJson(`https://lrclib.net/api/search?${search}`), query);
+		} catch {
+			hit = null;
+		}
+	}
+	if (!hit) return null;
+	const lines = lyricsFromHit(hit, query);
+	return {
+		lines: lines?.length ? lines : null,
+		synced: Boolean(hit.syncedLyrics),
+		exact: exact && Boolean(hit.syncedLyrics),
+		plain: String(hit.plainLyrics || '').trim() || null,
+		source: hit.syncedLyrics ? 'lrclib-synced' : 'lrclib-plain'
+	};
+}
+
+/** How long a provisional LRCLIB result may stand in memory while the
+ *  community lookup is still running. */
+const PROVISIONAL_TTL = 60 * 1000;
+
 export async function fetchLyrics(artist, title, { album = '', duration = 0, load, spawnFn, pythonBin } = {}) {
 	const rounded = Math.round(Number(duration) || 0);
 	const key = lyricsCacheKey(artist, title, album, rounded);
 	const cached = readLyricsEntry(key);
-	if (cached) return cached.lines;
+	if (cached && !cached.provisional) return cached.lines;
 	const getJson = load || defaultLoad;
+	const query = { artist, title };
 	try {
-		const [community, canonical] = await Promise.all([
+		// All three run at once. LRCLIB answers in well under a second, so its
+		// lines go on screen right away (memory only, flagged provisional)
+		// while the karaoke sources and the canonical sheet finish.
+		let settled = false;
+		const lrclibP = fetchLrclib(artist, title, { album, rounded, getJson });
+		lrclibP.then((lr) => {
+			if (settled || !lr?.lines?.length || lyricsCache.has(key)) return;
+			const lines = polishLyricLines(dropNonLyricLines(lr.lines, query), lr.plain);
+			if (!lines.length) return;
+			lyricsCache.set(key, {
+				artist,
+				title,
+				album,
+				duration: rounded,
+				source: lr.source,
+				wordLevel: false,
+				lines,
+				plainText: lr.plain ? uncensorPlain(lr.plain, lyricsToPlainText(lines)) : lyricsToPlainText(lines),
+				plainSource: lr.plain ? 'lrclib-plain' : null,
+				provisional: true,
+				fetchedAt: Date.now(),
+				ttl: PROVISIONAL_TTL
+			});
+		});
+		const [community, canonical, lrclib] = await Promise.all([
 			fetchCommunityLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin }),
-			fetchCanonicalLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin })
+			fetchCanonicalLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin }),
+			lrclibP
 		]);
+		settled = true;
 		let lines = community?.lines || null;
-		let plainText = canonical?.plain || community?.plain || null;
-		let plainSource = canonical?.source || null;
 		let source = community?.source || (lines ? 'community' : null);
-		if (!lines) {
-			const params = new URLSearchParams({ artist_name: artist, track_name: title });
-			if (album) params.set('album_name', album);
-			if (rounded) params.set('duration', String(rounded));
-			const query = { artist, title, album, duration: rounded };
-			let hit = null;
-			try {
-				hit = await getJson(`https://lrclib.net/api/get?${params}`);
-				if (scoreLyricsHit(hit, query) < 70) hit = null;
-			} catch {
-				hit = null;
-			}
-			if (!hit) {
-				const search = new URLSearchParams({ artist_name: artist, track_name: title });
-				const found = await getJson(`https://lrclib.net/api/search?${search}`);
-				hit = pickBestLyricsHit(found, query);
-			}
-			lines = lyricsFromHit(hit, query);
-			if (!plainText) plainText = hit?.plainLyrics || lyricsToPlainText(lines);
-			if (!plainSource && hit?.plainLyrics) plainSource = 'lrclib-plain';
-			if (lines) source = hit?.syncedLyrics ? 'lrclib-synced' : 'lrclib-plain';
+		if (lines && lrclib?.exact && lrclib.lines) {
+			// A karaoke file from another release (longer intro, padded
+			// upload) sits a constant offset from this one's human stamps.
+			lines = reconcileLyricOffset(lines, lrclib.lines);
 		}
-		if (lines) lines = dropNonLyricLines(lines, { artist, title });
+		if (!lines && lrclib?.lines) {
+			lines = lrclib.lines;
+			source = lrclib.source;
+		}
+		let plainText = canonical?.plain || community?.plain || lrclib?.plain || null;
+		let plainSource = canonical?.source || (lrclib?.plain && !community?.plain ? 'lrclib-plain' : null);
+		if (lines) lines = dropNonLyricLines(lines, query);
 		if (lines && !lines.length) lines = null;
+		if (plainText) plainText = uncensorPlain(plainText, lyricsToPlainText(lines));
+		if (lines) lines = polishLyricLines(lines, plainText);
 		if (!plainText) plainText = lyricsToPlainText(lines);
 		const wordLevel = Boolean(lines) && hasRealWordTiming(lines);
+		const current = lyricsCache.get(key);
+		if (current?.provisional) lyricsCache.delete(key);
 		writeLyricsEntry(key, {
 			artist,
 			title,
@@ -1053,14 +1169,17 @@ export function peekLyrics(artist, title, album = '', duration = 0) {
 export function peekLyricsInfo(artist, title, album = '', duration = 0) {
 	const rounded = Math.round(Number(duration) || 0);
 	const cached = readLyricsEntry(lyricsCacheKey(artist, title, album, rounded));
-	if (!cached) return { known: false, lines: null, plainText: null, source: null, wordLevel: false, plainSource: null };
+	if (!cached) {
+		return { known: false, lines: null, plainText: null, source: null, wordLevel: false, plainSource: null, provisional: false };
+	}
 	return {
 		known: true,
 		lines: cached.lines,
 		plainText: cached.plainText || lyricsToPlainText(cached.lines),
 		plainSource: cached.plainSource || null,
 		source: cached.source || null,
-		wordLevel: Boolean(cached.wordLevel) || hasRealWordTiming(cached.lines)
+		wordLevel: Boolean(cached.wordLevel) || hasRealWordTiming(cached.lines),
+		provisional: Boolean(cached.provisional)
 	};
 }
 

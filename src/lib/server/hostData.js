@@ -12,6 +12,7 @@ import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import {
 	cancelOtherAlignments,
+	checkAlignmentRecording,
 	ensureAlignedLyrics,
 	readCachedAlignmentInfo,
 	trackFingerprint
@@ -28,6 +29,9 @@ import {
 	peekTrackDuration
 } from './lyrics.js';
 import { overlayCommunityText } from '../lyricWords.js';
+import { anchorAlignedLines } from '../lyricAnchor.js';
+import { uncensorLines } from '../lyricProfanity.js';
+import { livePlaybackPosition, lyricsAreSynced } from '../playbackClock.js';
 import { getLyricPick } from './lyricsStore.js';
 import { getHostLoad } from './hostLoad.js';
 
@@ -353,13 +357,19 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			const peeked = peekLyricsInfo(merged.artist, merged.title, merged.album || '', duration);
 			const fp = trackFingerprint(merged.artist, merged.title, duration);
 			cancelOtherAlignments(fp);
+			// The reported position can be seconds old (AirPlay sends `prgr`
+			// on start and seek); the capture starts now, so use the live clock.
+			const livePosition = livePlaybackPosition(merged);
+			checkAlignmentRecording(fp, { playing: Boolean(merged.playing), position: livePosition });
 			const aligned = readCachedAlignmentInfo(fp);
 			const pick = getLyricPick(lyricsCacheKey(merged.artist, merged.title, merged.album || '', duration));
 			({ lyrics, source: lyricsSource } = pickDisplayLyrics({ community: peeked, aligned, pick }));
+			// Provisional LRCLIB lines are on screen; the karaoke upgrade is still coming.
+			if (peeked.provisional) lyricsPending = true;
 			if (!peeked.known) {
 				lyricsPending = true;
 				ensureLyricsCached(merged.artist, merged.title, { album: merged.album || '', duration });
-			} else if (peeked.plainText) {
+			} else if (peeked.plainText && !peeked.provisional && merged.playing) {
 				// Every fetched track gets an on-device pass when a frame-accurate
 				// aligner is installed; with only the energy stand-in this is
 				// limited to tracks nobody published word clocks for. The
@@ -369,7 +379,7 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 					title: merged.title,
 					duration,
 					plainLyrics: peeked.plainText,
-					position: merged.position,
+					position: livePosition,
 					communityWordLevel: peeked.wordLevel
 				});
 			}
@@ -381,18 +391,22 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 }
 
 /** Chooses what the Music view paints from the two caches. A per-song
- *  remote pick wins. Otherwise a precise on-device alignment (Qwen3 / MMS
- *  / MFA / aeneas) beats everything unless its clocks collapsed onto a
- *  handful of timestamps; a community word-level file beats an
- *  energy-envelope guess; an energy guess beats synthesized per-line
- *  timing; anything beats nothing. */
+ *  remote pick wins. Otherwise human-stamped karaoke (TTML / YRC / KRC /
+ *  enhanced LRC) wins; then an on-device alignment from an acoustic model,
+ *  pulled back onto the human line stamps wherever it wandered; a synced
+ *  line file beats an energy-envelope guess; anything beats nothing. */
 function alignedLinesForDisplay(aligned, community) {
-	return overlayCommunityText(aligned?.lines || null, community?.lines || null);
+	const lines = uncensorLines(aligned?.lines || null, community?.plainText || '');
+	const overlaid = overlayCommunityText(lines, community?.lines || null);
+	const reference = community?.lines;
+	if (!overlaid || !lyricsAreSynced(reference) || hasRealWordTiming(reference)) return overlaid;
+	return anchorAlignedLines(overlaid, reference);
 }
 
 export function pickDisplayLyrics({ community, aligned, pick } = {}) {
 	const communityLines = community?.lines || null;
 	const communityWordLevel = Boolean(communityLines) && (Boolean(community?.wordLevel) || hasRealWordTiming(communityLines));
+	const communitySynced = lyricsAreSynced(communityLines);
 	const alignedLines = alignedLinesForDisplay(aligned, community);
 	const alignedUsable =
 		Boolean(alignedLines) &&
@@ -407,12 +421,13 @@ export function pickDisplayLyrics({ community, aligned, pick } = {}) {
 			return { lyrics: communityLines, source: community?.source || wanted };
 		}
 	}
-	if (alignedUsable && aligned.precise) {
-		return { lyrics: alignedLines, source: `align:${aligned.engine || 'precise'}` };
-	}
 	if (communityWordLevel) {
 		return { lyrics: communityLines, source: community?.source || 'community' };
 	}
+	if (alignedUsable && aligned.precise) {
+		return { lyrics: alignedLines, source: `align:${aligned.engine || 'precise'}` };
+	}
+	if (communitySynced) return { lyrics: communityLines, source: community?.source || null };
 	if (alignedUsable) {
 		return { lyrics: alignedLines, source: `align:${aligned.engine || 'energy'}` };
 	}
@@ -435,7 +450,7 @@ export function getDemoNowPlaying() {
 	const { lyrics, source } = pickDisplayLyrics({ community: peeked, aligned, pick });
 	return demoNowPlaying(undefined, {
 		lyrics,
-		lyricsPending: !peeked.known,
+		lyricsPending: !peeked.known || Boolean(peeked.provisional),
 		lyricsSource: source
 	});
 }

@@ -1,7 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
+process.env.LYRICS_DB_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'monitor-db-')), 'lyrics.db');
 
 import { availableLyricProviders, applyLyricAction, getLyricMonitor, providerLabel } from '../src/lib/server/lyricMonitor.js';
+import { seedLyricsCache } from '../src/lib/server/lyrics.js';
+import { DEMO_TRACK } from '../src/lib/musicDemo.js';
 
 const communityLines = [
 	{
@@ -82,7 +89,17 @@ test('availableLyricProviders does not double-list Qwen copied into the lyrics c
 	assert.equal(providers[0].id, 'align:qwen');
 });
 
+function seedDemoLyrics() {
+	seedLyricsCache(DEMO_TRACK.artist, DEMO_TRACK.title, {
+		album: DEMO_TRACK.album,
+		duration: DEMO_TRACK.length,
+		source: 'kugou-krc',
+		lines: communityLines
+	});
+}
+
 test('getLyricMonitor demo mode uses the No Surprises preview track', async () => {
+	seedDemoLyrics();
 	const data = await getLyricMonitor({ demo: true });
 	assert.equal(data.track.title, 'No Surprises');
 	assert.equal(data.track.artist, 'Radiohead');
@@ -92,9 +109,10 @@ test('getLyricMonitor demo mode uses the No Surprises preview track', async () =
 });
 
 test('applyLyricAction demo pin keeps the demo track in the reply', async () => {
+	seedDemoLyrics();
 	const live = await getLyricMonitor({ demo: true });
 	const source = live.providers[0]?.id;
-	assert.ok(source, 'demo lyrics should already be cached');
+	assert.ok(source, 'demo lyrics are seeded');
 	const pinned = await applyLyricAction({ action: 'pin', source, demo: true });
 	assert.equal(pinned.track.title, 'No Surprises');
 	assert.equal(pinned.displaySource, source);

@@ -38,10 +38,19 @@ if HERE not in sys.path:
 
 from community_lyrics import UA, empty_result, http_json, score_hit  # noqa: E402
 
-GENIUS_HEADER_RE = re.compile(r"^.+?\sLyrics\s*\n", re.I)
+# Case-sensitive: the page header is "<Title> Lyrics"; a sung first line
+# ending in lowercase "lyrics" stays.
+GENIUS_HEADER_RE = re.compile(r"^.+?\sLyrics\s*\n")
 GENIUS_CONTRIB_RE = re.compile(r"^\d+\s+Contributors.*?\n", re.I)
-GENIUS_SECTION_RE = re.compile(r"\[(?:verse|chorus|bridge|intro|outro|hook|pre-chorus|refrain|break|instrumental)[^\]]*\]\s*", re.I)
-EMBED_RE = re.compile(r"\d+Embed\s*$", re.I)
+# Any bracketed heading on its own line: [Verse 2: Artist], [Post-Chorus],
+# [Skit], [Produced by ...]. Genius never puts sung words in square brackets.
+GENIUS_SECTION_RE = re.compile(r"^\s*\[[^\]\n]*\]\s*$", re.M)
+EMBED_RE = re.compile(r"\d*\s*Embed\s*$", re.I)
+# lyricsgenius scrapes page chrome into the text.
+GENIUS_JUNK_RE = re.compile(
+	r"^\s*(you might also like|get tickets as low as \$\d+|\d+\s+contributors?\b.*|translations?)\s*$",
+	re.I,
+)
 
 
 def clean_genius_lyrics(text: str) -> str:
@@ -51,6 +60,11 @@ def clean_genius_lyrics(text: str) -> str:
 	raw = GENIUS_HEADER_RE.sub("", raw, count=1)
 	raw = GENIUS_SECTION_RE.sub("", raw)
 	raw = EMBED_RE.sub("", raw)
+	# "You might also like" also lands glued to the end of a sung line.
+	raw = re.sub(r"You might also like", "\n", raw)
+	raw = re.sub(r"See [^\n]+ LiveGet tickets as low as \$\d+", "\n", raw)
+	raw = "\n".join(line for line in raw.split("\n") if not GENIUS_JUNK_RE.match(line))
+	raw = re.sub(r"\n\s*\n(\s*\n)+", "\n\n", raw)
 	raw = re.sub(r"\n{3,}", "\n\n", raw)
 	return raw.strip()
 
@@ -165,9 +179,16 @@ def self_test() -> int:
 	assert "The only one that I have ever known" in cleaned
 	assert "[" not in cleaned
 	assert "Embed" not in cleaned
+	junk = clean_genius_lyrics(
+		"[Intro: Somebody]\nFirst line\nYou might also like\n[Post-Chorus]\nSecond lineYou might also like\n[Skit]\nThird line12Embed"
+	)
+	assert [line for line in junk.split("\n") if line] == ["First line", "Second line", "Third line"], junk
+	assert "\n\n\n" not in junk
+	kept = clean_genius_lyrics("I keep writing these lyrics\nSee how we live")
+	assert kept == "I keep writing these lyrics\nSee how we live", kept
 	empty = lookup({"artist": "", "title": ""})
 	assert empty["plain"] is None
-	print(json.dumps({"ok": True, "tests": 2}))
+	print(json.dumps({"ok": True, "tests": 3}))
 	return 0
 
 

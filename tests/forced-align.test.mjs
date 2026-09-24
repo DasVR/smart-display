@@ -10,6 +10,7 @@ process.env.LYRICS_DB_PATH = path.join(mkdtempSync(path.join(os.tmpdir(), 'align
 import {
 	alignEngineInfo,
 	cancelOtherAlignments,
+	checkAlignmentRecording,
 	ensureAlignedLyrics,
 	isAlignmentInFlight,
 	probeAlignEngine,
@@ -17,9 +18,10 @@ import {
 	readCachedAlignmentInfo,
 	resetAlignEngineProbe,
 	shouldAlign,
-	trackFingerprint
+	trackFingerprint,
+	wavDurationSec
 } from '../src/lib/server/forcedAlign.js';
-import { getAlignmentRow } from '../src/lib/server/lyricsStore.js';
+import { getAlignmentRow, putAlignmentRow } from '../src/lib/server/lyricsStore.js';
 
 const ENERGY = { engine: 'energy', precise: false, available: ['energy'] };
 const QWEN = { engine: 'qwen', precise: true, available: ['qwen', 'energy'] };
@@ -177,14 +179,15 @@ test('cancelOtherAlignments stops a recording that is not the current track', ()
 	assert.equal(killed[0], 'SIGTERM');
 });
 
-test('shouldAlign: a precise engine aligns every track until a precise result exists', () => {
-	assert.equal(shouldAlign({ cached: null, engine: QWEN, communityWordLevel: true }), true);
+test('shouldAlign: a precise engine aligns tracks without human word clocks until a precise result exists', () => {
+	assert.equal(shouldAlign({ cached: null, engine: QWEN, communityWordLevel: true }), false, 'human karaoke already wins');
 	assert.equal(shouldAlign({ cached: null, engine: QWEN, communityWordLevel: false }), true);
 	assert.equal(
-		shouldAlign({ cached: { engine: 'energy', precise: false }, engine: QWEN, communityWordLevel: true }),
+		shouldAlign({ cached: { engine: 'energy', precise: false }, engine: QWEN, communityWordLevel: false }),
 		true,
 		'an energy guess gets upgraded once a real aligner is installed'
 	);
+	assert.equal(shouldAlign({ cached: { engine: 'qwen', precise: true }, engine: QWEN, force: true }), true, 'realign');
 	assert.equal(shouldAlign({ cached: { engine: 'qwen', precise: true }, engine: QWEN }), false);
 	assert.equal(shouldAlign({ cached: { engine: 'ctc', precise: true }, engine: ENERGY }), false);
 });
@@ -284,7 +287,7 @@ test('ensureAlignedLyrics skips a community word-level track when only energy is
 	assert.equal(calls.length, 0);
 });
 
-test('ensureAlignedLyrics with a precise engine records a community word-level track and stores a precise row', async () => {
+test('ensureAlignedLyrics with a precise engine records a line-synced track and stores a precise row', async () => {
 	resetAlignEngineProbe();
 	const calls = [];
 	const fp = ensureAlignedLyrics({
@@ -293,7 +296,7 @@ test('ensureAlignedLyrics with a precise engine records a community word-level t
 		duration: 200,
 		plainLyrics: 'hello there\nmy friend',
 		position: 0,
-		communityWordLevel: true,
+		communityWordLevel: false,
 		engine: QWEN,
 		spawnFn: (bin, args) => {
 			calls.push(bin);
@@ -383,4 +386,123 @@ test('a legacy energy file is upgraded when a precise engine appears', async () 
 	assert.equal(calls[0], 'parec', 'starts a fresh recording to replace the energy guess');
 	assert.equal(isAlignmentInFlight(fp), true);
 	cancelOtherAlignments('something-else');
+});
+
+/** A recorder that stays open until killed, then exits cleanly (code null)
+ *  the way parec does on SIGTERM. */
+function hangingRecorder(calls) {
+	return (bin, args) => {
+		calls.push(bin);
+		const proc = new EventEmitter();
+		proc.stderr = new EventEmitter();
+		if (bin === 'parec') {
+			const outPath = args[args.length - 1];
+			mkdirSync(path.dirname(outPath), { recursive: true });
+			writeFileSync(outPath, 'fake wav bytes');
+			proc.kill = () => queueMicrotask(() => proc.emit('exit', null));
+			return proc;
+		}
+		queueMicrotask(() => proc.emit('exit', 0));
+		return proc;
+	};
+}
+
+test('a capture cancelled by a track skip is never aligned or cached', async () => {
+	const calls = [];
+	const fp = ensureAlignedLyrics({
+		artist: 'Skipped Artist',
+		title: 'Skipped Song',
+		duration: 200,
+		plainLyrics: 'one\ntwo',
+		position: 0,
+		engine: QWEN,
+		spawnFn: hangingRecorder(calls),
+		findBinary: () => '/usr/bin/parec'
+	});
+	cancelOtherAlignments(trackFingerprint('Next Artist', 'Next Song', 200));
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.deepEqual(calls, ['parec'], 'align.py must not run on the partial WAV');
+	assert.equal(readCachedAlignmentInfo(fp), null);
+	assert.equal(isAlignmentInFlight(fp), false);
+});
+
+test('checkAlignmentRecording cancels the capture on a pause or a scrub, not on normal play', async () => {
+	const calls = [];
+	const fp = ensureAlignedLyrics({
+		artist: 'Scrub Artist',
+		title: 'Scrub Song',
+		duration: 200,
+		plainLyrics: 'one\ntwo',
+		position: 2,
+		engine: QWEN,
+		spawnFn: hangingRecorder(calls),
+		findBinary: () => '/usr/bin/parec'
+	});
+	const now = Date.now();
+	assert.equal(checkAlignmentRecording(fp, { playing: true, position: 2.5, now: now + 500 }), false);
+	assert.equal(checkAlignmentRecording(fp, { playing: true, position: 60, now: now + 1000 }), true);
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.deepEqual(calls, ['parec']);
+	assert.equal(readCachedAlignmentInfo(fp), null);
+});
+
+function writeWav(file, seconds, rate = 8000) {
+	const data = Buffer.alloc(Math.round(seconds * rate * 2));
+	const header = Buffer.alloc(44);
+	header.write('RIFF', 0, 'ascii');
+	header.writeUInt32LE(36 + data.length, 4);
+	header.write('WAVE', 8, 'ascii');
+	header.write('fmt ', 12, 'ascii');
+	header.writeUInt32LE(16, 16);
+	header.writeUInt16LE(1, 20);
+	header.writeUInt16LE(1, 22);
+	header.writeUInt32LE(rate, 24);
+	header.writeUInt32LE(rate * 2, 28);
+	header.writeUInt16LE(2, 32);
+	header.writeUInt16LE(16, 34);
+	header.write('data', 36, 'ascii');
+	header.writeUInt32LE(data.length, 40);
+	mkdirSync(path.dirname(file), { recursive: true });
+	writeFileSync(file, Buffer.concat([header, data]));
+}
+
+test('wavDurationSec reads the captured length from the header, null for non-WAV', () => {
+	const dir = mkdtempSync(path.join(os.tmpdir(), 'wav-'));
+	writeWav(path.join(dir, 'a.wav'), 3);
+	assert.ok(Math.abs(wavDurationSec(path.join(dir, 'a.wav')) - 3) < 1e-6);
+	writeFileSync(path.join(dir, 'b.wav'), 'nope');
+	assert.equal(wavDurationSec(path.join(dir, 'b.wav')), null);
+});
+
+test('a capture that ended far short of the track is not aligned', async () => {
+	const calls = [];
+	const fp = ensureAlignedLyrics({
+		artist: 'Crash Artist',
+		title: 'Crash Song',
+		duration: 200,
+		plainLyrics: 'one\ntwo',
+		position: 0,
+		engine: QWEN,
+		spawnFn: (bin, args) => {
+			calls.push(bin);
+			if (bin === 'parec') writeWav(args[args.length - 1], 5);
+			return fakeChild();
+		},
+		findBinary: () => '/usr/bin/parec'
+	});
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	assert.deepEqual(calls, ['parec']);
+	assert.equal(readCachedAlignmentInfo(fp), null);
+});
+
+test('an alignment timed against a censored sheet is dropped so it can be redone', () => {
+	const fp = trackFingerprint('Masked Artist', 'Masked Song', 200);
+	putAlignmentRow(fp, {
+		lines: [{ time: 1, text: 'f**k it', words: [{ time: 1, text: 'f' }, { time: 1.2, text: 'k' }, { time: 1.4, text: 'it' }] }],
+		engine: 'wav2vec',
+		precise: true,
+		createdAt: Date.now()
+	});
+	assert.equal(readCachedAlignmentInfo(fp), null);
+	assert.equal(getAlignmentRow(fp), null);
 });

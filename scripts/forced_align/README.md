@@ -1,6 +1,13 @@
 # Lyrics lookup, cache, and alignment
 
-`src/lib/server/lyrics.js` tries, in order:
+`src/lib/server/lyrics.js` runs the community lookup, the canonical sheet,
+and LRCLIB at the same time. LRCLIB answers in well under a second, so its
+lines go on screen right away (memory only, flagged provisional) and the
+karaoke file replaces them when it lands, a few seconds later. The community
+lookup stops early: nothing beats TTML, and once any word-level file is in
+hand it waits at most 1.5 s more for a better one (12 s budget overall).
+
+Sources, best first:
 
 1. **Community word-sync** (`scripts/forced_align/community_lyrics.py`) - several
    free, keyless sources that publish per-word or per-syllable timing:
@@ -18,10 +25,21 @@
      hit for the wrong artist is rejected. This is the always-on equivalent.
 3. **LRCLIB synced** (`lrclib.net`) - line-synced LRC if nobody published
    word clocks.
-4. **On-device alignment** - the box records the play-through and stamps
-   the canonical sheet onto the audio with the best singing aligner
-   installed (see below). Community karaoke stays on screen until that
-   result lands, unless those clocks collapsed.
+4. **On-device alignment** - for tracks nobody published word clocks for,
+   the box records the play-through and stamps the canonical sheet onto the
+   audio with the best singing aligner installed (see below).
+
+When LRCLIB's `/api/get` hit matches this release's duration, its human line
+stamps are the reference: a karaoke file from another release that sits a
+constant offset away is shifted onto them, and an aligned line that drifted
+more than 2 s off its stamp is moved back.
+
+Providers (NetEase, Kugou, Musixmatch, some LRCLIB uploads) mask profanity
+as `f**k`, `ni**a`, `*********in`. `src/lib/lyricProfanity.js` restores the
+real words: from the canonical sheet first (which also fills fully masked
+`****`), then from a dictionary matched on the visible letters and mask
+length. It runs on every fetched file, on rows read back from the DB, and on
+the aligner's input, so the sheet is never timed with a word split in two.
 
 Title matching is scored on every networked source. A "My Way" hit for the
 wrong artist never reaches the Music view.
@@ -69,14 +87,19 @@ default `auto`), best first:
 | `mfa` | Demucs + Montreal Forced Aligner | yes | Opt-in only. Heavy. Not used by `auto`. |
 | `energy` | Python 3 only | no | RMS envelope vs lyric weights. Always on. A stand-in, not a measurement. |
 
-"Precise" engines get their clocks from an acoustic model, so their result
-**overrides community word timing** on screen and is cached as final. When a
-precise engine is installed every fetched track gets aligned (community
-clocks stay on screen until the model's result lands). With only `energy`,
-alignment runs just for tracks nobody published word clocks for, and never
-overrides a real karaoke file. An `energy` result is redone once a precise
-engine appears. The rules are `shouldAlign()` in `forcedAlign.js` and
-`pickDisplayLyrics()` in `hostData.js`.
+Human-stamped karaoke (TTML / YRC / KRC / enhanced LRC) wins on screen, so
+those tracks are not recorded or aligned at all. For everything else a
+"precise" engine's result (clocks from an acoustic model) beats line-only
+LRC and is cached as final; an `energy` guess only beats unsynced plain text
+and is redone once a precise engine appears. The remote lyrics desk can
+still pin any source, and its Realign forces a fresh pass. The rules are
+`shouldAlign()` in `forcedAlign.js` and `pickDisplayLyrics()` in
+`hostData.js`.
+
+A capture is thrown away, not aligned, when the track is skipped, when the
+listener pauses or scrubs mid-recording, or when the WAV came out shorter
+than the track. The recording offset is the live playback clock, not the
+last reported sample (AirPlay only reports progress on start and seek).
 
 Every word now carries `end` as well as `time`, so the karaoke fill can stop
 at the end of the sung word instead of stretching to the next one.

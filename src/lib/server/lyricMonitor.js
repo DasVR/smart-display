@@ -1,4 +1,5 @@
 import { displayLyricWords } from '../lyricWords.js';
+import { livePlaybackPosition } from '../playbackClock.js';
 import {
 	alignEngineInfo,
 	ensureAlignedLyrics,
@@ -192,8 +193,9 @@ export async function applyLyricAction({ action, source, demo = false } = {}) {
 				title: track.title,
 				duration: track.duration,
 				plainLyrics: peeked.plainText,
-				position: track.position,
+				position: livePlaybackPosition(np),
 				communityWordLevel: peeked.wordLevel,
+				force: true,
 				engine: alignEngineInfo()
 			});
 		}

@@ -59,7 +59,9 @@ except ImportError:
 	textgrid = None
 
 SILENCE_MARKS = {"sil", "sp", "spn", ""}
-WORD_RE = re.compile(r"[A-Za-z0-9']+")
+# Letters in any script, digits, apostrophes, and a mask star kept inside
+# its word: `f**k` or `corazón` must stay one token, not split in two.
+WORD_RE = re.compile(r"(?:[^\W_]|['*])+", re.UNICODE)
 PRECISE_ENGINES = {"wav2vec", "whisperx", "qwen", "ctc", "aeneas", "mfa"}
 # Known-text CTC on a singing-tolerant wav2vec2 beats Whisper ASR overlay
 # (Whisper rewrites sung words) and speech Qwen (collapses verses).
