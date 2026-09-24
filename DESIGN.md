@@ -28,12 +28,6 @@ typography:
     fontSize: 12.75rem
     fontWeight: 500
     lineHeight: 1
-  view-title:
-    fontFamily: Plus Jakarta Sans Variable
-    fontSize: 3.75rem
-    fontWeight: 700
-    lineHeight: 1
-    letterSpacing: "-0.04em"
   dateline:
     fontFamily: Plus Jakarta Sans Variable
     fontSize: 1.5rem
@@ -87,7 +81,7 @@ components:
   trough:
     backgroundColor: "{colors.abyss-1}"
     rounded: "{rounded.md}"
-    height: 6rem
+    height: 4.25rem
   island-pill:
     backgroundColor: "{colors.abyss}"
     textColor: "{colors.foreground}"
@@ -165,7 +159,10 @@ with a record player sitting in front of its lower edge. Three layers:
 - **Status cluster.** Right-aligned, two lines: time and date on top,
   temperature and conditions underneath. It dims to 32% while the island
   is showing something.
-- **Bottom trough.** A 6rem glass strip with the audio waveform, the
+- **Stage height.** Views get no page title; the tab strip already names
+  the view, and a screen-reader-only `h1` carries it for assistive tech.
+  That height goes to the content: the stage is 694px of 1080 (64%).
+- **Bottom trough.** A 4.25rem glass strip (one row) with the audio waveform, the
   connection state, and (on every view except Clock) the Sun, Wind and
   Radar chips. The Clock view already shows those chips at full size
   under the clock, so the trough drops them there rather than repeat them.
@@ -202,6 +199,19 @@ Depth comes from translucency and light, not drop shadows:
   on different clocks, so the leading edge races ahead (320ms) and the
   trailing edge follows (560ms). It stretches toward the new tab and then
   settles, and thins slightly while travelling. Pressing a tab squeezes it.
+- **Music deck.** The left column reads like a record deck:
+  - A kicker line: live bars, Now playing / Paused, the source ("via
+    AirPlay"), and a session counter ("02 / 05").
+  - The album sleeve. While the track plays, the record slides 46% out to
+    the right and spins, its label cut from the album art. When paused, it
+    tucks back into the sleeve.
+  - Earlier and later tracks from the session lean away at ±58°, like
+    sleeves in a crate.
+  - The elapsed time, seek bar and length share one row.
+  - The track position runs round the play button as a ring: a CSS conic
+    gradient masked to a 2px band.
+  - These ideas come from the vinyl crate on the spacehey-personal
+    profile. The lyrics engine on the right is unchanged.
 - **Page transitions.** The incoming view slides 3.5% in from the side you
   moved toward and sharpens out of an 8px blur. Direction is the shortest
   way round the tab strip.
@@ -213,9 +223,12 @@ Depth comes from translucency and light, not drop shadows:
   gets an ellipsis from a sub-pixel shortfall. Titles are capped at 17ch.
 - **Chips** (`BoardWidgets`). An uppercase label over a semibold value.
   The compact variant puts both on one line for the trough.
-- **Week timetable.** Seven columns, with today's column wider and
-  tinted. When the week is empty, the header says "Clear this week" and
-  today's column says "Nothing due".
+- **Week timetable.** A rolling seven days starting today, matching the
+  calendar feed's window, not a fixed Sunday-to-Saturday week. Today's
+  column comes first, wider and tinted. Above it, a single **Next up**
+  line names the soonest item and how many are due in seven days; the
+  columns list everything, so there's no second list. An empty today
+  column says "Nothing due today"; an empty week says "Clear this week".
 
 ## Motion
 

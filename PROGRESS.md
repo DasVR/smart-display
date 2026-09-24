@@ -1,5 +1,42 @@
 # Smart Display Progress Log
 
+## 2026-09-24: Screen-by-screen UI fixes
+
+### Done
+- **Kiosk stage height.** The bottom band (tick row, a 6rem trough holding one
+  line, padding, and the floor clearance) took about 30% of the panel, which
+  clipped School and Music.
+  - The trough is now 4.25rem, and the padding around it shrank.
+  - The floor clearance itself is unchanged.
+  - No view has a page title any more; it's a screen-reader-only `h1` instead.
+- **School.**
+  - A "Next up" line replaces the list that duplicated the timetable.
+  - The timetable is now a rolling seven days from today. The old
+    Sunday-to-Saturday week dropped anything due after Saturday.
+  - An empty today column reads "Nothing due today".
+- **Music.** The album art is no longer cropped at the top.
+- **Kiosk scrollbars.** Hidden in every build, to match the kiosk's
+  `--hide-scrollbars`.
+- **Music rebuilt as a record deck** (inspired by the vinyl crate on the
+  spacehey-personal profile):
+  - The record slides out of the sleeve and spins while playing, and tucks
+    back when paused. It holds still in eco and frozen modes.
+  - Session history leans away like sleeves in a crate.
+  - A kicker line shows live bars, the source and a session counter
+    (`artSessionPosition()`, tested).
+  - The scrub bar fits on one row, and a progress ring runs round the play
+    button.
+  - The empty state is an empty sleeve.
+  - The lyrics engine is untouched.
+- **Remote.**
+  - Raw process errors ("spawn wpctl ENOENT") become a plain message.
+  - The power label says what a tap does, since "Panel on" is already shown
+    at the top.
+  - Tab links respect the base path, so they also work on the Pages demo.
+- **Docs.** DESIGN.md (trough, stage height, timetable) and the README School
+  row are updated. The notify and Bluetooth guides were checked against the
+  server routes and are accurate.
+
 ## 2026-09-23: Phone remote for one-handed, home-screen use
 
 ### Done

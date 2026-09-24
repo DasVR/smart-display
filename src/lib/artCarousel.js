@@ -72,6 +72,14 @@ export function rememberNowPlaying(track) {
 	return artCarouselSlots(session.ring, session.index);
 }
 
+/** Where the current track sits in this session's history, for the
+ *  "02 / 05" counter on the Music deck. Zero total before anything plays. */
+export function artSessionPosition() {
+	const total = session.ring.length;
+	const i = session.index;
+	return { position: i >= 0 && i < total ? i + 1 : 0, total };
+}
+
 export function resetArtCarousel() {
 	session = { ring: [], index: -1 };
 }

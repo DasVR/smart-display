@@ -5,13 +5,16 @@
 	floating above the home indicator like an iOS tab bar.
 -->
 <script>
+	import { base } from '$app/paths';
+
 	let { active = 'control' } = $props();
 
+	// base-relative so the tabs also work under the GitHub Pages sub-path
 	const TABS = [
-		{ id: 'control', label: 'Remote', href: '/remote' },
-		{ id: 'night', label: 'Night', href: '/remote#night' },
-		{ id: 'lyrics', label: 'Lyrics', href: '/remote/lyrics' },
-		{ id: 'stats', label: 'Stats', href: '/remote/stats' }
+		{ id: 'control', label: 'Remote', href: `${base}/remote` },
+		{ id: 'night', label: 'Night', href: `${base}/remote#night` },
+		{ id: 'lyrics', label: 'Lyrics', href: `${base}/remote/lyrics` },
+		{ id: 'stats', label: 'Stats', href: `${base}/remote/stats` }
 	];
 </script>
 

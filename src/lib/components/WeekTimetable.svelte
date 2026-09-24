@@ -18,10 +18,9 @@
 		return () => clearInterval(t);
 	});
 
-	function startOfWeek(date) {
+	function startOfDay(date) {
 		const d = new Date(date);
 		d.setHours(0, 0, 0, 0);
-		d.setDate(d.getDate() - d.getDay());
 		return d;
 	}
 
@@ -37,7 +36,10 @@
 	}
 
 	let weekDays = $derived.by(() => {
-		const start = startOfWeek(now);
+		// Rolling seven days starting today, matching the calendar feed's
+		// window. A fixed Sun-Sat week hid anything due after Saturday, so by
+		// Friday the board only looked one day ahead.
+		const start = startOfDay(now);
 		return Array.from({ length: 7 }, (_, i) => {
 			const date = new Date(start);
 			date.setDate(start.getDate() + i);
@@ -45,7 +47,7 @@
 			return {
 				date,
 				key: date.toISOString(),
-				label: WEEKDAYS[i],
+				label: WEEKDAYS[date.getDay()],
 				num: date.getDate(),
 				today: sameDay(date, now),
 				items
@@ -62,7 +64,7 @@
 	);
 </script>
 
-<section class="timetable" aria-label="Week of {weekLabel}">
+<section class="timetable" aria-label="Seven days from {weekLabel}">
 	<div class="board" style="--week-cols: {colTemplate}" role="list">
 		{#each weekDays as day (day.key)}
 			<article
@@ -93,8 +95,8 @@
 								{/if}
 							</div>
 						{/each}
-					{:else if day.today && caption}
-						<p class="caption">{caption}</p>
+					{:else if day.today && !loading}
+						<p class="caption">{caption || 'Nothing due today'}</p>
 					{/if}
 				</div>
 			</article>

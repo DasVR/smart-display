@@ -53,24 +53,19 @@
 		return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
 	}
 
-	let groups = $derived.by(() => {
-		const out = [];
-		const seen = new Map();
-		for (const event of events) {
-			const key = event.start ? new Date(event.start).toDateString() : 'undated';
-			if (!seen.has(key)) {
-				const group = {
-					key,
-					label: event.start ? dayLabel(event.start) : 'Undated',
-					items: []
-				};
-				seen.set(key, group);
-				out.push(group);
-			}
-			seen.get(key).items.push(event);
-		}
-		return out;
+	// The soonest thing still ahead: one line up top instead of a second
+	// copy of the whole week (the timetable below already lists every item).
+	let nextUp = $derived.by(() => {
+		const now = Date.now();
+		return (
+			events
+				.filter((e) => e.start && new Date(e.start).getTime() >= now - 36e5)
+				.sort((a, b) => new Date(a.start) - new Date(b.start))[0] || null
+		);
 	});
+	let nextWhen = $derived(
+		nextUp ? `${dayLabel(nextUp.start)}${nextUp.start.length > 10 ? ` · ${timeLabel(nextUp.start)}` : ''}` : ''
+	);
 
 	let timetableCaption = $derived.by(() => {
 		if (loading) return '';
@@ -82,39 +77,21 @@
 
 <div class="school-hub">
 	<header class="running">
-		<p class="head-meta">
-			{#if loading}
-				Checking calendar
-			{:else if error}
-				{error}
-			{:else if events.length === 0}
-				Clear this week
-			{:else}
-				{events.length} tagged #hw
-			{/if}
-		</p>
+		{#if loading}
+			<p class="head-meta">Checking calendar</p>
+		{:else if error}
+			<p class="head-meta">{error}</p>
+		{:else if nextUp}
+			<p class="next" data-urgency={urgency(nextUp)}>
+				<span class="next-k">Next up</span>
+				<span class="next-title">{nextUp.title}</span>
+				<span class="next-when num">{nextWhen}</span>
+			</p>
+			<p class="head-meta">{events.length} due in 7 days</p>
+		{:else}
+			<p class="head-meta">Clear this week</p>
+		{/if}
 	</header>
-
-	{#if !loading && !error && events.length > 0}
-		<div class="archive">
-			{#each groups as group (group.key)}
-				<section class="day">
-					<h3 class="day-label">{group.label}</h3>
-					<ol class="day-list">
-						{#each group.items as e, i (e.id ?? `${group.key}-${i}`)}
-							<li class="entry" data-urgency={urgency(e)} style="--i: {i}">
-								<time class="when num">{timeLabel(e.start)}</time>
-								<div class="body">
-									<div class="row-title">{e.title}</div>
-									<div class="row-sub">{e.location || 'Calendar'}</div>
-								</div>
-							</li>
-						{/each}
-					</ol>
-				</section>
-			{/each}
-		</div>
-	{/if}
 
 	<WeekTimetable {events} caption={timetableCaption} {loading} />
 </div>
@@ -126,14 +103,14 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-8);
-		padding: var(--space-8);
+		gap: var(--space-5);
+		padding: var(--space-6) var(--space-7);
 		min-height: 0;
 		min-width: 0;
 	}
 	.running {
 		display: flex;
-		align-items: flex-end;
+		align-items: baseline;
 		justify-content: space-between;
 		flex-wrap: wrap;
 		gap: var(--space-4);
@@ -150,78 +127,38 @@
 		min-width: 0;
 		max-width: 100%;
 	}
-	.archive {
+	.next {
 		display: flex;
-		flex-direction: column;
-		gap: var(--space-4);
-		overflow: auto;
-		min-height: 0;
-		flex: 0 1 auto;
-		max-height: 48%;
-	}
-	.day {
-		display: grid;
-		grid-template-columns: minmax(0, 7.5rem) minmax(0, 1fr);
-		gap: var(--space-4);
-		align-items: start;
-	}
-	.day-label {
-		margin: 0;
-		font-size: var(--text-xl);
-		font-weight: 700;
-		font-style: normal;
-		color: var(--brand);
-		padding-top: var(--space-1);
-	}
-	.day-list {
-		list-style: none;
-		margin: 0;
-		padding: 0;
-		display: flex;
-		flex-direction: column;
-		gap: 0;
-	}
-	.entry {
-		display: grid;
-		grid-template-columns: 5.5rem minmax(0, 1fr);
-		gap: var(--space-2);
 		align-items: baseline;
-		padding: var(--space-4) 0;
-		min-height: 2.75rem;
-		border-bottom: 1px solid var(--hairline);
-		background: none;
-		box-shadow: none;
+		flex-wrap: wrap;
+		gap: var(--space-2) var(--space-4);
+		margin: 0;
+		min-width: 0;
 	}
-	@media (prefers-reduced-motion: no-preference) {
-		.entry {
-			animation: today-arrive 560ms var(--spring-smooth) both;
-			animation-delay: calc(var(--i, 0) * 60ms);
-		}
-	}
-	.entry[data-urgency='now'] .when {
-		color: var(--warn);
-	}
-	.entry[data-urgency='soon'] .when {
-		color: var(--brand);
-	}
-	.when {
-		font-size: var(--text-lg);
+	.next-k {
+		font-size: var(--text-sm);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
 		color: var(--text-tertiary);
 	}
-	.row-title {
-		font-family: var(--font-body);
-		font-size: var(--text-xl);
-		font-weight: 600;
-		font-style: normal;
+	.next-title {
+		font-size: var(--text-2xl);
+		font-weight: 700;
+		letter-spacing: -0.03em;
 		color: var(--foreground);
-		letter-spacing: -0.02em;
 		overflow-wrap: anywhere;
 		min-width: 0;
 	}
-	.row-sub {
-		margin-top: 0;
-		font-size: var(--text-sm);
-		color: var(--text-tertiary);
+	.next-when {
+		font-size: var(--text-lg);
+		color: var(--text-secondary);
+	}
+	.next[data-urgency='now'] .next-when {
+		color: var(--warn);
+	}
+	.next[data-urgency='soon'] .next-when {
+		color: var(--brand);
 	}
 
 	@media (max-width: 768px) {
@@ -229,16 +166,6 @@
 			flex-direction: column;
 			align-items: flex-start;
 			gap: var(--space-2);
-		}
-		.day {
-			grid-template-columns: minmax(0, 1fr);
-			gap: var(--space-2);
-		}
-		.entry {
-			grid-template-columns: minmax(0, 1fr);
-		}
-		.archive {
-			max-height: none;
 		}
 	}
 </style>
