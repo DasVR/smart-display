@@ -18,6 +18,18 @@ export function shouldGlueLyricTokens(prevText, nextText) {
 	return false;
 }
 
+const MASK_ONLY_RE = /^[*#]+$/;
+
+/** Masked swears arrive one star per token (`this ` `*` `*` `*` `in `): the
+ *  stars join each other and the letters after them, but a star after a
+ *  space starts a new word instead of sticking to the one before. */
+function glueTokens(prev, text, breakBefore) {
+	const spaced = Boolean(prev.breakAfter) || breakBefore;
+	if (MASK_ONLY_RE.test(text)) return !spaced && /[*#]$/.test(prev.text);
+	if (/[*#]$/.test(prev.text) && !spaced && /^[\p{L}\p{N}'’*#]/u.test(text)) return true;
+	return shouldGlueLyricTokens(prev.text, text);
+}
+
 function cleanWord(word) {
 	if (!word || typeof word !== 'object') return word;
 	const { breakBefore: _b, breakAfter: _a, ...rest } = word;
@@ -54,7 +66,7 @@ export function coalesceLyricWords(words) {
 		const prev = out[out.length - 1];
 		// Contractions and punctuation glue even when the source put
 		// spaces around them (`don` `'` `t` must not paint as "don ' t").
-		const glue = prev && shouldGlueLyricTokens(prev.text, next.text);
+		const glue = prev && glueTokens(prev, next.text, breakBefore);
 		if (glue) {
 			const mergedEnd = Number.isFinite(end) && end > (Number(prev.end) || prev.time) ? end : prev.end;
 			prev.text += next.text;
@@ -70,7 +82,7 @@ export function coalesceLyricWords(words) {
 function lyricLetters(value) {
 	return String(value || '')
 		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '');
+		.replace(/[^\p{L}\p{N}]+/gu, '');
 }
 
 export function lineWithCoalescedWords(line) {
@@ -89,7 +101,7 @@ export function lineWithCoalescedWords(line) {
 	return { ...line, words, text: keepOriginal ? original : fromWords || original };
 }
 
-const DISPLAY_TOKEN_RE = /[A-Za-z0-9']+/g;
+const DISPLAY_TOKEN_RE = /[\p{L}\p{N}'’*#]+/gu;
 
 function sameToken(a, b) {
 	return String(a || '').toLowerCase() === String(b || '').toLowerCase();

@@ -37,13 +37,57 @@ const modelLines = [
 	{ time: 1.02, text: 'Hello there', words: [{ time: 1.02, text: 'Hello', end: 1.31 }, { time: 1.38, text: 'there', end: 1.7 }] }
 ];
 
-test('a precise on-device alignment beats community word clocks', () => {
+test('human-stamped community word clocks beat a precise on-device alignment', () => {
 	const picked = pickDisplayLyrics({
 		community: { known: true, lines: wordLevel, wordLevel: true, source: 'amll-ttml' },
 		aligned: { lines: modelLines, engine: 'qwen', precise: true }
 	});
-	assert.equal(picked.lyrics, modelLines);
-	assert.equal(picked.source, 'align:qwen');
+	assert.equal(picked.lyrics, wordLevel);
+	assert.equal(picked.source, 'amll-ttml');
+});
+
+test('a precise alignment beats synthesized per-line timing', () => {
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: synthesized, wordLevel: false, source: 'lrclib-synced' },
+		aligned: { lines: modelLines, engine: 'wav2vec', precise: true }
+	});
+	assert.equal(picked.lyrics[0].words[0].time, 1.02);
+	assert.equal(picked.source, 'align:wav2vec');
+});
+
+test('an aligned line that wandered off is pulled back onto the human line stamp', () => {
+	const human = [
+		{ time: 10, text: 'First line here' },
+		{ time: 20, text: 'Second line here' },
+		{ time: 30, text: 'Third line here' }
+	];
+	const words = (t, text) => text.split(' ').map((w, i) => ({ time: t + i * 0.4, text: w, end: t + i * 0.4 + 0.35 }));
+	const lost = [
+		{ time: 10.1, text: 'First line here', words: words(10.1, 'First line here') },
+		{ time: 26, text: 'Second line here', words: words(26, 'Second line here') },
+		{ time: 30.2, text: 'Third line here', words: words(30.2, 'Third line here') }
+	];
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: human, wordLevel: false, source: 'lrclib-synced' },
+		aligned: { lines: lost, engine: 'wav2vec', precise: true }
+	});
+	assert.equal(picked.lyrics[0].time, 10.1, 'a line within tolerance keeps the model clock');
+	assert.equal(picked.lyrics[1].time, 20, 'a drifted line snaps to the human stamp');
+	assert.ok(Math.abs(picked.lyrics[1].words[1].time - 20.4) < 1e-9, 'word spacing moves with it');
+	assert.equal(picked.lyrics[2].time, 30.2);
+});
+
+test('masked swears on an alignment are restored from the lyric sheet', () => {
+	const picked = pickDisplayLyrics({
+		community: { known: false, lines: null, plainText: 'I said fuck you' },
+		aligned: {
+			lines: [{ time: 1, text: 'I said f**k you', words: [{ time: 1, text: 'I' }, { time: 1.2, text: 'said' }, { time: 1.4, text: 'f**k' }, { time: 1.7, text: 'you' }] }],
+			engine: 'wav2vec',
+			precise: true
+		}
+	});
+	assert.equal(picked.lyrics[0].text, 'I said fuck you');
+	assert.equal(picked.lyrics[0].words[2].text, 'fuck');
 });
 
 test('community word clocks beat an energy guess', () => {
@@ -55,9 +99,19 @@ test('community word clocks beat an energy guess', () => {
 	assert.equal(picked.source, 'musixmatch');
 });
 
-test('an energy guess beats synthesized per-line timing', () => {
+test('human line stamps beat an energy guess', () => {
 	const picked = pickDisplayLyrics({
 		community: { known: true, lines: synthesized, wordLevel: false, source: 'lrclib-synced' },
+		aligned: { lines: modelLines, engine: 'energy', precise: false }
+	});
+	assert.equal(picked.lyrics, synthesized);
+	assert.equal(picked.source, 'lrclib-synced');
+});
+
+test('an energy guess beats unsynced plain lyrics', () => {
+	const plain = [{ time: 0, text: 'Hello there' }];
+	const picked = pickDisplayLyrics({
+		community: { known: true, lines: plain, wordLevel: false, source: 'lrclib-plain' },
 		aligned: { lines: modelLines, engine: 'energy', precise: false }
 	});
 	assert.equal(picked.lyrics, modelLines);
@@ -148,9 +202,9 @@ test('a clipped Qwen line is filled from the community text while staying the al
 			]
 		}
 	];
-	const communityLines = [{ time: 8, text: 'I walk a lonely road', words: [{ time: 8, text: 'I' }] }];
+	const communityLines = [{ time: 8, text: 'I walk a lonely road' }];
 	const picked = pickDisplayLyrics({
-		community: { known: true, lines: communityLines, wordLevel: true, source: 'amll-ttml' },
+		community: { known: true, lines: communityLines, wordLevel: false, source: 'lrclib-synced' },
 		aligned: { lines: clipped, engine: 'qwen', precise: true }
 	});
 	assert.equal(picked.source, 'align:qwen');

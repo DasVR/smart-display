@@ -31,6 +31,7 @@ import {
 	pickBestLyricsHit,
 	pickItunesDuration,
 	scoreLyricsHit,
+	tidyInstrumentalMarkers,
 	synthesizeWordTiming
 } from '../src/lib/server/lyrics.js';
 import { getLyricsRow, lyricsDbStats } from '../src/lib/server/lyricsStore.js';
@@ -363,7 +364,7 @@ test('fetchSyncedLyricsFallback resolves null (not throw) on bad output or spawn
 	assert.equal(spawnThrows, null);
 });
 
-test('fetchLyrics prefers syncedlyrics over LRCLIB and never touches LRCLIB on a syncedlyrics hit', async () => {
+test('fetchLyrics prefers syncedlyrics over LRCLIB even when LRCLIB is down', async () => {
 	const load = async (url) => {
 		throw new Error('LRCLIB should not have been called: ' + url);
 	};
@@ -701,4 +702,150 @@ test('fetchLyrics does not persist a miss', async () => {
 	assert.equal(lines, null);
 	assert.equal(peekLyrics(artist, title, '', 180).known, true, 'miss is remembered in memory');
 	assert.equal(getLyricsRow(lyricsCacheKey(artist, title, '', 180)), null, 'but never written to disk');
+});
+
+function slowPythonChild(stdout, release) {
+	const proc = new EventEmitter();
+	proc.stdout = new EventEmitter();
+	proc.kill = () => proc.emit('close', null);
+	release.push(() => {
+		proc.stdout.emit('data', Buffer.from(stdout));
+		proc.emit('close', 0);
+	});
+	return proc;
+}
+
+test('LRCLIB lines show while the karaoke lookup is still running, then the karaoke file replaces them', async () => {
+	const artist = `Fast Artist ${Date.now()}`;
+	const title = 'Fast Song';
+	const release = [];
+	const load = async (url) => {
+		if (url.includes('/api/get')) {
+			return { trackName: title, artistName: artist, duration: 200, syncedLyrics: '[00:05.00]Line from lrclib\n[00:09.00]Second line' };
+		}
+		throw new Error('unexpected ' + url);
+	};
+	const done = fetchLyrics(artist, title, {
+		duration: 200,
+		load,
+		spawnFn: (bin, args) =>
+			args[0].endsWith('canonical_lyrics.py')
+				? fakePythonChild(JSON.stringify({ plain: null }))
+				: slowPythonChild(
+						JSON.stringify({
+							source: 'amll-ttml',
+							wordLevel: true,
+							lines: [
+								{ time: 5, text: 'Line from karaoke', words: [{ time: 5, text: 'Line', end: 5.3 }, { time: 5.3, text: 'from', end: 5.6 }, { time: 5.6, text: 'karaoke', end: 6 }] }
+							]
+						}),
+						release
+					)
+	});
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	const early = peekLyricsInfo(artist, title, '', 200);
+	assert.equal(early.known, true, 'lrclib is on screen before the karaoke lookup returns');
+	assert.equal(early.provisional, true);
+	assert.equal(early.lines[0].text, 'Line from lrclib');
+	assert.equal(getLyricsRow(lyricsCacheKey(artist, title, '', 200)), null, 'provisional lines are memory only');
+	release.forEach((fn) => fn());
+	await done;
+	const final = peekLyricsInfo(artist, title, '', 200);
+	assert.equal(final.provisional, false);
+	assert.equal(final.source, 'amll-ttml');
+	assert.equal(final.lines[0].text, 'Line from karaoke');
+});
+
+test('a karaoke file from another release is shifted onto the exact-duration LRCLIB stamps', async () => {
+	const artist = `Offset Artist ${Date.now()}`;
+	const title = 'Offset Song';
+	const texts = ['alpha one', 'bravo two', 'charlie three', 'delta four', 'echo five'];
+	const lrc = texts.map((t, i) => `[00:${String(10 + i * 5).padStart(2, '0')}.00]${t}`).join('\n');
+	const load = async (url) => {
+		if (url.includes('/api/get')) return { trackName: title, artistName: artist, duration: 200, syncedLyrics: lrc };
+		throw new Error('unexpected ' + url);
+	};
+	const karaoke = texts.map((t, i) => {
+		const start = 14 + i * 5;
+		const [a, b] = t.split(' ');
+		return { time: start, text: t, words: [{ time: start, text: a, end: start + 0.4 }, { time: start + 0.4, text: b, end: start + 0.8 }] };
+	});
+	const lines = await fetchLyrics(artist, title, {
+		duration: 200,
+		load,
+		spawnFn: (bin, args) =>
+			fakePythonChild(
+				args[0].endsWith('canonical_lyrics.py')
+					? JSON.stringify({ plain: null })
+					: JSON.stringify({ source: 'netease-yrc', wordLevel: true, lines: karaoke })
+			)
+	});
+	assert.equal(lines[0].time, 10);
+	assert.ok(Math.abs(lines[0].words[1].time - 10.4) < 1e-9);
+});
+
+test('fetchLyrics restores masked profanity from the canonical sheet', async () => {
+	const artist = `Masked Artist ${Date.now()}`;
+	const title = 'Masked Song';
+	const lines = await fetchLyrics(artist, title, {
+		duration: 200,
+		load: async () => {
+			throw new Error('offline');
+		},
+		spawnFn: (bin, args) =>
+			fakePythonChild(
+				args[0].endsWith('canonical_lyrics.py')
+					? JSON.stringify({ plain: 'I said fuck you\nThis shit is real', source: 'genius' })
+					: JSON.stringify({ synced: '[00:05.00]I said **** you\n[00:09.00]This sh*t is real' })
+			)
+	});
+	assert.deepEqual(
+		lines.map((l) => l.text),
+		['I said fuck you', 'This shit is real']
+	);
+	assert.ok(lines[0].words.every((w) => !w.text.includes('*')));
+});
+
+test('parseYrc keeps masked swears as their own word and restores them downstream', () => {
+	const lines = parseYrc('[1000,900](1000,100,0)Tear (1100,100,0)this (1200,50,0)*(1250,50,0)*(1300,50,0)*(1350,100,0)in (1450,100,0)roof');
+	assert.deepEqual(
+		lines[0].words.map((w) => w.text),
+		['Tear', 'this', '***in', 'roof']
+	);
+});
+
+test('tidyInstrumentalMarkers collapses blank runs and drops blanks that are only a breath', () => {
+	const lines = [
+		{ time: 1, text: 'sung' },
+		{ time: 4, text: '' },
+		{ time: 5, text: '' },
+		{ time: 20, text: 'next verse' },
+		{ time: 22, text: '' },
+		{ time: 23, text: 'right after' },
+		{ time: 30, text: '' }
+	];
+	assert.deepEqual(
+		tidyInstrumentalMarkers(lines).map((l) => [l.time, l.text]),
+		[
+			[1, 'sung'],
+			[4, ''],
+			[20, 'next verse'],
+			[23, 'right after'],
+			[30, '']
+		]
+	);
+});
+
+test('synthesized words sweep at singing pace before a long instrumental, not across it', () => {
+	const [line] = synthesizeWordTiming([
+		{ time: 10, text: 'I walk a lonely road' },
+		{ time: 40, text: 'next verse' }
+	]);
+	const last = line.words[line.words.length - 1];
+	assert.ok(last.end < 14, `the line should finish in a few seconds, not ${last.end - 10}s`);
+	const [tight] = synthesizeWordTiming([
+		{ time: 10, text: 'I walk a lonely road' },
+		{ time: 12.5, text: 'next line' }
+	]);
+	assert.equal(tight.words[tight.words.length - 1].end, 12.5, 'back-to-back lines still fill the gap');
 });
