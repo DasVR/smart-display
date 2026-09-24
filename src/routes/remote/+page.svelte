@@ -51,6 +51,14 @@
 	let volume = $state(0.6);
 	let muted = $state(false);
 	let volumeError = $state('');
+	// The server passes through raw process errors ("spawn wpctl ENOENT");
+	// keep those out of the UI and say what the person can actually tell.
+	function volumeMessage(raw) {
+		const text = String(raw || '');
+		if (/ENOENT|not found|No such file/i.test(text)) return 'No volume control on the display yet';
+		if (/timed? ?out/i.test(text)) return 'The display took too long to answer';
+		return 'Volume control unavailable';
+	}
 	let volumeTimer = 0;
 
 	function applyAudio(audio) {
@@ -340,7 +348,7 @@
 				applyAudio(data);
 				return;
 			}
-			volumeError = data.error || 'Volume control unavailable';
+			volumeError = volumeMessage(data.error);
 		} catch {
 			volumeError = 'Volume control unavailable';
 		}
@@ -379,7 +387,7 @@
 				lastAction = data.muted ? 'muted' : `${Math.round((data.volume ?? volume) * 100)}%`;
 				return;
 			}
-			volumeError = data.error || 'Volume control unavailable';
+			volumeError = volumeMessage(data.error);
 		} catch {
 			if (seq !== volumeRequestSeq) return;
 			volumeError = 'Volume control unavailable';
@@ -534,7 +542,7 @@
 					</svg>
 				</button>
 				<p class="power-label">
-					{hdmi === 'off' ? 'Off' : 'On'}{#if autoNights && hold}<span class="power-hold"> · held</span>{/if}
+					{hdmi === 'off' ? 'Tap to turn on' : 'Tap to turn off'}{#if autoNights && hold}<span class="power-hold"> · held</span>{/if}
 				</p>
 			</section>
 

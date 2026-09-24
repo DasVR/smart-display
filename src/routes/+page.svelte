@@ -642,12 +642,6 @@
 	);
 	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
 
-	const VIEW_TITLES = {
-		school: 'Due Work',
-		music: 'Music',
-		weather: 'Weather'
-	};
-	let viewTitle = $derived(VIEW_TITLES[$currentView] ?? '');
 
 	function viewLabel(name) {
 		return kioskViewLabel(name);
@@ -849,9 +843,6 @@
 			{#if showChromeTicker}
 				<SevereTicker text={tickerPulse} />
 			{/if}
-			{#if $currentView !== 'clock' && $currentView !== 'music' && $currentView !== 'weather' && $currentView !== 'agents'}
-				<h1 class="view-title">{viewTitle}</h1>
-			{/if}
 		</header>
 
 		<main
@@ -864,6 +855,9 @@
 			onpointerup={onStageUp}
 			onpointercancel={onStageUp}
 		>
+			<!-- The tab strip already names the view on screen; this keeps a
+			     heading for screen readers without spending stage height. -->
+			<h1 class="sr-only">{viewLabel($currentView)}</h1>
 			{#if $currentView === 'clock'}
 				<section class="view-pane clock-pane">
 					<div class="clock-credits">
@@ -1078,17 +1072,21 @@
 	.display-root.wx-rain .wxline {
 		color: var(--scan);
 	}
-	.view-title {
-		margin: var(--space-6) 0 0;
-		font-family: var(--font-body);
-		font-size: clamp(2.25rem, 4.4vw, 3.75rem);
-		font-weight: 700;
-		font-style: normal;
-		letter-spacing: -0.04em;
-		line-height: 1;
-		color: var(--foreground);
-		overflow-wrap: anywhere;
-		min-width: 0;
+	.sr-only {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		margin: -1px;
+		padding: 0;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
+		border: 0;
+	}
+	/* Chromium on the kiosk runs with --hide-scrollbars; hide them here too so
+	   the demo and dev builds match what the panel shows. */
+	.display-root :global(*) {
+		scrollbar-width: none;
 	}
 	.dateline .time {
 		margin-right: var(--space-3);
@@ -1231,8 +1229,8 @@
 		min-height: 0;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr);
-		padding-top: var(--space-6);
-		padding-bottom: var(--space-6);
+		padding-top: var(--space-4);
+		padding-bottom: var(--space-4);
 	}
 	.display-root:has(.weather-pane) .center {
 		padding-top: var(--space-2);
@@ -1402,12 +1400,13 @@
 		display: flex;
 		flex-direction: column;
 		align-items: stretch;
-		gap: var(--space-3);
+		gap: var(--space-2);
 		/* Lifted well clear of the screen's bottom edge so the equator ticks
 		   and the ambient trough (waveform, connection status) stay visible
 		   above physical objects — a record player, a stand lip — sitting in
-		   front of the panel. */
-		padding-bottom: calc(var(--space-8) + var(--floor-clearance));
+		   front of the panel. The clearance itself is unchanged; only the
+		   padding around it shrank to give the stage more height. */
+		padding-bottom: calc(var(--space-4) + var(--floor-clearance));
 	}
 	.equator {
 		display: flex;
@@ -1422,9 +1421,10 @@
 		pointer-events: none;
 		user-select: none;
 	}
+	/* One row of content (chips, waveform, link state) needs ~4rem, not 6. */
 	.trough {
 		width: 100%;
-		height: 6rem;
+		height: 4.25rem;
 		min-width: 0;
 		border-radius: var(--radius-md);
 	}
@@ -1619,7 +1619,7 @@
 		   grow to hold them instead of spilling out the bottom */
 		.trough {
 			height: auto;
-			min-height: 6rem;
+			min-height: 4.25rem;
 		}
 		.bottom {
 			min-height: 0;
