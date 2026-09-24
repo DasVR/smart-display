@@ -1,5 +1,15 @@
 # Smart Display Progress Log
 
+## 2026-09-24: Remove BLE proximity wake
+
+### Done
+- The Night tab no longer offers "Wake when I'm near", a device picker, or a
+  distance threshold. The server no longer polls Bluetooth RSSI to turn the
+  panel on.
+- Saved schedules drop `wakeOnProximity`, `proximityDevice`, and
+  `proximityMeters` the next time they are written. Phone wake and the night
+  clock are unchanged. Stats still shows live Bluetooth distance.
+
 ## 2026-09-23: Phone remote for one-handed, home-screen use
 
 ### Done

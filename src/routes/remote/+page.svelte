@@ -13,7 +13,7 @@
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 
 	// Two panes on one page, picked by the bottom tab bar: the everyday
-	// controls, and the night schedule + proximity settings (#night).
+	// controls, and the night schedule (#night).
 	let pane = $derived(page.url.hash === '#night' ? 'night' : 'control');
 
 	const current = writable('clock');
@@ -39,12 +39,6 @@
 	let onAt = $state('06:00');
 	let hold = $state(null);
 	let phone = $state({ entity: '', label: '', on: false, status: 'idle', wakeWindow: false });
-	let wakeOnProximity = $state(false);
-	let proximityDevice = $state('');
-	let proximityMeters = $state(5);
-	let proximity = $state({ address: '', label: '', distanceMeters: null, near: false, connected: false });
-	let nearbyDevices = $state([]);
-	let proximitySaveTimer = 0;
 	let saveTimer = 0;
 	let nightTab = $state('times');
 	let days = $state([0, 1, 2, 3, 4, 5, 6]);
@@ -93,102 +87,7 @@
 				(a, b) => a - b
 			);
 		}
-		if (typeof schedule.wakeOnProximity === 'boolean') wakeOnProximity = schedule.wakeOnProximity;
-		if (typeof schedule.proximityDevice === 'string') proximityDevice = schedule.proximityDevice;
-		if (schedule.proximityMeters != null) {
-			const meters = Number(schedule.proximityMeters);
-			if (Number.isFinite(meters)) proximityMeters = meters;
-		}
 		if (display.phone) phone = { ...phone, ...display.phone };
-		if (display.proximity) proximity = { ...proximity, ...display.proximity };
-	}
-
-	function sameAddr(a, b) {
-		return String(a || '').toUpperCase() === String(b || '').toUpperCase();
-	}
-
-	function selectedNearby() {
-		return nearbyDevices.find((d) => sameAddr(d.address, proximityDevice));
-	}
-
-	function liveDistance() {
-		const selected = selectedNearby();
-		if (selected?.distanceMeters != null) return selected.distanceMeters;
-		if (sameAddr(proximity.address, proximityDevice)) return proximity.distanceMeters;
-		return null;
-	}
-
-	function liveNear() {
-		const meters = liveDistance();
-		if (meters != null) return meters <= Number(proximityMeters);
-		return Boolean(sameAddr(proximity.address, proximityDevice) && proximity.near);
-	}
-
-	function proximityDeviceLabel(address) {
-		const found = nearbyDevices.find((d) => sameAddr(d.address, address));
-		if (found?.name) return found.name;
-		if (sameAddr(proximity.address, address) && proximity.label) return proximity.label;
-		return address || 'none seen yet';
-	}
-
-	function nearbyOptionLabel(device) {
-		const name = device.name || device.address;
-		if (device.distanceMeters != null) return `${name} · ${device.distanceMeters}m`;
-		if (device.connected) return `${name} · connected`;
-		return name;
-	}
-
-	async function fetchNearbyDevices() {
-		try {
-			const r = await fetch('/api/kiosk');
-			const data = await r.json();
-			const list = data?.bluetooth?.paired?.length
-				? data.bluetooth.paired
-				: data?.bluetooth?.connected || [];
-			nearbyDevices = list;
-			const selected = selectedNearby();
-			if (selected) {
-				proximity = {
-					...proximity,
-					address: selected.address,
-					label: selected.name || proximity.label,
-					distanceMeters: selected.distanceMeters ?? null,
-					near:
-						selected.distanceMeters != null
-							? selected.distanceMeters <= Number(proximityMeters)
-							: proximity.near,
-					connected: Boolean(selected.connected)
-				};
-			}
-		} catch {
-			/* stats endpoint is optional */
-		}
-	}
-
-	function queueProximitySave() {
-		clearTimeout(proximitySaveTimer);
-		proximitySaveTimer = setTimeout(saveProximity, 400);
-	}
-
-	async function saveProximity() {
-		lastAction = 'saving proximity';
-		try {
-			const r = await fetch('/api/display', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					wakeOnProximity,
-					proximityDevice,
-					proximityMeters: Number(proximityMeters)
-				})
-			});
-			const data = await r.json();
-			applyDisplay(data);
-			lastAction = wakeOnProximity ? 'proximity wake on' : 'proximity wake off';
-			playChime('schedule');
-		} catch (e) {
-			lastAction = e.message || 'save failed';
-		}
 	}
 
 	function queueSave() {
@@ -277,7 +176,6 @@
 					applyAudio(msg.audio);
 				}
 				if (msg.type === 'display') applyDisplay(msg);
-				if (msg.type === 'proximity') proximity = { ...proximity, ...msg };
 				if (msg.type === 'trigger' && msg.event === 'hdmi_off') hdmi = 'off';
 				if (msg.type === 'trigger' && msg.event === 'hdmi_on') hdmi = 'on';
 				if (msg.type === 'pong') status = 'connected';
@@ -467,23 +365,18 @@
 		connect();
 		fetchDisplay();
 		fetchVolume();
-		fetchNearbyDevices();
 		const ping = setInterval(() => {
 			if (status === 'connected' && ws?.readyState === 1) {
 				ws.send(JSON.stringify({ type: 'ping' }));
 			}
 		}, 5000);
 		const watchdog = setInterval(watchdogTick, 4000);
-		// Live distance readings while this page is open, for walking the room
-		// to pick a device and a threshold.
-		const nearby = setInterval(fetchNearbyDevices, 3000);
 		// Browsers block audio until a real user gesture; the first touch on
 		// the remote unlocks it so subsequent taps can chime.
 		window.addEventListener('pointerdown', primeAudio, { once: true });
 		return () => {
 			clearInterval(ping);
 			clearInterval(watchdog);
-			clearInterval(nearby);
 			window.removeEventListener('pointerdown', primeAudio);
 			discardSocket(ws);
 		};
@@ -724,78 +617,6 @@
 						</p>
 					{/if}
 				</div>
-			</section>
-
-			<section
-				class="block proximity-block"
-				aria-label="Proximity wake"
-				ontouchstart={(e) => e.stopPropagation()}
-				ontouchend={(e) => e.stopPropagation()}
-			>
-				<header class="night-head">
-					<span>Nearby</span>
-					<span class="night-summary">{wakeOnProximity ? `within ${proximityMeters}m` : 'off'}</span>
-				</header>
-				<div class="rockers">
-					<button
-						class="rocker"
-						class:on={wakeOnProximity}
-						aria-pressed={wakeOnProximity}
-						disabled={!proximityDevice}
-						onclick={() => {
-							wakeOnProximity = !wakeOnProximity;
-							queueProximitySave();
-							playChime('tap');
-						}}
-					>
-						Wake when I'm near
-					</button>
-				</div>
-				<label class="proximity-field">
-					<span>Device</span>
-					<select
-						bind:value={proximityDevice}
-						onchange={queueProximitySave}
-					>
-						<option value="">Choose a paired device</option>
-						{#each nearbyDevices as d (d.address)}
-							<option value={d.address}>{nearbyOptionLabel(d)}</option>
-						{/each}
-						{#if proximityDevice && !nearbyDevices.some((d) => sameAddr(d.address, proximityDevice))}
-							<option value={proximityDevice}>{proximityDevice} (not seen right now)</option>
-						{/if}
-					</select>
-				</label>
-				<label class="proximity-field">
-					<span>Distance</span>
-					<input
-						type="range"
-						min="1"
-						max="15"
-						step="0.5"
-						bind:value={proximityMeters}
-						oninput={queueProximitySave}
-						onchange={queueProximitySave}
-					/>
-					<span class="proximity-value">{proximityMeters}m</span>
-				</label>
-				<p class="note">
-					{#if !nearbyDevices.length}
-						No paired Bluetooth devices yet. Pair your phone with this display, pick it above, then walk
-						the room and watch the distance here.
-					{:else if proximityDevice}
-						{proximityDeviceLabel(proximityDevice)} is
-						{#if liveDistance() != null}
-							~{liveDistance()}m away{liveNear() ? ' · near' : ''}
-						{:else if selectedNearby()?.connected}
-							connected, waiting for a range reading
-						{:else}
-							not in range
-						{/if}
-					{:else}
-						Pick a device above, then walk the room to find a good threshold.
-					{/if}
-				</p>
 			</section>
 		</div>
 	{/if}
@@ -1268,60 +1089,6 @@
 		line-height: 1.35;
 	}
 	.last { font-family: var(--font-code); }
-
-	.proximity-block {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-3);
-		border: 1px solid var(--hairline);
-		border-radius: var(--radius-md);
-		background: var(--abyss-2);
-		padding: var(--space-3);
-	}
-	.proximity-block .rockers { grid-template-columns: 1fr; }
-	.proximity-block .rocker:disabled {
-		opacity: 0.45;
-		cursor: not-allowed;
-	}
-	.proximity-field {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		min-width: 0;
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color: var(--text-tertiary);
-	}
-	.proximity-field span:first-child {
-		flex-shrink: 0;
-		width: 4.5rem;
-	}
-	.proximity-field select {
-		flex: 1;
-		min-width: 0;
-		box-sizing: border-box;
-		min-height: 2.75rem;
-		padding: 0 var(--space-3);
-		border-radius: var(--radius-md);
-		border: 1px solid var(--hairline);
-		background: var(--shell-fill);
-		color: var(--foreground);
-		font-family: var(--font-body);
-		font-size: var(--text-sm);
-		font-weight: 600;
-		color-scheme: dark;
-	}
-	.proximity-field input[type='range'] {
-		flex: 1;
-		min-width: 0;
-	}
-	.proximity-value {
-		flex-shrink: 0;
-		width: 3rem;
-		text-align: right;
-		font-family: var(--font-code);
-		color: var(--foreground);
-	}
 
 	@media (max-width: 360px) {
 		.key { flex-basis: calc((100% - var(--space-2)) / 2); }

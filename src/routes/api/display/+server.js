@@ -47,9 +47,6 @@ export async function POST({ request }) {
 	if (data.timeZone) next.timeZone = data.timeZone;
 	if (data.phoneWakeAfter) next.phoneWakeAfter = data.phoneWakeAfter;
 	if (Array.isArray(data.days) || typeof data.days === 'string') next.days = data.days;
-	if (typeof data.wakeOnProximity === 'boolean') next.wakeOnProximity = data.wakeOnProximity;
-	if (typeof data.proximityDevice === 'string') next.proximityDevice = data.proximityDevice;
-	if (data.proximityMeters !== undefined) next.proximityMeters = data.proximityMeters;
 	if (data.schedule && typeof data.schedule === 'object') Object.assign(next, data.schedule);
 
 	const changedSchedule =
@@ -60,9 +57,6 @@ export async function POST({ request }) {
 		data.timeZone ||
 		data.phoneWakeAfter ||
 		data.days !== undefined ||
-		data.wakeOnProximity !== undefined ||
-		data.proximityDevice !== undefined ||
-		data.proximityMeters !== undefined ||
 		data.schedule;
 	if (changedSchedule) saveSchedule(SCHEDULE_PATH, normalizeSchedule(next, current));
 
