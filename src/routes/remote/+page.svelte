@@ -31,6 +31,10 @@
 
 	let ws = $state(null);
 	let status = $state('connecting');
+	let linkDown = $state(false);
+	let connectTimer = 0;
+	let saveFault = $state('');
+	let nearbyError = $state('');
 	let lastAction = $state('');
 	let hdmi = $state('on');
 	let autoNights = $state(true);
@@ -150,6 +154,7 @@
 		try {
 			const r = await fetch('/api/kiosk');
 			const data = await r.json();
+			if (!r.ok) throw new Error(data.error || 'kiosk status failed');
 			const list = data?.bluetooth?.paired?.length
 				? data.bluetooth.paired
 				: data?.bluetooth?.connected || [];
@@ -168,8 +173,9 @@
 					connected: Boolean(selected.connected)
 				};
 			}
+			nearbyError = '';
 		} catch {
-			/* stats endpoint is optional */
+			nearbyError = 'Bluetooth devices did not answer';
 		}
 	}
 
@@ -194,8 +200,10 @@
 			applyDisplay(data);
 			lastAction = wakeOnProximity ? 'proximity wake on' : 'proximity wake off';
 			playChime('schedule');
-		} catch (e) {
-			lastAction = e.message || 'save failed';
+			saveFault = '';
+		} catch {
+			saveFault = 'That setting did not save. The display did not answer.';
+			lastAction = 'save failed';
 		}
 	}
 
@@ -222,8 +230,10 @@
 			applyDisplay(data);
 			lastAction = autoNights ? nightSummaryText() : 'auto nights off';
 			playChime('schedule');
-		} catch (e) {
-			lastAction = e.message || 'save failed';
+			saveFault = '';
+		} catch {
+			saveFault = 'That setting did not save. The display did not answer.';
+			lastAction = 'save failed';
 		}
 	}
 
@@ -247,9 +257,34 @@
 		}
 	}
 
+	let linkFault = $derived(
+		linkDown && status !== 'connected'
+			? 'The remote cannot reach the display. Taps will not go through until it reconnects.'
+			: ''
+	);
+	let statusLabel = $derived(status === 'connecting' && linkDown ? 'reconnecting' : status);
+
+	function armConnectTimeout() {
+		clearTimeout(connectTimer);
+		connectTimer = setTimeout(() => {
+			if (status !== 'connecting') return;
+			linkDown = true;
+			status = 'error';
+			lastAction = 'display did not answer';
+			discardSocket(ws);
+			setTimeout(connect, 1500);
+		}, 8000);
+	}
+
 	function connect() {
+		clearTimeout(connectTimer);
 		discardSocket(ws);
 		status = 'connecting';
+		if (!location.host) {
+			status = 'error';
+			lastAction = 'no display address';
+			return;
+		}
 		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
 		const url = `${proto}//${pickHost()}/ws`;
 		try {
@@ -260,16 +295,22 @@
 			setTimeout(connect, 2000);
 			return;
 		}
+		armConnectTimeout();
 		ws.onopen = () => {
+			clearTimeout(connectTimer);
+			linkDown = false;
 			status = 'connected';
 			lastMessageAt = Date.now();
+			ws.send(JSON.stringify({ type: 'hello', role: 'remote' }));
 			ws.send(JSON.stringify({ type: 'ping' }));
 		};
 		ws.onclose = () => {
+			linkDown = true;
 			status = 'disconnected';
 			setTimeout(connect, 1500);
 		};
 		ws.onerror = () => {
+			linkDown = true;
 			status = 'error';
 			lastAction = 'ws error';
 		};
@@ -299,6 +340,7 @@
 	function watchdogTick() {
 		if (status !== 'connected') return;
 		if (Date.now() - lastMessageAt > PONG_STALE_MS) {
+			linkDown = true;
 			status = 'disconnected';
 			connect();
 		}
@@ -471,27 +513,30 @@
 		}
 	}
 
+	$effect(() => {
+		if (pane !== 'night') return;
+		fetchNearbyDevices();
+		const id = setInterval(fetchNearbyDevices, 8000);
+		return () => clearInterval(id);
+	});
+
 	onMount(() => {
 		connect();
 		fetchDisplay();
 		fetchVolume();
-		fetchNearbyDevices();
 		const ping = setInterval(() => {
 			if (status === 'connected' && ws?.readyState === 1) {
 				ws.send(JSON.stringify({ type: 'ping' }));
 			}
 		}, 5000);
 		const watchdog = setInterval(watchdogTick, 4000);
-		// Live distance readings while this page is open, for walking the room
-		// to pick a device and a threshold.
-		const nearby = setInterval(fetchNearbyDevices, 3000);
 		// Browsers block audio until a real user gesture; the first touch on
 		// the remote unlocks it so subsequent taps can chime.
 		window.addEventListener('pointerdown', primeAudio, { once: true });
 		return () => {
 			clearInterval(ping);
 			clearInterval(watchdog);
-			clearInterval(nearby);
+			clearTimeout(connectTimer);
 			window.removeEventListener('pointerdown', primeAudio);
 			discardSocket(ws);
 		};
@@ -518,12 +563,16 @@
 	ontouchend={touchEnd}
 >
 	<header class="bar">
-		<div class="status" class:connected={status === 'connected'} class:error={status === 'error'}>
+		<div class="status" class:connected={status === 'connected'} class:error={status === 'error' || status === 'disconnected' || linkDown}>
 			<span class="dot"></span>
-			<span>{status}</span>
+			<span>{statusLabel}</span>
 		</div>
 		<p class="panel" class:off={hdmi === 'off'}>{hdmi === 'off' ? 'Panel off' : 'Panel on'}</p>
 	</header>
+
+	{#if linkFault || saveFault}
+		<p class="link-alert" role="alert">{linkFault || saveFault}</p>
+	{/if}
 
 	{#if pane === 'control'}
 		<div class="pane control-pane">
@@ -744,6 +793,9 @@
 					<span>Nearby</span>
 					<span class="night-summary">{wakeOnProximity ? `within ${proximityMeters}m` : 'off'}</span>
 				</header>
+				{#if nearbyError}
+					<p class="note warn" role="alert">{nearbyError}</p>
+				{/if}
 				<div class="rockers">
 					<button
 						class="rocker"
@@ -1274,6 +1326,20 @@
 		font-size: var(--text-sm);
 		color: var(--text-tertiary);
 		line-height: 1.35;
+	}
+	.note.warn,
+	.link-alert {
+		color: var(--warn);
+	}
+	.link-alert {
+		margin: 0;
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-md);
+		border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
+		background: color-mix(in srgb, var(--warn) 12%, transparent);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		line-height: 1.4;
 	}
 	.last { font-family: var(--font-code); }
 

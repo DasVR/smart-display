@@ -229,3 +229,19 @@ test('mergeNowPlayingSample lets a stale stuck seek start moving again', () => {
 	const merged = mergeNowPlayingSample(current, incoming, 1_000 + SEEK_STALE_MS + 200);
 	assert.ok(livePlaybackPosition(merged, 1_000 + SEEK_STALE_MS + 200) >= 40);
 });
+
+test('mergeNowPlayingSample keeps the deck up when the probe fails', () => {
+	const merged = mergeNowPlayingSample(live, { playing: false, unavailable: true, reason: 'timeout' }, 5_000);
+	assert.equal(merged.title, 'Daylight');
+	assert.equal(merged.playing, true);
+	assert.equal(merged.unavailable, true);
+	assert.equal(merged.reason, 'timeout');
+});
+
+test('mergeNowPlayingSample clears a fault once a real sample lands', () => {
+	const held = { ...live, unavailable: true, reason: 'timeout' };
+	const merged = mergeNowPlayingSample(held, { ...live, position: 14, positionAt: 5_000 }, 5_000);
+	assert.equal(merged.unavailable, false);
+	assert.equal(merged.reason, '');
+	assert.equal(merged.position, 14);
+});

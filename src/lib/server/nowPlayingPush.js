@@ -14,7 +14,13 @@ export function isLiveNowPlaying(np) {
 }
 
 export function compactNowPlaying(np) {
-	if (!isLiveNowPlaying(np)) return { playing: false };
+	if (!isLiveNowPlaying(np)) {
+		return {
+			playing: false,
+			unavailable: Boolean(np?.unavailable),
+			reason: np?.reason || ''
+		};
+	}
 	return {
 		playing: Boolean(np.playing),
 		paused: Boolean(np.paused),
@@ -26,13 +32,34 @@ export function compactNowPlaying(np) {
 		positionAt: Number(np.positionAt) || 0,
 		length: Number(np.length) || 0,
 		source: np.source || '',
+		player: np.player || '',
 		seeking: Boolean(np.seeking),
 		lyricsPending: Boolean(np.lyricsPending),
-		lyricsSource: np.lyricsSource || null
+		lyricsSource: np.lyricsSource || null,
+		unavailable: Boolean(np.unavailable),
+		degraded: np.degraded || null,
+		reason: np.reason || ''
 	};
 }
 
+/** Keep the on-screen session when playerctl fails, and carry the fault
+ *  along so the display can say so instead of going blank. */
+export function publishNowPlaying(prev, next) {
+	if (!next) return prev && isLiveNowPlaying(prev) ? prev : { playing: false };
+	if (next.unavailable && isLiveNowPlaying(prev)) {
+		return {
+			...prev,
+			unavailable: true,
+			reason: next.reason || 'failed',
+			degraded: next.degraded || null
+		};
+	}
+	return next;
+}
+
 export function nowPlayingPushKind(prev, next, now = Date.now()) {
+	if (Boolean(next?.unavailable) !== Boolean(prev?.unavailable)) return 'fault';
+	if ((prev?.degraded || '') !== (next?.degraded || '') && (prev?.degraded || next?.degraded)) return 'fault';
 	const prevLive = isLiveNowPlaying(prev);
 	const nextLive = isLiveNowPlaying(next);
 	if (!prevLive && nextLive) return 'connect';

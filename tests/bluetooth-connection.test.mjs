@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+	bluetoothProbeStatus,
 	isBluetoothDeviceConnected,
 	parseAnyBluetoothConnected,
 	resetBluetoothConnectionCache,
@@ -40,6 +41,21 @@ test('isBluetoothDeviceConnected returns false when bluetoothctl fails', async (
 		throw new Error('bluetoothctl not found');
 	};
 	assert.equal(await isBluetoothDeviceConnected({ run, now: 1, force: true }), false);
+	assert.equal(bluetoothProbeStatus().ok, false);
+	assert.equal(bluetoothProbeStatus().error, 'missing');
+});
+
+test('a bluetoothctl timeout does not drop a phone that was connected', async () => {
+	resetBluetoothConnectionCache();
+	setBluetoothConnectionCache(true, 1000);
+	const run = () => {
+		const error = new Error('timed out');
+		error.code = 'ETIMEDOUT';
+		throw error;
+	};
+	assert.equal(await isBluetoothDeviceConnected({ run, now: 10_000, force: true }), true);
+	assert.equal(bluetoothProbeStatus().error, 'timeout');
+	assert.equal(bluetoothProbeStatus().connected, true);
 });
 
 test('isBluetoothDeviceConnected awaits an async run function too', async () => {

@@ -7,8 +7,10 @@ import { fuseRainPrediction } from '../rainModel.js';
 import { LARGO_LAT, LARGO_LON } from '../radarMap.js';
 import { applyMeshToCurrent, backyardToSample, estimateAt } from '../ambientMesh.js';
 import { fetchAmbientStations } from './ambientStations.js';
-import { mergeNowPlaying, readAirplayNowPlaying } from './audioNowPlaying.js';
-import { isBluetoothDeviceConnected } from './bluetoothConnection.js';
+import { readAirplayNowPlaying } from './audioNowPlaying.js';
+import { bluetoothProbeStatus, isBluetoothDeviceConnected } from './bluetoothConnection.js';
+import { classifyPlayerctlFailure, MPRIS_FORMAT } from '../mprisPlayers.js';
+import { assembleNowPlaying } from './nowPlayingAssemble.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import {
 	cancelOtherAlignments,
@@ -197,7 +199,9 @@ async function probeServices() {
 		checkService('https://leadvine.dasdev.net', 'leadvine', '100%'),
 		checkService('https://hermes.dasdev.net', 'hermes', '100%'),
 		checkService('http://127.0.0.1:8123/api/', 'home assistant', '100%'),
-		checkService('http://localhost:3000', 'display', '100%'),
+		// This process is the display server. A HEAD back to localhost:3000
+		// queued behind the request that issued it and stalled /remote.
+		Promise.resolve({ name: 'display', status: true, uptime: 'this process' }),
 		getSpeakerService()
 	]);
 }
@@ -299,42 +303,40 @@ export async function getCalendar(days = 3) {
 // Free, keyless synced-lyrics lookup (lrclib.net). Matching lives in lyrics.js
 // so a same-title hit for the wrong artist never reaches the Music view.
 
-async function readMprisNowPlaying() {
-	const status = (await run('playerctl status 2>/dev/null')) || 'Not available';
-	if (!status.includes('Playing') && !status.includes('Paused')) {
-		return { playing: false };
+let lastMprisPlayer = '';
+
+async function readPlayerctlMetadata() {
+	try {
+		const { stdout } = await execFileAsync('playerctl', ['-a', '-f', MPRIS_FORMAT, 'metadata'], {
+			encoding: 'utf8',
+			timeout: 3000
+		});
+		return { ok: true, stdout: stdout || '' };
+	} catch (error) {
+		const kind = classifyPlayerctlFailure(error);
+		if (kind === 'idle') return { ok: true, stdout: String(error?.stdout || '') };
+		return { ok: false, error: kind, stdout: '' };
 	}
-	const [artist, title, album, art, posStr, lenStr] = await Promise.all([
-		run('playerctl metadata xesam:artist 2>/dev/null'),
-		run('playerctl metadata xesam:title 2>/dev/null'),
-		run('playerctl metadata xesam:album 2>/dev/null'),
-		run('playerctl metadata mpris:artUrl 2>/dev/null'),
-		run('playerctl position 2>/dev/null'),
-		run('playerctl metadata mpris:length 2>/dev/null')
-	]);
-	const length = parseInt(lenStr || '0', 10) / 1_000_000 || 0;
-	return {
-		playing: status.includes('Playing'),
-		artist: artist || 'Unknown artist',
-		title: title || 'Unknown title',
-		album: album || '',
-		art: art || '',
-		position: parseFloat(posStr || '0') || 0,
-		positionAt: Date.now(),
-		length
-	};
 }
 
 export async function getNowPlaying({ skipLyrics = false } = {}) {
 	try {
 		const bluetoothConnected = await isBluetoothDeviceConnected();
-		// No point shelling out to playerctl for a Bluetooth-sourced player
-		// when nothing's actually connected - mergeNowPlaying would discard
-		// the result anyway.
-		const mpris = bluetoothConnected ? await readMprisNowPlaying() : null;
-		const merged = mergeNowPlaying(mpris, readAirplayNowPlaying(), { bluetoothConnected });
+		const probe = bluetoothProbeStatus();
+		const playerctl = await readPlayerctlMetadata();
+		const assembled = assembleNowPlaying({
+			playersText: playerctl.stdout,
+			playerError: playerctl.ok ? null : playerctl.error,
+			airplay: readAirplayNowPlaying(),
+			dropBluetooth: probe.ok && !bluetoothConnected,
+			prefer: lastMprisPlayer,
+			bluetoothError: probe.ok ? null : probe.error
+		});
+		if (playerctl.ok) lastMprisPlayer = assembled.prefer || '';
+		const merged = assembled.track;
+		if (merged.unavailable) return merged;
 		if (!merged.playing && !merged.title) {
-			return { playing: false };
+			return merged.degraded ? merged : { playing: false };
 		}
 		if (skipLyrics) return merged;
 		const validTrack =
@@ -386,7 +388,7 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 		}
 		return { ...merged, length: merged.length || duration || 0, lyrics, lyricsPending, lyricsSource };
 	} catch {
-		return { playing: false };
+		return { playing: false, unavailable: true, reason: 'failed' };
 	}
 }
 

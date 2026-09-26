@@ -69,7 +69,8 @@ import { evaluateDisplayLoad } from './lib/displayLoad.js';
 import {
 	nowPlayingPollMs,
 	nowPlayingPushKind,
-	nowPlayingPushPayload
+	nowPlayingPushPayload,
+	publishNowPlaying
 } from './lib/server/nowPlayingPush.js';
 import { setBluetoothConnectionCache } from './lib/server/bluetoothConnection.js';
 
@@ -277,10 +278,11 @@ async function tickNowPlaying() {
 	nowPlayingInflight = true;
 	try {
 		const np = await getNowPlaying();
-		const kind = nowPlayingPushKind(lastNowPlaying, np);
-		if (kind) broadcast(nowPlayingPushPayload(np, kind));
-		lastNowPlaying = np;
-		syncAudioCapture(np);
+		const published = publishNowPlaying(lastNowPlaying, np);
+		const kind = nowPlayingPushKind(lastNowPlaying, published);
+		if (kind) broadcast(nowPlayingPushPayload(published, kind));
+		lastNowPlaying = published;
+		syncAudioCapture(published);
 	} catch {
 		/* nowPlaying probe failed; try again next tick */
 	} finally {
@@ -654,7 +656,12 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && reqPath(req) === '/api/kiosk') {
-		json(res, await getKioskStatus());
+		try {
+			json(res, await getKioskStatus());
+		} catch (error) {
+			console.error('kiosk status failed', error?.message || error);
+			json(res, { ok: false, error: 'The display could not read its own status' }, 500);
+		}
 		return;
 	}
 
@@ -811,9 +818,10 @@ wss.on('connection', (ws, req) => {
 		try {
 			const msg = JSON.parse(raw.toString());
 			if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
+			if (msg.type === 'hello' && msg.role === 'remote') ws.isRemote = true;
 			if (msg.type === 'navigate') {
 				currentView = canonicalizeKioskView(msg.view);
-				broadcast({ type: 'navigate', view: currentView, from: isRemote ? 'remote' : 'local' });
+				broadcast({ type: 'navigate', view: currentView, from: ws.isRemote ? 'remote' : 'local' });
 			}
 			if (msg.type === 'swipe') {
 				currentView = swipeKioskView(currentView, msg.dir);

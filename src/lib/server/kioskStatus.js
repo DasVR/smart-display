@@ -488,7 +488,26 @@ function localServices(airplay, bluetooth, speakers, pipewire) {
 	];
 }
 
+let kioskStatusInflight = null;
+let kioskStatusCache = { at: 0, value: null };
+const KIOSK_STATUS_TTL_MS = 2000;
+
 export async function getKioskStatus() {
+	const now = Date.now();
+	if (kioskStatusCache.value && now - kioskStatusCache.at < KIOSK_STATUS_TTL_MS) return kioskStatusCache.value;
+	if (kioskStatusInflight) return kioskStatusInflight;
+	kioskStatusInflight = collectKioskStatus()
+		.then((value) => {
+			kioskStatusCache = { at: Date.now(), value };
+			return value;
+		})
+		.finally(() => {
+			kioskStatusInflight = null;
+		});
+	return kioskStatusInflight;
+}
+
+async function collectKioskStatus() {
 	const env = userSessionEnv();
 	const [telemetry, nowPlaying, airplay, bluetooth, speakers, pipewire, git, updates] = await Promise.all([
 		getTelemetry(),
