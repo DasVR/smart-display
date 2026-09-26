@@ -9,7 +9,8 @@ import {
 	isLiveNowPlaying,
 	nowPlayingPollMs,
 	nowPlayingPushKind,
-	nowPlayingPushPayload
+	nowPlayingPushPayload,
+	publishNowPlaying
 } from '../src/lib/server/nowPlayingPush.js';
 
 const live = {
@@ -55,6 +56,21 @@ test('compactNowPlaying omits lyrics so a 400ms tick stays small', () => {
 	const compact = compactNowPlaying(live);
 	assert.equal(compact.title, 'Daylight');
 	assert.equal('lyrics' in compact, false);
+});
+
+test('publishNowPlaying keeps the session when the probe fails', () => {
+	const held = publishNowPlaying(live, { playing: false, unavailable: true, reason: 'timeout' });
+	assert.equal(held.title, 'Daylight');
+	assert.equal(held.playing, true);
+	assert.equal(held.unavailable, true);
+	assert.equal(held.reason, 'timeout');
+	assert.equal(nowPlayingPushKind(live, held), 'fault');
+});
+
+test('publishNowPlaying lets a real stop clear the session', () => {
+	const cleared = publishNowPlaying(live, { playing: false });
+	assert.equal(cleared.playing, false);
+	assert.equal(cleared.title, undefined);
 });
 
 test('nowPlayingPushPayload attaches lyrics on connect and track change', () => {

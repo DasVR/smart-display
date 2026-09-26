@@ -1,6 +1,10 @@
 import { nowPlaying } from '$lib/stores.js';
 import { mergeNowPlayingSample, OPTIMISTIC_HOLD_MS } from '../nowPlayingMerge.js';
 
+function faultSample(reason = 'failed') {
+	return { playing: false, unavailable: true, reason };
+}
+
 export { mergeNowPlayingSample, OPTIMISTIC_HOLD_MS };
 
 let inFlight = null;
@@ -20,8 +24,7 @@ export async function refreshNowPlaying() {
 	inFlight = (async () => {
 		try {
 			const r = await fetch('/api/nowplaying');
-			if (!r.ok) return null;
-			const data = await r.json();
+			const data = r.ok ? await r.json() : faultSample(r.status === 504 ? 'timeout' : 'failed');
 			let merged = data;
 			nowPlaying.update((cur) => {
 				merged = mergeNowPlayingSample(cur, data);
@@ -29,8 +32,12 @@ export async function refreshNowPlaying() {
 			});
 			return merged;
 		} catch {
-			/* playerctl is optional */
-			return null;
+			let merged = faultSample();
+			nowPlaying.update((cur) => {
+				merged = mergeNowPlayingSample(cur, faultSample());
+				return merged;
+			});
+			return merged;
 		} finally {
 			inFlight = null;
 		}

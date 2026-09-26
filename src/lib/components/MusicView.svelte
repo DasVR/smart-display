@@ -1,6 +1,7 @@
 <script>
 	import { onMount } from 'svelte';
-	import { nowPlaying } from '$lib/stores.js';
+	import { nowPlaying, pushIslandEvent } from '$lib/stores.js';
+	import { musicFaultFromText, musicFaultMessage, prettyPlayerName } from '$lib/mprisPlayers.js';
 	import {
 		activeLyricIndex as startedIndexForTime,
 		activeWordIndex,
@@ -86,8 +87,18 @@
 		}
 	});
 
-	const SOURCE_LABELS = { airplay: 'AirPlay', mpris: 'Bluetooth', bluetooth: 'Bluetooth' };
-	let sourceLabel = $derived(SOURCE_LABELS[track?.source] ?? '');
+	let transportFault = $state('');
+	let sourceLabel = $derived.by(() => {
+		if (track?.source === 'airplay') return 'AirPlay';
+		if (track?.player) return prettyPlayerName(track.player);
+		if (track?.source === 'mpris' || track?.source === 'bluetooth') return 'Bluetooth';
+		return '';
+	});
+	let faultText = $derived.by(() => {
+		if (transportFault) return transportFault;
+		if (track?.unavailable || track?.degraded) return musicFaultMessage(track.reason || track.degraded);
+		return '';
+	});
 	const pad2 = (n) => String(n).padStart(2, '0');
 
 	function measureLyricsOffset() {
@@ -193,10 +204,29 @@
 		return `${m}:${s}`;
 	}
 
-	function send(action) {
-		fetch('/api/player/' + action, { method: 'POST' })
-			.then(nudgeNowPlaying)
-			.catch(() => {});
+	function reportTransportFault(raw) {
+		const body = musicFaultMessage(musicFaultFromText(raw));
+		transportFault = body;
+		pushIslandEvent({
+			title: 'Music controls failed',
+			body,
+			severity: 'warn',
+			ttl: 8000,
+			source: 'Music',
+			kind: 'notice'
+		});
+	}
+
+	async function send(action) {
+		try {
+			const r = await fetch('/api/player/' + action, { method: 'POST' });
+			const data = await r.json().catch(() => ({}));
+			if (!r.ok || data.ok === false) throw new Error(data.error || 'playerctl failed');
+			transportFault = '';
+			nudgeNowPlaying();
+		} catch (error) {
+			reportTransportFault(error?.message || '');
+		}
 	}
 
 	function togglePlay() {
@@ -221,7 +251,7 @@
 		send('play-pause');
 	}
 
-	function seekTo(sec) {
+	async function seekTo(sec) {
 		const length = Number(track?.length) || 0;
 		const position = length > 0 ? Math.min(Math.max(0, sec), length) : Math.max(0, sec);
 		applyTransportOptimistic({
@@ -231,13 +261,19 @@
 		});
 		displayPosition = position;
 		snapLyrics = true;
-		fetch('/api/player/seek', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ position })
-		})
-			.then(nudgeNowPlaying)
-			.catch(() => {});
+		try {
+			const r = await fetch('/api/player/seek', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ position })
+			});
+			const data = await r.json().catch(() => ({}));
+			if (!r.ok || data.ok === false) throw new Error(data.error || 'playerctl failed');
+			transportFault = '';
+			nudgeNowPlaying();
+		} catch (error) {
+			reportTransportFault(error?.message || '');
+		}
 	}
 
 	function onSeekPointer(e) {
@@ -353,14 +389,19 @@
 		<div class="empty">
 			<div class="empty-sleeve" aria-hidden="true"><span></span></div>
 			<div class="empty-text">
-				<p class="deck-kicker"><span class="live-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="deck-state">Deck is empty</span></p>
-				<p class="empty-title">Nothing playing</p>
-				<p class="empty-copy">AirPlay from Apple Music, connect Bluetooth, or start a track here.</p>
+				<p class="deck-kicker"><span class="live-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="deck-state">{faultText ? 'Music unavailable' : 'Deck is empty'}</span></p>
+				<p class="empty-title">{faultText ? 'Music did not answer' : 'Nothing playing'}</p>
+				<p class="empty-copy" class:fault={Boolean(faultText)} role={faultText ? 'alert' : undefined}>
+					{faultText || 'AirPlay from Apple Music, connect Bluetooth, or start a track here.'}
+				</p>
 			</div>
 		</div>
 	{:else}
 		<div class="player-body" class:with-lyrics={Boolean(synced || plainLyrics || lyricsPending)}>
 			<div class="player-main">
+				{#if faultText}
+					<p class="deck-fault" role="alert">{faultText}</p>
+				{/if}
 				<p class="deck-kicker">
 					<span class="live-bars" class:live={track.playing} aria-hidden="true"><i></i><i></i><i></i></span>
 					<span class="deck-state">{track.playing ? 'Now playing' : 'Paused'}</span>
@@ -1169,6 +1210,16 @@
 		color: var(--text-secondary);
 		line-height: 1.45;
 		text-wrap: pretty;
+	}
+	.empty-copy.fault,
+	.deck-fault {
+		color: var(--warn);
+	}
+	.deck-fault {
+		margin: 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		line-height: 1.35;
 	}
 
 	.art-skeleton { width: min(42vh, 420px); height: min(42vh, 420px); border-radius: var(--radius-lg); }

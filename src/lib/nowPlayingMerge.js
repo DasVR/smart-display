@@ -135,12 +135,33 @@ export function reuseLyrics(current, incoming) {
 	return incoming;
 }
 
+function withSessionHealth(track, incoming) {
+	if (!track) return track;
+	if (incoming?.unavailable) return track;
+	return {
+		...track,
+		unavailable: false,
+		degraded: incoming?.degraded || null,
+		reason: incoming?.degraded ? incoming.reason || incoming.degraded : ''
+	};
+}
+
 /** Merge a freshly polled sample over the on-screen track. Disconnect
- *  always wins. Mid-hold, keep the optimistic transport/clock unless the
+ *  always wins. A failed probe (`unavailable`) keeps the session and raises
+ *  the fault. Mid-hold, keep the optimistic transport/clock unless the
  *  server has actually landed on that seek (or matched play/pause). */
 export function mergeNowPlayingSample(current, incoming, now = Date.now()) {
 	if (!incoming) return current ?? null;
-	if (!current) return incoming;
+	if (incoming.unavailable) {
+		if (!current || (!current.title && !current.playing && !current.paused)) return incoming;
+		return {
+			...current,
+			unavailable: true,
+			reason: incoming.reason || 'failed',
+			degraded: incoming.degraded || null
+		};
+	}
+	if (!current) return withSessionHealth(incoming, incoming);
 
 	const incomingLive = Boolean(incoming.playing || incoming.paused || incoming.title);
 	if (!incomingLive) return incoming;
@@ -182,5 +203,5 @@ export function mergeNowPlayingSample(current, incoming, now = Date.now()) {
 			};
 		}
 	}
-	return reuseLyrics(current, merged);
+	return withSessionHealth(reuseLyrics(current, merged), incoming);
 }

@@ -25,6 +25,7 @@
 	import { KIOSK_VIEWS, canonicalizeKioskView, kioskViewLabel } from '$lib/kioskViews.js';
 	import { decideSmartStack, isStandBy } from '$lib/smartStack.js';
 	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
+	import { musicFaultMessage } from '$lib/mprisPlayers.js';
 	import { applyAudioFrame } from '$lib/services/audioReactive.js';
 	import { atmosphereFromWeather, phaseKicker } from '$lib/atmosphere.js';
 	import { sampleRadarNowcast } from '$lib/radarNowcast.js';
@@ -615,6 +616,37 @@
 		time.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
 	);
 	let atm = $derived(atmosphereFromWeather(time.getTime(), weatherData));
+
+	let lastMusicFault = '';
+	$effect(() => {
+		const track = $nowPlaying;
+		const fault = track?.unavailable || track?.degraded ? track.reason || track.degraded || 'failed' : '';
+		if (!fault) {
+			if (lastMusicFault) {
+				lastMusicFault = '';
+				clearIslandActivity('music-fault');
+			}
+			return;
+		}
+		const body = musicFaultMessage(fault);
+		setIslandActivity('music-fault', {
+			kind: 'network',
+			title: 'Music',
+			body,
+			severity: 'warn'
+		});
+		if (fault !== lastMusicFault) {
+			lastMusicFault = fault;
+			pushIslandEvent({
+				title: 'Music problem',
+				body,
+				severity: 'warn',
+				ttl: 9000,
+				source: 'Music',
+				kind: 'notice'
+			});
+		}
+	});
 
 	function smartStackTick() {
 		if (lockDemoView) return;

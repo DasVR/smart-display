@@ -81,6 +81,7 @@ export function mergeNowPlaying(mpris, airplay, { bluetoothConnected = true } = 
 			position: Number(mpris.position) || 0,
 			positionAt: Number(mpris.positionAt) || 0,
 			length: Number(mpris.length) || 0,
+			player: mpris.player || '',
 			source: mpris.source || 'mpris'
 		};
 	}
