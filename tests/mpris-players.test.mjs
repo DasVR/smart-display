@@ -4,12 +4,14 @@ import assert from 'node:assert/strict';
 import {
 	classifyPlayerctlFailure,
 	isBluetoothMprisPlayer,
+	musicFaultFromText,
 	musicFaultMessage,
 	parsePlayerctlMetadata,
 	pickMprisPlayer,
 	prettyPlayerName
 } from '../src/lib/mprisPlayers.js';
 import { assembleNowPlaying } from '../src/lib/server/nowPlayingAssemble.js';
+import { pickPlayerctlBin } from '../src/lib/server/playerctlBin.js';
 
 const row = (player, status, title, artist = 'Someone') =>
 	[player, status, artist, title, 'Album', '', '12.5', '180000000'].join('\x1f');
@@ -44,11 +46,20 @@ test('pickMprisPlayer drops BlueZ only when Bluetooth is confirmed down', () => 
 	assert.equal(prettyPlayerName('org.mpris.MediaPlayer2.mpv'), 'Mpv');
 });
 
+test('pickPlayerctlBin uses the first real path', () => {
+	assert.equal(pickPlayerctlBin([]), '');
+	assert.equal(pickPlayerctlBin(['', '/usr/bin/playerctl', '/snap/bin/playerctl']), '/usr/bin/playerctl');
+});
+
 test('classifyPlayerctlFailure separates silence from a broken tool', () => {
 	assert.equal(classifyPlayerctlFailure({ code: 'ENOENT', message: 'spawn playerctl ENOENT' }), 'missing');
 	assert.equal(classifyPlayerctlFailure({ killed: true, message: 'timed out' }), 'timeout');
 	assert.equal(classifyPlayerctlFailure({ status: 1, stderr: 'No players found' }), 'idle');
 	assert.equal(musicFaultMessage('timeout'), 'The music player took too long to answer');
+	assert.equal(musicFaultFromText('No players found'), 'idle');
+	assert.equal(musicFaultFromText('spawn playerctl ENOENT'), 'missing');
+	assert.equal(musicFaultMessage('idle'), 'No music player is open on the display');
+	assert.equal(musicFaultMessage('missing'), 'Music controls are not installed on the display');
 });
 
 test('assembleNowPlaying reports a playerctl failure instead of an empty deck', () => {

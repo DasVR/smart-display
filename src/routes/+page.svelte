@@ -620,7 +620,7 @@
 	let lastMusicFault = '';
 	$effect(() => {
 		const track = $nowPlaying;
-		const fault = track?.unavailable || track?.degraded ? track.reason || track.degraded || 'failed' : '';
+		const fault = track?.unavailable ? track.reason || 'failed' : track?.degraded || '';
 		if (!fault) {
 			if (lastMusicFault) {
 				lastMusicFault = '';

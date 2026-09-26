@@ -10,6 +10,7 @@ import { fetchAmbientStations } from './ambientStations.js';
 import { readAirplayNowPlaying } from './audioNowPlaying.js';
 import { bluetoothProbeStatus, isBluetoothDeviceConnected } from './bluetoothConnection.js';
 import { classifyPlayerctlFailure, MPRIS_FORMAT } from '../mprisPlayers.js';
+import { resetPlayerctlBinCache, runPlayerctl } from './playerctlBin.js';
 import { assembleNowPlaying } from './nowPlayingAssemble.js';
 import { classifySink, parseWpctlStatus, pickSpeakerSink } from './audioSinks.js';
 import {
@@ -306,17 +307,12 @@ export async function getCalendar(days = 3) {
 let lastMprisPlayer = '';
 
 async function readPlayerctlMetadata() {
-	try {
-		const { stdout } = await execFileAsync('playerctl', ['-a', '-f', MPRIS_FORMAT, 'metadata'], {
-			encoding: 'utf8',
-			timeout: 3000
-		});
-		return { ok: true, stdout: stdout || '' };
-	} catch (error) {
-		const kind = classifyPlayerctlFailure(error);
-		if (kind === 'idle') return { ok: true, stdout: String(error?.stdout || '') };
-		return { ok: false, error: kind, stdout: '' };
-	}
+	const result = await runPlayerctl(['-a', '-f', MPRIS_FORMAT, 'metadata'], { timeout: 3000 });
+	if (result.ok) return { ok: true, stdout: result.stdout || '' };
+	const kind = classifyPlayerctlFailure(result.error);
+	if (kind === 'idle') return { ok: true, stdout: result.stdout || '' };
+	if (kind === 'missing') resetPlayerctlBinCache();
+	return { ok: false, error: kind, stdout: '' };
 }
 
 export async function getNowPlaying({ skipLyrics = false } = {}) {

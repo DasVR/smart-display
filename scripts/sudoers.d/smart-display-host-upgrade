@@ -1,2 +1,2 @@
 # Passwordless OS upgrades for the kiosk dashboard (user das).
-das ALL=(root) NOPASSWD: /home/das/projects/smart-display/scripts/host-upgrade.sh packages, /home/das/projects/smart-display/scripts/host-upgrade.sh firmware
+das ALL=(root) NOPASSWD: /home/das/projects/smart-display/scripts/host-upgrade.sh packages, /home/das/projects/smart-display/scripts/host-upgrade.sh firmware, /home/das/projects/smart-display/scripts/install-playerctl.sh
