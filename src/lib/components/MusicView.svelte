@@ -96,7 +96,8 @@
 	});
 	let faultText = $derived.by(() => {
 		if (transportFault) return transportFault;
-		if (track?.unavailable || track?.degraded) return musicFaultMessage(track.reason || track.degraded);
+		if (track?.unavailable) return musicFaultMessage(track.reason || 'failed');
+		if (track?.degraded) return musicFaultMessage(track.degraded);
 		return '';
 	});
 	const pad2 = (n) => String(n).padStart(2, '0');

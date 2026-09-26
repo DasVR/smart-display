@@ -16,7 +16,7 @@ echo "=== smart-display bluetooth audio setup ==="
 
 echo "[1/7] installing bluez, bluez-tools (mpris-proxy), D-Bus agent deps, and pactl"
 sudo apt-get update
-sudo apt-get install -y bluez bluez-tools python3-dbus python3-gi pulseaudio-utils
+sudo apt-get install -y bluez bluez-tools playerctl python3-dbus python3-gi pulseaudio-utils
 
 echo "[2/7] making sure this user can actually open the real ALSA devices"
 # /dev/snd/* is root:audio mode 660 — without audio-group membership PipeWire

@@ -85,6 +85,8 @@ export function musicFaultMessage(reason) {
 	switch (reason) {
 		case 'missing':
 			return 'Music controls are not installed on the display';
+		case 'idle':
+			return 'No music player is open on the display';
 		case 'timeout':
 			return 'The music player took too long to answer';
 		case 'bluetooth':
@@ -98,7 +100,8 @@ export function musicFaultMessage(reason) {
 
 export function musicFaultFromText(text = '') {
 	const raw = String(text || '');
-	if (/ENOENT|not found|No such file/i.test(raw)) return 'missing';
+	if (/No players found/i.test(raw)) return 'idle';
+	if (/\bENOENT\b|spawn playerctl|playerctl: not found|command not found/i.test(raw)) return 'missing';
 	if (/timed? ?out|ETIMEDOUT/i.test(raw)) return 'timeout';
 	return 'failed';
 }

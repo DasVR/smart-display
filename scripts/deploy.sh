@@ -66,6 +66,11 @@ if [ -f scripts/sudoers.d/smart-display-host-upgrade ]; then
 	fi
 fi
 
+chmod +x scripts/install-playerctl.sh || true
+if ! sudo -n "$PROJECT_DIR/scripts/install-playerctl.sh"; then
+	echo "WARN: playerctl is not installed; music controls cannot see local players"
+fi
+
 echo "[2/5] installing deps (npm ci via lockfile)"
 "$NPM" ci --no-audit --no-fund
 
