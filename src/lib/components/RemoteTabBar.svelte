@@ -13,6 +13,7 @@
 	const TABS = [
 		{ id: 'control', label: 'Remote', href: `${base}/remote` },
 		{ id: 'night', label: 'Night', href: `${base}/remote#night` },
+		{ id: 'tasks', label: 'Tasks', href: `${base}/remote/tasks` },
 		{ id: 'lyrics', label: 'Lyrics', href: `${base}/remote/lyrics` },
 		{ id: 'stats', label: 'Stats', href: `${base}/remote/stats` }
 	];
@@ -35,6 +36,10 @@
 					<path d="M10 13.5h4M10 16.5h4" />
 				{:else if tab.id === 'night'}
 					<path d="M19.5 14.2A7.5 7.5 0 0 1 9.8 4.5a7.5 7.5 0 1 0 9.7 9.7Z" />
+				{:else if tab.id === 'tasks'}
+					<path d="M9 6.5h11M9 12h11M9 17.5h11" />
+					<path d="M3.5 6.5l1.3 1.3 2.2-2.6M3.5 12l1.3 1.3 2.2-2.6" />
+					<circle cx="5" cy="17.5" r="1.2" />
 				{:else if tab.id === 'lyrics'}
 					<path d="M9 18V5.5l10-2v12.5" />
 					<circle cx="6.5" cy="18" r="2.5" />
@@ -57,7 +62,7 @@
 		transform: translateX(-50%);
 		width: min(calc(22.5rem - 1.5rem), calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)));
 		display: grid;
-		grid-template-columns: repeat(4, 1fr);
+		grid-template-columns: repeat(5, 1fr);
 		padding: 0.3rem;
 		border-radius: 999px;
 		/* liquid glass: frosted, lit from above, softly lifted off the page */

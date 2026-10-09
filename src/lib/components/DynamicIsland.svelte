@@ -73,6 +73,7 @@
 				if (activeEvent?.kind === 'weather' || activeEvent?.kind === 'severe-weather') return 'weather';
 				if (activeEvent?.kind === 'volume') return 'music';
 				if (activeEvent?.kind === 'schedule') return 'bell';
+				if (activeEvent?.kind === 'alert' || activeEvent?.kind === 'chore') return 'bell';
 				if (activeEvent?.kind === 'install') return 'info';
 				if (activeEvent?.kind === 'update') return 'warn';
 				if (activeEvent?.kind === 'done') return 'ok';

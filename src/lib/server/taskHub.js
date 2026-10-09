@@ -1,0 +1,264 @@
+/**
+ * Chores / jobs / alerts, wired up: the HTTP API other platforms call, the
+ * WebSocket ops the kiosk and phone remote use, the scheduler tick that
+ * raises due items on the Dynamic Island, and webhook fan-out.
+ *
+ * HTTP (JSON; Bearer token required once one is configured):
+ *   GET    /api/tasks                 list (?status=overdue,today… &kind=chore|alert)
+ *   POST   /api/tasks                 create
+ *   GET    /api/tasks/:id             one task
+ *   PATCH  /api/tasks/:id             edit (POST works too, for clients without PATCH)
+ *   DELETE /api/tasks/:id             remove
+ *   POST   /api/tasks/:id/done        mark done (repeating items move to their next time)
+ *   POST   /api/tasks/:id/snooze      { minutes }
+ *   GET    /api/webhooks              subscribers (secrets hidden)
+ *   POST   /api/webhooks              { url, events?, secret?, name? }
+ *   DELETE /api/webhooks/:id
+ *
+ * WebSocket (/ws): { type: 'tasks', op: 'create'|'update'|'done'|'snooze'|'delete', id?, task?, minutes? }
+ * and every change is broadcast as { type: 'tasks', tasks: [...] }.
+ */
+import path from 'node:path';
+import {
+	completeTask,
+	describeRepeat,
+	normalizeTask,
+	snoozeTask,
+	sortTasks,
+	taskNotify,
+	taskStatus,
+	tickTasks
+} from '../tasks.js';
+import {
+	authorized,
+	deliverWebhooks,
+	loadApiToken,
+	loadTasks,
+	loadWebhooks,
+	newTaskId,
+	normalizeWebhook,
+	publicWebhook,
+	saveTasks,
+	saveWebhooks
+} from './taskService.js';
+
+const MAX_BODY = 64 * 1024;
+const TICK_MS = 15000;
+
+function readBody(req) {
+	return new Promise((resolve, reject) => {
+		let raw = '';
+		req.on('data', (chunk) => {
+			raw += chunk;
+			if (raw.length > MAX_BODY) {
+				reject(Object.assign(new Error('body too large'), { status: 413 }));
+				req.destroy();
+			}
+		});
+		req.on('end', () => {
+			if (!raw.trim()) return resolve({});
+			try {
+				resolve(JSON.parse(raw));
+			} catch {
+				reject(Object.assign(new Error('invalid JSON'), { status: 400 }));
+			}
+		});
+		req.on('error', reject);
+	});
+}
+
+export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl }) {
+	const tasksFile = path.join(dataDir, 'tasks.json');
+	const hooksFile = path.join(dataDir, 'webhooks.json');
+	const tokenFile = path.join(dataDir, 'api-token');
+
+	let tasks = loadTasks(tasksFile);
+	let hooks = loadWebhooks(hooksFile);
+	let timer = 0;
+
+	/** What the kiosk, remote and API see: the task plus its live status. */
+	function view(t, at = now()) {
+		return { ...t, status: taskStatus(t, at), repeatText: describeRepeat(t.repeat) };
+	}
+	function snapshot() {
+		const at = now();
+		return sortTasks(tasks, at).map((t) => view(t, at));
+	}
+	function persist() {
+		try {
+			saveTasks(tasksFile, tasks);
+		} catch (err) {
+			log.error?.(`tasks: could not save ${tasksFile}: ${err.message}`);
+		}
+	}
+	function changed(event, task) {
+		persist();
+		broadcast({ type: 'tasks', tasks: snapshot() });
+		if (event) emit(event, { task: view(task) });
+	}
+	function emit(event, payload) {
+		if (!hooks.length) return;
+		deliverWebhooks(hooks, event, payload, { fetchImpl, log }).catch(() => {});
+	}
+
+	/* ---------- operations shared by HTTP and WS ---------- */
+
+	function create(input) {
+		const { task, error } = normalizeTask(input, { now: now(), id: newTaskId() });
+		if (error) return { error, status: 400 };
+		tasks = [...tasks, task];
+		changed('task.created', task);
+		return { task: view(task) };
+	}
+	function find(id) {
+		return tasks.find((t) => t.id === id);
+	}
+	function update(id, input) {
+		const existing = find(id);
+		if (!existing) return { error: 'not found', status: 404 };
+		const { task, error } = normalizeTask(input, { now: now(), existing });
+		if (error) return { error, status: 400 };
+		tasks = tasks.map((t) => (t.id === id ? task : t));
+		changed('task.updated', task);
+		return { task: view(task) };
+	}
+	function remove(id) {
+		const existing = find(id);
+		if (!existing) return { error: 'not found', status: 404 };
+		tasks = tasks.filter((t) => t.id !== id);
+		changed('task.deleted', existing);
+		return { ok: true };
+	}
+	function done(id) {
+		const existing = find(id);
+		if (!existing) return { error: 'not found', status: 404 };
+		const task = completeTask(existing, now());
+		tasks = tasks.map((t) => (t.id === id ? task : t));
+		changed('task.done', task);
+		return { task: view(task) };
+	}
+	function snooze(id, minutes) {
+		const existing = find(id);
+		if (!existing) return { error: 'not found', status: 404 };
+		const task = snoozeTask(existing, minutes ?? 15, now());
+		tasks = tasks.map((t) => (t.id === id ? task : t));
+		changed('task.updated', task);
+		return { task: view(task) };
+	}
+
+	/* ---------- scheduler ---------- */
+
+	function tick() {
+		const result = tickTasks(tasks, now());
+		if (!result.fired.length) return result.fired;
+		tasks = result.tasks;
+		persist();
+		for (const t of result.fired) {
+			broadcast({ type: 'notify', ...taskNotify(t), taskId: t.id });
+			emit('task.due', { task: view(t) });
+		}
+		broadcast({ type: 'tasks', tasks: snapshot() });
+		return result.fired;
+	}
+	function start() {
+		setTimeout(tick, 3000);
+		timer = setInterval(tick, TICK_MS);
+		const open = tasks.filter((t) => t.active).length;
+		const token = loadApiToken(tokenFile, env);
+		log.log?.(`tasks: ${open} active, ${hooks.length} webhook(s), API ${token ? 'token required' : 'open on the LAN (no token set)'}`);
+	}
+	function stop() {
+		clearInterval(timer);
+	}
+
+	/* ---------- WebSocket ---------- */
+
+	function handleWs(msg) {
+		if (msg?.type !== 'tasks') return null;
+		if (msg.op === 'create') return create(msg.task || {});
+		if (msg.op === 'update') return update(msg.id, msg.task || {});
+		if (msg.op === 'done') return done(msg.id);
+		if (msg.op === 'snooze') return snooze(msg.id, msg.minutes);
+		if (msg.op === 'delete') return remove(msg.id);
+		return null;
+	}
+
+	/* ---------- HTTP ---------- */
+
+	function send(res, status, data) {
+		res.writeHead(status, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify(data));
+	}
+	function reply(res, result, okStatus = 200) {
+		if (result.error) send(res, result.status || 400, { error: result.error });
+		else send(res, okStatus, result);
+	}
+
+	/** Returns true when it handled the request. */
+	async function handleHttp(req, res) {
+		const url = new URL(req.url, 'http://local');
+		const parts = url.pathname.split('/').filter(Boolean); // ['api','tasks',id?,action?]
+		if (parts[0] !== 'api' || (parts[1] !== 'tasks' && parts[1] !== 'webhooks')) return false;
+
+		// Re-read each time so minting or removing a token needs no restart.
+		const token = loadApiToken(tokenFile, env);
+		if (!authorized(req.headers, token)) {
+			send(res, 401, { error: 'missing or wrong bearer token' });
+			return true;
+		}
+
+		try {
+			const m = req.method;
+			const [, area, id, action] = parts;
+
+			if (area === 'webhooks') {
+				if (m === 'GET' && !id) return send(res, 200, { webhooks: hooks.map(publicWebhook) }), true;
+				if (m === 'POST' && !id) {
+					const { hook, error } = normalizeWebhook(await readBody(req));
+					if (error) return send(res, 400, { error }), true;
+					hooks = [...hooks, hook];
+					saveWebhooks(hooksFile, hooks);
+					return send(res, 201, { webhook: publicWebhook(hook) }), true;
+				}
+				if (m === 'DELETE' && id) {
+					if (!hooks.some((h) => h.id === id)) return send(res, 404, { error: 'not found' }), true;
+					hooks = hooks.filter((h) => h.id !== id);
+					saveWebhooks(hooksFile, hooks);
+					return send(res, 200, { ok: true }), true;
+				}
+				return send(res, 405, { error: 'method not allowed' }), true;
+			}
+
+			if (!id) {
+				if (m === 'GET') {
+					const statuses = url.searchParams.get('status')?.split(',').filter(Boolean);
+					const kind = url.searchParams.get('kind');
+					let list = snapshot();
+					if (statuses?.length) list = list.filter((t) => statuses.includes(t.status));
+					if (kind) list = list.filter((t) => t.kind === kind);
+					return send(res, 200, { tasks: list }), true;
+				}
+				if (m === 'POST') return reply(res, create(await readBody(req)), 201), true;
+				return send(res, 405, { error: 'method not allowed' }), true;
+			}
+
+			if (action === 'done' && m === 'POST') return reply(res, done(id)), true;
+			if (action === 'snooze' && m === 'POST') return reply(res, snooze(id, (await readBody(req)).minutes)), true;
+			if (action) return send(res, 404, { error: 'unknown action' }), true;
+
+			if (m === 'GET') {
+				const t = find(id);
+				return (t ? send(res, 200, { task: view(t) }) : send(res, 404, { error: 'not found' })), true;
+			}
+			if (m === 'PATCH' || m === 'POST') return reply(res, update(id, await readBody(req))), true;
+			if (m === 'DELETE') return reply(res, remove(id)), true;
+			return send(res, 405, { error: 'method not allowed' }), true;
+		} catch (err) {
+			send(res, err.status || 500, { error: err.status ? err.message : 'server error' });
+			if (!err.status) log.error?.(`tasks: ${err.stack || err.message}`);
+			return true;
+		}
+	}
+
+	return { handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove };
+}

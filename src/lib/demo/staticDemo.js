@@ -16,6 +16,8 @@
  * lyrics).
  */
 
+import { completeTask, describeRepeat, normalizeTask, snoozeTask, sortTasks, taskStatus } from '../tasks.js';
+
 // Chicago: a public, well-covered radar location, not the kiosk's home.
 const DEMO_LAT = 41.8781;
 const DEMO_LON = -87.6298;
@@ -209,6 +211,43 @@ function apiPath(input) {
 	}
 }
 
+/* Chores and alerts for the demo, kept in this tab only and driven by the
+   same pure functions the server uses (src/lib/tasks.js). */
+let demoTasks = null;
+function seedTasks() {
+	const now = Date.now();
+	const t = (offsetMin) => new Date(now + offsetMin * 60000).toISOString();
+	const seed = [
+		{ title: 'Feed the cat', at: t(-80), repeat: 'daily', source: 'Tomo' },
+		{ title: 'Water the plants', at: t(150), repeat: 'daily', notes: 'Balcony first' },
+		{ title: 'Leave for practice', kind: 'alert', at: t(45), source: 'Tomo' },
+		{ title: 'Take out the bins', at: t(60 * 26), repeat: { freq: 'weekly', days: [1, 4] } },
+		{ title: 'Call the dentist', at: t(60 * 30), source: 'Instinct' }
+	];
+	return seed.map((input, i) => normalizeTask(input, { now, id: `demo${i}` }).task);
+}
+function taskSnapshot() {
+	demoTasks ??= seedTasks();
+	const now = Date.now();
+	return sortTasks(demoTasks, now).map((t) => ({ ...t, status: taskStatus(t, now), repeatText: describeRepeat(t.repeat) }));
+}
+function applyTaskOp(msg) {
+	demoTasks ??= seedTasks();
+	const now = Date.now();
+	if (msg.op === 'create') {
+		const r = normalizeTask(msg.task || {}, { now, id: `demo${now}` });
+		if (r.error) return r;
+		demoTasks = [...demoTasks, r.task];
+	} else {
+		const i = demoTasks.findIndex((t) => t.id === msg.id);
+		if (i < 0) return { error: 'not found' };
+		if (msg.op === 'delete') demoTasks = demoTasks.filter((t) => t.id !== msg.id);
+		else if (msg.op === 'done') demoTasks[i] = completeTask(demoTasks[i], now);
+		else if (msg.op === 'snooze') demoTasks[i] = snoozeTask(demoTasks[i], msg.minutes ?? 15, now);
+	}
+	return { ok: true };
+}
+
 class DemoSocket extends EventTarget {
 	static CONNECTING = 0;
 	static OPEN = 1;
@@ -230,7 +269,8 @@ class DemoSocket extends EventTarget {
 				agents: AGENTS.agents,
 				power: 'HIGH_PERFORMANCE',
 				load: LOAD,
-				installProgress: IDLE_PROGRESS
+				installProgress: IDLE_PROGRESS,
+				tasks: taskSnapshot()
 			});
 			this.spectrum = setInterval(() => this.#spectrumFrame(), 110);
 		}, 60);
@@ -255,6 +295,11 @@ class DemoSocket extends EventTarget {
 		try {
 			msg = JSON.parse(raw);
 		} catch {
+			return;
+		}
+		if (msg.type === 'tasks') {
+			const r = applyTaskOp(msg);
+			setTimeout(() => this.#push(r.error ? { type: 'tasks-error', error: r.error } : { type: 'tasks', tasks: taskSnapshot() }), 30);
 			return;
 		}
 		// the server rebroadcasts navigation to every client, sender included
