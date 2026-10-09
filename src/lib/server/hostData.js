@@ -294,11 +294,42 @@ export async function getCalendar(days = 3) {
 			const workKeywords = /\b(hw|homework|assignment|bookwork|worksheet|handout|project|presentation|powerpoint|quiz|test|exam|midterm|final|study|review|notes|replies|discussion|essay|paper|lab|report|due)\b/;
 			return workKeywords.test(text);
 		});
-		return { events, total: rawEvents.length };
+		return { events, total: rawEvents.length, all: rawEvents };
 	} catch (e) {
 		console.error('calendar error:', e.message);
 		return { events: [] };
 	}
+}
+
+/**
+ * Open Google Tasks (what Google Calendar shows as reminders and tasks),
+ * across every list. Needs the token to carry the tasks.readonly scope;
+ * without it this returns { tasks: [], scope: false } and the wall carries
+ * on with calendar events only.
+ */
+export async function getGoogleTasks() {
+	const tokenPath = process.env.GOOGLE_TOKEN_PATH || '/home/das/.hermes/google_token.json';
+	let token;
+	try {
+		token = JSON.parse(readFileSync(tokenPath, 'utf8'));
+	} catch {
+		return { tasks: [], scope: null };
+	}
+	const headers = { Authorization: `Bearer ${token.access_token || token.token}` };
+	const base = 'https://tasks.googleapis.com/tasks/v1';
+	const lists = await fetch(`${base}/users/@me/lists?maxResults=20`, { headers, signal: AbortSignal.timeout(8000) });
+	if (lists.status === 401 || lists.status === 403) return { tasks: [], scope: false };
+	if (!lists.ok) throw new Error(`google tasks ${lists.status}`);
+	const tasks = [];
+	for (const list of (await lists.json()).items || []) {
+		const r = await fetch(`${base}/lists/${encodeURIComponent(list.id)}/tasks?showCompleted=false&showHidden=false&maxResults=100`, {
+			headers,
+			signal: AbortSignal.timeout(8000)
+		});
+		if (!r.ok) continue;
+		for (const t of (await r.json()).items || []) tasks.push({ ...t, listTitle: list.title });
+	}
+	return { tasks, scope: true };
 }
 
 // Free, keyless synced-lyrics lookup (lrclib.net). Matching lives in lyrics.js

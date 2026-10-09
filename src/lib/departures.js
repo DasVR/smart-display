@@ -16,6 +16,7 @@
  * Pure: the page feeds it state once a second. tests/departures.test.mjs.
  */
 import { taskStatus } from './tasks.js';
+import { eventDayKey, isAllDay, wallClock, wallDayKey } from './calendarItems.js';
 
 export const LEAD_MIN = 60;
 /** keep "Go now" up this long after the time, so it doesn't vanish mid-shoe */
@@ -58,9 +59,8 @@ export function currentDeparture(tasks, now = Date.now()) {
 }
 
 function clock(ms) {
-	return new Date(ms)
-		.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-		.replace(/\s/g, ' ');
+	// on the wall's clock, whatever time zone the browser thinks it's in
+	return wallClock(ms).replace(/\s/g, '\u2009');
 }
 
 function hourlyWindow(weather, from, to) {
@@ -126,13 +126,16 @@ export function departureBoard({ tasks = [], events = [], weather = null, now = 
 		}
 	}
 
-	const endOfDay = new Date(now);
-	endOfDay.setHours(23, 59, 59, 999);
+	// homework due today on the wall's clock (all-day items are bare dates)
+	const today = wallDayKey(now);
 	for (const e of events || []) {
+		if (!e?.start || eventDayKey(e.start) !== today) continue;
+		const allDay = isAllDay(e.start);
 		const at = Date.parse(e.start);
-		if (!Number.isFinite(at) || at < now - 3600000 || at > endOfDay.getTime()) continue;
+		if (!allDay && at < now - 3600000) continue;
 		const subject = String(e.location || '').split('·')[0].trim();
-		rows.push({ id: `hw-${e.id ?? e.title}`, status: 'due', label: e.title, detail: subject ? `${subject} · ${clock(at)}` : clock(at) });
+		const when = allDay ? 'today' : clock(at);
+		rows.push({ id: `hw-${e.id ?? e.title}`, status: 'due', label: e.title, detail: subject ? `${subject} · ${when}` : when });
 	}
 
 	return {

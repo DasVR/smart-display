@@ -1,5 +1,6 @@
 <script>
 	import { onMount } from 'svelte';
+	import { eventDayKey, isAllDay, wallClock } from '$lib/calendarItems.js';
 
 	let { events = [], caption = '', loading = false } = $props();
 
@@ -29,10 +30,13 @@
 	}
 
 	function timeLabel(iso) {
-		if (!iso || iso.length <= 10) return 'all day';
-		return new Date(iso)
-			.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-			.toLowerCase();
+		if (!iso || isAllDay(iso)) return 'all day';
+		return wallClock(Date.parse(iso)).toLowerCase();
+	}
+
+	/** a cell's day as 'YYYY-MM-DD' (cells hold wall-clock fields, see wallNow) */
+	function cellKey(d) {
+		return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 	}
 
 	let weekDays = $derived.by(() => {
@@ -43,7 +47,8 @@
 		return Array.from({ length: 7 }, (_, i) => {
 			const date = new Date(start);
 			date.setDate(start.getDate() + i);
-			const items = events.filter((event) => event.start && sameDay(new Date(event.start), date));
+			// by calendar day on the wall's clock; all-day items are bare dates
+			const items = events.filter((event) => event.start && eventDayKey(event.start) === cellKey(date));
 			return {
 				date,
 				key: date.toISOString(),

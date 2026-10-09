@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { upcomingEvents } from '$lib/stores.js';
 	import WeekTimetable from '$lib/components/WeekTimetable.svelte';
+	import { eventDate, eventDayKey, eventTime, isAllDay, wallClock, wallDayKey } from '$lib/calendarItems.js';
+	import { DISPLAY_TZ } from '$lib/atmosphere.js';
 
 	let loading = $state(true);
 	let error = $state(null);
@@ -31,26 +33,25 @@
 
 	function urgency(event) {
 		if (!event?.start) return 'later';
-		const hours = (new Date(event.start) - new Date()) / 36e5;
+		const hours = (eventTime(event.start) - Date.now()) / 36e5;
 		if (hours <= 6) return 'now';
 		if (hours <= 24) return 'soon';
 		return 'later';
 	}
 
+	// Compared as calendar days on the wall's clock: an all-day item is a bare
+	// date, and reading that as midnight UTC put tomorrow's homework on "Today".
 	function dayLabel(iso) {
-		const d = new Date(iso);
-		const today = new Date();
-		const tomorrow = new Date(today);
-		tomorrow.setDate(today.getDate() + 1);
-		if (d.toDateString() === today.toDateString()) return 'Today';
-		if (d.toDateString() === tomorrow.toDateString()) return 'Tomorrow';
-		return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+		const key = eventDayKey(iso);
+		if (key === wallDayKey(Date.now())) return 'Today';
+		if (key === wallDayKey(Date.now() + 864e5)) return 'Tomorrow';
+		const opts = { weekday: 'short', month: 'short', day: 'numeric' };
+		return isAllDay(iso) ? eventDate(iso).toLocaleDateString('en-US', opts) : new Date(iso).toLocaleDateString('en-US', { ...opts, timeZone: DISPLAY_TZ });
 	}
 
 	function timeLabel(iso) {
-		const d = new Date(iso);
-		if (iso?.length <= 10) return 'all day';
-		return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+		if (isAllDay(iso)) return 'all day';
+		return wallClock(Date.parse(iso)).toLowerCase();
 	}
 
 	// The soonest thing still ahead: one line up top instead of a second
@@ -59,12 +60,12 @@
 		const now = Date.now();
 		return (
 			events
-				.filter((e) => e.start && new Date(e.start).getTime() >= now - 36e5)
-				.sort((a, b) => new Date(a.start) - new Date(b.start))[0] || null
+				.filter((e) => e.start && (isAllDay(e.start) ? eventDayKey(e.start) >= wallDayKey(now) : eventTime(e.start) >= now - 36e5))
+				.sort((a, b) => eventTime(a.start) - eventTime(b.start))[0] || null
 		);
 	});
 	let nextWhen = $derived(
-		nextUp ? `${dayLabel(nextUp.start)}${nextUp.start.length > 10 ? ` · ${timeLabel(nextUp.start)}` : ''}` : ''
+		nextUp ? `${dayLabel(nextUp.start)}${isAllDay(nextUp.start) ? '' : ` · ${timeLabel(nextUp.start)}`}` : ''
 	);
 
 	let timetableCaption = $derived.by(() => {

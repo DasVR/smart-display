@@ -109,6 +109,15 @@
 	}
 
 	function whenText(t) {
+		if (t.allDay && t.status !== 'done') {
+			const d = new Date(t.nextDue);
+			const today = new Date();
+			const tomorrow = new Date(today);
+			tomorrow.setDate(today.getDate() + 1);
+			if (d.toDateString() === today.toDateString()) return t.kind === 'homework' ? 'due today' : 'today';
+			if (d.toDateString() === tomorrow.toDateString()) return 'tomorrow';
+			return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+		}
 		if (t.status === 'done') return t.lastDoneAt ? `done ${short(t.lastDoneAt)}` : 'done';
 		if (t.status === 'snoozed') return `until ${short(t.snoozedUntil)}`;
 		return short(t.nextDue);
@@ -178,8 +187,10 @@
 						>
 							{#if t.status === 'done'}
 								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
-							{:else if t.kind === 'alert'}
+							{:else if t.kind === 'alert' || t.kind === 'reminder'}
 								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6Z" /><path d="M10 19a2 2 0 0 0 4 0" /></svg>
+							{:else if t.kind === 'homework'}
+								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 1 4 17.5Z" /><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 0 1.5-1.5Z" /></svg>
 							{/if}
 						</button>
 						<button class="body" type="button" onclick={() => (openId = openId === t.id ? '' : t.id)} aria-expanded={openId === t.id}>
@@ -191,11 +202,16 @@
 						{#if openId === t.id}
 							<div class="actions">
 								{#if t.notes}<p class="notes">{t.notes}</p>{/if}
-								{#if t.status !== 'done'}
-									<button type="button" onclick={() => send('snooze', { id: t.id, minutes: 60 })}>Snooze 1 h</button>
-									<button type="button" onclick={() => send('snooze', { id: t.id, minutes: 24 * 60 })}>Tomorrow</button>
+								{#if t.external}
+									<p class="notes">From {t.source}. Hiding it only hides it here; change it in Google.</p>
+									<button type="button" onclick={() => send('done', { id: t.id })}>Hide</button>
+								{:else}
+									{#if t.status !== 'done'}
+										<button type="button" onclick={() => send('snooze', { id: t.id, minutes: 60 })}>Snooze 1 h</button>
+										<button type="button" onclick={() => send('snooze', { id: t.id, minutes: 24 * 60 })}>Tomorrow</button>
+									{/if}
+									<button type="button" class="danger" onclick={() => send('delete', { id: t.id })}>Delete</button>
 								{/if}
-								<button type="button" class="danger" onclick={() => send('delete', { id: t.id })}>Delete</button>
 							</div>
 						{/if}
 					</li>
@@ -398,7 +414,9 @@
 		stroke-linecap: round;
 		stroke-linejoin: round;
 	}
-	.row[data-kind='alert'] .mark {
+	.row[data-kind='alert'] .mark,
+	.row[data-kind='reminder'] .mark,
+	.row[data-kind='homework'] .mark {
 		border-color: transparent;
 		background: color-mix(in srgb, var(--foreground) 8%, transparent);
 	}

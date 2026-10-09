@@ -14,6 +14,7 @@ import {
 	getHAStates,
 	triggerHAView,
 	getWeather,
+	getGoogleTasks,
 	saveStationData,
 	fetchHAStates
 } from './lib/server/hostData.js';
@@ -22,6 +23,7 @@ import { createTaskHub } from './lib/server/taskHub.js';
 import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { createActionHub } from './lib/server/actionHub.js';
+import { createCalendarFeed } from './lib/server/calendarFeed.js';
 import { runPlayerctl } from './lib/server/playerctlBin.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
 import { debounceInstalling } from './lib/hostUpdatesModel.js';
@@ -98,7 +100,14 @@ const taskHub = createTaskHub({
 		if (event === 'task.due' && task.kind === 'alert') dayLog.record('alert', { title: task.title });
 	},
 	// "tell the wall" commands; actionHub is defined below and only called later
-	commands: (text) => actionHub.command(text)
+	commands: (text) => actionHub.command(text),
+	// homework and reminders from Google Calendar / Tasks, read-only
+	external: () => calendarFeed.items()
+});
+const calendarFeed = createCalendarFeed({
+	loadEvents: async () => (await getCalendar(7))?.all ?? [],
+	loadGoogleTasks: getGoogleTasks,
+	onChange: () => taskHub.externalChanged()
 });
 const approvalHub = createApprovalHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
@@ -947,6 +956,7 @@ server.listen(port, '0.0.0.0', () => {
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
 	setTimeout(phoneLoop, 4000);
 	taskHub.start();
+	calendarFeed.start();
 	setTimeout(proximityLoop, 4000);
 	const lyricsDb = lyricsDbStats();
 	console.log(

@@ -18,6 +18,7 @@
 
 import { completeTask, describeRepeat, normalizeTask, snoozeTask, sortTasks, taskStatus } from '../tasks.js';
 import { parseQuick, speakAdded } from '../quickSay.js';
+import { calendarToItems } from '../calendarItems.js';
 import { buildReceipt, logEvent } from '../dayLog.js';
 import { normalizeApproval } from '../approvals.js';
 
@@ -262,14 +263,28 @@ function seedTasks() {
 	];
 	return seed.map((input, i) => normalizeTask(input, { now, id: `demo${i}` }).task);
 }
+/* homework from the demo calendar, read-only like the real Google feed */
+const hiddenExternal = new Set();
+function demoExternal(now) {
+	return calendarToItems({ events: demoCalendar().events }, { now }).filter((t) => !hiddenExternal.has(t.id));
+}
 function taskSnapshot() {
 	demoTasks ??= seedTasks();
 	const now = Date.now();
-	return sortTasks(demoTasks, now).map((t) => ({ ...t, status: taskStatus(t, now), repeatText: describeRepeat(t.repeat) }));
+	return sortTasks([...demoTasks, ...demoExternal(now)], now).map((t) => ({
+		...t,
+		status: taskStatus(t, now),
+		repeatText: t.external ? (t.allDay ? 'All day' : '') : describeRepeat(t.repeat)
+	}));
 }
 function applyTaskOp(msg) {
 	demoTasks ??= seedTasks();
 	const now = Date.now();
+	if (String(msg.id || '').startsWith('gcal:')) {
+		if (msg.op === 'done' || msg.op === 'delete') hiddenExternal.add(msg.id);
+		else return { error: 'that comes from Google Calendar; change it there' };
+		return { ok: true };
+	}
 	if (msg.op === 'create') {
 		const r = normalizeTask(msg.task || {}, { now, id: `demo${now}` });
 		if (r.error) return r;

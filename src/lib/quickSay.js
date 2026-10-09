@@ -370,10 +370,13 @@ export function speakBrief(tasks, now = Date.now()) {
 		parts.push('Nothing waiting.');
 	}
 	if (today.length) {
-		const shown = today.slice(0, 3).map((t) => `${t.title} ${speakClock(new Date(t.nextDue))}`);
+		const shown = today.slice(0, 3).map((t) => (t.allDay ? t.title : `${t.title} ${speakClock(new Date(t.nextDue))}`));
 		parts.push(`Later today: ${shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}` : shown[0]}.`);
 	}
-	if (upcoming && !today.length) parts.push(`Next up: ${upcoming.title}, ${speakWhen(upcoming.nextDue, now)}.`);
+	if (upcoming && !today.length) {
+		const when = speakWhen(upcoming.nextDue, now);
+		parts.push(`Next up: ${upcoming.title}, ${upcoming.allDay ? when.replace(/ at .*$/, '') : when}.`);
+	}
 	return parts.join(' ');
 }
 
