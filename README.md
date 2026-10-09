@@ -43,7 +43,11 @@ See [`docs/tasks-api.md`](docs/tasks-api.md).
 - say "Hey Siri, tell the wall… take out the bins every Monday at 6pm" to
   add a chore;
 - ask "what's on the wall?" to hear what's waiting;
-- press the Action button to tick off the most urgent item.
+- say "tell the wall I'm done with the bins", "show the weather" or
+  "pause the music" to run commands;
+- press the Action button for a menu built from what's on the wall right
+  now: Tell the wall, Allow / Deny a waiting agent, Done: Feed the cat,
+  Pause music, Screen off.
 
 The phone's **Tasks → Siri & Shortcuts** page has every recipe with your
 display's address filled in. See [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md).

@@ -13,25 +13,91 @@ API with `npm run api-token`, add a header to each **Get Contents of URL**:
 
 ## The recipes
 
-| Shortcut | You say / press | Address | Then |
-| --- | --- | --- | --- |
-| **Tell the wall** | "Hey Siri, tell the wall" … "take out the bins every Monday and Thursday at 6pm" | `POST /api/tasks/say?format=text`, JSON body `{ "text": <Dictated Text> }` | Speak Text |
-| **What's on the wall** | "Hey Siri, what's on the wall?" | `GET /api/tasks/brief?format=text` | Speak Text |
-| **Wall done** | the Action button (Settings → Action Button → Shortcut) | `POST /api/tasks/next/done?format=text` | Show Notification |
-| **Wall snooze** | "Hey Siri, wall snooze" | `POST /api/tasks/next/snooze?format=text`, optional `{ "minutes": 60 }` | Show Notification |
+| Shortcut | You say / press | What it does |
+| --- | --- | --- |
+| **Wall** (menu) | the Action button | A list of what you can do right now, with **Tell the wall** at the top |
+| **Wall press** | Back Tap (double-tap the back of the phone) | Does the obvious thing, no list |
+| **Tell the wall** | "Hey Siri, tell the wall" … | Adds a chore or alert, or runs a command |
+| **What's on the wall** | "Hey Siri, what's on the wall?" | Reads out what's waiting and what's next |
 
-"Tell the wall" step by step:
+### Wall (the Action button)
 
-1. New shortcut. Its name is what you say to Siri.
-2. **Dictate Text**.
-3. **Get Contents of URL** with the address. Under **Show More**: Method
-   POST, Request Body JSON, a Text field `text` set to **Dictated Text**.
-4. **Speak Text** with **Contents of URL**.
+The menu is rebuilt every press from what's on the wall:
+
+- **Tell the wall**: dictate a sentence (same as the Siri shortcut)
+- **Allow: git push … / Deny: …**: when an agent is waiting
+- **Read me the board / Leaving now (School)**: when a departure is on
+- **Done: Feed the cat**: up to three things waiting or due today
+- **Snooze 1 h: …**: the most urgent waiting item
+- **What's waiting?**
+- **Pause music / Next song**, or **Play …** when paused
+- **Show the weather / Show the clock**
+- **Screen off / Screen on**
+
+Build it once:
+
+1. **Get Contents of URL**: `GET /api/action/menu?format=text` (one label per line).
+2. **Split Text** by **New Lines**, then **Choose from List**.
+3. **If** Chosen Item **is** `Tell the wall`:
+   - **Dictate Text**
+   - **Get Contents of URL**: `POST /api/tasks/say?format=text`, JSON `{ "text": <Dictated Text> }`
+   - **Speak Text**
+4. **Otherwise**:
+   - **Get Contents of URL**: `POST /api/action/run?format=text`, JSON `{ "choice": <Chosen Item> }`
+   - **Show Notification**
+5. Settings → **Action Button** → Shortcut → **Wall**.
+
+Every action flashes on the wall's island ("Done: Feed the cat", source
+iPhone) so you can see the press land.
+
+### Wall press (Back Tap)
+
+`POST /api/action?format=text`, then **Speak Text**. One press picks, in order:
+
+1. **An agent is waiting**: it reads the request out. It never allows it
+   by itself; answer from the menu, the wall or the phone.
+2. **A departure is on**: it reads the board ("Leave for school in 6
+   minutes. Bring PE kit and umbrella. First: feed the cat.") and brings
+   the board up on the wall.
+3. **Something is overdue**: it ticks off the most urgent item.
+4. **Otherwise**: it reads out what's waiting and what's next.
+
+Settings → Accessibility → Touch → **Back Tap** → Double Tap → **Wall press**.
+
+### Tell the wall
+
+1. **Dictate Text**.
+2. **Get Contents of URL**: `POST /api/tasks/say?format=text`, JSON
+   `{ "text": <Dictated Text> }`.
+3. **Speak Text**.
+
+### What's on the wall
+
+`GET /api/tasks/brief?format=text`, then **Speak Text**.
 
 `?format=text` (or `Accept: text/plain`) makes the display answer with just
-the sentence to speak, always with a 200, so Shortcuts never stops before
-**Speak Text**. Without it you get JSON with the same sentence in `say`.
-`/api/tasks/say` also accepts the dictated text as a raw `text/plain` body.
+the sentence, always with a 200, so Shortcuts never stops before **Speak
+Text**. Without it you get JSON with the same sentence in `say`.
+`/api/tasks/say` and `/api/action/run` also accept a raw `text/plain` body.
+The older `/api/tasks/next/done` and `/next/snooze` still work.
+
+## Commands
+
+"Tell the wall" runs these instead of adding them:
+
+| You say | It does |
+| --- | --- |
+| I'm done with the bins / the laundry is done / mark feed the cat done | ticks off the closest match ("bins" finds "Take out the bins") |
+| snooze the cat for 2 hours / snooze the plants until tomorrow | snoozes it (default 1 hour) |
+| what's on the wall / what's next / what do I have | reads the brief |
+| I'm leaving / what do I need to bring | reads the departure board and shows it |
+| show me the weather / radar / music / school / clock | switches the wall's view |
+| pause / play / next song / previous song | music |
+| goodnight / screen off · good morning / screen on | the panel |
+| allow it / deny it | answers a waiting agent |
+
+Anything starting with "remind me", "add", "I need to" is always added,
+never treated as a command.
 
 ## What it understands
 
@@ -58,7 +124,7 @@ parser.
   "When should I remind you to call mom?", and nothing is added.
 - Items added this way show **Siri** as their source.
 
-## The Action button
+## The older Action button endpoint
 
 `/next/done` ticks off the most urgent item: the oldest overdue one, or if
 nothing is overdue, the next one due today. The answer says what it did
