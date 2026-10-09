@@ -199,6 +199,16 @@ Depth comes from translucency and light, not drop shadows:
   on different clocks, so the leading edge races ahead (320ms) and the
   trailing edge follows (560ms). It stretches toward the new tab and then
   settles, and thins slightly while travelling. Pressing a tab squeezes it.
+- **Today panel** (Clock view, bottom right, opposite the clock). It shows
+  overdue and today's chores and alerts, up to five.
+  - Each row: a hollow ring that is the done button, the title, the
+    repeat rule, and the time on the right.
+  - Overdue rows turn the ring and time `--warn`. Alerts show a bell
+    instead of a ring.
+  - A "Next" line shows what comes after.
+  - It is not glass: hairline rows only, so the trough stays the one glass
+    surface.
+  - It renders nothing until the first item exists.
 - **Music deck.** The left column reads like a record deck:
   - A kicker line: live bars, Now playing / Paused, the source ("via
     AirPlay"), and a session counter ("02 / 05").

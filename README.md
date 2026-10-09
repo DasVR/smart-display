@@ -14,15 +14,30 @@ Ollama, the package updater).
 
 | View | What it shows | Data source |
 | --- | --- | --- |
-| **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips | `/api/weather` |
+| **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips, and a **Today** list of chores and alerts | `/api/weather`, `/api/tasks` |
 | **School** | The next thing due, then a rolling seven-day timetable starting today | `/api/calendar` (Google Calendar, `#hw` events) |
 | **Agents** | The active coding agent, the rest of the roster, host load and services | `/api/agents`, `/api/telemetry`, `/api/ollama/ps` |
 | **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
 | **Weather** | Live radar with a nowcast, current conditions, NWS alerts | `/api/weather`, `/api/weather/station` |
 
 On every view, the **Dynamic Island** (top-center) shows transient events:
-notifications from `/api/notify`, now playing, install progress, severe
-weather, and volume changes.
+notifications from `/api/notify`, chores and alerts as they come due, now
+playing, install progress, severe weather, and volume changes.
+
+### Chores, jobs and alerts
+
+There's one shared list of chores (stay until done) and alerts (pop up at
+their time). Either kind can be one-off or repeat hourly, daily, on chosen
+weekdays, weekly or monthly. It shows on the Clock view and the island, and
+you manage it from the phone's **Tasks** tab.
+
+Other platforms, such as assistants like Tomo or Instinct, can use it in
+three ways:
+- the REST API, `/api/tasks`, optionally locked with `npm run api-token`;
+- signed webhooks, when items come due or get done;
+- an MCP bridge, `scripts/tasks-mcp.mjs`.
+
+See [`docs/tasks-api.md`](docs/tasks-api.md).
 
 ## Quick start
 
@@ -107,6 +122,7 @@ A floating tab bar at the bottom switches between:
 
 - **Remote** (`/remote`): panel power, channel picker, volume
 - **Night** (`/remote#night`): night schedule and proximity wake
+- **Tasks** (`/remote/tasks`): add, complete and snooze chores and alerts
 - **Lyrics** (`/remote/lyrics`): pick the lyrics provider for the current track
 - **Stats** (`/remote/stats`): AirPlay, speakers, Bluetooth, host load, services,
   updates, git
@@ -158,6 +174,7 @@ restarts both services.
 | `GOOGLE_TOKEN_PATH` | OAuth token for the School view's calendar |
 | `HA_TOKEN_PATH` | Home Assistant token for phone wake |
 | `LYRICS_DB_PATH` | SQLite lyrics cache |
+| `DISPLAY_API_TOKEN` | Bearer token for `/api/tasks` (or use `npm run api-token`) |
 | `AIRPLAY_NOWPLAYING_PATH`, `AIRPLAY_ART_PATH` | shairport-sync metadata handoff |
 | `FORCED_ALIGN_*` | Lyric alignment engine settings (see `scripts/forced_align/README.md`) |
 
@@ -180,6 +197,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 
 - [`DESIGN.md`](DESIGN.md): design tokens, layout rules, motion, do's and don'ts
 - [`docs/notify-endpoint.md`](docs/notify-endpoint.md): posting events to the island
+- [`docs/tasks-api.md`](docs/tasks-api.md): chores and alerts, webhooks, MCP bridge
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup
 - [`scripts/forced_align/README.md`](scripts/forced_align/README.md): lyrics lookup, cache and alignment
 - [`PROGRESS.md`](PROGRESS.md): change log

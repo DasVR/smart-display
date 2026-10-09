@@ -1,5 +1,36 @@
 # Smart Display Progress Log
 
+## 2026-10-09: Chores, jobs and alerts, open to other platforms
+
+### Done
+- `src/lib/tasks.js` (pure, 12 tests in four time zones) models the list:
+  - **Kinds:** chores stay until done; alerts fire and move on.
+  - **Repeats:** one-off, hourly, daily, weekly on chosen days, every N weeks,
+    monthly (the 31st clamps to shorter months). Times hold their wall-clock
+    hour across DST.
+  - **Done early:** doing a chore early uses up the current occurrence.
+  - **Snoozes:** an item comes back once the snooze ends.
+  - **Firing:** one island ping per occurrence.
+- `src/lib/server/taskHub.js` + `taskService.js` handle storage and access:
+  - The list is stored in `data/tasks.json` (atomic writes).
+  - The REST API is at `/api/tasks`. It's optionally locked by a bearer token
+    (`npm run api-token`), with no restart needed either way.
+  - The scheduler ticks every 15 s.
+  - Webhooks post to subscribers, HMAC-signed when a secret is set.
+  - The kiosk and remote go over `/ws`.
+- `scripts/tasks-mcp.mjs` is a dependency-free MCP stdio bridge with seven
+  tools, tested end to end.
+- **Kiosk:** a Today panel on the Clock view (tap to complete), and a bell
+  glyph on the island for chores and alerts.
+- **Phone:** a new Tasks tab with a thumb-reach + button, a bottom sheet,
+  tap-to-complete, and snooze and delete.
+- **Pages demo:** seeded with sample chores, and fully interactive.
+- **Bugs caught while building:**
+  - A weekly rule that starts on an off day now first comes due on its
+    next listed day.
+  - The phone's sheet collided with the global `.sheet` pane class; it's
+    renamed `.add-sheet`.
+
 ## 2026-09-24: Screen-by-screen UI fixes
 
 ### Done

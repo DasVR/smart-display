@@ -15,3 +15,6 @@ data/lyrics.db-*
 .claude/buzz/
 __pycache__/
 build-demo/
+data/tasks.json
+data/webhooks.json
+data/api-token

@@ -31,6 +31,9 @@ export const gitContext = writable({
 	commitFiles: []
 });
 
+// Chores, little jobs and alerts from the server (see src/lib/tasks.js).
+export const tasks = writable([]);
+
 export const islandQueue = writable([]);
 export const islandActivities = writable([]);
 export const installProgress = writable({

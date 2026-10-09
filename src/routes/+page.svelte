@@ -10,7 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { tasks, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
@@ -52,6 +52,7 @@
 	import WeatherView from '$lib/components/WeatherView.svelte';
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
+	import TodayTasks from '$lib/components/TodayTasks.svelte';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
 
 	let ws;
@@ -111,6 +112,12 @@
 		autoSetView = auto ? next : '';
 		currentView.set(next);
 		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: next }));
+	}
+
+	// Tap a chore's circle on the Clock view: same op the phone remote sends.
+	function completeTask(id) {
+		markInput();
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'tasks', op: 'done', id }));
 	}
 
 	// Which way the last view change went, so the incoming pane slides in
@@ -285,6 +292,9 @@
 					agentRoster.update((r) => applyNotifyToRoster(r, ev));
 					if (isAgentStatusEvent(ev)) playChime(chimeKindForEvent(ev));
 				}
+				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
+					tasks.set(msg.tasks);
+				}
 				if (msg.type === 'agents' && Array.isArray(msg.agents) && !lockDemoView) {
 					agentRoster.set(msg.agents);
 				}
@@ -316,6 +326,7 @@
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
 					if (Array.isArray(msg.agents) && !lockDemoView) agentRoster.set(msg.agents);
+					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
 					if (msg.power) {
 						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
 					}
@@ -897,6 +908,7 @@
 						<HeroClock {time} size="poster" />
 						<BoardWidgets {atm} prediction={wxForIsland?.prediction || weatherData?.prediction} />
 					</div>
+					<TodayTasks tasks={$tasks} now={time} ondone={completeTask} />
 				</section>
 			{:else if $currentView === 'school'}
 				<section class="view-pane sheet school-pane" data-glass>
@@ -1328,13 +1340,18 @@
 			filter: none;
 		}
 	}
+	/* clock credits bottom-left, today's chores bottom-right */
 	.clock-pane {
 		min-height: 0;
 		display: flex;
-		flex-direction: column;
-		justify-content: flex-end;
-		align-items: flex-start;
+		flex-direction: row;
+		justify-content: space-between;
+		align-items: flex-end;
+		gap: var(--space-8);
 		pointer-events: none;
+	}
+	.clock-pane :global(.today) {
+		padding-bottom: var(--space-2);
 	}
 	.music-pane {
 		min-height: 0;
@@ -1637,6 +1654,8 @@
 			width: 100%;
 		}
 		.clock-pane {
+			flex-direction: column;
+			align-items: flex-start;
 			justify-content: flex-start;
 			min-height: 14rem;
 		}

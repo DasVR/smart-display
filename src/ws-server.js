@@ -18,6 +18,7 @@ import {
 	fetchHAStates
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, readHdmiStamp, setPanelPower } from './lib/server/displayPower.js';
+import { createTaskHub } from './lib/server/taskHub.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
 import { debounceInstalling } from './lib/hostUpdatesModel.js';
 import {
@@ -80,6 +81,13 @@ const SCHEDULE_PATH =
 const SCHEDULE_TICK_MS = 15_000;
 
 let schedule = loadSchedule(SCHEDULE_PATH);
+
+// Chores, little jobs and alerts: /api/tasks for other platforms, /ws for the
+// kiosk and remote, a scheduler that raises due items on the island.
+const taskHub = createTaskHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	broadcast: (msg) => broadcast(msg)
+});
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 let lastTickMinutes = null;
 let hdmiHold = null;
@@ -527,13 +535,15 @@ async function patchSchedule(input) {
 
 const server = createServer(async (req, res) => {
 	res.setHeader('Access-Control-Allow-Origin', '*');
-	res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-	res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+	res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+	res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 	if (req.method === 'OPTIONS') {
 		res.writeHead(200);
 		res.end();
 		return;
 	}
+
+	if (await taskHub.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
@@ -833,6 +843,10 @@ wss.on('connection', (ws, req) => {
 			if (msg.type === 'display' && msg.schedule) {
 				patchSchedule({ ...schedule, ...msg.schedule });
 			}
+			if (msg.type === 'tasks') {
+				const result = taskHub.handleWs(msg);
+				if (result?.error) ws.send(JSON.stringify({ type: 'tasks-error', error: result.error, op: msg.op }));
+			}
 		} catch {
 			/* ignore */
 		}
@@ -854,7 +868,8 @@ wss.on('connection', (ws, req) => {
 				display: displaySnapshot(),
 				audio,
 				installProgress: getInstallProgress(),
-				agents: getAgentRoster()
+				agents: getAgentRoster(),
+				tasks: taskHub.snapshot()
 			})
 		);
 	})();
@@ -870,6 +885,7 @@ server.listen(port, '0.0.0.0', () => {
 	setTimeout(tickSchedule, 2500);
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
 	setTimeout(phoneLoop, 4000);
+	taskHub.start();
 	setTimeout(proximityLoop, 4000);
 	const lyricsDb = lyricsDbStats();
 	console.log(
