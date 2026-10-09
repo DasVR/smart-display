@@ -17,6 +17,9 @@
  */
 
 import { completeTask, describeRepeat, normalizeTask, snoozeTask, sortTasks, taskStatus } from '../tasks.js';
+import { parseQuick, speakAdded } from '../quickSay.js';
+import { buildReceipt, logEvent } from '../dayLog.js';
+import { normalizeApproval } from '../approvals.js';
 
 // Chicago: a public, well-covered radar location, not the kiosk's home.
 const DEMO_LAT = 41.8781;
@@ -197,6 +200,39 @@ function demoLyrics() {
 	});
 }
 
+/* A made-up day for the receipt preview (?receipt=1). */
+function demoReceipt() {
+	const now = Date.now();
+	const at = (h, m = 0) => {
+		const d = new Date(now);
+		d.setHours(h, m, 0, 0);
+		return Math.min(d.getTime(), now);
+	};
+	let log = { days: {} };
+	const add = (type, payload, ms) => (log = logEvent(log, type, payload, ms));
+	add('chore', { title: 'Feed the cat' }, at(7, 12));
+	add('chore', { title: 'Take out the bins' }, at(18, 40));
+	add('chore', { title: 'Water the plants' }, at(19, 5));
+	add('alert', { title: 'Leave for practice' }, at(15, 30));
+	for (let i = 0; i < 17; i++) add('track', { title: `Track ${i}`, artist: i % 3 ? 'Phoebe Bridgers' : 'Bon Iver' }, at(16, i * 3));
+	for (const [src, h] of [['Claude Code', 10], ['Claude Code', 13], ['Cursor', 14], ['Claude Code', 17]]) add('agent', { source: src }, at(h));
+	add('approval', { decision: 'allow' }, at(13, 5));
+	add('approval', { decision: 'allow' }, at(17, 2));
+	add('approval', { decision: 'deny' }, at(17, 9));
+	return buildReceipt(log, { now });
+}
+
+/* ?approve=1: an agent waiting on the wall */
+let demoApprovals = [];
+function seedApprovals() {
+	if (typeof location === 'undefined' || !new URLSearchParams(location.search).has('approve')) return [];
+	const { approval } = normalizeApproval(
+		{ source: 'Claude Code', tool: 'Bash', title: 'Run a command?', detail: 'npm run build && git push origin feature/departures', cwd: 'projects/smart-display', timeout: 600 },
+		{ now: Date.now(), id: 'demo-approval' }
+	);
+	return [approval];
+}
+
 const json = (body, status = 200) =>
 	new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -220,7 +256,7 @@ function seedTasks() {
 	const seed = [
 		{ title: 'Feed the cat', at: t(-80), repeat: 'daily', source: 'Tomo' },
 		{ title: 'Water the plants', at: t(150), repeat: 'daily', notes: 'Balcony first' },
-		{ title: 'Leave for practice', kind: 'alert', at: t(45), source: 'Tomo' },
+		{ title: 'Leave for practice', kind: 'alert', at: t(95), source: 'Tomo' },
 		{ title: 'Take out the bins', at: t(60 * 26), repeat: { freq: 'weekly', days: [1, 4] } },
 		{ title: 'Call the dentist', at: t(60 * 30), source: 'Instinct' }
 	];
@@ -270,7 +306,8 @@ class DemoSocket extends EventTarget {
 				power: 'HIGH_PERFORMANCE',
 				load: LOAD,
 				installProgress: IDLE_PROGRESS,
-				tasks: taskSnapshot()
+				tasks: taskSnapshot(),
+				approvals: (demoApprovals = seedApprovals())
 			});
 			this.spectrum = setInterval(() => this.#spectrumFrame(), 110);
 		}, 60);
@@ -295,6 +332,25 @@ class DemoSocket extends EventTarget {
 		try {
 			msg = JSON.parse(raw);
 		} catch {
+			return;
+		}
+		if (msg.type === 'approvals' && msg.op === 'decide') {
+			demoApprovals = demoApprovals.filter((a) => a.id !== msg.id);
+			setTimeout(() => this.#push({ type: 'approvals', approvals: demoApprovals }), 30);
+			return;
+		}
+		if (msg.type === 'tasks' && msg.op === 'say') {
+			const p = parseQuick(msg.text, Date.now());
+			let reply = { type: 'tasks-said', ok: false, say: p.error };
+			if (!p.error) {
+				const r = applyTaskOp({ op: 'create', task: { ...p.task, source: 'Remote' } });
+				const made = demoTasks.at(-1);
+				reply = r.error ? { type: 'tasks-said', ok: false, say: r.error } : { type: 'tasks-said', ok: true, say: speakAdded(made, Date.now()) };
+			}
+			setTimeout(() => {
+				this.#push(reply);
+				this.#push({ type: 'tasks', tasks: taskSnapshot() });
+			}, 30);
 			return;
 		}
 		if (msg.type === 'tasks') {
@@ -327,6 +383,7 @@ export function installStaticDemo() {
 		if (path.startsWith('weather/station')) return json({ station: null });
 		if (path.startsWith('weather')) return json(await demoWeather(realFetch, Number(url.searchParams.get('hours')) || 48));
 		if (path.startsWith('calendar')) return json(demoCalendar());
+		if (path === 'day') return json(demoReceipt());
 		if (path.startsWith('telemetry')) return json(TELEMETRY);
 		if (path.startsWith('load')) return json(LOAD);
 		if (path.startsWith('agents')) return json(AGENTS);

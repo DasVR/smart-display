@@ -10,6 +10,10 @@
  *  3. Playback stops on a Music view we moved to → back where it came from.
  *  4. Idle for IDLE_RETURN_MS on any view except Clock (and not Music while
  *     playing) → Clock.
+ *
+ * The departure board (src/lib/departures.js) outranks music: when it comes
+ * up, Clock comes forward; while it's up, playback doesn't take it away;
+ * when it goes, the view we left comes back.
  */
 
 export const HANDS_OFF_MS = 30_000;
@@ -24,11 +28,21 @@ export const STANDBY_IDLE_MS = 2 * 60_000;
  * @param {boolean} s.playing      music playing now
  * @param {boolean} s.wasPlaying   music playing on the previous tick
  * @param {string|null} s.autoFrom view we auto-left, or null
+ * @param {boolean} [s.departing]   the departure board is up
+ * @param {boolean} [s.wasDeparting] it was up on the previous tick
  * @returns {{ view: string, autoFrom: string|null, reason: string } | null}
  */
-export function decideSmartStack({ view, now, lastInput, playing, wasPlaying, autoFrom = null }) {
+export function decideSmartStack({ view, now, lastInput, playing, wasPlaying, autoFrom = null, departing = false, wasDeparting = false }) {
 	const idle = now - (lastInput || 0);
 	if (idle < HANDS_OFF_MS) return null;
+
+	if (departing && !wasDeparting && view !== 'clock') {
+		return { view: 'clock', autoFrom: view, reason: 'departure' };
+	}
+	if (departing) return null;
+	if (!departing && wasDeparting && view === 'clock' && autoFrom) {
+		return { view: autoFrom, autoFrom: null, reason: 'departed' };
+	}
 
 	if (playing && !wasPlaying && view === 'clock') {
 		return { view: 'music', autoFrom: 'clock', reason: 'playback-started' };

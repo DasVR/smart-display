@@ -14,7 +14,11 @@
 		{ q: 'wx=warning', label: 'Tornado warning', hint: 'Severe alert in the island' },
 		{ q: 'wx=rain', label: 'Rain incoming', hint: 'Nowcast in the island' },
 		{ q: 'island=install', label: 'Installing update', hint: 'Island + progress orb' },
-		{ q: 'wx=notify', label: 'Agent finished', hint: 'Notification slip' }
+		{ q: 'wx=notify', label: 'Agent finished', hint: 'Notification slip' },
+		{ q: 'approve=1', label: 'Agent needs you', hint: 'Allow / Deny from the wall' },
+		{ q: 'depart=20', label: 'Departure board', hint: 'Leave in 20 min: bring, do, due' },
+		{ q: 'tarnish=0.45', label: 'Overdue chores', hint: 'Patina creeps into the metal' },
+		{ q: 'receipt=1', label: 'Day receipt', hint: 'Printed when StandBy comes on' }
 	];
 
 	let open = $state(false);

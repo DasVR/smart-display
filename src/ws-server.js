@@ -19,6 +19,8 @@ import {
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, readHdmiStamp, setPanelPower } from './lib/server/displayPower.js';
 import { createTaskHub } from './lib/server/taskHub.js';
+import { createApprovalHub } from './lib/server/approvalHub.js';
+import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
 import { debounceInstalling } from './lib/hostUpdatesModel.js';
 import {
@@ -84,9 +86,20 @@ let schedule = loadSchedule(SCHEDULE_PATH);
 
 // Chores, little jobs and alerts: /api/tasks for other platforms, /ws for the
 // kiosk and remote, a scheduler that raises due items on the island.
+// the day's tally, printed as a receipt when StandBy comes on at night
+const dayLog = createDayLogHub({ dataDir: path.join(PROJECT_ROOT, 'data') });
 const taskHub = createTaskHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
-	broadcast: (msg) => broadcast(msg)
+	broadcast: (msg) => broadcast(msg),
+	onEvent: (event, task) => {
+		if (event === 'task.done' && task.kind === 'chore') dayLog.record('chore', { title: task.title });
+		if (event === 'task.due' && task.kind === 'alert') dayLog.record('alert', { title: task.title });
+	}
+});
+const approvalHub = createApprovalHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	broadcast: (msg) => broadcast(msg),
+	onDecide: (a) => dayLog.record('approval', { decision: a.status })
 });
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 let lastTickMinutes = null;
@@ -123,6 +136,9 @@ function broadcastAgents() {
 
 function publishNotify(notify) {
 	const { roster, openAgents } = ingestAgentNotify(notify);
+	if (notify.source && (String(notify.kind).toLowerCase() === 'done' || /\bfinished$/i.test(String(notify.title || '')))) {
+		dayLog.record('agent', { source: notify.source });
+	}
 	if (openAgents) {
 		currentView = 'agents';
 		broadcast({ type: 'navigate', view: 'agents', from: 'notify' });
@@ -289,6 +305,7 @@ async function tickNowPlaying() {
 		const published = publishNowPlaying(lastNowPlaying, np);
 		const kind = nowPlayingPushKind(lastNowPlaying, published);
 		if (kind) broadcast(nowPlayingPushPayload(published, kind));
+		if (published?.playing && published.title) dayLog.record('track', { title: published.title, artist: published.artist });
 		lastNowPlaying = published;
 		syncAudioCapture(published);
 	} catch {
@@ -544,6 +561,8 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (await taskHub.handleHttp(req, res)) return;
+	if (await approvalHub.handleHttp(req, res)) return;
+	if (await dayLog.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
@@ -845,7 +864,12 @@ wss.on('connection', (ws, req) => {
 			}
 			if (msg.type === 'tasks') {
 				const result = taskHub.handleWs(msg);
-				if (result?.error) ws.send(JSON.stringify({ type: 'tasks-error', error: result.error, op: msg.op }));
+				if (result?.said) ws.send(JSON.stringify({ type: 'tasks-said', ok: result.ok, say: result.say }));
+				else if (result?.error) ws.send(JSON.stringify({ type: 'tasks-error', error: result.error, op: msg.op }));
+			}
+			if (msg.type === 'approvals') {
+				const result = approvalHub.handleWs(msg);
+				if (result?.error) ws.send(JSON.stringify({ type: 'approvals-error', error: result.error, id: msg.id }));
 			}
 		} catch {
 			/* ignore */
@@ -869,10 +893,17 @@ wss.on('connection', (ws, req) => {
 				audio,
 				installProgress: getInstallProgress(),
 				agents: getAgentRoster(),
-				tasks: taskHub.snapshot()
+				tasks: taskHub.snapshot(),
+				approvals: approvalHub.snapshot()
 			})
 		);
 	})();
+});
+
+// a deploy restarts the service: keep the last few seconds of the day's tally
+process.once('SIGTERM', () => {
+	dayLog.flush();
+	process.exit(0);
 });
 
 server.listen(port, '0.0.0.0', () => {

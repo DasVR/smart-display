@@ -9,7 +9,18 @@
 	import { onMount } from 'svelte';
 	import { bassLevel as bassStore, startAudioReactive, setAudioPaused } from '$lib/services/audioReactive.js';
 
-	let { isLowPower = false, quality = 'full', sun = 1, twilight = 0, rain = 0, wind = 0, cloud = 0, windDir = 0 } = $props();
+	let {
+		isLowPower = false,
+		quality = 'full',
+		sun = 1,
+		twilight = 0,
+		rain = 0,
+		wind = 0,
+		cloud = 0,
+		windDir = 0,
+		/** 0..1 patina creeping in from the bottom-left (src/lib/tarnish.js) */
+		tarnish = 0
+	} = $props();
 
 	const INTERNAL_W = 1280;
 	const INTERNAL_H = 720;
@@ -60,6 +71,13 @@
 	let uWindLoc;
 	let uCloudLoc;
 	let uWindDirLoc;
+	let uTarnishLoc;
+	let uPolishLoc;
+
+	// What the shader shows: creeps up slowly, polishes back quickly with a
+	// sheen riding the receding edge.
+	let tarnishShown = 0;
+	let polish = 0;
 
 	const wxSmooth = { sun: 1, twilight: 0, rain: 0, wind: 0, cloud: 0, windDir: 0 };
 
@@ -95,6 +113,8 @@ uniform float u_rain;
 uniform float u_wind;
 uniform float u_cloud;
 uniform float u_windDir;
+uniform float u_tarnish;
+uniform float u_polish;
 
 float hash(vec2 p) {
 	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
@@ -268,6 +288,23 @@ void main() {
 		color *= mix(1.0, 0.78, inside * 0.35);
 	}
 
+	// Patina from the bottom-left corner: overdue chores (src/lib/tarnish.js).
+	if (u_tarnish > 0.002) {
+		float d = length(uv * aspect);
+		float ragged = fbm(uv * 4.5 + 3.7) * 0.32;
+		float reach = u_tarnish * 1.45;
+		float dd = d + ragged - 0.16;
+		float rust = (1.0 - smoothstep(reach - 0.10, reach + 0.015, dd)) * smoothstep(0.0, 0.04, u_tarnish);
+		float grain = fbm(uv * 26.0 + 11.0);
+		float lum = dot(color, vec3(0.30, 0.59, 0.11));
+		vec3 rustCol = mix(vec3(0.15, 0.075, 0.04), vec3(0.58, 0.31, 0.13), clamp(lum * 1.7 + grain * 0.4, 0.0, 1.0));
+		rustCol = mix(rustCol, vec3(0.20, 0.37, 0.33), smoothstep(0.60, 0.78, grain) * 0.55);
+		color = mix(color, rustCol, rust * 0.8);
+		// the polish sheen, riding the edge while it recedes
+		float band = exp(-pow((dd - reach) * 11.0, 2.0));
+		color += vec3(0.80, 0.83, 1.0) * band * u_polish * 0.45;
+	}
+
 	vec2 centered = (snappedFrag - 0.5 * u_resolution) / min(u_resolution.x, u_resolution.y);
 	float vig = 1.0 - length(centered) * 0.42;
 	color *= vig;
@@ -395,6 +432,8 @@ void main() {
 		gl.uniform1f(uWindLoc, wxSmooth.wind);
 		gl.uniform1f(uCloudLoc, wxSmooth.cloud);
 		gl.uniform1f(uWindDirLoc, wxSmooth.windDir);
+		gl.uniform1f(uTarnishLoc, tarnishShown);
+		gl.uniform1f(uPolishLoc, polish);
 		gl.drawArrays(gl.TRIANGLES, 0, 6);
 	}
 
@@ -425,6 +464,15 @@ void main() {
 		const TAU = Math.PI * 2;
 		const dDir = ((((windDir - wxSmooth.windDir) % TAU) + TAU * 1.5) % TAU) - Math.PI;
 		wxSmooth.windDir += dDir * kWx;
+		// patina creeps in over a few seconds; polishing it off takes about one
+		const target = Math.max(0, Math.min(1, Number(tarnish) || 0));
+		if (target < tarnishShown - 0.003) {
+			tarnishShown += (target - tarnishShown) * ease(0.05, frames);
+			polish += (1 - polish) * ease(0.25, frames);
+		} else {
+			tarnishShown += (target - tarnishShown) * ease(0.006, frames);
+			polish += (0 - polish) * ease(0.06, frames);
+		}
 	}
 
 	function loop() {
@@ -508,6 +556,8 @@ void main() {
 		uWindLoc = gl.getUniformLocation(program, 'u_wind');
 		uCloudLoc = gl.getUniformLocation(program, 'u_cloud');
 		uWindDirLoc = gl.getUniformLocation(program, 'u_windDir');
+		uTarnishLoc = gl.getUniformLocation(program, 'u_tarnish');
+		uPolishLoc = gl.getUniformLocation(program, 'u_polish');
 
 		gl.disable(gl.DEPTH_TEST);
 		gl.disable(gl.BLEND);

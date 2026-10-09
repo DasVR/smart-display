@@ -7,6 +7,7 @@
 <script>
 	import '../../../app.css';
 	import { onMount } from 'svelte';
+	import { base } from '$app/paths';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 
 	let tasks = $state([]);
@@ -149,12 +150,16 @@
 			<span class="dot"></span>
 			<span>{status}</span>
 		</div>
+		<a class="siri" href="{base}/remote/shortcuts">Siri &amp; Shortcuts</a>
 	</header>
 
 	{#if !tasks.length}
 		<div class="empty">
 			<p class="empty-title">No chores or alerts yet</p>
-			<p class="note">Add one with the + button. Other apps can add them too through <code>/api/tasks</code>.</p>
+			<p class="note">
+				Add one with the + button, or <a href="{base}/remote/shortcuts">set up Siri</a> to add them by voice. Other
+				apps can add them too through <code>/api/tasks</code>.
+			</p>
 		</div>
 	{/if}
 
@@ -271,6 +276,21 @@
 	}
 	.bar {
 		margin-bottom: auto;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	.siri,
+	.note a {
+		color: var(--brand);
+		font-weight: 600;
+		text-decoration: none;
+	}
+	.siri {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+		font-size: var(--text-sm);
 	}
 	.status {
 		display: inline-flex;
