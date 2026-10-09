@@ -1,5 +1,27 @@
 # Smart Display Progress Log
 
+## 2026-10-09: The Action button and commands for "tell the wall"
+
+### Done
+- `src/lib/wallActions.js` (pure) has three parts:
+  - **Commands:** done, snooze, brief, I'm leaving, show a view, music,
+    screen, and allow / deny.
+  - **Fuzzy task matching:** "bins" finds "Take out the bins".
+  - **The menu and the press:** a context-built menu and a smart press.
+- `src/lib/server/actionHub.js` adds three routes:
+  - `POST /api/action` is the smart press. A waiting approval is only read
+    out, never allowed.
+  - `GET /api/action/menu` returns one label per line.
+  - `POST /api/action/run` runs a chosen label.
+  - Every action flashes on the island as "iPhone".
+- `/api/tasks/say` tries commands first and only adds a chore when it
+  isn't one.
+- The phone's Siri & Shortcuts page has new recipes:
+  - **Wall** for the Action button: the menu, plus Tell the wall.
+  - **Wall press** for Back Tap.
+  - The try box now runs commands too.
+- 6 new tests.
+
 ## 2026-10-09: Siri, departure board, tarnish, agent approvals, day receipt
 
 ### Done

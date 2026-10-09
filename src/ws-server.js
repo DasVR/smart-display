@@ -21,6 +21,8 @@ import { PROJECT_ROOT, readHdmiStamp, setPanelPower } from './lib/server/display
 import { createTaskHub } from './lib/server/taskHub.js';
 import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
+import { createActionHub } from './lib/server/actionHub.js';
+import { runPlayerctl } from './lib/server/playerctlBin.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
 import { debounceInstalling } from './lib/hostUpdatesModel.js';
 import {
@@ -94,12 +96,35 @@ const taskHub = createTaskHub({
 	onEvent: (event, task) => {
 		if (event === 'task.done' && task.kind === 'chore') dayLog.record('chore', { title: task.title });
 		if (event === 'task.due' && task.kind === 'alert') dayLog.record('alert', { title: task.title });
-	}
+	},
+	// "tell the wall" commands; actionHub is defined below and only called later
+	commands: (text) => actionHub.command(text)
 });
 const approvalHub = createApprovalHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => broadcast(msg),
 	onDecide: (a) => dayLog.record('approval', { decision: a.status })
+});
+// the Action button and spoken commands (see src/lib/wallActions.js)
+const PLAYER_ARGS = { pause: ['pause'], play: ['play'], next: ['next'], previous: ['previous'] };
+const actionHub = createActionHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	taskHub,
+	approvalHub,
+	broadcast: (msg) => broadcast(msg),
+	getState: () => ({ nowPlaying: lastNowPlaying, view: currentView, hdmi: hdmiState }),
+	navigate: (view) => {
+		currentView = canonicalizeKioskView(view);
+		broadcast({ type: 'navigate', view: currentView, from: 'siri' });
+	},
+	player: async (action) => {
+		const r = await runPlayerctl(PLAYER_ARGS[action] || [action], { timeout: 2000 });
+		kickNowPlaying();
+		return r;
+	},
+	screen: (state) => applyHdmi(state, { reason: 'siri' }),
+	loadWeather: () => getWeather(24),
+	loadEvents: async () => (await getCalendar(1))?.events || []
 });
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 let lastTickMinutes = null;
@@ -562,6 +587,7 @@ const server = createServer(async (req, res) => {
 
 	if (await taskHub.handleHttp(req, res)) return;
 	if (await approvalHub.handleHttp(req, res)) return;
+	if (await actionHub.handleHttp(req, res)) return;
 	if (await dayLog.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
@@ -863,9 +889,13 @@ wss.on('connection', (ws, req) => {
 				patchSchedule({ ...schedule, ...msg.schedule });
 			}
 			if (msg.type === 'tasks') {
-				const result = taskHub.handleWs(msg);
-				if (result?.said) ws.send(JSON.stringify({ type: 'tasks-said', ok: result.ok, say: result.say }));
-				else if (result?.error) ws.send(JSON.stringify({ type: 'tasks-error', error: result.error, op: msg.op }));
+				Promise.resolve(taskHub.handleWs(msg))
+					.then((result) => {
+						if (ws.readyState !== 1) return;
+						if (result?.said) ws.send(JSON.stringify({ type: 'tasks-said', ok: result.ok, say: result.say }));
+						else if (result?.error) ws.send(JSON.stringify({ type: 'tasks-error', error: result.error, op: msg.op }));
+					})
+					.catch(() => {});
 			}
 			if (msg.type === 'approvals') {
 				const result = approvalHub.handleWs(msg);

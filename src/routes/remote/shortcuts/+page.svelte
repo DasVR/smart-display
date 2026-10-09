@@ -15,17 +15,49 @@
 	let phrase = $state('');
 	let reply = $state(null); // { ok, say }
 	let copied = $state('');
-	let open = $state('tell');
+	let open = $state('menu');
 	let status = $state('connecting');
 	let ws;
 	let retry = 0;
 
 	const RECIPES = [
 		{
+			id: 'menu',
+			name: 'Action button: Wall menu',
+			say: 'Press the Action button: a list of what you can do right now (Done: Feed the cat, Allow: git push, Pause music, Screen off…), with Tell the wall at the top',
+			urls: [
+				{ label: 'Menu', path: '/api/action/menu?format=text' },
+				{ label: 'Run', path: '/api/action/run?format=text' },
+				{ label: 'Tell', path: '/api/tasks/say?format=text' }
+			],
+			steps: [
+				'New shortcut, named <b>Wall</b>.',
+				'Add <b>Get Contents of URL</b> with the <b>Menu</b> address (GET).',
+				'Add <b>Split Text</b> (Contents of URL), separator <b>New Lines</b>.',
+				'Add <b>Choose from List</b> (Split Text).',
+				'Add <b>If</b>: <b>Chosen Item</b> <b>is</b> <code>Tell the wall</code>.',
+				'Inside If: <b>Dictate Text</b>, then <b>Get Contents of URL</b> with the <b>Tell</b> address, Method <b>POST</b>, Request Body <b>JSON</b>, Text field <code>text</code> = <b>Dictated Text</b>, then <b>Speak Text</b> (Contents of URL).',
+				'Under Otherwise: <b>Get Contents of URL</b> with the <b>Run</b> address, Method <b>POST</b>, Request Body <b>JSON</b>, Text field <code>choice</code> = <b>Chosen Item</b>, then <b>Show Notification</b> (Contents of URL).',
+				'Settings → <b>Action Button</b> → Shortcut → <b>Wall</b>.'
+			]
+		},
+		{
+			id: 'press',
+			name: 'Back Tap: Wall press',
+			say: 'Double-tap the back of the phone: does the obvious thing (reads the departure board, ticks off what\'s overdue, or reads what\'s waiting)',
+			urls: [{ label: 'Press', path: '/api/action?format=text' }],
+			steps: [
+				'New shortcut, named <b>Wall press</b>.',
+				'Add <b>Get Contents of URL</b> with the address below, Method <b>POST</b>.',
+				'Add <b>Speak Text</b> (or Show Notification) with <b>Contents of URL</b>.',
+				'Settings → Accessibility → Touch → <b>Back Tap</b> → Double Tap → <b>Wall press</b>. It also works as a Lock Screen or Control Center button.'
+			]
+		},
+		{
 			id: 'tell',
 			name: 'Tell the wall',
-			say: '"Hey Siri, tell the wall" … "take out the bins every Monday and Thursday at 6pm"',
-			path: '/api/tasks/say?format=text',
+			say: '"Hey Siri, tell the wall" … "take out the bins every Monday at 6pm" or "I\'m done with the bins" or "pause the music"',
+			urls: [{ label: 'Tell', path: '/api/tasks/say?format=text' }],
 			steps: [
 				'New shortcut, named <b>Tell the wall</b> (that name is what you say to Siri).',
 				'Add <b>Dictate Text</b>.',
@@ -37,34 +69,11 @@
 			id: 'brief',
 			name: "What's on the wall",
 			say: '"Hey Siri, what\'s on the wall?"',
-			path: '/api/tasks/brief?format=text',
+			urls: [{ label: 'Brief', path: '/api/tasks/brief?format=text' }],
 			steps: [
 				"New shortcut, named <b>What's on the wall</b>.",
 				'Add <b>Get Contents of URL</b> with the address below (GET is the default).',
 				'Add <b>Speak Text</b> with <b>Contents of URL</b>.'
-			]
-		},
-		{
-			id: 'done',
-			name: 'Action button: done',
-			say: 'Press and hold the Action button: the most urgent chore is ticked off',
-			path: '/api/tasks/next/done?format=text',
-			steps: [
-				'New shortcut, named <b>Wall done</b>.',
-				'Add <b>Get Contents of URL</b> with the address below, Method <b>POST</b>.',
-				'Add <b>Show Notification</b> with <b>Contents of URL</b> (or Speak Text).',
-				'Settings → <b>Action Button</b> → Shortcut → <b>Wall done</b>. It also works as a Lock Screen or Control Center button.'
-			]
-		},
-		{
-			id: 'snooze',
-			name: 'Snooze the top item',
-			say: '"Hey Siri, wall snooze": pushes the most urgent item back an hour',
-			path: '/api/tasks/next/snooze?format=text',
-			steps: [
-				'New shortcut, named <b>Wall snooze</b>.',
-				'Add <b>Get Contents of URL</b> with the address below, Method <b>POST</b>. Optional: Request Body JSON, Number field <code>minutes</code>.',
-				'Add <b>Show Notification</b> with <b>Contents of URL</b>.'
 			]
 		}
 	];
@@ -72,8 +81,12 @@
 	const EXAMPLES = [
 		'remind me to leave for practice in 20 minutes',
 		'take out the bins every Monday and Thursday at 6pm',
-		'call the dentist tomorrow',
-		'meds every day at 8:30am'
+		"I'm done with the bins",
+		'snooze the cat for an hour',
+		"what's on the wall",
+		"I'm leaving",
+		'show me the weather',
+		'pause the music'
 	];
 
 	function url(path) {
@@ -189,10 +202,13 @@
 								<li>{@html s}</li>
 							{/each}
 						</ol>
-						<div class="url">
-							<code>{url(r.path)}</code>
-							<button type="button" onclick={() => copy(url(r.path), r.id)}>{copied === r.id ? 'Copied' : 'Copy'}</button>
-						</div>
+						{#each r.urls as u (u.label)}
+							<div class="url">
+								<span class="tag">{u.label}</span>
+								<code>{url(u.path)}</code>
+								<button type="button" onclick={() => copy(url(u.path), `${r.id}-${u.label}`)}>{copied === `${r.id}-${u.label}` ? 'Copied' : 'Copy'}</button>
+							</div>
+						{/each}
 					</div>
 				{/if}
 			</li>
@@ -225,7 +241,7 @@
 				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
 			</button>
 		</div>
-		<p class="note small">This really adds it, the same way Siri would.</p>
+		<p class="note small">This really runs it, the same way Siri would: commands act, anything else gets added.</p>
 	</form>
 </div>
 
@@ -376,6 +392,17 @@
 		border-radius: var(--radius-md);
 		background: var(--shell-fill);
 		box-shadow: inset 0 0 0 1px var(--hairline);
+	}
+	.detail .url + .url {
+		margin-top: var(--space-2);
+	}
+	.tag {
+		flex: none;
+		font-size: 0.7rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--brand);
 	}
 	.url code {
 		flex: 1;

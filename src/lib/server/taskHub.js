@@ -14,7 +14,8 @@
  *
  * Siri / Shortcuts (answers carry a `say` sentence; add ?format=text, or send
  * Accept: text/plain, to get just that sentence back for "Speak Text"):
- *   POST   /api/tasks/say             { text } or a text/plain body: "remind me to … at 6pm"
+ *   POST   /api/tasks/say             { text } or a text/plain body: "remind me to … at 6pm",
+ *                                     or a command ("I'm done with the bins"; see wallActions.js)
  *   GET    /api/tasks/brief           what's waiting and what's next, as one sentence
  *   POST   /api/tasks/next/done       tick off the most urgent waiting item (the Action button)
  *   POST   /api/tasks/next/snooze     { minutes } push it back instead
@@ -83,7 +84,7 @@ function readBody(req) {
 	});
 }
 
-export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent }) {
+export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent, commands }) {
 	const tasksFile = path.join(dataDir, 'tasks.json');
 	const hooksFile = path.join(dataDir, 'webhooks.json');
 	const tokenFile = path.join(dataDir, 'api-token');
@@ -199,9 +200,8 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		if (msg.op === 'snooze') return snooze(msg.id, msg.minutes);
 		if (msg.op === 'delete') return remove(msg.id);
 		if (msg.op === 'say') {
-			// the remote's "try a phrase" box; answers like Siri would
-			const { status, data } = sayAdd({ text: msg.text, source: 'Remote' });
-			return { said: true, ok: status < 300, say: data.say };
+			// the remote's "try a phrase" box; answers like Siri would (a promise)
+			return sayAdd({ text: msg.text, source: 'Remote' }).then(({ status, data }) => ({ said: true, ok: status < 300, say: data.say }));
 		}
 		return null;
 	}
@@ -228,8 +228,14 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 
 	/* ---------- Siri / Shortcuts ---------- */
 
-	function sayAdd(body) {
+	/**
+	 * "Tell the wall": a command ("I'm done with the bins", "show the
+	 * weather") when `commands` recognises one, otherwise something to add.
+	 */
+	async function sayAdd(body) {
 		const text = typeof body === 'string' ? body : (body.text ?? body.say ?? '');
+		const cmd = commands ? await commands(text) : null;
+		if (cmd) return { status: 200, data: cmd };
 		const parsed = parseQuick(text, now());
 		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error } };
 		const result = create({ ...parsed.task, source: cleanSource(body.source) || 'Siri' });
@@ -291,7 +297,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 
 			if (id === 'say' && !action) {
 				if (m !== 'POST') return send(res, 405, { error: 'method not allowed' }), true;
-				const { status, data } = sayAdd(await readBody(req));
+				const { status, data } = await sayAdd(await readBody(req));
 				return speak(req, res, url, status, data), true;
 			}
 			if (id === 'brief' && !action && m === 'GET') return speak(req, res, url, 200, brief()), true;
