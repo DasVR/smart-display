@@ -11,11 +11,18 @@
  *   DELETE /api/tasks/:id             remove
  *   POST   /api/tasks/:id/done        mark done (repeating items move to their next time)
  *   POST   /api/tasks/:id/snooze      { minutes }
+ *
+ * Siri / Shortcuts (answers carry a `say` sentence; add ?format=text, or send
+ * Accept: text/plain, to get just that sentence back for "Speak Text"):
+ *   POST   /api/tasks/say             { text } or a text/plain body: "remind me to … at 6pm"
+ *   GET    /api/tasks/brief           what's waiting and what's next, as one sentence
+ *   POST   /api/tasks/next/done       tick off the most urgent waiting item (the Action button)
+ *   POST   /api/tasks/next/snooze     { minutes } push it back instead
  *   GET    /api/webhooks              subscribers (secrets hidden)
  *   POST   /api/webhooks              { url, events?, secret?, name? }
  *   DELETE /api/webhooks/:id
  *
- * WebSocket (/ws): { type: 'tasks', op: 'create'|'update'|'done'|'snooze'|'delete', id?, task?, minutes? }
+ * WebSocket (/ws): { type: 'tasks', op: 'create'|'update'|'done'|'snooze'|'delete'|'say', id?, task?, minutes?, text? }
  * and every change is broadcast as { type: 'tasks', tasks: [...] }.
  */
 import path from 'node:path';
@@ -41,11 +48,17 @@ import {
 	saveTasks,
 	saveWebhooks
 } from './taskService.js';
+import { parseQuick, pickNext, speakAdded, speakBrief, speakDone, speakWhen } from '../quickSay.js';
 
 const MAX_BODY = 64 * 1024;
+
+function cleanSource(v) {
+	return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 40) : '';
+}
 const TICK_MS = 15000;
 
 function readBody(req) {
+	const plain = /^text\/plain/i.test(req.headers?.['content-type'] ?? '');
 	return new Promise((resolve, reject) => {
 		let raw = '';
 		req.on('data', (chunk) => {
@@ -60,6 +73,9 @@ function readBody(req) {
 			try {
 				resolve(JSON.parse(raw));
 			} catch {
+				// Shortcuts' "Get Contents of URL" can send dictated text as-is.
+				// (fetch() labels any string body text/plain, so JSON wins first.)
+				if (plain) return resolve({ text: raw });
 				reject(Object.assign(new Error('invalid JSON'), { status: 400 }));
 			}
 		});
@@ -67,7 +83,7 @@ function readBody(req) {
 	});
 }
 
-export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl }) {
+export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent }) {
 	const tasksFile = path.join(dataDir, 'tasks.json');
 	const hooksFile = path.join(dataDir, 'webhooks.json');
 	const tokenFile = path.join(dataDir, 'api-token');
@@ -95,6 +111,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		persist();
 		broadcast({ type: 'tasks', tasks: snapshot() });
 		if (event) emit(event, { task: view(task) });
+		if (event) onEvent?.(event, task);
 	}
 	function emit(event, payload) {
 		if (!hooks.length) return;
@@ -156,6 +173,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		for (const t of result.fired) {
 			broadcast({ type: 'notify', ...taskNotify(t), taskId: t.id });
 			emit('task.due', { task: view(t) });
+			onEvent?.('task.due', t);
 		}
 		broadcast({ type: 'tasks', tasks: snapshot() });
 		return result.fired;
@@ -180,6 +198,11 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		if (msg.op === 'done') return done(msg.id);
 		if (msg.op === 'snooze') return snooze(msg.id, msg.minutes);
 		if (msg.op === 'delete') return remove(msg.id);
+		if (msg.op === 'say') {
+			// the remote's "try a phrase" box; answers like Siri would
+			const { status, data } = sayAdd({ text: msg.text, source: 'Remote' });
+			return { said: true, ok: status < 300, say: data.say };
+		}
 		return null;
 	}
 
@@ -192,6 +215,43 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	function reply(res, result, okStatus = 200) {
 		if (result.error) send(res, result.status || 400, { error: result.error });
 		else send(res, okStatus, result);
+	}
+	/** Shortcuts answers: JSON with a `say` line, or just the line for "Speak Text". */
+	function speak(req, res, url, status, data) {
+		const wantsText = url.searchParams.get('format') === 'text' || /^text\/plain/i.test(req.headers.accept ?? '');
+		if (!wantsText) return send(res, status, data);
+		// Always 200 here: some Shortcuts setups stop on an error status
+		// before "Speak Text" runs, and the sentence already says what went wrong.
+		res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+		res.end(data.say ?? data.error ?? '');
+	}
+
+	/* ---------- Siri / Shortcuts ---------- */
+
+	function sayAdd(body) {
+		const text = typeof body === 'string' ? body : (body.text ?? body.say ?? '');
+		const parsed = parseQuick(text, now());
+		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error } };
+		const result = create({ ...parsed.task, source: cleanSource(body.source) || 'Siri' });
+		if (result.error) return { status: result.status || 400, data: { error: result.error, say: `Sorry, ${result.error}.` } };
+		return { status: 201, data: { task: result.task, say: speakAdded(result.task, now()) } };
+	}
+	function brief() {
+		const list = snapshot();
+		return { say: speakBrief(list, now()), tasks: list.filter((t) => t.status !== 'done') };
+	}
+	function nextDone() {
+		const target = pickNext(snapshot());
+		if (!target) return { say: 'Nothing waiting. All clear.' };
+		const { task } = done(target.id);
+		const remaining = snapshot().filter((t) => t.status === 'overdue' || t.status === 'due').length;
+		return { task, say: speakDone(task, remaining, now()) };
+	}
+	function nextSnooze(minutes) {
+		const target = pickNext(snapshot());
+		if (!target) return { say: 'Nothing waiting to snooze.' };
+		const { task } = snooze(target.id, minutes ?? 60);
+		return { task, say: `Snoozed ${task.title}. It comes back ${speakWhen(task.snoozedUntil, now())}.` };
 	}
 
 	/** Returns true when it handled the request. */
@@ -229,6 +289,17 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 				return send(res, 405, { error: 'method not allowed' }), true;
 			}
 
+			if (id === 'say' && !action) {
+				if (m !== 'POST') return send(res, 405, { error: 'method not allowed' }), true;
+				const { status, data } = sayAdd(await readBody(req));
+				return speak(req, res, url, status, data), true;
+			}
+			if (id === 'brief' && !action && m === 'GET') return speak(req, res, url, 200, brief()), true;
+			if (id === 'next' && m === 'POST') {
+				if (action === 'done') return speak(req, res, url, 200, nextDone()), true;
+				if (action === 'snooze') return speak(req, res, url, 200, nextSnooze((await readBody(req)).minutes)), true;
+			}
+
 			if (!id) {
 				if (m === 'GET') {
 					const statuses = url.searchParams.get('status')?.split(',').filter(Boolean);
@@ -260,5 +331,5 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		}
 	}
 
-	return { handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove };
+	return { handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove, sayAdd, brief, nextDone };
 }

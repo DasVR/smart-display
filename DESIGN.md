@@ -209,6 +209,32 @@ Depth comes from translucency and light, not drop shadows:
   - It is not glass: hairline rows only, so the trough stays the one glass
     surface.
   - It renders nothing until the first item exists.
+- **Departure board** (takes over the Clock view in the hour before a
+  "Leave …" item).
+  - Left side: an amber `DEPARTURES` kicker, then the destination at poster
+    size, then "Leave in N min" with the display-font numerals.
+  - Under that: a phase chip (On time, Boarding, Final call, Go now). It is
+    green while on time, amber at Boarding, and `--warn` at Final call and
+    Go now.
+  - Right side: a dark board. Each row has a split-flap status tile (BRING
+    amber, DO `--warn`, DUE `--brand`), the item, and a note on the right.
+  - Rows flip in once, staggered by 70ms. Nothing loops.
+- **Approval card.** The one place the wall asks a question.
+  - A warn-ringed glass card, bottom centre, over a soft scrim.
+  - A conic ring drains toward the deadline.
+  - The command is shown in code font.
+  - Two full-width pill buttons: Deny is neutral, Allow is `--ok`.
+  - The phone shows the same card, compact, above its tab bar.
+- **Day receipt.** A strip of thermal paper, dimmed warm grey, never white,
+  so it doesn't glare at night. It is mono uppercase with dotted leaders, a
+  torn zigzag bottom edge and a barcode. It prints up in 16 steps, holds
+  for 14 s and folds away; tap it to dismiss.
+- **Tarnish.** Overdue chores show as rust-to-verdigris patina growing from
+  the bottom-left of the shader.
+  - It creeps in over seconds and polishes off in about one, with a sheen
+    on the receding edge.
+  - It is the only ambient signal that carries information, so keep it
+    rare and earned.
 - **Music deck.** The left column reads like a record deck:
   - A kicker line: live bars, Now playing / Paused, the source ("via
     AirPlay"), and a session counter ("02 / 05").

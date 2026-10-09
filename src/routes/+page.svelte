@@ -10,7 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { tasks, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { tasks, approvals, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
@@ -53,6 +53,12 @@
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import TodayTasks from '$lib/components/TodayTasks.svelte';
+	import { tarnishLevel } from '$lib/tarnish.js';
+	import DepartureBoard from '$lib/components/DepartureBoard.svelte';
+	import ApprovalCard from '$lib/components/ApprovalCard.svelte';
+	import DayReceipt from '$lib/components/DayReceipt.svelte';
+	import { dayKey } from '$lib/dayLog.js';
+	import { currentDeparture, departureBoard } from '$lib/departures.js';
 	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
 
 	let ws;
@@ -100,6 +106,7 @@
 	let autoFrom = null;
 	let autoSetView = '';
 	let wasPlaying = false;
+	let wasDeparting = false;
 	function markInput() {
 		lastInput = Date.now();
 		autoFrom = null;
@@ -115,6 +122,11 @@
 	}
 
 	// Tap a chore's circle on the Clock view: same op the phone remote sends.
+	function decideApproval(id, decision) {
+		markInput();
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'approvals', op: 'decide', id, decision, by: 'display' }));
+	}
+
 	function completeTask(id) {
 		markInput();
 		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'tasks', op: 'done', id }));
@@ -292,6 +304,7 @@
 					agentRoster.update((r) => applyNotifyToRoster(r, ev));
 					if (isAgentStatusEvent(ev)) playChime(chimeKindForEvent(ev));
 				}
+				if (msg.type === 'approvals' && Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
 					tasks.set(msg.tasks);
 				}
@@ -327,6 +340,7 @@
 					if (msg.installProgress) installProgress.set(msg.installProgress);
 					if (Array.isArray(msg.agents) && !lockDemoView) agentRoster.set(msg.agents);
 					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
+					if (Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 					if (msg.power) {
 						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
 					}
@@ -668,9 +682,12 @@
 			lastInput,
 			playing,
 			wasPlaying,
-			autoFrom
+			autoFrom,
+			departing: Boolean(board),
+			wasDeparting
 		});
 		wasPlaying = playing;
+		wasDeparting = Boolean(board);
 		if (!move) return;
 		autoFrom = move.autoFrom;
 		selectView(move.view, { auto: true });
@@ -679,11 +696,85 @@
 	// `?standby=1` previews StandBy without waiting for night and idle time
 	const standbyPreview =
 		typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('standby') === '1';
+	// overdue chores tarnish the metal from the bottom-left corner
+	// (?tarnish=0.5 previews it without real chores)
+	const tarnishPreview =
+		typeof window !== 'undefined' ? Number(new URLSearchParams(window.location.search).get('tarnish')) || 0 : 0;
+	let tarnish = $derived(tarnishPreview || tarnishLevel($tasks, time.getTime()));
+
+	// In the hour before a "Leave …" chore or alert, the Clock view becomes a
+	// departure board (src/lib/departures.js). It wants today's homework, which
+	// only the School view fetches, so pull the calendar here while one is near.
+	// (?depart=20 previews a departure 20 minutes out.)
+	const departPreview =
+		typeof window !== 'undefined' ? Number(new URLSearchParams(window.location.search).get('depart')) || 0 : 0;
+	const previewAnchor = Date.now();
+	let departTasks = $derived.by(() => {
+		if (!departPreview) return $tasks;
+		const leaveAt = new Date(previewAnchor + departPreview * 60000).toISOString();
+		const demo = { id: 'depart-preview', kind: 'alert', title: 'Leave for school', notes: 'PE kit, lunch', active: true, nextDue: leaveAt };
+		return [demo, ...$tasks];
+	});
+	let departing = $derived(Boolean(currentDeparture(departTasks, time.getTime())));
+	let board = $derived(
+		departing ? departureBoard({ tasks: departTasks, events: $upcomingEvents, weather: weatherData, now: time.getTime() }) : null
+	);
+	let calendarPulledAt = 0;
+	$effect(() => {
+		if (!departing || Date.now() - calendarPulledAt < 5 * 60000) return;
+		calendarPulledAt = Date.now();
+		fetch('/api/calendar?days=1')
+			.then((r) => (r.ok ? r.json() : null))
+			.then((d) => d?.events && upcomingEvents.set(d.events))
+			.catch(() => {});
+	});
+
 	let standby = $derived(
-		(standbyPreview && $currentView === 'clock') ||
-			isStandBy({ view: $currentView, phase: atm.phase, now: time.getTime(), lastInput, mode })
+		!board &&
+		((standbyPreview && $currentView === 'clock') ||
+			isStandBy({ view: $currentView, phase: atm.phase, now: time.getTime(), lastInput, mode }))
 	);
 	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
+
+	// End-of-day receipt: the first time StandBy comes on each night, print
+	// the day's tally (src/lib/dayLog.js), then fold it away. ?receipt=1 previews.
+	let receipt = $state(null);
+	let receiptPrintedFor = '';
+	const receiptPreview =
+		typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('receipt') === '1';
+	function todaysHighLow() {
+		const today = dayKey(Date.now());
+		const temps = (weatherData?.hourly || [])
+			.filter((h) => String(h.time).startsWith(today))
+			.map((h) => Number(h.temp))
+			.filter(Number.isFinite);
+		return temps.length ? { high: Math.max(...temps), low: Math.min(...temps) } : null;
+	}
+	async function printReceipt() {
+		const today = dayKey(Date.now());
+		if (receiptPrintedFor === today) return;
+		receiptPrintedFor = today;
+		try {
+			// once per night across reloads too (per-browser convenience only)
+			if (!receiptPreview && localStorage.getItem('receipt-printed') === today) return;
+			localStorage.setItem('receipt-printed', today);
+		} catch {
+			/* storage blocked: the in-memory guard above still holds */
+		}
+		try {
+			const r = await fetch('/api/day');
+			if (!r.ok) return;
+			const data = await r.json();
+			const wx = todaysHighLow();
+			if (wx) data.lines = [...data.lines, { label: 'High / low', qty: `${Math.round(wx.high)}° / ${Math.round(wx.low)}°` }];
+			receipt = data;
+		} catch {
+			/* no receipt tonight */
+		}
+	}
+	$effect(() => {
+		if ((standby && atm.phase === 'night') || (receiptPreview && weatherData)) printReceipt();
+	});
 
 
 	function viewLabel(name) {
@@ -813,6 +904,7 @@
 		wind={atm.wind}
 		cloud={atm.cloud}
 		windDir={atm.windRad}
+		{tarnish}
 	/>
 
 	{#if $currentView === 'music' && $nowPlaying?.art && ($nowPlaying?.playing || $nowPlaying?.paused || $nowPlaying?.title)}
@@ -902,13 +994,17 @@
 			     heading for screen readers without spending stage height. -->
 			<h1 class="sr-only">{viewLabel($currentView)}</h1>
 			{#if $currentView === 'clock'}
-				<section class="view-pane clock-pane">
-					<div class="clock-credits">
-						<p class="clock-kicker">{clockKicker}</p>
-						<HeroClock {time} size="poster" />
-						<BoardWidgets {atm} prediction={wxForIsland?.prediction || weatherData?.prediction} />
-					</div>
-					<TodayTasks tasks={$tasks} now={time} ondone={completeTask} />
+				<section class="view-pane clock-pane" class:departing={board}>
+					{#if board}
+						<DepartureBoard {board} now={time} ondone={completeTask} />
+					{:else}
+						<div class="clock-credits">
+							<p class="clock-kicker">{clockKicker}</p>
+							<HeroClock {time} size="poster" />
+							<BoardWidgets {atm} prediction={wxForIsland?.prediction || weatherData?.prediction} />
+						</div>
+						<TodayTasks tasks={$tasks} now={time} ondone={completeTask} />
+					{/if}
 				</section>
 			{:else if $currentView === 'school'}
 				<section class="view-pane sheet school-pane" data-glass>
@@ -950,12 +1046,43 @@
 		</footer>
 	</div>
 
+	{#if receipt}
+		<div class="receipt-layer">
+			<DayReceipt {receipt} onclose={() => (receipt = null)} hold={receiptPreview ? 600000 : 14000} />
+		</div>
+	{/if}
+
+	{#if $approvals.length}
+		<div class="approval-layer">
+			<ApprovalCard approvals={$approvals} now={time.getTime()} ondecide={decideApproval} />
+		</div>
+	{/if}
+
 	{#if $displayQuality === 'full' && mode !== 'sleep'}
 		<NoiseOverlay />
 	{/if}
 </div>
 
 <style>
+	/* the receipt prints up from the bottom edge, right of centre */
+	.receipt-layer {
+		position: fixed;
+		z-index: 55;
+		right: 12%;
+		bottom: 0;
+		perspective: 900px;
+	}
+	/* an agent waiting on the wall: above everything but the island */
+	.approval-layer {
+		position: fixed;
+		inset: 0;
+		z-index: 60;
+		display: grid;
+		place-items: end center;
+		padding-bottom: 7.5rem;
+		background: radial-gradient(70% 60% at 50% 85%, color-mix(in srgb, #000 55%, transparent), transparent 75%);
+		pointer-events: none;
+	}
 	.skip {
 		position: absolute;
 		left: var(--space-4);

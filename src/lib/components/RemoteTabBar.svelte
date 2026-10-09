@@ -6,6 +6,7 @@
 -->
 <script>
 	import { base } from '$app/paths';
+	import RemoteApprovals from './RemoteApprovals.svelte';
 
 	let { active = 'control' } = $props();
 
@@ -19,6 +20,7 @@
 	];
 </script>
 
+<RemoteApprovals />
 <div class="edge-fade" aria-hidden="true"></div>
 <nav class="tabbar" aria-label="Remote sections">
 	{#each TABS as tab (tab.id)}

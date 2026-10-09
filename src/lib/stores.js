@@ -34,6 +34,9 @@ export const gitContext = writable({
 // Chores, little jobs and alerts from the server (see src/lib/tasks.js).
 export const tasks = writable([]);
 
+// Agents waiting on an Allow / Deny from the wall (see src/lib/approvals.js).
+export const approvals = writable([]);
+
 export const islandQueue = writable([]);
 export const islandActivities = writable([]);
 export const installProgress = writable({

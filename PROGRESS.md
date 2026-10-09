@@ -1,5 +1,48 @@
 # Smart Display Progress Log
 
+## 2026-10-09: Siri, departure board, tarnish, agent approvals, day receipt
+
+### Done
+- **Siri and the Action button** (highest priority):
+  - `src/lib/quickSay.js` turns one spoken sentence into a chore or alert
+    ("remind me to…", "every Monday and Thursday at 6pm", "tomorrow", "in
+    20 minutes") and turns tasks back into sentences.
+  - New routes: `/api/tasks/say`, `/api/tasks/brief` and
+    `/api/tasks/next/done|snooze`. Add `?format=text` to get back just the
+    sentence for Speak Text.
+  - The phone has a **Siri & Shortcuts** page with copyable recipes and a
+    "Try a phrase" box (over `/ws`).
+- **Departure board** (`src/lib/departures.js`, `DepartureBoard.svelte`):
+  - Triggers: any "Leave …" chore or alert turns Clock into an airport board
+    for the hour before, staying until 5 minutes after.
+  - Rows:
+    - BRING: the departure's notes and the weather;
+    - DO: chores due before you leave (tap to tick off);
+    - DUE: today's homework.
+  - The Smart Stack brings it forward, holds Music off while it's up, then
+    restores the old view.
+- **Tarnish** (`src/lib/tarnish.js` and a shader uniform):
+  - Overdue chores grow patina from the bottom-left corner, more as they
+    age, capped at 0.75.
+  - Done chores polish it back with a sheen on the receding edge.
+- **Agent approvals:**
+  - Model: `src/lib/approvals.js`. Server: `approvalHub.js`, at
+    `/api/approvals` with long-poll `?wait=1`.
+  - Kiosk card and a phone dock on every remote page, so the first tap
+    answers.
+  - `hooks/display-approve.mjs` is a Claude Code PermissionRequest hook. It
+    stays silent on timeout or when the display is unreachable, so the
+    terminal asks as usual.
+- **End-of-day receipt:**
+  - `src/lib/dayLog.js` and `dayLogHub.js` tally chores, alerts, songs,
+    agent runs and approvals into `data/daylog.json` (a week, batched saves,
+    flushed on SIGTERM).
+  - `/api/day` builds the receipt. The kiosk prints it the first time
+    StandBy comes on each night.
+- **Pages demo:** new scenarios for Agent needs you, Departure board,
+  Overdue chores and Day receipt.
+- **Tests:** 25 new across 6 files, passing in several time zones.
+
 ## 2026-10-09: Chores, jobs and alerts, open to other platforms
 
 ### Done

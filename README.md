@@ -14,7 +14,7 @@ Ollama, the package updater).
 
 | View | What it shows | Data source |
 | --- | --- | --- |
-| **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips, and a **Today** list of chores and alerts | `/api/weather`, `/api/tasks` |
+| **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips, and a **Today** list of chores and alerts. In the hour before a "Leave …" item it becomes a **departure board** | `/api/weather`, `/api/tasks`, `/api/calendar` |
 | **School** | The next thing due, then a rolling seven-day timetable starting today | `/api/calendar` (Google Calendar, `#hw` events) |
 | **Agents** | The active coding agent, the rest of the roster, host load and services | `/api/agents`, `/api/telemetry`, `/api/ollama/ps` |
 | **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
@@ -38,6 +38,34 @@ three ways:
 - an MCP bridge, `scripts/tasks-mcp.mjs`.
 
 See [`docs/tasks-api.md`](docs/tasks-api.md).
+
+**Siri and the Action button.** Set up a few short Shortcuts and you can:
+- say "Hey Siri, tell the wall… take out the bins every Monday at 6pm" to
+  add a chore;
+- ask "what's on the wall?" to hear what's waiting;
+- press the Action button to tick off the most urgent item.
+
+The phone's **Tasks → Siri & Shortcuts** page has every recipe with your
+display's address filled in. See [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md).
+
+### The wall reads the room
+
+- **Departure board.** Any chore or alert titled "Leave …" ("Leave for
+  school", weekdays 7:40) turns the Clock view into an airport board for
+  the hour before. It shows a countdown and rows for what to bring: the
+  item's notes, plus an umbrella or jacket from the forecast. It also lists
+  chores to do first and homework due today. The Smart Stack brings it
+  forward and puts the old view back afterwards.
+- **Tarnish.** Overdue chores let patina creep into the liquid metal from
+  the bottom-left corner, more the longer they wait. Marking them done
+  polishes it back with a sheen.
+- **Agent approvals.** When Claude Code (or any agent) stops to ask before
+  running a tool, the wall and the phone show an Allow / Deny card. See
+  [`docs/approvals.md`](docs/approvals.md).
+- **End-of-day receipt.** The first time StandBy comes on each night, a
+  thermal receipt prints up with the day's tally: chores done, alerts,
+  songs, agent runs and approvals. Then it folds away. It comes from
+  `/api/day`, which keeps a week of counts in `data/daylog.json`.
 
 ## Quick start
 
@@ -95,6 +123,9 @@ These query parameters show a state without needing real hardware or data:
 | `/?wx=warning` / `watch` / `advisory` / `hurricane` / `rain` | Severe-weather ticker and island states |
 | `/?wx=notify` | A sample agent-finished notification |
 | `/?standby=1` | StandBy night mode on the Clock view |
+| `/?depart=20` | Departure board for a sample "Leave for school" 20 minutes out |
+| `/?tarnish=0.5` | Tarnished metal, as if chores were overdue (0 to 0.75) |
+| `/?receipt=1` | The end-of-day receipt, held on screen |
 
 ### Smart behaviours
 
@@ -122,7 +153,9 @@ A floating tab bar at the bottom switches between:
 
 - **Remote** (`/remote`): panel power, channel picker, volume
 - **Night** (`/remote#night`): night schedule and proximity wake
-- **Tasks** (`/remote/tasks`): add, complete and snooze chores and alerts
+- **Tasks** (`/remote/tasks`): add, complete and snooze chores and alerts.
+  **Siri & Shortcuts** (`/remote/shortcuts`) has the Siri recipes and a box
+  to try phrases. Any page shows an Allow / Deny card while an agent waits.
 - **Lyrics** (`/remote/lyrics`): pick the lyrics provider for the current track
 - **Stats** (`/remote/stats`): AirPlay, speakers, Bluetooth, host load, services,
   updates, git
@@ -198,6 +231,8 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`DESIGN.md`](DESIGN.md): design tokens, layout rules, motion, do's and don'ts
 - [`docs/notify-endpoint.md`](docs/notify-endpoint.md): posting events to the island
 - [`docs/tasks-api.md`](docs/tasks-api.md): chores and alerts, webhooks, MCP bridge
+- [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md): Siri, the Action button and Shortcuts
+- [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup
 - [`scripts/forced_align/README.md`](scripts/forced_align/README.md): lyrics lookup, cache and alignment
 - [`PROGRESS.md`](PROGRESS.md): change log
