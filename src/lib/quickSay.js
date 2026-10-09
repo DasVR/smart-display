@@ -62,8 +62,8 @@ function startOfDay(ms) {
  * at, repeat) or { error } in words Siri can say back.
  */
 export function parseQuick(text, now = Date.now()) {
-	const raw = String(text ?? '').replace(/\s+/g, ' ').trim();
-	if (!raw) return { error: "I didn't hear anything to add." };
+	const raw = spelledNumbers(String(text ?? '').replace(/\s+/g, ' ').trim());
+	if (!raw) return { error: "I didn't hear anything to add.", code: 'empty' };
 
 	const state = { rest: ` ${raw} ` };
 	let kind = 'chore';
@@ -185,7 +185,7 @@ export function parseQuick(text, now = Date.now()) {
 	});
 
 	const title = tidyTitle(state.rest);
-	if (!title) return { error: "I didn't catch what to add." };
+	if (!title) return { error: "I didn't catch what to add.", code: 'no-title', when: { offsetMin, day: Boolean(day), clock: Boolean(clock), repeat: Boolean(repeat || weekdays) } };
 
 	// Work out the first occurrence.
 	let at;
@@ -205,7 +205,7 @@ export function parseQuick(text, now = Date.now()) {
 	} else if (repeat) {
 		at = new Date(now);
 	} else if (kind === 'alert') {
-		return { error: `When should I remind you to ${lowerFirst(title)}?` };
+		return { error: `When should I remind you to ${lowerFirst(title)}?`, code: 'no-time', title };
 	} else {
 		at = new Date(now);
 	}
@@ -214,6 +214,45 @@ export function parseQuick(text, now = Date.now()) {
 	const task = { title, kind, at: at.toISOString() };
 	if (repeat) task.repeat = repeat;
 	return { task };
+}
+
+/* ---------- spelled-out numbers ---------- */
+
+const SMALL = {
+	one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+	eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17,
+	eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, ninety: 90
+};
+const NUM_WORD = `(?:${Object.keys(SMALL).join('|')})(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?`;
+const UNIT = '(?:minutes?|mins?|hours?|hrs?|days?|weeks?)';
+
+function wordToNumber(w) {
+	const parts = w.toLowerCase().split(/[- ]/);
+	return parts.reduce((n, p) => n + (SMALL[p] ?? 0), 0);
+}
+
+/**
+ * Siri often writes small numbers as words ("in two minutes", "at five
+ * thirty"). Turn the ones next to a time into digits, and leave the rest of
+ * the sentence alone so "take one pill" stays a title.
+ */
+export function spelledNumbers(text) {
+	let s = text;
+	// "a couple of minutes", "a few minutes"
+	s = s.replace(/\ba couple(?: of)?\s+(?=(minutes?|mins?|hours?|days?)\b)/gi, '2 ');
+	s = s.replace(/\ba few\s+(?=(minutes?|mins?|hours?|days?)\b)/gi, '3 ');
+	// "two minutes", "twenty-five minutes"
+	s = s.replace(new RegExp(`\\b(${NUM_WORD})\\s+(?=${UNIT}\\b)`, 'gi'), (_, w) => `${wordToNumber(w)} `);
+	// "five thirty pm", "six fifteen", "seven o'clock", "at nine", "nine am"
+	s = s.replace(
+		new RegExp(`\\b(at|by|around)\\s+(${NUM_WORD})(?:\\s+(fifteen|thirty|forty[- ]five|o'?clock))?(?=\\s|$|[,.!?])`, 'gi'),
+		(_, pre, h, m) => `${pre} ${wordToNumber(h)}${m && !/clock/i.test(m) ? `:${String(wordToNumber(m)).padStart(2, '0')}` : ''}`
+	);
+	s = s.replace(
+		new RegExp(`\\b(${NUM_WORD})(?:\\s+(fifteen|thirty|forty[- ]five))?\\s*(a\\.?m\\.?|p\\.?m\\.?)(?=\\s|$|[,.!?])`, 'gi'),
+		(_, h, m, mer) => `${wordToNumber(h)}${m ? `:${String(wordToNumber(m)).padStart(2, '0')}` : ''}${mer}`
+	);
+	return s;
 }
 
 function nextWeekday(target, now, skipThisWeek = false) {

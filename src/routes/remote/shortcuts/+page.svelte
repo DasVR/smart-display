@@ -62,7 +62,8 @@
 				'New shortcut, named <b>Tell the wall</b> (that name is what you say to Siri).',
 				'Add <b>Dictate Text</b>.',
 				'Add <b>Get Contents of URL</b>, paste the address below, then tap <b>Show More</b>: Method <b>POST</b>, Request Body <b>JSON</b>, add a Text field <code>text</code> set to <b>Dictated Text</b>.',
-				'Add <b>Speak Text</b> with <b>Contents of URL</b>.'
+				'Add <b>Speak Text</b> with <b>Contents of URL</b>.',
+				'So you can answer when the wall asks back ("When should I remind you…?"): add <b>If</b> <b>Contents of URL</b> <b>ends with</b> <code>?</code>, and inside it <b>Dictate Text</b>, another <b>Get Contents of URL</b> exactly like step 3 (using the new Dictated Text), and <b>Speak Text</b>. Say just the answer, like "in two minutes", or "never mind".'
 			]
 		},
 		{

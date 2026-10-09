@@ -57,6 +57,7 @@ function cleanSource(v) {
 	return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 40) : '';
 }
 const TICK_MS = 15000;
+const ASK_WINDOW_MS = 2 * 60000;
 
 function readBody(req) {
 	const plain = /^text\/plain/i.test(req.headers?.['content-type'] ?? '');
@@ -92,6 +93,8 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	let tasks = loadTasks(tasksFile);
 	let hooks = loadWebhooks(hooksFile);
 	let timer = 0;
+	/** a question the wall just asked back, answered by the next sentence */
+	let pendingAsk = null;
 
 	/** What the kiosk, remote and API see: the task plus its live status. */
 	function view(t, at = now()) {
@@ -233,11 +236,23 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	 * weather") when `commands` recognises one, otherwise something to add.
 	 */
 	async function sayAdd(body) {
-		const text = typeof body === 'string' ? body : (body.text ?? body.say ?? '');
+		let text = typeof body === 'string' ? body : (body.text ?? body.say ?? '');
+
+		// The wall asked "When should I remind you to call mom?" and this is
+		// the answer ("at 5", "in two minutes"): finish that reminder.
+		if (pendingAsk && now() < pendingAsk.until) {
+			const ask = pendingAsk;
+			pendingAsk = null;
+			if (/^\s*(never ?mind|cancel|forget it|no|nothing)\b/i.test(text)) return { status: 200, data: { say: 'Okay, never mind.' } };
+			if (parseQuick(text, now()).code === 'no-title') text = `${ask.kind === 'alert' ? 'remind me to ' : ''}${ask.title} ${text}`;
+		}
+		pendingAsk = null;
+
 		const cmd = commands ? await commands(text) : null;
 		if (cmd) return { status: 200, data: cmd };
 		const parsed = parseQuick(text, now());
-		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error } };
+		if (parsed.code === 'no-time') pendingAsk = { title: parsed.title, kind: 'alert', until: now() + ASK_WINDOW_MS };
+		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error, asking: parsed.code === 'no-time' } };
 		const result = create({ ...parsed.task, source: cleanSource(body.source) || 'Siri' });
 		if (result.error) return { status: result.status || 400, data: { error: result.error, say: `Sorry, ${result.error}.` } };
 		return { status: 201, data: { task: result.task, say: speakAdded(result.task, now()) } };
