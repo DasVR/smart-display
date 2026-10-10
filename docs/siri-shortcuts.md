@@ -70,6 +70,20 @@ Settings → Accessibility → Touch → **Back Tap** → Double Tap → **Wall 
 2. **Get Contents of URL**: `POST /api/tasks/say?format=text`, JSON
    `{ "text": <Dictated Text> }`.
 3. **Speak Text**.
+4. **If** Contents of URL **ends with** `?`: **Dictate Text**, the same
+   **Get Contents of URL** with the new Dictated Text, then **Speak Text**.
+
+Step 4 lets you answer when the wall asks back. The wall remembers its
+question for 2 minutes, so the answer can be just the missing part:
+
+> **You:** remind me to call mom
+> **Wall:** When should I remind you to call mom?
+> **You:** at five
+> **Wall:** Reminder set: Call mom, today at 5 PM.
+
+Say "never mind" to drop it. A new full sentence replaces the question,
+and after 2 minutes it's forgotten. Without step 4, just say the whole
+thing again with a time.
 
 ### What's on the wall
 
@@ -121,7 +135,10 @@ parser.
 - A day with no time is 9 AM. A time that has already passed today means
   tomorrow.
 - A reminder with no time ("remind me to call mom") gets a question back,
-  "When should I remind you to call mom?", and nothing is added.
+  "When should I remind you to call mom?". Nothing is added until you
+  answer (see step 4 above).
+- Numbers can be words or digits: "in two minutes", "at five thirty pm",
+  "in a couple of hours" and "at seven o'clock" all work.
 - Items added this way show **Siri** as their source.
 
 ## The older Action button endpoint

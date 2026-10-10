@@ -1,5 +1,30 @@
 # Smart Display Progress Log
 
+## 2026-10-09: Google Calendar homework and reminders, and the "Today" date fix
+
+### Done
+- **Fix:** all-day calendar items arrive as a bare `YYYY-MM-DD`.
+  - `new Date()` read that as midnight UTC, the evening before in Florida,
+    so tomorrow's homework showed as "Today" and sat on the wrong day of
+    the week view.
+  - `src/lib/calendarItems.js` now reads them as the wall's day. School,
+    the timetable, the departure board and the Today panel compare days on
+    the wall's clock (America/New_York), whatever time zone the browser has.
+- **Calendar in the list:** `calendarFeed.js` polls Google Calendar and
+  Google Tasks every 10 minutes.
+  - Homework events and reminders join the task list read-only
+    (`external`).
+  - Ticking one off hides it, kept in `data/dismissed.json`.
+  - Snooze and edit answer 409.
+- **Fresher statuses:** the hub re-sends the list when statuses change with
+  the clock (midnight, an item's time), not only when something fires.
+- **Today panel:** shows only what's waiting or due today. A snooze into
+  tomorrow no longer sits under Today.
+- **Wording:** all-day items read "due today" or "today" instead of
+  "11:59 pm", on the wall and on the phone.
+- **Siri:** says them without a time.
+- 4 new tests.
+
 ## 2026-10-09: The Action button and commands for "tell the wall"
 
 ### Done

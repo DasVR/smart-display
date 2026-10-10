@@ -19,3 +19,4 @@ data/tasks.json
 data/webhooks.json
 data/api-token
 data/daylog.json
+data/dismissed.json

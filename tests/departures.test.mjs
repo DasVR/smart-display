@@ -1,3 +1,5 @@
+// The board reads times on the wall's clock (America/New_York), like the kiosk.
+process.env.TZ = 'America/New_York';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { currentDeparture, departureBoard, destination, isDeparture, weatherRows } from '../src/lib/departures.js';

@@ -27,7 +27,9 @@ playing, install progress, severe weather, and volume changes.
 ### Chores, jobs and alerts
 
 There's one shared list of chores (stay until done) and alerts (pop up at
-their time). Either kind can be one-off or repeat hourly, daily, on chosen
+their time). It also pulls in homework and reminders from your Google
+Calendar and Google Tasks; those are read-only, and ticking one off hides
+it on the wall. Either kind can be one-off or repeat hourly, daily, on chosen
 weekdays, weekly or monthly. It shows on the Clock view and the island, and
 you manage it from the phone's **Tasks** tab.
 

@@ -41,22 +41,32 @@ import {
 	authorized,
 	deliverWebhooks,
 	loadApiToken,
+	loadJson,
 	loadTasks,
 	loadWebhooks,
 	newTaskId,
 	normalizeWebhook,
 	publicWebhook,
+	saveJson,
 	saveTasks,
 	saveWebhooks
 } from './taskService.js';
 import { parseQuick, pickNext, speakAdded, speakBrief, speakDone, speakWhen } from '../quickSay.js';
 
 const MAX_BODY = 64 * 1024;
+const DISMISS_KEEP_MS = 45 * 86400000;
+
+function loadDismissed(file, now) {
+	const raw = loadJson(file, {});
+	const map = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
+	return Object.fromEntries(Object.entries(map).filter(([, at]) => now - Date.parse(at) < DISMISS_KEEP_MS));
+}
 
 function cleanSource(v) {
 	return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 40) : '';
 }
 const TICK_MS = 15000;
+const ASK_WINDOW_MS = 2 * 60000;
 
 function readBody(req) {
 	const plain = /^text\/plain/i.test(req.headers?.['content-type'] ?? '');
@@ -84,7 +94,7 @@ function readBody(req) {
 	});
 }
 
-export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent, commands }) {
+export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent, commands, external = () => [] }) {
 	const tasksFile = path.join(dataDir, 'tasks.json');
 	const hooksFile = path.join(dataDir, 'webhooks.json');
 	const tokenFile = path.join(dataDir, 'api-token');
@@ -92,14 +102,47 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	let tasks = loadTasks(tasksFile);
 	let hooks = loadWebhooks(hooksFile);
 	let timer = 0;
+	/** a question the wall just asked back, answered by the next sentence */
+	let pendingAsk = null;
+
+	// Google Calendar homework / reminders ticked off on the wall: hidden
+	// here only (Google isn't changed). id -> ISO time it was dismissed.
+	const dismissedFile = path.join(dataDir, 'dismissed.json');
+	let dismissed = loadDismissed(dismissedFile, now());
 
 	/** What the kiosk, remote and API see: the task plus its live status. */
 	function view(t, at = now()) {
-		return { ...t, status: taskStatus(t, at), repeatText: describeRepeat(t.repeat) };
+		return { ...t, status: taskStatus(t, at), repeatText: t.external ? (t.allDay ? 'All day' : '') : describeRepeat(t.repeat) };
+	}
+	function externals() {
+		try {
+			return (external() || []).filter((t) => !dismissed[t.id]);
+		} catch {
+			return [];
+		}
 	}
 	function snapshot() {
 		const at = now();
-		return sortTasks(tasks, at).map((t) => view(t, at));
+		return sortTasks([...tasks, ...externals()], at).map((t) => view(t, at));
+	}
+	function findExternal(id) {
+		return externals().find((t) => t.id === id);
+	}
+	function dismiss(item) {
+		dismissed = { ...dismissed, [item.id]: new Date(now()).toISOString() };
+		try {
+			saveJson(dismissedFile, dismissed);
+		} catch (err) {
+			log.error?.(`tasks: could not save ${dismissedFile}: ${err.message}`);
+		}
+		broadcast({ type: 'tasks', tasks: snapshot() });
+		const doneView = { ...view(item), active: false, status: 'done', lastDoneAt: new Date(now()).toISOString() };
+		onEvent?.('task.done', { ...item, kind: 'chore' });
+		return { task: doneView };
+	}
+	/** the calendar feed changed: send the merged list out */
+	function externalChanged() {
+		broadcast({ type: 'tasks', tasks: snapshot() });
 	}
 	function persist() {
 		try {
@@ -132,6 +175,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		return tasks.find((t) => t.id === id);
 	}
 	function update(id, input) {
+		if (findExternal(id)) return { error: 'that comes from Google Calendar; change it there', status: 409 };
 		const existing = find(id);
 		if (!existing) return { error: 'not found', status: 404 };
 		const { task, error } = normalizeTask(input, { now: now(), existing });
@@ -141,6 +185,8 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		return { task: view(task) };
 	}
 	function remove(id) {
+		const ext = findExternal(id);
+		if (ext) return (dismiss(ext), { ok: true });
 		const existing = find(id);
 		if (!existing) return { error: 'not found', status: 404 };
 		tasks = tasks.filter((t) => t.id !== id);
@@ -148,6 +194,8 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		return { ok: true };
 	}
 	function done(id) {
+		const ext = findExternal(id);
+		if (ext) return dismiss(ext);
 		const existing = find(id);
 		if (!existing) return { error: 'not found', status: 404 };
 		const task = completeTask(existing, now());
@@ -156,6 +204,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		return { task: view(task) };
 	}
 	function snooze(id, minutes) {
+		if (findExternal(id)) return { error: 'calendar items can\u2019t be snoozed; tick it off or change it in Google Calendar', status: 409 };
 		const existing = find(id);
 		if (!existing) return { error: 'not found', status: 404 };
 		const task = snoozeTask(existing, minutes ?? 15, now());
@@ -166,9 +215,22 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 
 	/* ---------- scheduler ---------- */
 
+	// Statuses drift with the clock (an item turns "today" at midnight,
+	// "overdue" at its time) even when nothing fires; resend when they do.
+	let lastStatusKey = '';
+	function statusKey() {
+		return snapshot()
+			.map((t) => `${t.id}:${t.status}`)
+			.join('|');
+	}
 	function tick() {
 		const result = tickTasks(tasks, now());
-		if (!result.fired.length) return result.fired;
+		if (!result.fired.length) {
+			const key = statusKey();
+			if (lastStatusKey && key !== lastStatusKey) broadcast({ type: 'tasks', tasks: snapshot() });
+			lastStatusKey = key;
+			return result.fired;
+		}
 		tasks = result.tasks;
 		persist();
 		for (const t of result.fired) {
@@ -177,6 +239,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 			onEvent?.('task.due', t);
 		}
 		broadcast({ type: 'tasks', tasks: snapshot() });
+		lastStatusKey = statusKey();
 		return result.fired;
 	}
 	function start() {
@@ -233,11 +296,23 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	 * weather") when `commands` recognises one, otherwise something to add.
 	 */
 	async function sayAdd(body) {
-		const text = typeof body === 'string' ? body : (body.text ?? body.say ?? '');
+		let text = typeof body === 'string' ? body : (body.text ?? body.say ?? '');
+
+		// The wall asked "When should I remind you to call mom?" and this is
+		// the answer ("at 5", "in two minutes"): finish that reminder.
+		if (pendingAsk && now() < pendingAsk.until) {
+			const ask = pendingAsk;
+			pendingAsk = null;
+			if (/^\s*(never ?mind|cancel|forget it|no|nothing)\b/i.test(text)) return { status: 200, data: { say: 'Okay, never mind.' } };
+			if (parseQuick(text, now()).code === 'no-title') text = `${ask.kind === 'alert' ? 'remind me to ' : ''}${ask.title} ${text}`;
+		}
+		pendingAsk = null;
+
 		const cmd = commands ? await commands(text) : null;
 		if (cmd) return { status: 200, data: cmd };
 		const parsed = parseQuick(text, now());
-		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error } };
+		if (parsed.code === 'no-time') pendingAsk = { title: parsed.title, kind: 'alert', until: now() + ASK_WINDOW_MS };
+		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error, asking: parsed.code === 'no-time' } };
 		const result = create({ ...parsed.task, source: cleanSource(body.source) || 'Siri' });
 		if (result.error) return { status: result.status || 400, data: { error: result.error, say: `Sorry, ${result.error}.` } };
 		return { status: 201, data: { task: result.task, say: speakAdded(result.task, now()) } };
@@ -324,7 +399,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 			if (action) return send(res, 404, { error: 'unknown action' }), true;
 
 			if (m === 'GET') {
-				const t = find(id);
+				const t = find(id) ?? findExternal(id);
 				return (t ? send(res, 200, { task: view(t) }) : send(res, 404, { error: 'not found' })), true;
 			}
 			if (m === 'PATCH' || m === 'POST') return reply(res, update(id, await readBody(req))), true;
@@ -337,5 +412,5 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		}
 	}
 
-	return { handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove, sayAdd, brief, nextDone };
+	return { externalChanged, handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove, sayAdd, brief, nextDone };
 }

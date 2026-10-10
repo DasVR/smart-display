@@ -138,3 +138,42 @@ test('Siri routes: say, brief, next/done, plain-text answers, token', async () =
 		await new Promise((r) => server.close(r));
 	}
 });
+
+test('spelled-out numbers, the way Siri sometimes writes them', () => {
+	const a = parse('remind me to go downstairs in two minutes');
+	assert.equal(a.kind, 'alert');
+	assert.equal(a.title, 'Go downstairs');
+	assert.deepEqual(local(a.at), [10, 9, 10, 2]);
+	assert.deepEqual(local(parse('stretch in twenty-five minutes').at), [10, 9, 10, 25]);
+	assert.deepEqual(local(parse('check the oven in a couple of hours').at), [10, 9, 12, 0]);
+	assert.deepEqual(local(parse('start dinner at five thirty pm').at), [10, 9, 17, 30]);
+	assert.deepEqual(local(parse('call mom at six').at), [10, 9, 18, 0]);
+	assert.deepEqual(local(parse("meds at seven o'clock").at), [10, 10, 7, 0]);
+	assert.equal(parse('take one pill').title, 'Take one pill', 'numbers in the title stay words');
+});
+
+test('a question back is answered by the next sentence', async () => {
+	const dataDir = mkdtempSync(path.join(tmpdir(), 'ask-'));
+	const nowRef = { t: NOW };
+	const hub = createTaskHub({ dataDir, broadcast: () => {}, log: { log() {}, warn() {}, error() {} }, now: () => nowRef.t, env: {} });
+	const say = async (text) => (await hub.sayAdd({ text })).data;
+
+	assert.equal((await say('remind me to call mom')).say, 'When should I remind you to call mom?');
+	const done = await say('at five');
+	assert.equal(done.say, 'Reminder set: Call mom, today at 5 PM.');
+	assert.equal(done.task.kind, 'alert');
+
+	assert.equal((await say('remind me to feed the fish')).asking, true);
+	assert.equal((await say('never mind')).say, 'Okay, never mind.');
+	assert.equal(hub.snapshot().filter((t) => t.title === 'Feed the fish').length, 0);
+
+	// the question expires; a bare time afterwards isn't glued to it
+	await say('remind me to water plants');
+	nowRef.t += 3 * 60000;
+	assert.match((await say('in ten minutes')).say, /what to add/);
+
+	// a new full sentence replaces the pending question
+	await say('remind me to stretch');
+	assert.match((await say('take out the bins at 6pm')).say, /^Added a chore: Take out the bins/);
+	assert.match((await say('in two minutes')).say, /what to add/, 'the old question was dropped');
+});

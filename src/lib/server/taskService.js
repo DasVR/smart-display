@@ -35,6 +35,14 @@ function writeJsonAtomic(file, value) {
 	renameSync(tmp, file);
 }
 
+/** Small JSON state files (dismissed calendar items, …). */
+export function loadJson(file, fallback) {
+	return readJson(file, fallback);
+}
+export function saveJson(file, value) {
+	writeJsonAtomic(file, value);
+}
+
 export function loadTasks(file) {
 	const data = readJson(file, { tasks: [] });
 	return Array.isArray(data?.tasks) ? data.tasks : [];

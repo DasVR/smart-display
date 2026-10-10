@@ -20,6 +20,32 @@ counts for the current time slot, and the next one is the following slot.
 This runs in production only (`ws-server.js`), like `/api/notify`. The data
 lives in `data/tasks.json`.
 
+## From Google Calendar
+
+Homework and reminders from your Google account join the list too. They
+show on the Today panel and the phone, in Siri's brief, and in the Action
+button menu. They are read-only:
+
+- **Homework.** Calendar events that look like schoolwork (`#hw`, "due",
+  "quiz", "essay", "lab", "report"…), due at the event's time. All-day
+  ones are due "today" all day on their date.
+- **Reminders.** Google Tasks, which Google Calendar shows as tasks and
+  reminders, plus calendar events titled "Reminder…".
+  - Google Tasks needs the Google token to carry the `tasks.readonly`
+    scope. Without it, the server logs a warning once and shows calendar
+    events only.
+
+They come back from `/api/tasks` with `external: true`, an id like
+`gcal:…` or `gtask:…`, and a `kind` of `homework` or `reminder`.
+
+- Marking one done (`/done`, the ring, "I'm done with the lab report")
+  hides it on the wall. Google isn't changed. Dismissals are kept in
+  `data/dismissed.json` for 45 days.
+- Snooze and edit answer 409: change it in Google.
+
+The list refreshes from Google every 10 minutes. Yesterday's items drop
+off on their own.
+
 ## Auth
 
 With no token set, the API is open to your LAN, like the rest of this

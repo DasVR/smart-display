@@ -6,18 +6,30 @@
 	so an unused feature leaves the clock face clean.
 -->
 <script>
+	import { eventDayKey, wallClock, wallDayKey } from '$lib/calendarItems.js';
+	import { DISPLAY_TZ } from '$lib/atmosphere.js';
+
 	let { tasks = [], ondone = null, now = new Date() } = $props();
 
 	const LIST_MAX = 5;
 
-	let open = $derived(tasks.filter((t) => ['overdue', 'due', 'today', 'snoozed'].includes(t.status)));
+	// Only what's waiting or due today on the wall's clock: a snooze that runs
+	// into tomorrow belongs to tomorrow, not under "Today".
+	let todayKey = $derived(wallDayKey(now.getTime()));
+	let open = $derived(
+		tasks.filter(
+			(t) =>
+				['overdue', 'due', 'today'].includes(t.status) ||
+				(t.status === 'snoozed' && eventDayKey(t.snoozedUntil) === todayKey)
+		)
+	);
 	let shown = $derived(open.slice(0, LIST_MAX));
 	let more = $derived(Math.max(0, open.length - shown.length));
 	let next = $derived(tasks.find((t) => t.status === 'upcoming') || null);
 	let overdueCount = $derived(open.filter((t) => t.status === 'overdue' || t.status === 'due').length);
 
 	function clock(iso) {
-		return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+		return wallClock(Date.parse(iso)).toLowerCase();
 	}
 	function lateBy(iso) {
 		const mins = Math.max(0, Math.round((now.getTime() - Date.parse(iso)) / 60000));
@@ -26,14 +38,14 @@
 		return h < 24 ? `${h} h late` : `${Math.round(h / 24)} d late`;
 	}
 	function when(t) {
+		if (t.allDay) return t.status === 'due' ? 'today' : t.kind === 'homework' ? 'due today' : 'today';
 		if (t.status === 'overdue' || t.status === 'due') return lateBy(t.nextDue);
 		if (t.status === 'snoozed') return `snoozed to ${clock(t.snoozedUntil)}`;
 		return clock(t.nextDue);
 	}
 	function nextWhen(t) {
-		const d = new Date(t.nextDue);
-		const day = d.toLocaleDateString('en-US', { weekday: 'short' });
-		return `${day} ${clock(t.nextDue)}`;
+		const day = new Date(t.nextDue).toLocaleDateString('en-US', { weekday: 'short', timeZone: DISPLAY_TZ });
+		return t.allDay ? day : `${day} ${clock(t.nextDue)}`;
 	}
 </script>
 
@@ -58,13 +70,16 @@
 							onclick={() => ondone?.(t.id)}
 							disabled={!ondone}
 						>
-							{#if t.kind === 'alert'}
+							{#if t.kind === 'alert' || t.kind === 'reminder'}
 								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 4 1.5 5.5 2 6H4c.5-.5 2-2 2-6Z" /><path d="M10 19a2 2 0 0 0 4 0" /></svg>
+							{:else if t.kind === 'homework'}
+								<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 1 4 17.5Z" /><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 0 1.5-1.5Z" /></svg>
 							{/if}
 						</button>
 						<div class="body">
 							<span class="title">{t.title}</span>
-							{#if t.repeat}<span class="rule">{t.repeatText}</span>{/if}
+							{#if t.repeat}<span class="rule">{t.repeatText}</span>
+							{:else if t.external}<span class="rule">{t.notes ? `${t.source} · ${t.notes}` : t.source}</span>{/if}
 						</div>
 						<span class="when num">{when(t)}</span>
 					</li>
@@ -159,7 +174,9 @@
 		stroke-linecap: round;
 		stroke-linejoin: round;
 	}
-	.row[data-kind='alert'] .mark {
+	.row[data-kind='alert'] .mark,
+	.row[data-kind='reminder'] .mark,
+	.row[data-kind='homework'] .mark {
 		border-color: transparent;
 		background: color-mix(in srgb, var(--foreground) 8%, transparent);
 	}
