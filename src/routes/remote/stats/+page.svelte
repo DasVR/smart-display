@@ -104,7 +104,10 @@
 			<span>{status}</span>
 		</div>
 		<!-- the server picks the best lyrics on its own; this desk is for overriding it -->
-		<a class="desk-link" href="{base}/remote/lyrics">Lyrics source</a>
+		<span class="desk-links">
+			<a class="desk-link" href="{base}/remote/sounds">Sounds &amp; voice</a>
+			<a class="desk-link" href="{base}/remote/lyrics">Lyrics source</a>
+		</span>
 	</header>
 
 	{#if error && !data}
@@ -274,6 +277,10 @@
 			calc(4.6rem + max(0.75rem, env(safe-area-inset-bottom)) + var(--space-3))
 			calc(env(safe-area-inset-left) + var(--space-5));
 		box-sizing: border-box;
+	}
+	.desk-links {
+		display: inline-flex;
+		gap: var(--space-3);
 	}
 	.desk-link {
 		display: inline-flex;

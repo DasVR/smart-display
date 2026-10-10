@@ -1,0 +1,82 @@
+// What the wall says out loud, and when it stays quiet. Pure helpers shared
+// by the server (src/lib/server/voiceHub.js) and the tests.
+
+import { DISPLAY_TZ } from './atmosphere.js';
+
+export const DEFAULT_VOICE = {
+	enabled: true,
+	// "George", one of ElevenLabs' default voices: warm, clear, British.
+	voiceId: 'JBFqnCBsd6RMkjVDRZzb',
+	// Flash is the fast, cheap model (half a credit per character).
+	model: 'eleven_flash_v2_5',
+	quietStart: '22:00',
+	quietEnd: '07:00',
+	// Characters sent to ElevenLabs per day. Cached phrases are free, so
+	// this is only new sentences. Creator is 100k credits a month.
+	dailyChars: 3000
+};
+
+const HHMM = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+
+function minutesOf(hhmm) {
+	const m = HHMM.exec(String(hhmm || ''));
+	return m ? Number(m[1]) * 60 + Number(m[2]) : null;
+}
+
+/** Minutes past midnight on the wall's clock. */
+export function wallMinutes(ms, tz = DISPLAY_TZ) {
+	const parts = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: 'numeric', hourCycle: 'h23', timeZone: tz }).formatToParts(new Date(ms));
+	const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+	const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+	return (h % 24) * 60 + m;
+}
+
+/** True inside quiet hours. The window may wrap midnight (22:00 to 07:00). */
+export function inQuietHours(ms, { quietStart, quietEnd } = DEFAULT_VOICE, tz = DISPLAY_TZ) {
+	const a = minutesOf(quietStart);
+	const b = minutesOf(quietEnd);
+	if (a === null || b === null || a === b) return false;
+	const now = wallMinutes(ms, tz);
+	return a < b ? now >= a && now < b : now >= a || now < b;
+}
+
+/** Text that is safe and short enough to speak: no markup, no runaway
+ *  length, ends like a sentence. Empty when there is nothing to say. */
+export function speechText(text, max = 280) {
+	let s = String(text ?? '')
+		.replace(/<[^>]*>/g, ' ')
+		.replace(/[*_`#>|~]+/g, ' ')
+		.replace(/https?:\/\/\S+/g, 'a link')
+		.replace(/\s+/g, ' ')
+		.replace(/\s+([.,!?;:])/g, '$1')
+		.trim();
+	if (!s) return '';
+	if (s.length > max) s = `${s.slice(0, max - 1).replace(/\s+\S*$/, '')}…`;
+	if (!/[.!?…]$/.test(s)) s += '.';
+	return s[0].toUpperCase() + s.slice(1);
+}
+
+export const CLIP_NAME = /^([a-f0-9]{32})\.mp3$/;
+
+/** What the wall says when an alert or timer comes due. */
+export function speechForDue(task) {
+	const title = String(task?.title || '').trim();
+	if (!title) return '';
+	// timers are titled "Timer" or "Timer: Pasta" (src/lib/quickSay.js)
+	const timer = /^timer\b:?\s*(.*)$/i.exec(title);
+	if (timer) return speechText(timer[1] ? `${timer[1]} timer is done` : 'Your timer is done');
+	return speechText(`Reminder: ${title}`);
+}
+
+/** Settings from the stored file, with bad values dropped. */
+export function normalizeVoiceSettings(raw = {}) {
+	const out = { ...DEFAULT_VOICE };
+	if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled;
+	if (typeof raw.voiceId === 'string' && /^[A-Za-z0-9]{8,40}$/.test(raw.voiceId)) out.voiceId = raw.voiceId;
+	if (typeof raw.model === 'string' && /^eleven_[a-z0-9_]+$/.test(raw.model)) out.model = raw.model;
+	if (HHMM.test(String(raw.quietStart ?? ''))) out.quietStart = raw.quietStart;
+	if (HHMM.test(String(raw.quietEnd ?? ''))) out.quietEnd = raw.quietEnd;
+	const chars = Number(raw.dailyChars);
+	if (Number.isFinite(chars) && chars >= 0 && chars <= 100000) out.dailyChars = Math.round(chars);
+	return out;
+}

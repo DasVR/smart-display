@@ -20,3 +20,8 @@ data/webhooks.json
 data/api-token
 data/daylog.json
 data/dismissed.json
+# the wall's voice: the ElevenLabs key never leaves the kiosk
+data/elevenlabs-key
+data/voice.json
+data/voice-usage.json
+data/voice-cache/

@@ -1,0 +1,257 @@
+/**
+ * The wall's voice: ElevenLabs text to speech, cached on disk.
+ *
+ *   GET  /api/voice                 settings, whether a key is set, today's usage
+ *   POST /api/voice                 change settings { enabled, voiceId, quietStart, quietEnd, dailyChars }
+ *   POST /api/voice/say             { text, urgent? } (or a text/plain body): say it on the wall
+ *   GET  /api/voice/clip/<id>.mp3   a cached clip (the kiosk's <audio> fetches these)
+ *
+ * Same Bearer token as /api/tasks, except clips: their names are hashes of
+ * what was said, and an <audio> element can't send a header.
+ *
+ * The key comes from ELEVENLABS_API_KEY or data/elevenlabs-key (gitignored),
+ * never from a request. Without a key, or when ElevenLabs fails, or during
+ * quiet hours, the wall still shows the words on the island; it just doesn't
+ * speak them. A phrase is only paid for once: clips are kept by a hash of
+ * voice, model and text, so "Pasta timer is done." is free the second time.
+ */
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
+import path from 'node:path';
+import { wallDayKey } from '../calendarItems.js';
+import { CLIP_NAME, inQuietHours, normalizeVoiceSettings, speechText } from '../wallVoice.js';
+import { authorized, loadApiToken } from './taskService.js';
+
+const API = 'https://api.elevenlabs.io/v1/text-to-speech';
+const TTS_TIMEOUT_MS = 8000;
+const MAX_CLIPS = 300;
+const MAX_BODY = 4 * 1024;
+
+export function clipKey(voiceId, model, text) {
+	return createHash('sha256').update(`${voiceId}\u0000${model}\u0000${text}`).digest('hex').slice(0, 32);
+}
+
+export function loadElevenLabsKey(file, env = process.env) {
+	const fromEnv = String(env.ELEVENLABS_API_KEY || '').trim();
+	if (fromEnv) return fromEnv;
+	try {
+		if (existsSync(file)) return readFileSync(file, 'utf8').trim();
+	} catch {
+		/* unreadable: no key */
+	}
+	return '';
+}
+
+function readJson(file, fallback) {
+	try {
+		return JSON.parse(readFileSync(file, 'utf8'));
+	} catch {
+		return fallback;
+	}
+}
+
+function readBody(req) {
+	const plain = /^text\/plain/i.test(req.headers?.['content-type'] ?? '');
+	return new Promise((resolve, reject) => {
+		let raw = '';
+		req.on('data', (c) => {
+			raw += c;
+			if (raw.length > MAX_BODY) {
+				reject(Object.assign(new Error('body too large'), { status: 413 }));
+				req.destroy();
+			}
+		});
+		req.on('end', () => {
+			if (!raw.trim()) return resolve({});
+			try {
+				const v = JSON.parse(raw);
+				resolve(v && typeof v === 'object' ? v : { text: String(v) });
+			} catch {
+				if (plain) return resolve({ text: raw.trim() });
+				reject(Object.assign(new Error('invalid JSON'), { status: 400 }));
+			}
+		});
+		req.on('error', reject);
+	});
+}
+
+export function createVoiceHub({
+	dataDir,
+	broadcast = () => {},
+	fetchImpl = globalThis.fetch,
+	now = () => Date.now(),
+	env = process.env,
+	log = console
+}) {
+	const settingsFile = path.join(dataDir, 'voice.json');
+	const usageFile = path.join(dataDir, 'voice-usage.json');
+	const keyFile = path.join(dataDir, 'elevenlabs-key');
+	const clipDir = path.join(dataDir, 'voice-cache');
+	const tokenFile = path.join(dataDir, 'api-token');
+	let settings = normalizeVoiceSettings(readJson(settingsFile, {}));
+	let usage = readJson(usageFile, { day: '', chars: 0 });
+	let seq = 0;
+
+	const key = () => loadElevenLabsKey(keyFile, env);
+
+	function usedToday() {
+		const day = wallDayKey(now());
+		if (usage.day !== day) usage = { day, chars: 0 };
+		return usage.chars;
+	}
+
+	function spend(chars) {
+		usedToday();
+		usage.chars += chars;
+		try {
+			writeFileSync(usageFile, JSON.stringify(usage));
+		} catch {
+			/* usage is advisory */
+		}
+	}
+
+	function snapshot() {
+		return { ...settings, hasKey: Boolean(key()), charsToday: usedToday(), quietNow: inQuietHours(now(), settings) };
+	}
+
+	function setSettings(patch = {}) {
+		settings = normalizeVoiceSettings({ ...settings, ...patch });
+		mkdirSync(dataDir, { recursive: true });
+		writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
+		return snapshot();
+	}
+
+	function prune() {
+		try {
+			const files = readdirSync(clipDir)
+				.filter((f) => CLIP_NAME.test(f))
+				.map((f) => ({ f, t: statSync(path.join(clipDir, f)).mtimeMs }))
+				.sort((a, b) => b.t - a.t);
+			for (const { f } of files.slice(MAX_CLIPS)) unlinkSync(path.join(clipDir, f));
+		} catch {
+			/* nothing to prune */
+		}
+	}
+
+	/** An mp3 for the text, from the cache or ElevenLabs. { id } or { error }. */
+	async function clip(text) {
+		const id = clipKey(settings.voiceId, settings.model, text);
+		const file = path.join(clipDir, `${id}.mp3`);
+		if (existsSync(file)) return { id, cached: true };
+		const apiKey = key();
+		if (!apiKey) return { error: 'no-key' };
+		if (usedToday() + text.length > settings.dailyChars) return { error: 'daily-limit' };
+		try {
+			const res = await fetchImpl(`${API}/${encodeURIComponent(settings.voiceId)}?output_format=mp3_44100_128`, {
+				method: 'POST',
+				headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
+				body: JSON.stringify({ text, model_id: settings.model }),
+				signal: AbortSignal.timeout(TTS_TIMEOUT_MS)
+			});
+			if (!res.ok) {
+				// never log the key; the status and ElevenLabs' short reason are enough
+				log.warn?.(`[voice] ElevenLabs answered ${res.status}`);
+				return { error: res.status === 401 ? 'bad-key' : res.status === 429 ? 'rate-limited' : 'tts-failed' };
+			}
+			const buf = Buffer.from(await res.arrayBuffer());
+			if (!buf.length) return { error: 'tts-failed' };
+			mkdirSync(clipDir, { recursive: true });
+			writeFileSync(file, buf);
+			spend(text.length);
+			prune();
+			return { id, cached: false };
+		} catch (err) {
+			log.warn?.(`[voice] ElevenLabs unreachable: ${err?.name || 'error'}`);
+			return { error: 'tts-failed' };
+		}
+	}
+
+	/**
+	 * Say something on the wall. The words show on the island (unless
+	 * `caption` is false, when something else already shows them); the
+	 * audio comes along when there's a key, it's not quiet hours (unless
+	 * urgent) and the voice is on. Returns what happened.
+	 */
+	async function say(text, { urgent = false, source = 'Wall', caption = true } = {}) {
+		const words = speechText(text);
+		if (!words) return { ok: false, error: 'empty' };
+		const id = `speak-${++seq}`;
+		let reason = '';
+		let clipId = null;
+		if (!settings.enabled) reason = 'off';
+		else if (!urgent && inQuietHours(now(), settings)) reason = 'quiet-hours';
+		else {
+			const c = await clip(words);
+			if (c.id) clipId = c.id;
+			else reason = c.error;
+		}
+		broadcast({
+			type: 'speak',
+			id,
+			text: words,
+			source,
+			url: clipId ? `/api/voice/clip/${clipId}.mp3` : null,
+			caption,
+			silent: reason || undefined
+		});
+		return { ok: true, text: words, spoken: Boolean(clipId), ...(reason ? { silent: reason } : {}) };
+	}
+
+	function json(res, data, status = 200) {
+		res.writeHead(status, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify(data));
+	}
+
+	async function handleHttp(req, res) {
+		const url = new URL(req.url || '/', 'http://local');
+		const p = url.pathname;
+		if (!p.startsWith('/api/voice')) return false;
+
+		if (req.method === 'GET' && p.startsWith('/api/voice/clip/')) {
+			const name = p.slice('/api/voice/clip/'.length);
+			const file = CLIP_NAME.test(name) ? path.join(clipDir, name) : null;
+			if (!file || !existsSync(file)) {
+				json(res, { error: 'not found' }, 404);
+				return true;
+			}
+			res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=31536000, immutable' });
+			createReadStream(file).pipe(res);
+			return true;
+		}
+
+		if (!authorized(req.headers, loadApiToken(tokenFile, env))) {
+			json(res, { error: 'unauthorized' }, 401);
+			return true;
+		}
+
+		try {
+			if (req.method === 'GET' && p === '/api/voice') {
+				json(res, snapshot());
+				return true;
+			}
+			if (req.method === 'POST' && p === '/api/voice') {
+				json(res, setSettings(await readBody(req)));
+				return true;
+			}
+			if (req.method === 'POST' && p === '/api/voice/say') {
+				const body = await readBody(req);
+				const out = await say(body.text, { urgent: body.urgent === true, source: 'iPhone' });
+				const textMode = url.searchParams.get('format') === 'text' || /text\/plain/i.test(req.headers?.accept ?? '');
+				if (textMode) {
+					res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+					res.end(out.ok ? (out.spoken ? 'Said on the wall.' : 'Shown on the wall.') : 'Nothing to say.');
+					return true;
+				}
+				json(res, out, out.ok ? 200 : 400);
+				return true;
+			}
+		} catch (err) {
+			json(res, { error: err.message }, err.status || 500);
+			return true;
+		}
+		json(res, { error: 'not found' }, 404);
+		return true;
+	}
+
+	return { say, snapshot, setSettings, handleHttp, clip };
+}

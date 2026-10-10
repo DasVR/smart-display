@@ -118,6 +118,7 @@ The older `/api/tasks/next/done` and `/next/snooze` still work.
 | set a timer for 10 minutes / pasta timer 12 minutes | an alert that pops up on the wall when it's up |
 | how long is left on the timer | reads the timers that are running |
 | cancel the timer | cancels them |
+| announce dinner is ready / tell everyone we're leaving | the wall says it out loud (see [voice.md](voice.md)) |
 
 Anything starting with "remind me", "add", "I need to" is always added,
 never treated as a command.

@@ -67,6 +67,12 @@ display's address filled in. See [`docs/siri-shortcuts.md`](docs/siri-shortcuts.
 - **Tarnish.** Overdue chores let patina creep into the liquid metal from
   the bottom-left corner, more the longer they wait. Marking them done
   polishes it back with a sheen.
+- **A voice.** Timers and reminders are said out loud when they come due,
+  and "tell the wall … announce dinner is ready" makes the wall announce
+  it. It uses ElevenLabs, cached and capped per day, and stays silent in
+  quiet hours. A library of paper, brass and glass sound effects comes from
+  the same place. Without a key it shows the words instead. See
+  [`docs/voice.md`](docs/voice.md).
 - **Agent approvals.** When Claude Code (or any agent) stops to ask before
   running a tool, the wall and the phone show an Allow / Deny card. See
   [`docs/approvals.md`](docs/approvals.md).
@@ -241,6 +247,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/tasks-api.md`](docs/tasks-api.md): chores and alerts, webhooks, MCP bridge
 - [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md): Siri, the Action button and Shortcuts
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
+- [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs) and its sound library
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup
 - [`scripts/forced_align/README.md`](scripts/forced_align/README.md): lyrics lookup, cache and alignment
 - [`PROGRESS.md`](PROGRESS.md): change log
