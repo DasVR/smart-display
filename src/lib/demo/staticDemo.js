@@ -309,6 +309,22 @@ function applyTaskOp(msg) {
 	return { ok: true };
 }
 
+/* the phone's Sounds & voice page: settings live in memory, and a key typed
+   here only ever keeps its last four characters, to show the flow */
+const demoVoice = {
+	enabled: true,
+	voiceId: 'JBFqnCBsd6RMkjVDRZzb',
+	model: 'eleven_flash_v2_5',
+	quietStart: '22:00',
+	quietEnd: '07:00',
+	dailyChars: 3000,
+	hasKey: false,
+	keySource: '',
+	keyHint: '',
+	charsToday: 0,
+	quietNow: false
+};
+
 class DemoSocket extends EventTarget {
 	static CONNECTING = 0;
 	static OPEN = 1;
@@ -381,6 +397,25 @@ class DemoSocket extends EventTarget {
 		if (msg.type === 'tasks') {
 			const r = applyTaskOp(msg);
 			setTimeout(() => this.#push(r.error ? { type: 'tasks-error', error: r.error } : { type: 'tasks', tasks: taskSnapshot() }), 30);
+			return;
+		}
+		if (msg.type === 'voice') {
+			let extra = {};
+			if (msg.op === 'set' && msg.patch) Object.assign(demoVoice, msg.patch);
+			if (msg.op === 'key') {
+				const k = String(msg.key || '').trim();
+				if (!/^[A-Za-z0-9_-]{20,128}$/.test(k)) extra = { keyResult: { ok: false, error: 'bad-format' } };
+				else {
+					Object.assign(demoVoice, { hasKey: true, keySource: 'file', keyHint: `…${k.slice(-4)}` });
+					extra = { keyResult: { ok: true, verified: false } };
+				}
+			}
+			if (msg.op === 'forget-key') {
+				Object.assign(demoVoice, { hasKey: false, keySource: '', keyHint: '' });
+				extra = { keyResult: { ok: true } };
+			}
+			if (msg.op === 'say') extra = { said: { ok: true, spoken: false, silent: 'no-key' } };
+			setTimeout(() => this.#push({ type: 'voice', settings: { ...demoVoice }, ...extra }), 30);
 			return;
 		}
 		// the server rebroadcasts navigation to every client, sender included

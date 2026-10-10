@@ -9,20 +9,25 @@
  * Same Bearer token as /api/tasks, except clips: their names are hashes of
  * what was said, and an <audio> element can't send a header.
  *
- * The key comes from ELEVENLABS_API_KEY or data/elevenlabs-key (gitignored),
- * never from a request. Without a key, or when ElevenLabs fails, or during
+ * The key comes from ELEVENLABS_API_KEY or data/elevenlabs-key (gitignored).
+ * A phone can write that file over /ws (setKey) but nothing ever reads the
+ * key back out: answers carry only where it came from and its last four
+ * characters. Without a key, or when ElevenLabs fails, or during
  * quiet hours, the wall still shows the words on the island; it just doesn't
  * speak them. A phrase is only paid for once: clips are kept by a hash of
  * voice, model and text, so "Pasta timer is done." is free the second time.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import { wallDayKey } from '../calendarItems.js';
 import { CLIP_NAME, inQuietHours, normalizeVoiceSettings, speechText } from '../wallVoice.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const API = 'https://api.elevenlabs.io/v1/text-to-speech';
+const USER_API = 'https://api.elevenlabs.io/v1/user';
+// ElevenLabs keys look like sk_ followed by hex; allow some slack for other shapes
+const KEY_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
 const TTS_TIMEOUT_MS = 8000;
 const MAX_CLIPS = 300;
 const MAX_BODY = 4 * 1024;
@@ -111,7 +116,63 @@ export function createVoiceHub({
 	}
 
 	function snapshot() {
-		return { ...settings, hasKey: Boolean(key()), charsToday: usedToday(), quietNow: inQuietHours(now(), settings) };
+		const k = key();
+		const fromEnv = Boolean(String(env.ELEVENLABS_API_KEY || '').trim());
+		return {
+			...settings,
+			hasKey: Boolean(k),
+			// never the key: where it came from and its last four characters
+			keySource: !k ? '' : fromEnv ? 'env' : 'file',
+			keyHint: k ? `…${k.slice(-4)}` : '',
+			charsToday: usedToday(),
+			quietNow: inQuietHours(now(), settings)
+		};
+	}
+
+	/** Ask ElevenLabs whether a key works. 'ok', 'invalid' or 'unknown'
+	 *  (unreachable, or a restricted key that can't read the account). */
+	async function checkKey(candidate) {
+		try {
+			const res = await fetchImpl(USER_API, {
+				headers: { 'xi-api-key': candidate },
+				signal: AbortSignal.timeout(TTS_TIMEOUT_MS)
+			});
+			if (res.ok) return 'ok';
+			const body = await res.text().catch(() => '');
+			if (res.status === 401 && /invalid_api_key|invalid api key/i.test(body)) return 'invalid';
+			return 'unknown';
+		} catch {
+			return 'unknown';
+		}
+	}
+
+	/**
+	 * Save the key typed on the phone to data/elevenlabs-key (owner-only).
+	 * It's checked with ElevenLabs first and refused only when ElevenLabs
+	 * says it's not a key. The phone never gets it back.
+	 */
+	async function setKey(candidate) {
+		const k = String(candidate ?? '').trim();
+		if (!KEY_SHAPE.test(k)) return { ok: false, error: 'bad-format' };
+		const check = await checkKey(k);
+		if (check === 'invalid') return { ok: false, error: 'invalid' };
+		mkdirSync(dataDir, { recursive: true });
+		writeFileSync(keyFile, `${k}\n`, { mode: 0o600 });
+		try {
+			chmodSync(keyFile, 0o600);
+		} catch {
+			/* best effort */
+		}
+		return { ok: true, verified: check === 'ok' };
+	}
+
+	function forgetKey() {
+		try {
+			if (existsSync(keyFile)) unlinkSync(keyFile);
+		} catch {
+			return { ok: false, error: 'unwritable' };
+		}
+		return { ok: true };
 	}
 
 	function setSettings(patch = {}) {
@@ -253,5 +314,5 @@ export function createVoiceHub({
 		return true;
 	}
 
-	return { say, snapshot, setSettings, handleHttp, clip };
+	return { say, snapshot, setSettings, setKey, forgetKey, handleHttp, clip };
 }

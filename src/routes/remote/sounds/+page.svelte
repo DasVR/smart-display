@@ -20,6 +20,18 @@
 	let reply = $state('');
 	let have = $state(new Set());
 	let playingName = $state('');
+	let keyInput = $state('');
+	let keyBusy = $state(false);
+	let keyMessage = $state('');
+	let keyFailed = $state(false);
+	let keyEditing = $state(false);
+
+	const KEY_RESULTS = {
+		'bad-format': "That doesn't look like an ElevenLabs key. Copy it again from elevenlabs.io → Developers → API Keys.",
+		invalid: 'ElevenLabs says that key is not valid. Nothing was saved.',
+		'not-paired': 'Only a paired phone can change the key. Pair this phone under Stats → Phones.',
+		unwritable: "The display couldn't save the key."
+	};
 
 	const groups = [...new Set(SOUND_LIBRARY.map((s) => s.group))].map((g) => ({
 		name: g,
@@ -58,6 +70,16 @@
 				if (followPairing(msg)) return;
 				if (msg.type !== 'voice') return;
 				if (msg.settings) settings = msg.settings;
+				if (msg.keyResult) {
+					keyBusy = false;
+					const r = msg.keyResult;
+					keyFailed = !r.ok;
+					if (!r.ok) keyMessage = KEY_RESULTS[r.error] || 'Something went wrong.';
+					else if (r.verified === true) keyMessage = 'Saved. ElevenLabs accepted the key.';
+					else if (r.verified === false) keyMessage = "Saved. ElevenLabs couldn't confirm it (a restricted key, or offline); try Say it below.";
+					else keyMessage = 'Key removed. The wall shows words without speaking them.';
+					if (r.ok) keyEditing = false;
+				}
 				if (msg.said) {
 					if (!msg.said.ok) reply = 'Nothing to say.';
 					else if (msg.said.spoken) reply = 'Said on the wall.';
@@ -67,6 +89,23 @@
 				/* ignore */
 			}
 		};
+	}
+
+	function saveKey(e) {
+		e?.preventDefault();
+		const k = keyInput.trim();
+		if (!k) return;
+		keyBusy = true;
+		keyFailed = false;
+		keyMessage = 'Checking with ElevenLabs…';
+		send({ op: 'key', key: k });
+		// don't keep the key in the page any longer than needed
+		keyInput = '';
+	}
+
+	function forgetKey() {
+		keyBusy = true;
+		send({ op: 'forget-key' });
 	}
 
 	function patch(p) {
@@ -124,14 +163,43 @@
 				<span>Speak out loud</span>
 				<input type="checkbox" checked={settings.enabled} onchange={(e) => patch({ enabled: e.currentTarget.checked })} />
 			</label>
-			{#if !settings.hasKey}
-				<p class="note warn">
-					No ElevenLabs key on the display. Put it in <code>data/elevenlabs-key</code> on the kiosk. Until then the wall
-					shows what it would say.
-				</p>
-			{/if}
-			<div class="row">
-				<span>Quiet from</span>
+			<div class="key" aria-labelledby="key-h">
+				<h3 id="key-h">ElevenLabs key</h3>
+				{#if settings.keySource === 'env' && !keyEditing}
+					<p class="note">Set on the display itself ({settings.keyHint}). Change it there.</p>
+				{:else if settings.hasKey && !keyEditing}
+					<div class="row wrap">
+						<span class="note">Saved on the display ({settings.keyHint})</span>
+						<span class="key-actions">
+							<button type="button" class="ghost small" onclick={() => ((keyEditing = true), (keyMessage = ''))}>Replace</button>
+							<button type="button" class="ghost small" onclick={forgetKey} disabled={keyBusy}>Remove</button>
+						</span>
+					</div>
+				{:else}
+					<form class="say" onsubmit={saveKey}>
+						<input
+							type="password"
+							bind:value={keyInput}
+							placeholder="sk_…"
+							autocomplete="off"
+							autocapitalize="off"
+							spellcheck="false"
+							aria-label="ElevenLabs API key"
+						/>
+						<button type="submit" disabled={!keyInput.trim() || keyBusy || status !== 'live'}>Save</button>
+					</form>
+					<p class="note">
+						From elevenlabs.io → Developers → API Keys. It's kept only on the display and never shown again. Until it's set
+						the wall shows what it would say.
+					</p>
+					{#if keyEditing}
+						<button type="button" class="ghost small" onclick={() => (keyEditing = false)}>Cancel</button>
+					{/if}
+				{/if}
+				{#if keyMessage}<p class="note" class:warn={keyFailed} role="status">{keyMessage}</p>{/if}
+			</div>
+			<div class="quiet">
+				<span>Quiet hours</span>
 				<span class="times">
 					<input type="time" value={settings.quietStart} onchange={(e) => patch({ quietStart: e.currentTarget.value })} aria-label="Quiet hours start" />
 					<span>to</span>
@@ -256,10 +324,26 @@
 		height: 1.5rem;
 		accent-color: var(--brand);
 	}
+	.quiet {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
 	.times {
-		display: inline-flex;
+		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+	}
+	.times input {
+		flex: 1;
+		min-width: 0;
+	}
+	/* desktop Chromium's clock icon crowds the time on a phone-width page */
+	.times input::-webkit-calendar-picker-indicator {
+		display: none;
+	}
+	.row.wrap {
+		flex-wrap: wrap;
 	}
 	input[type='time'],
 	.say input {
@@ -288,6 +372,25 @@
 		color: var(--background);
 		font: inherit;
 		font-weight: 700;
+	}
+	button.ghost {
+		background: transparent;
+		color: var(--foreground);
+		border: 1px solid var(--hairline);
+	}
+	button.small {
+		min-height: 2.25rem;
+		padding: 0 var(--space-3);
+		align-self: flex-start;
+	}
+	.key {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.key-actions {
+		display: inline-flex;
+		gap: var(--space-2);
 	}
 	button:disabled {
 		opacity: 0.45;
