@@ -44,6 +44,7 @@
 	} from '$lib/hostUpgradeModel.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import EdgeGlow from '$lib/components/EdgeGlow.svelte';
+	import PairCode from '$lib/components/PairCode.svelte';
 	import { liquidGlass } from '$lib/glass/liquidGlass.js';
 	import { glassTier, startGlassGovernor } from '$lib/glass/glassTier.js';
 	import { effectiveGlassTier } from '$lib/glass/frameGovernor.js';
@@ -72,6 +73,8 @@
 	let weatherData = $state(null);
 	let weatherLoading = $state(true);
 	let mode = $state('normal');
+	// a phone asked to pair: { code, expiresAt } while the code is up
+	let pairCode = $state(null);
 	let hdmiOff = $state(false);
 	let navEl = $state(null);
 	let tabRefs = $state([]);
@@ -328,6 +331,11 @@
 						else speakClip(url);
 					} else if (msg.caption !== false) glowFor(2600);
 				}
+				if (msg.type === 'pair-code' && /^\d{6}$/.test(msg.code)) pairCode = { code: msg.code, expiresAt: msg.expiresAt };
+				if (msg.type === 'pair-code-clear') {
+					pairCode = null;
+					if (msg.paired) pushIslandEvent({ title: `${msg.paired} is paired`, severity: 'ok', source: 'Wall', ttl: 5000 });
+				}
 				if (msg.type === 'approvals' && Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
 					tasks.set(msg.tasks);
@@ -532,6 +540,8 @@
 		const preview = new URLSearchParams(window.location.search);
 		const islandPreview = preview.get('island');
 		const demoKind = preview.get('demo');
+		// ?pair=1 previews the pairing code on the wall
+		if (preview.get('pair') === '1') pairCode = { code: '482913', expiresAt: Date.now() + 120000 };
 		const musicDemo = islandPreview === 'music' || demoKind === 'music' || demoKind === 'voices';
 		if (demoKind === 'music' || demoKind === 'voices') {
 			lockDemoView = true;
@@ -975,6 +985,10 @@
 				aria-hidden="true"
 			></div>
 		{/key}
+	{/if}
+
+	{#if pairCode}
+		<PairCode code={pairCode.code} expiresAt={pairCode.expiresAt} />
 	{/if}
 
 	<EdgeGlow active={voiceGlow && mode !== 'sleep' && !hdmiOff} still={glass === 'flat'} />
