@@ -465,7 +465,7 @@ async function handlePhoneWake(source = 'ha') {
 	if (!schedule.wakeOnPhone) return { ok: false, reason: 'disabled' };
 	if (hdmiState === 'on') return { ok: true, reason: 'already-on' };
 	if (!isPhoneWakeWindow(new Date(), schedule)) return { ok: false, reason: 'outside-window' };
-	await handleTrigger('morning', { view: 'school', data: { from: source } });
+	await handleTrigger('morning', { view: 'calendar', data: { from: source } });
 	return { ok: true, reason: 'woke' };
 }
 

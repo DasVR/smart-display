@@ -22,7 +22,7 @@ test('playback starting on Clock jumps to Music and remembers the origin', () =>
 });
 
 test('playback starting on another view leaves it alone', () => {
-	const r = decideSmartStack({ view: 'school', now: NOW, lastInput: idle(HANDS_OFF_MS), playing: true, wasPlaying: false });
+	const r = decideSmartStack({ view: 'calendar', now: NOW, lastInput: idle(HANDS_OFF_MS), playing: true, wasPlaying: false });
 	assert.equal(r, null);
 });
 

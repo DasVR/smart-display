@@ -46,7 +46,7 @@
 	import SevereTicker from '$lib/components/SevereTicker.svelte';
 	import BoardWidgets from '$lib/components/BoardWidgets.svelte';
 	import HeroClock from '$lib/components/HeroClock.svelte';
-	import SchoolHub from '$lib/components/SchoolHub.svelte';
+	import CalendarHub from '$lib/components/CalendarHub.svelte';
 	import AgentsHub from '$lib/components/AgentsHub.svelte';
 	import MusicView from '$lib/components/MusicView.svelte';
 	import WeatherView from '$lib/components/WeatherView.svelte';
@@ -59,7 +59,6 @@
 	import DayReceipt from '$lib/components/DayReceipt.svelte';
 	import { dayKey } from '$lib/dayLog.js';
 	import { currentDeparture, departureBoard } from '$lib/departures.js';
-	import NoiseOverlay from '$lib/components/NoiseOverlay.svelte';
 
 	let ws;
 	let reconnectTimer;
@@ -325,7 +324,7 @@
 						source: 'Display',
 						kind: 'briefing'
 					});
-					currentView.set(msg.view || 'school');
+					currentView.set(canonicalizeKioskView(msg.view || 'calendar'));
 				}
 				if (msg.type === 'installProgress') {
 					installProgress.set(msg);
@@ -965,6 +964,8 @@
 						{/if}
 						{shortDate}
 					</p>
+					<!-- the Weather view is the weather: no second copy up here -->
+					{#if $currentView !== 'weather'}
 					<p class="wxline">
 						{#if weatherLoading}
 							<span class="skeleton inline"></span>
@@ -973,6 +974,7 @@
 							{$weather.desc}
 						{/if}
 					</p>
+					{/if}
 				</div>
 			</div>
 			{#if showChromeTicker}
@@ -1006,9 +1008,9 @@
 						<TodayTasks tasks={$tasks} now={time} ondone={completeTask} />
 					{/if}
 				</section>
-			{:else if $currentView === 'school'}
-				<section class="view-pane sheet school-pane" data-glass>
-					<SchoolHub />
+			{:else if $currentView === 'calendar'}
+				<section class="view-pane sheet calendar-pane" data-glass>
+					<CalendarHub />
 				</section>
 			{:else if $currentView === 'agents'}
 				<section class="view-pane agents-pane">
@@ -1040,7 +1042,7 @@
 				<AmbientDeck
 					{atm}
 					prediction={wxForIsland?.prediction || weatherData?.prediction}
-					showWidgets={$currentView !== 'clock'}
+					showWidgets={$currentView !== 'clock' && $currentView !== 'weather'}
 				/>
 			</div>
 		</footer>
@@ -1058,9 +1060,6 @@
 		</div>
 	{/if}
 
-	{#if $displayQuality === 'full' && mode !== 'sleep'}
-		<NoiseOverlay />
-	{/if}
 </div>
 
 <style>
@@ -1519,7 +1518,7 @@
 	.display-root[data-phase='night'] .clock-kicker {
 		color: var(--brand);
 	}
-	.school-pane {
+	.calendar-pane {
 		--sheet-glow: radial-gradient(
 			44rem 26rem at 8% -6%,
 			var(--glow-brand),

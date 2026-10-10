@@ -29,11 +29,13 @@
 	/** Virtual pixel block for Bayer + field sampling. Override with ?pixel=4..8 */
 	const PIXEL_SIZE = 6;
 
+	let pixelOverride = 0;
 	function readPixelSize() {
+		if (pixelOverride) return pixelOverride;
 		if (typeof location === 'undefined') return PIXEL_SIZE;
 		const n = Number(new URLSearchParams(location.search).get('pixel'));
-		if (n >= 4 && n <= 8) return n;
-		return PIXEL_SIZE;
+		pixelOverride = n >= 4 && n <= 8 ? n : PIXEL_SIZE;
+		return pixelOverride;
 	}
 
 	let canvas = $state(null);
@@ -242,8 +244,11 @@ vec3 metal(vec2 uv, float t, float bass) {
 }
 
 void main() {
+	// The canvas holds one pixel per dither cell (see cellSize() in the
+	// script), so each fragment *is* a cell: the output was already constant
+	// across a cell, and this skips computing it 36 times over.
 	float cellSize = u_pixelSize >= 4.0 ? u_pixelSize : 6.0;
-	vec2 pixelCoord = floor(gl_FragCoord.xy / cellSize);
+	vec2 pixelCoord = floor(gl_FragCoord.xy);
 	vec2 snappedFrag = (pixelCoord + 0.5) * cellSize;
 	vec2 uv = snappedFrag / u_resolution;
 	float t = u_time;
@@ -405,25 +410,38 @@ void main() {
 		return (now - startTime - pauseAccum - pausedSlice) / 1000;
 	}
 
+	/** The dither cell, in internal pixels: 6 by default, 8+ in eco. */
+	function cellSize() {
+		return quality === 'eco' ? Math.max(readPixelSize(), 8) : readPixelSize();
+	}
+	// Backing store in cells, not pixels; CSS (image-rendering: pixelated)
+	// scales each cell back up to a crisp block on screen.
+	let cellsW = Math.ceil(INTERNAL_W / PIXEL_SIZE);
+	let cellsH = Math.ceil(INTERNAL_H / PIXEL_SIZE);
+
 	function syncSize() {
 		const eco = quality === 'eco' && !isLowPower;
 		drawW = eco ? ECO_W : INTERNAL_W;
 		drawH = eco ? ECO_H : INTERNAL_H;
-		if (canvas && (canvas.width !== drawW || canvas.height !== drawH)) {
-			canvas.width = drawW;
-			canvas.height = drawH;
+		const cell = cellSize();
+		cellsW = Math.ceil(drawW / cell);
+		cellsH = Math.ceil(drawH / cell);
+		if (canvas && (canvas.width !== cellsW || canvas.height !== cellsH)) {
+			canvas.width = cellsW;
+			canvas.height = cellsH;
 		}
 	}
 
 	function drawFrame() {
 		if (!gl || !program || destroyed) return;
-		gl.viewport(0, 0, drawW, drawH);
+		syncSize();
+		gl.viewport(0, 0, cellsW, cellsH);
 		gl.uniform1f(uTimeLoc, elapsed());
 		gl.uniform2f(uResLoc, drawW, drawH);
 		gl.uniform1f(uBassLoc, bass);
 		gl.uniform1i(uPanelCountLoc, quality === 'eco' || isLowPower ? 0 : panelCount);
 		gl.uniform4fv(uPanelsLoc, panelData);
-		gl.uniform1f(uPixelSizeLoc, quality === 'eco' ? Math.max(readPixelSize(), 8) : readPixelSize());
+		gl.uniform1f(uPixelSizeLoc, cellSize());
 		gl.uniform2f(uMouseLoc, mouseSmooth.x, mouseSmooth.y);
 		gl.uniform1f(uMouseStrengthLoc, mouseStrength);
 		gl.uniform1f(uSunLoc, wxSmooth.sun);

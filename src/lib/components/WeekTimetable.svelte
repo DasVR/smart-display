@@ -92,8 +92,8 @@
 						<span class="skeleton inline short"></span>
 					{:else if day.items.length > 0}
 						{#each day.items as event, i (event.id ?? `${day.key}-${i}`)}
-							<div class="evt">
-								<time class="when num">{timeLabel(event.start)}</time>
+							<div class="evt" class:hw={event.homework}>
+								<time class="when num">{timeLabel(event.start)}{#if event.homework}<span class="due-tag">Due</span>{/if}</time>
 								<p class="title">{event.title}</p>
 								{#if event.location}
 									<p class="sub">{event.location}</p>
@@ -101,7 +101,7 @@
 							</div>
 						{/each}
 					{:else if day.today && !loading}
-						<p class="caption">{caption || 'Nothing due today'}</p>
+						<p class="caption">{caption || 'Nothing today'}</p>
 					{/if}
 				</div>
 			</article>
@@ -212,6 +212,21 @@
 	}
 	.col.today .caption {
 		color: var(--text-secondary);
+	}
+	.due-tag {
+		margin-left: var(--space-2);
+		padding: 0 0.4em;
+		border-radius: 0.3em;
+		font-family: var(--font-code);
+		font-size: 0.72em;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--solve);
+		background: color-mix(in srgb, var(--solve) 16%, transparent);
+	}
+	.evt.hw .title {
+		color: var(--foreground);
 	}
 	.evt {
 		padding: var(--space-3) 0;

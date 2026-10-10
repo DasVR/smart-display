@@ -108,7 +108,7 @@ The older `/api/tasks/next/done` and `/next/snooze` still work.
 | snooze the cat for 2 hours / snooze the plants until tomorrow | snoozes it (default 1 hour) |
 | what's on the wall / what's next / what do I have | reads the brief |
 | I'm leaving / what do I need to bring | reads the departure board and shows it |
-| show me the weather / radar / music / school / clock | switches the wall's view |
+| show me the weather / radar / music / calendar / clock | switches the wall's view |
 | pause / play / next song / previous song | music |
 | goodnight / screen off · good morning / screen on | the panel |
 | allow it / deny it | answers a waiting agent |

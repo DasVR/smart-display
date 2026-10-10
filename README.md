@@ -1,6 +1,6 @@
 # Smart Display
 
-A wall-mounted 1920×1080 kiosk dashboard. It shows the clock, due schoolwork,
+A wall-mounted 1920×1080 kiosk dashboard. It shows the clock, the week's calendar,
 what the local coding agents are doing, now-playing music with synced lyrics,
 and live weather radar, all over a weather-reactive liquid-metal shader. You
 control it from a phone at `/remote`.
@@ -15,7 +15,7 @@ Ollama, the package updater).
 | View | What it shows | Data source |
 | --- | --- | --- |
 | **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips, and a **Today** list of chores and alerts. In the hour before a "Leave …" item it becomes a **departure board** | `/api/weather`, `/api/tasks`, `/api/calendar` |
-| **School** | The next thing due, then a rolling seven-day timetable starting today | `/api/calendar` (Google Calendar, `#hw` events) |
+| **Calendar** | A rolling seven-day week starting today: every event, with homework (`#hw`) tagged Due | `/api/calendar` (Google Calendar) |
 | **Agents** | The active coding agent, the rest of the roster, host load and services | `/api/agents`, `/api/telemetry`, `/api/ollama/ps` |
 | **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
 | **Weather** | Live radar with a nowcast, current conditions, NWS alerts | `/api/weather`, `/api/weather/station` |
@@ -212,7 +212,7 @@ restarts both services.
 | `PORT` | HTTP/WebSocket port (default `3000`) |
 | `DISPLAY_SCHEDULE_PATH` | Night schedule JSON (default `data/display-schedule.json`) |
 | `DISPLAY_HDMI_STAMP` | File holding the panel power state (`on`/`off`) |
-| `GOOGLE_TOKEN_PATH` | OAuth token for the School view's calendar |
+| `GOOGLE_TOKEN_PATH` | OAuth token for the Calendar view's calendar |
 | `HA_TOKEN_PATH` | Home Assistant token for phone wake |
 | `LYRICS_DB_PATH` | SQLite lyrics cache |
 | `DISPLAY_API_TOKEN` | Bearer token for `/api/tasks` (or use `npm run api-token`) |

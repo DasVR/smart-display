@@ -5,6 +5,7 @@
 -->
 <script>
 	import '../../../app.css';
+	import { base } from '$app/paths';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 	import { onMount } from 'svelte';
 	import { islandActivityForUpdates } from '$lib/hostUpdatesModel.js';
@@ -102,6 +103,8 @@
 			<span class="dot"></span>
 			<span>{status}</span>
 		</div>
+		<!-- the server picks the best lyrics on its own; this desk is for overriding it -->
+		<a class="desk-link" href="{base}/remote/lyrics">Lyrics source</a>
 	</header>
 
 	{#if error && !data}
@@ -271,6 +274,15 @@
 			calc(4.6rem + max(0.75rem, env(safe-area-inset-bottom)) + var(--space-3))
 			calc(env(safe-area-inset-left) + var(--space-5));
 		box-sizing: border-box;
+	}
+	.desk-link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+		color: var(--brand);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		text-decoration: none;
 	}
 	.bar {
 		display: flex;

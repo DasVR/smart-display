@@ -15,7 +15,6 @@
 		{ id: 'control', label: 'Remote', href: `${base}/remote` },
 		{ id: 'night', label: 'Night', href: `${base}/remote#night` },
 		{ id: 'tasks', label: 'Tasks', href: `${base}/remote/tasks` },
-		{ id: 'lyrics', label: 'Lyrics', href: `${base}/remote/lyrics` },
 		{ id: 'stats', label: 'Stats', href: `${base}/remote/stats` }
 	];
 </script>
@@ -42,10 +41,6 @@
 					<path d="M9 6.5h11M9 12h11M9 17.5h11" />
 					<path d="M3.5 6.5l1.3 1.3 2.2-2.6M3.5 12l1.3 1.3 2.2-2.6" />
 					<circle cx="5" cy="17.5" r="1.2" />
-				{:else if tab.id === 'lyrics'}
-					<path d="M9 18V5.5l10-2v12.5" />
-					<circle cx="6.5" cy="18" r="2.5" />
-					<circle cx="16.5" cy="16" r="2.5" />
 				{:else}
 					<path d="M4 20V13M10 20V6M16 20v-9M22 20H2" />
 				{/if}
@@ -64,7 +59,7 @@
 		transform: translateX(-50%);
 		width: min(calc(22.5rem - 1.5rem), calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)));
 		display: grid;
-		grid-template-columns: repeat(5, 1fr);
+		grid-template-columns: repeat(4, 1fr);
 		padding: 0.3rem;
 		border-radius: 999px;
 		/* liquid glass: frosted, lit from above, softly lifted off the page */

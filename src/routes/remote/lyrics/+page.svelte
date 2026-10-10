@@ -226,7 +226,7 @@
 	{/if}
 </div>
 
-<RemoteTabBar active="lyrics" />
+<RemoteTabBar active="stats" />
 
 <style>
 	:global(html, body) {

@@ -20,8 +20,8 @@
 import { cleanSpeech, speakDuration } from './quickSay.js';
 import { eventDayKey, wallClock, wallDayKey } from './calendarItems.js';
 
-export const VIEWS = { clock: 'clock', time: 'clock', school: 'school', homework: 'school', agents: 'agents', music: 'music', weather: 'weather', radar: 'weather' };
-const VIEW_NAMES = { clock: 'the clock', school: 'school', agents: 'the agents', music: 'music', weather: 'the weather' };
+export const VIEWS = { clock: 'clock', time: 'clock', calendar: 'calendar', schedule: 'calendar', school: 'calendar', homework: 'calendar', agents: 'agents', music: 'music', weather: 'weather', radar: 'weather' };
+const VIEW_NAMES = { clock: 'the clock', calendar: 'the calendar', agents: 'the agents', music: 'music', weather: 'the weather' };
 
 /** The menu's first item: the shortcut dictates and sends it to /api/tasks/say. */
 export const DICTATE_LABEL = 'Tell the wall';
@@ -103,7 +103,7 @@ export function parseCommand(text) {
 		return { intent: 'snooze', query: m[1].trim(), minutes: minutes ?? 60 };
 	}
 
-	if ((m = s.match(/^(?:show|open|go to|switch to)\s+(?:me\s+)?(?:the\s+)?(clock|time|school|homework|agents|music|weather|radar)\b/i)))
+	if ((m = s.match(/^(?:show|open|go to|switch to)\s+(?:me\s+)?(?:the\s+)?(clock|time|calendar|schedule|school|homework|agents|music|weather|radar)\b/i)))
 		return { intent: 'show', view: VIEWS[m[1].toLowerCase()] };
 
 	if (/^(pause|stop)( the)?( music| song| playback)?$/i.test(s)) return { intent: 'music', action: 'pause' };

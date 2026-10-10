@@ -1,0 +1,40 @@
+# Runs on every pull request (and pushes to master): the tests, svelte-check,
+# and both builds. A merge only deploys to the wall after this is green, and
+# scripts/deploy.sh runs the tests again on the box before restarting.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Tests
+        run: npm test
+        env:
+          TZ: America/New_York
+      - name: svelte-check
+        run: npx --yes svelte-check@4 --threshold error
+      - name: Build (kiosk)
+        run: npm run build
+      - name: Build (Pages demo)
+        run: npm run build:demo
+        env:
+          BASE_PATH: /smart-display

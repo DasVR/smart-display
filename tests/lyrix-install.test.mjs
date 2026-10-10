@@ -82,7 +82,8 @@ test('install-host-venv.sh --dry-run does not pick a 3.14-only PATH', () => {
 test('install-host-venv.sh refuses the Cursor Cloud pod without LYRIX_ALLOW_CLOUD', () => {
 	const result = spawnSync('bash', [SCRIPT], {
 		encoding: 'utf8',
-		env: { ...process.env, LYRIX_ALLOW_CLOUD: '0' }
+		// pretend to be the pod, so this checks the refusal wherever it runs
+		env: { ...process.env, LYRIX_ALLOW_CLOUD: '0', LYRIX_ASSUME_CLOUD: '1' }
 	});
 	assert.equal(result.status, 1, result.stderr || result.stdout);
 	assert.match(result.stderr, /Cursor Cloud pod/);
