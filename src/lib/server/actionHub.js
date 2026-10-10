@@ -17,11 +17,31 @@
 import path from 'node:path';
 import { departureBoard, currentDeparture } from '../departures.js';
 import { speakBrief, speakDone, speakWhen } from '../quickSay.js';
-import { buildMenu, findMenuItem, matchTask, parseCommand, pickPress, speakBoard, viewName } from '../wallActions.js';
+import {
+	buildMenu,
+	findMenuItem,
+	matchTask,
+	parseCommand,
+	pickPress,
+	speakBoard,
+	speakTimersLeft,
+	speakTomorrow,
+	speakWeather,
+	activeTimers,
+	viewName
+} from '../wallActions.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const MAX_BODY = 8 * 1024;
 const CONTEXT_TTL_MS = 10 * 60000;
+/** A lookup that takes longer than this is skipped: a press must always answer quickly. */
+const LOOKUP_MS = 2500;
+const SCREEN_MS = 4000;
+const EVENTS = ['morning', 'night', 'home', 'leaving'];
+
+function withTimeout(promise, ms) {
+	return Promise.race([Promise.resolve(promise), new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))]);
+}
 
 function readBody(req) {
 	const plain = /^text\/plain/i.test(req.headers?.['content-type'] ?? '');
@@ -66,21 +86,36 @@ export function createActionHub({
 	const tokenFile = path.join(dataDir, 'api-token');
 	const cache = { weather: null, events: [], at: 0 };
 
+	/** Weather and calendar, cached 10 minutes; a slow or failed lookup keeps the last good copy. */
+	async function refreshContext() {
+		if (cache.at && now() - cache.at < CONTEXT_TTL_MS) return;
+		cache.at = now();
+		const [w, e] = await Promise.allSettled([withTimeout(loadWeather(), LOOKUP_MS), withTimeout(loadEvents(), LOOKUP_MS)]);
+		if (w.status === 'fulfilled' && w.value) cache.weather = w.value;
+		if (e.status === 'fulfilled' && Array.isArray(e.value)) cache.events = e.value;
+		if (w.status === 'rejected' && !cache.weather) cache.at = 0; // try again next time
+	}
+
 	async function boardFor(tasks) {
 		if (!currentDeparture(tasks, now())) return null;
-		if (now() - cache.at > CONTEXT_TTL_MS) {
-			cache.at = now();
-			const [w, e] = await Promise.allSettled([loadWeather(), loadEvents()]);
-			if (w.status === 'fulfilled' && w.value) cache.weather = w.value;
-			if (e.status === 'fulfilled' && Array.isArray(e.value)) cache.events = e.value;
-		}
+		await refreshContext();
 		return departureBoard({ tasks, events: cache.events, weather: cache.weather, now: now() });
 	}
 
 	async function context() {
 		const tasks = taskHub.snapshot();
 		const state = getState() || {};
-		return { tasks, approvals: approvalHub?.snapshot() ?? [], board: await boardFor(tasks), ...state };
+		return {
+			tasks,
+			approvals: approvalHub?.snapshot() ?? [],
+			board: await boardFor(tasks),
+			undo: taskHub.undoLabel?.() ?? '',
+			...state
+		};
+	}
+
+	async function screenTo(state) {
+		await Promise.race([Promise.resolve(screen(state)).catch(() => {}), new Promise((r) => setTimeout(r, SCREEN_MS))]);
 	}
 
 	function flash(title, body = '') {
@@ -125,7 +160,7 @@ export function createActionHub({
 					if (t.status === 'upcoming') return { say: `${t.title} isn't due until ${speakWhen(t.nextDue, now())}. Nothing to tick off yet.` };
 					id = t.id;
 				}
-				const r = taskHub.done(id);
+				const r = taskHub.done(id, { undo: true });
 				if (r.error) return { say: `Couldn't tick that off: ${r.error}.` };
 				flash(`Done: ${r.task.title}`);
 				return { task: r.task, say: speakDone(r.task, waitingCount(), now()) };
@@ -137,7 +172,7 @@ export function createActionHub({
 					if (!t) return { say: query ? `I couldn't find "${query}" on the wall.` : 'Nothing waiting to snooze.' };
 					id = t.id;
 				}
-				const r = taskHub.snooze(id, action.minutes ?? 60);
+				const r = taskHub.snooze(id, action.minutes ?? 60, { undo: true });
 				if (r.error) return { say: `Couldn't snooze that: ${r.error}.` };
 				flash(`Snoozed: ${r.task.title}`);
 				return { task: r.task, say: `Snoozed ${r.task.title}. It comes back ${speakWhen(r.task.snoozedUntil, now())}.` };
@@ -152,8 +187,28 @@ export function createActionHub({
 				return { say: words[action.action] || 'Done.' };
 			}
 			case 'screen':
-				await screen(action.state);
+				await screenTo(action.state);
 				return { say: action.state === 'off' ? 'Screen off. Good night.' : 'Screen on.' };
+			case 'undo': {
+				const r = taskHub.undoLast();
+				if (r.say && !/^Nothing|couldn/i.test(r.say)) flash('Undone');
+				return { say: r.say };
+			}
+			case 'weather': {
+				await refreshContext();
+				return { say: cache.weather ? speakWeather(cache.weather, now()) : "I couldn't get the weather right now." };
+			}
+			case 'tomorrow':
+				return { say: speakTomorrow(ctx.tasks, now()) };
+			case 'timer-left':
+				return { say: speakTimersLeft(ctx.tasks, now()) };
+			case 'cancel-timer': {
+				const timers = activeTimers(ctx.tasks, now());
+				if (!timers.length) return { say: 'No timers running.' };
+				for (const t of timers) taskHub.remove(t.id);
+				flash(timers.length === 1 ? 'Timer cancelled' : 'Timers cancelled');
+				return { say: timers.length === 1 ? 'Timer cancelled.' : `${timers.length} timers cancelled.` };
+			}
 			default:
 				return { say: "I'm not sure what to do with that." };
 		}
@@ -189,6 +244,47 @@ export function createActionHub({
 		return { did: cmd.intent, ...out };
 	}
 
+	/**
+	 * One-URL automations: Shortcuts' Personal Automations (arrive home,
+	 * alarm stops, CarPlay connects, a time of day) just call this and speak
+	 * the answer. morning: screen on, board, weather, brief. night: tomorrow,
+	 * then screen off. home: welcome and brief. leaving: the board.
+	 */
+	async function event(name) {
+		if (!EVENTS.includes(name)) return { say: `I don't know the ${name} automation. Try ${EVENTS.join(', ')}.`, error: 'unknown event' };
+		const ctx = await context();
+		const brief = speakBrief(ctx.tasks, now());
+		if (name === 'morning') {
+			await screenTo('on');
+			navigate('clock');
+			await refreshContext();
+			const parts = ['Good morning.'];
+			if (ctx.board) parts.push(speakBoard(ctx.board));
+			if (cache.weather) parts.push(speakWeather(cache.weather, now()));
+			parts.push(brief);
+			return { did: name, say: parts.join(' ') };
+		}
+		if (name === 'night') {
+			const say = `${speakTomorrow(ctx.tasks, now())} Good night.`;
+			await screenTo('off');
+			return { did: name, say };
+		}
+		if (name === 'home') {
+			await screenTo('on');
+			navigate('clock');
+			return { did: name, say: `Welcome home. ${brief}` };
+		}
+		// leaving
+		navigate('clock');
+		const waiting = waitingCount();
+		return {
+			did: name,
+			say: ctx.board
+				? speakBoard(ctx.board)
+				: `Nothing on the board. ${waiting ? `${waiting} thing${waiting === 1 ? ' is' : 's are'} still waiting.` : 'Everything is done. Have a good one.'}`
+		};
+	}
+
 	function send(req, res, url, status, data) {
 		const wantsText = url.searchParams.get('format') === 'text' || /^text\/plain/i.test(req.headers.accept ?? '');
 		if (!wantsText) {
@@ -211,6 +307,9 @@ export function createActionHub({
 			const sub = parts[2];
 			if (!sub && req.method === 'POST') return send(req, res, url, 200, await press()), true;
 			if (sub === 'menu' && req.method === 'GET') return send(req, res, url, 200, await menu()), true;
+			if (sub === 'event' && parts[3] && (req.method === 'POST' || req.method === 'GET')) {
+				return send(req, res, url, 200, await event(parts[3].toLowerCase())), true;
+			}
 			if (sub === 'run' && req.method === 'POST') {
 				const body = await readBody(req);
 				return send(req, res, url, 200, await choose(body.choice ?? body.label ?? body.id ?? body.text)), true;
@@ -223,5 +322,5 @@ export function createActionHub({
 		}
 	}
 
-	return { handleHttp, press, menu, choose, command };
+	return { handleHttp, press, menu, choose, command, event };
 }

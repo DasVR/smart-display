@@ -24,6 +24,8 @@ import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { createActionHub } from './lib/server/actionHub.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
+import { listAddresses } from './lib/addresses.js';
+import os from 'node:os';
 import { runPlayerctl } from './lib/server/playerctlBin.js';
 import { getHostUpdates } from './lib/server/hostUpdates.js';
 import { debounceInstalling } from './lib/hostUpdatesModel.js';
@@ -905,6 +907,9 @@ wss.on('connection', (ws, req) => {
 						else if (result?.error) ws.send(JSON.stringify({ type: 'tasks-error', error: result.error, op: msg.op }));
 					})
 					.catch(() => {});
+			}
+			if (msg.type === 'addresses') {
+				ws.send(JSON.stringify({ type: 'addresses', list: listAddresses(os.networkInterfaces(), port, os.hostname()) }));
 			}
 			if (msg.type === 'approvals') {
 				const result = approvalHub.handleWs(msg);

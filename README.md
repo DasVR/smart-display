@@ -45,8 +45,10 @@ See [`docs/tasks-api.md`](docs/tasks-api.md).
 - say "Hey Siri, tell the wall… take out the bins every Monday at 6pm" to
   add a chore;
 - ask "what's on the wall?" to hear what's waiting;
-- say "tell the wall I'm done with the bins", "show the weather" or
-  "pause the music" to run commands;
+- say "tell the wall I'm done with the bins", "show the weather",
+  "set a timer for ten minutes" or "undo that" to run commands;
+- let automations brief you without asking: morning (when your alarm stops),
+  leaving, arriving home, and night;
 - press the Action button for a menu built from what's on the wall right
   now: Tell the wall, Allow / Deny a waiting agent, Done: Feed the cat,
   Pause music, Screen off.

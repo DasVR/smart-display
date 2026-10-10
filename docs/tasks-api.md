@@ -149,7 +149,7 @@ or `task.done`.
 | Method | Path | Body |
 | --- | --- | --- |
 | GET | `/api/webhooks` | Lists subscribers. Secrets are never returned |
-| POST | `/api/webhooks` | `{ "url", "events"?, "secret"?, "name"? }`. `events` defaults to all of them |
+| POST | `/api/webhooks` | `{ "url", "events"?, "secret"?, "name"?, "format"? }`. `events` defaults to all of them. `format` is `json` (default) or `text` |
 | DELETE | `/api/webhooks/:id` | |
 
 Each delivery looks like this:
@@ -170,6 +170,11 @@ and compare. In Node:
 const expected = 'sha256=' + crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex');
 const ok = crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(req.headers['x-display-signature']));
 ```
+
+With `"format": "text"` the body is a plain sentence ("Due now: Take meds")
+with `Title`, `Priority` (4 for alerts, 3 for chores, 2 otherwise) and
+`Tags` headers, which is what push services like ntfy expect. See
+[`siri-shortcuts.md`](siri-shortcuts.md#alerts-on-your-phone).
 
 Deliveries are fire-and-forget, with a 5 second timeout and no retries. A
 slow or dead endpoint never holds up the display. Failures go to the server

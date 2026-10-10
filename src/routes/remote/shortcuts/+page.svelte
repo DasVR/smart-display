@@ -11,7 +11,9 @@
 	import { base } from '$app/paths';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 
-	let origin = $state('');
+	let origin = $state(''); // what this page was opened on
+	let addresses = $state([]); // [{ label, host }] the display answers on
+	let chosen = $state(''); // host the Copy buttons use
 	let phrase = $state('');
 	let reply = $state(null); // { ok, say }
 	let copied = $state('');
@@ -54,6 +56,23 @@
 			]
 		},
 		{
+			id: 'auto',
+			name: 'Automations: hands off',
+			say: 'Runs by itself: when you arrive home, your alarm stops, CarPlay connects, or at a set time',
+			urls: [
+				{ label: 'Morning', path: '/api/action/event/morning?format=text' },
+				{ label: 'Leaving', path: '/api/action/event/leaving?format=text' },
+				{ label: 'Home', path: '/api/action/event/home?format=text' },
+				{ label: 'Night', path: '/api/action/event/night?format=text' }
+			],
+			steps: [
+				'In the Shortcuts app open the <b>Automation</b> tab, tap <b>+</b>, and pick a trigger: <b>Alarm</b> (Stop), <b>Arrive</b> / <b>Leave</b>, <b>CarPlay</b>, or <b>Time of Day</b>.',
+				'Choose <b>Run Immediately</b> so it needs no tap.',
+				'Add <b>Get Contents of URL</b> with one address below (Method <b>POST</b>; GET also works), then <b>Speak Text</b> with <b>Contents of URL</b>.',
+				'<b>Morning</b> (alarm stops): turns the screen on, reads the departure board, the weather and what\'s waiting. <b>Leaving</b> (leave home): reads the board. <b>Home</b> (arrive): welcomes you with what\'s waiting. <b>Night</b> (a time, like 10 pm): reads tomorrow and turns the screen off.'
+			]
+		},
+		{
 			id: 'tell',
 			name: 'Tell the wall',
 			say: '"Hey Siri, tell the wall" … "take out the bins every Monday at 6pm" or "I\'m done with the bins" or "pause the music"',
@@ -84,14 +103,34 @@
 		'take out the bins every Monday and Thursday at 6pm',
 		"I'm done with the bins",
 		'snooze the cat for an hour',
+		'set a timer for ten minutes',
+		"what's the weather",
+		"what's tomorrow",
 		"what's on the wall",
 		"I'm leaving",
+		'undo that',
 		'show me the weather',
 		'pause the music'
 	];
 
 	function url(path) {
-		return `${origin}${path}`;
+		return `${chosen ? `http://${chosen}` : origin}${path}`;
+	}
+
+	function choose(host) {
+		chosen = host;
+		try {
+			localStorage.setItem('shortcuts-host', host);
+		} catch {
+			/* storage blocked: the choice just lasts this visit */
+		}
+	}
+	function hint() {
+		const a = addresses.find((x) => x.host === chosen);
+		if (!a) return '';
+		if (a.label === 'Tailscale') return 'Works anywhere your phone is on Tailscale: at home, at school, in the car.';
+		if (a.label === 'Home Wi-Fi') return 'Works only on your home Wi-Fi. Pick Tailscale to use Siri away from home.';
+		return '';
 	}
 
 	async function copy(text, id) {
@@ -124,6 +163,7 @@
 			status = 'live';
 			retry = 0;
 			ws.send(JSON.stringify({ type: 'hello', role: 'remote' }));
+			ws.send(JSON.stringify({ type: 'addresses' }));
 		};
 		ws.onclose = () => {
 			status = 'offline';
@@ -133,6 +173,19 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (msg.type === 'tasks-said') reply = { ok: msg.ok, say: msg.say };
+				if (msg.type === 'addresses' && Array.isArray(msg.list) && msg.list.length) {
+					addresses = msg.list;
+					// keep a saved choice that still exists; else the address this page
+					// was opened on; else the first one (home Wi-Fi)
+					let saved = '';
+					try {
+						saved = localStorage.getItem('shortcuts-host') || '';
+					} catch {
+						/* ignore */
+					}
+					const here = msg.list.find((a) => a.host === location.host)?.host;
+					chosen = msg.list.some((a) => a.host === saved) ? saved : (here ?? msg.list[0].host);
+				}
 			} catch {
 				/* ignore */
 			}
@@ -187,6 +240,20 @@
 		</p>
 		<a class="open-app" href="shortcuts://create-shortcut">Open Shortcuts</a>
 	</div>
+
+	{#if addresses.length}
+		<div class="where" role="group" aria-label="Address the shortcuts use">
+			<p class="kicker">Address for your shortcuts</p>
+			<div class="chips">
+				{#each addresses as a (a.host)}
+					<button type="button" class:on={a.host === chosen} onclick={() => choose(a.host)}>
+						<b>{a.label}</b> {a.host}
+					</button>
+				{/each}
+			</div>
+			{#if hint()}<p class="note small">{hint()}</p>{/if}
+		</div>
+	{/if}
 
 	<ul class="recipes">
 		{#each RECIPES as r (r.id)}
@@ -393,6 +460,37 @@
 		border-radius: var(--radius-md);
 		background: var(--shell-fill);
 		box-shadow: inset 0 0 0 1px var(--hairline);
+	}
+	.where {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.where .chips {
+		flex-wrap: wrap;
+		overflow: visible;
+		margin: 0;
+		padding: 0;
+	}
+	.where .chips button {
+		white-space: normal;
+		text-align: left;
+		line-height: 1.25;
+	}
+	.where .chips button b {
+		display: block;
+		font-size: 0.7rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+	.where .chips button.on {
+		background: var(--brand-soft);
+		box-shadow: inset 0 0 0 1px var(--brand-border);
+		color: var(--foreground);
+	}
+	.where .chips button.on b {
+		color: var(--brand);
 	}
 	.detail .url + .url {
 		margin-top: var(--space-2);
