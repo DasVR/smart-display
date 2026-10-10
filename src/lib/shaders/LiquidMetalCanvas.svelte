@@ -203,17 +203,31 @@ float fluid(vec2 uv, float t, float bass) {
 	return (f * 0.68 + f2 * 0.32) * (0.78 + 0.45 * ambient);
 }
 
-vec3 fieldNormal(vec2 uv, float t, float bass) {
+// The height at uv comes back through h so metal() doesn't sample it twice.
+vec3 fieldNormal(vec2 uv, float t, float bass, out float h) {
 	float e = 3.0 / u_resolution.y;
-	float h = fluid(uv, t, bass);
+	h = fluid(uv, t, bass);
 	float hx = fluid(uv + vec2(e, 0.0), t, bass);
 	float hy = fluid(uv + vec2(0.0, e), t, bass);
 	return normalize(vec3(h - hx, h - hy, 0.55));
 }
 
+// What polished chrome reflects: a dark floor, a hard horizon, a cool sky,
+// and two long softboxes. The hard horizon is what reads as "chrome" rather
+// than "satin": it snaps into a bright line wherever the surface tilts past it.
+vec3 studio(vec3 r, vec3 floorCol, vec3 skyCol, vec3 boxCol) {
+	float y = r.y + 0.06 * r.x;
+	float horizon = smoothstep(-0.03, 0.03, y);
+	vec3 env = mix(floorCol, skyCol * (0.55 + 0.45 * y), horizon);
+	env += boxCol * exp(-pow((y - 0.42) * 7.0, 2.0)) * 0.9;
+	env += boxCol * exp(-pow((r.x + 0.55) * 6.0, 2.0)) * smoothstep(-0.2, 0.4, y) * 0.5;
+	env += skyCol * exp(-pow(y * 30.0, 2.0)) * 0.6;
+	return env;
+}
+
 vec3 metal(vec2 uv, float t, float bass) {
-	float f = fluid(uv, t, bass);
-	vec3 n = fieldNormal(uv, t, bass);
+	float f;
+	vec3 n = fieldNormal(uv, t, bass, f);
 	vec3 L = normalize(vec3(-0.55, -0.42, 0.68));
 	vec3 V = vec3(0.0, 0.0, 1.0);
 	vec3 H = normalize(L + V);
@@ -234,6 +248,13 @@ vec3 metal(vec2 uv, float t, float bass) {
 	color += col2 * diff * 0.28;
 	color += col3 * spec * (0.85 + 0.7 * bass) * mix(1.0, 0.55, u_cloud);
 	color += vec3(0.18, 0.20, 0.36) * fres * 0.55;
+
+	// chrome: the studio reflected in the surface, strongest at grazing
+	// angles (Schlick, with a high base reflectance like polished steel)
+	vec3 r = reflect(-V, n);
+	vec3 env = studio(r, col1 * 0.6, col2 * 1.6, col3);
+	float schlick = 0.62 + 0.38 * pow(1.0 - max(dot(n, V), 0.0), 5.0);
+	color = mix(color, env, 0.45 * schlick * mix(1.0, 0.7, u_cloud));
 
 	float ambient = 1.0 - smoothstep(0.26, 0.40, uv.y);
 	vec2 turntable = vec2(0.5, 0.11);
