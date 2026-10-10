@@ -42,6 +42,10 @@
 		islandActivityForProgress
 	} from '$lib/hostUpgradeModel.js';
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
+	import EdgeGlow from '$lib/components/EdgeGlow.svelte';
+	import { liquidGlass } from '$lib/glass/liquidGlass.js';
+	import { glassTier, startGlassGovernor } from '$lib/glass/glassTier.js';
+	import { effectiveGlassTier } from '$lib/glass/frameGovernor.js';
 	import IslandStack from '$lib/components/IslandStack.svelte';
 	import SevereTicker from '$lib/components/SevereTicker.svelte';
 	import BoardWidgets from '$lib/components/BoardWidgets.svelte';
@@ -521,6 +525,8 @@
 		fetchWeather();
 		const stopSystemWatch = startSystemWatch();
 		const stopGovernor = startOllamaArbiter();
+		const stopGlassGovernor = startGlassGovernor();
+		window.addEventListener('wall-speaking', onWallSpeaking);
 		const clock = setInterval(() => {
 			time = new Date();
 			smartStackTick();
@@ -623,6 +629,9 @@
 			clearTimeout(reconnectTimer);
 			stopSystemWatch();
 			stopGovernor();
+			stopGlassGovernor();
+			window.removeEventListener('wall-speaking', onWallSpeaking);
+			clearTimeout(voiceGlowTimer);
 			window.removeEventListener('keydown', handleKey);
 			window.removeEventListener('resize', updateIndicator);
 			window.removeEventListener('pointerdown', primeAudio);
@@ -837,6 +846,33 @@
 	);
 	let showChromeTicker = $derived(Boolean(tickerPulse) && $currentView !== 'weather');
 
+	// Glass: the frame-time governor's tier, capped by the load arbiter.
+	let glass = $derived(effectiveGlassTier($glassTier, mode === 'sleep' ? 'frozen' : $displayQuality));
+
+	// Edge glow while the wall hears from the phone, or (later) speaks.
+	// 'wall-speaking' events carry { detail: true | false }.
+	let voiceGlow = $state(false);
+	let voiceGlowTimer;
+	let lastVoiceEventId = 0;
+	function glowFor(ms) {
+		voiceGlow = true;
+		clearTimeout(voiceGlowTimer);
+		voiceGlowTimer = setTimeout(() => (voiceGlow = false), ms);
+	}
+	function onWallSpeaking(e) {
+		if (e?.detail === false) {
+			clearTimeout(voiceGlowTimer);
+			voiceGlow = false;
+		} else glowFor(e?.detail?.ms ?? 30000);
+	}
+	$effect(() => {
+		for (const ev of $islandQueue) {
+			if (ev.id <= lastVoiceEventId) continue;
+			lastVoiceEventId = ev.id;
+			if (/^(siri|iphone)$/i.test(ev.source || '')) glowFor(2600);
+		}
+	});
+
 	$effect(() => {
 		const activity = islandActivityForProgress($installProgress);
 		if (activity) setIslandActivity('update', activity);
@@ -893,7 +929,7 @@
 
 <a class="skip" href="#main-stage">Skip to view</a>
 
-<div class="display-shell" class:standby class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
+<div class="display-shell" data-glass-tier={glass} class:standby class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
 	<LiquidMetalCanvas
 		isLowPower={$gpuLowPowerMode || mode === 'sleep' || hdmiOff}
 		quality={$displayQuality}
@@ -916,6 +952,8 @@
 		{/key}
 	{/if}
 
+	<EdgeGlow active={voiceGlow && mode !== 'sleep' && !hdmiOff} still={glass === 'flat'} />
+
 	<IslandStack
 		nowPlaying={$nowPlaying}
 		events={$islandQueue}
@@ -937,6 +975,7 @@
 			<div class="top-row">
 				<nav class="view-strip" aria-label="Views" bind:this={navEl}>
 					<span
+						use:liquidGlass={{ enabled: glass === 'refract', bezel: 12, strength: 22, blur: 1.5, saturate: 1.8 }}
 						class="tab-indicator"
 						class:ready={indicator.ready}
 						class:morphing={indicatorMorphing}
@@ -1038,7 +1077,7 @@
 					<span>+</span>
 				{/each}
 			</div>
-			<div class="trough glass-field" data-glass>
+			<div class="trough glass-field" data-glass use:liquidGlass={{ enabled: glass === 'refract', blur: 10 }}>
 				<AmbientDeck
 					{atm}
 					prediction={wxForIsland?.prediction || weatherData?.prediction}

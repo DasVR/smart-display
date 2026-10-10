@@ -407,3 +407,82 @@ h6 {
 		transform: translateY(0);
 	}
 }
+
+/* ── Liquid glass (src/lib/glass) ─────────────────────────────────────
+   When the lens filter is on (data-lens, set by use:liquidGlass) the
+   frosted blur gives way to refraction, so the rim needs its own light:
+   a bright top-left specular edge and a darker lower lip, like thick
+   glass catching a softbox. */
+[data-lens='on'] {
+	box-shadow:
+		inset 1px 1px 0 color-mix(in srgb, var(--foreground) 34%, transparent),
+		inset -1px -1px 0 color-mix(in srgb, var(--foreground) 9%, transparent),
+		inset 0 0 18px color-mix(in srgb, var(--foreground) 5%, transparent),
+		inset 0 -10px 24px color-mix(in srgb, var(--abyss) 32%, transparent);
+}
+
+/* frames are slipping: drop the backdrop filters entirely */
+[data-glass-tier='flat'] .glass-field,
+[data-glass-tier='flat'] .tab-indicator {
+	backdrop-filter: none;
+	-webkit-backdrop-filter: none;
+}
+
+/* ── Chrome ring (metal-fx pattern, MIT; our own CSS) ─────────────────
+   A banded reflective border: light and dark bands like a polished ring
+   reflecting a studio. Turns slowly only on the best glass tier; still
+   otherwise. Add .chrome-ring to any positioned element. */
+@property --chrome-turn {
+	syntax: '<angle>';
+	inherits: false;
+	initial-value: 0deg;
+}
+
+.chrome-ring {
+	position: relative;
+}
+
+.chrome-ring::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	padding: var(--chrome-width, 1.5px);
+	border-radius: inherit;
+	background: conic-gradient(
+		from var(--chrome-turn),
+		#5b6275 0deg,
+		#f4f6ff 28deg,
+		#8b93a8 52deg,
+		#262a36 96deg,
+		#c9cfe0 140deg,
+		#ffffff 162deg,
+		#6a7184 196deg,
+		#1d2029 238deg,
+		#aab2c8 286deg,
+		#eef1fb 318deg,
+		#5b6275 360deg
+	);
+	mask:
+		linear-gradient(#000 0 0) content-box,
+		linear-gradient(#000 0 0);
+	mask-composite: exclude;
+	-webkit-mask-composite: xor;
+	pointer-events: none;
+	z-index: 2;
+}
+
+[data-glass-tier='refract'] .chrome-ring::after {
+	animation: chrome-turn 9s linear infinite;
+}
+
+@keyframes chrome-turn {
+	to {
+		--chrome-turn: 360deg;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.chrome-ring::after {
+		animation: none !important;
+	}
+}

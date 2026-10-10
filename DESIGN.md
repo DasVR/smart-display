@@ -183,6 +183,28 @@ Depth comes from translucency and light, not drop shadows:
   repainting.
 - **Island**: pure abyss with a deep, soft shadow. It is the only element
   that floats above everything.
+- **Liquid glass** (`use:liquidGlass`, `src/lib/glass/`): on the trough and
+  the nav pill, the backdrop is bent by a lens-shaped SVG displacement map
+  (a rounded-rect SDF with a convex squircle rim) instead of only blurred.
+  The rim pulls the shader in from further inside, and a bright top-left
+  edge with a darker lower lip lights it. Chromium only; other browsers keep
+  the blur. The map is built once per size and cached.
+- **Glass tiers**: `refract` → `blur` → `flat`. A frame-time governor
+  drops a tier after about 2 s of slow frames (over 24 ms) and climbs back
+  after 15 s of healthy ones. The load arbiter caps it: `eco` never
+  refracts, `frozen` and `sleep` are flat. The shell carries
+  `data-glass-tier`.
+- **Chrome ring** (`.chrome-ring`): a banded silver border, like polished
+  metal reflecting a studio, on the approval card and the departure board.
+  It turns slowly only on the `refract` tier.
+- **Edge glow** (`EdgeGlow.svelte`): Siri-style colour around the screen
+  edge for 2.6 s when a phone command lands, or while a `wall-speaking`
+  event says the wall is talking. The wheel only rotates (a transform) and
+  the soft edge is a static mask, so it costs no repaints. Nothing is
+  mounted while it's idle.
+- **Liquid metal**: besides the fluid shading, the surface reflects a
+  studio (dark floor, hard horizon, softboxes) with a Schlick fresnel. The
+  hard horizon is what makes it read as chrome rather than satin.
 
 ## Shapes
 

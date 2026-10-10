@@ -34,7 +34,7 @@
 		</p>
 	</div>
 
-	<div class="board" role="group" aria-label="Before you go">
+	<div class="board chrome-ring" role="group" aria-label="Before you go">
 		<div class="thead" aria-hidden="true">
 			<span>Status</span>
 			<span>Item</span>

@@ -31,7 +31,7 @@
 </script>
 
 {#if current}
-	<div class="approval" class:compact role="alertdialog" aria-modal="false" aria-labelledby="approval-title" aria-describedby="approval-detail">
+	<div class="approval chrome-ring" class:compact role="alertdialog" aria-modal="false" aria-labelledby="approval-title" aria-describedby="approval-detail">
 		<div class="top">
 			<span class="who">
 				<span class="ring" style="--p: {left / total}" aria-hidden="true"></span>
