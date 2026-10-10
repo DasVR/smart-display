@@ -1017,9 +1017,21 @@ wss.on('connection', (ws, req) => {
 				ws.send(JSON.stringify({ type: 'addresses', list: listAddresses(os.networkInterfaces(), port, os.hostname()) }));
 			}
 			if (msg.type === 'voice') {
-				// the phone's Sounds & voice page: { op: 'get' | 'set' | 'say' }
+				// the phone's Sounds & voice page: { op: 'get' | 'set' | 'say' | 'key' | 'forget-key' }
 				const reply = (data) => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'voice', ...data }));
-				if (msg.op === 'set' && msg.patch && typeof msg.patch === 'object') reply({ settings: voiceHub.setSettings(msg.patch) });
+				// the ElevenLabs key: the wall, a paired phone, or anyone before the
+				// first phone is paired may set it; nobody can read it back
+				const mayKey = ws.local || Boolean(ws.device) || pairing.status().devices.length === 0;
+				if (msg.op === 'key' || msg.op === 'forget-key') {
+					if (!mayKey) reply({ keyResult: { ok: false, error: 'not-paired' }, settings: voiceHub.snapshot() });
+					else if (msg.op === 'forget-key') reply({ keyResult: voiceHub.forgetKey(), settings: voiceHub.snapshot() });
+					else {
+						voiceHub
+							.setKey(msg.key)
+							.then((keyResult) => reply({ keyResult, settings: voiceHub.snapshot() }))
+							.catch(() => reply({ keyResult: { ok: false, error: 'unwritable' } }));
+					}
+				} else if (msg.op === 'set' && msg.patch && typeof msg.patch === 'object') reply({ settings: voiceHub.setSettings(msg.patch) });
 				else if (msg.op === 'say') {
 					voiceHub
 						.say(String(msg.text || ''), { source: 'iPhone' })

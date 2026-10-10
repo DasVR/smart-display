@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { inQuietHours, speechText, speechForDue, normalizeVoiceSettings, DEFAULT_VOICE } from '../src/lib/wallVoice.js';
@@ -230,4 +230,43 @@ test('sound library: unique names, sane lengths, one quiet room', () => {
 	}
 	// the frequent, latency-sensitive sounds stay synthesized
 	for (const synthOnly of ['tap', 'swap-next', 'swap-prev', 'volume', 'mute', 'unmute']) assert.ok(!names.includes(synthOnly));
+});
+
+test('a key typed on the phone is checked, saved owner-only, and never read back', async () => {
+	const calls = [];
+	const fetchImpl = async (url, init) => {
+		calls.push({ url, key: init.headers['xi-api-key'] });
+		if (init.headers['xi-api-key'] === 'sk_bad_000000000000000000000') return { ok: false, status: 401, text: async () => '{"detail":{"status":"invalid_api_key"}}' };
+		if (init.headers['xi-api-key'] === 'sk_restricted_0000000000000000') return { ok: false, status: 401, text: async () => '{"detail":{"status":"missing_permissions"}}' };
+		return { ok: true, status: 200, text: async () => '{}' };
+	};
+	const { h, dataDir } = hub({ key: '', fetchImpl });
+	const file = path.join(dataDir, 'elevenlabs-key');
+
+	assert.deepEqual(await h.setKey('nope'), { ok: false, error: 'bad-format' });
+	assert.deepEqual(await h.setKey('sk_bad_000000000000000000000'), { ok: false, error: 'invalid' });
+	assert.equal(existsSync(file), false, 'a refused key is not saved');
+
+	assert.deepEqual(await h.setKey('  sk_good_1234567890abcdef9f3a  '), { ok: true, verified: true });
+	assert.equal(calls.at(-1).url, 'https://api.elevenlabs.io/v1/user');
+	assert.equal(readFileSync(file, 'utf8').trim(), 'sk_good_1234567890abcdef9f3a');
+	assert.equal(statSync(file).mode & 0o777, 0o600);
+	const snap = h.snapshot();
+	assert.equal(snap.hasKey, true);
+	assert.equal(snap.keySource, 'file');
+	assert.equal(snap.keyHint, '…9f3a');
+	assert.equal(JSON.stringify(snap).includes('sk_good'), false, 'the snapshot never carries the key');
+
+	// a restricted key that can't read the account is still saved
+	assert.deepEqual(await h.setKey('sk_restricted_0000000000000000'), { ok: true, verified: false });
+
+	assert.deepEqual(h.forgetKey(), { ok: true });
+	assert.equal(existsSync(file), false);
+	assert.equal(h.snapshot().hasKey, false);
+});
+
+test('a key from the environment wins and is reported as such', () => {
+	const { h } = hub({ key: 'sk_env_key_abcdefghijklmn1234', fetchImpl: fakeEleven().fetchImpl });
+	assert.equal(h.snapshot().keySource, 'env');
+	assert.equal(h.snapshot().keyHint, '…1234');
 });

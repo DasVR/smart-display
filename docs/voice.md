@@ -10,17 +10,32 @@ Phone: **Stats → Sounds & voice** (`/remote/sounds`).
 
 ## Set up the key
 
-The key lives only on the kiosk, in a file git ignores:
+On your phone: **Stats → Sounds & voice → ElevenLabs key**. Paste the key
+from elevenlabs.io → Developers → API Keys and tap **Save**.
+
+- The wall checks the key with ElevenLabs first and refuses one ElevenLabs
+  says isn't valid. A restricted key that can't read your account is still
+  saved; try **Say it** to hear whether it can speak.
+- It's stored only on the kiosk, in `data/elevenlabs-key` (gitignored,
+  owner-only). The phone can replace or remove it but can never read it
+  back: the page shows just the last four characters.
+- Once you've paired a phone (see [pairing.md](pairing.md)), only a paired
+  phone or the wall's own screen can change the key. Before then any phone
+  on your network can, like every other setting.
+- It travels over your home network or Tailscale on the way to the wall, so
+  set it from home or over Tailscale, not over a public network.
+
+Or, on the kiosk:
 
 ```bash
-# on the kiosk, in the project folder
 printf '%s' 'YOUR_ELEVENLABS_KEY' > data/elevenlabs-key
 chmod 600 data/elevenlabs-key
 ```
 
-Or set `ELEVENLABS_API_KEY` in the service's environment. The key is never
-sent to the phone, never logged, and never accepted from a request. Restarting
-isn't needed; it's read when the wall next speaks.
+`ELEVENLABS_API_KEY` in the service's environment takes priority over the
+file. The phone page then says the key is set on the display and leaves it
+alone. The key is never logged and never sent to a phone. A restart isn't
+needed: it's read when the wall next speaks.
 
 ## What it says
 
