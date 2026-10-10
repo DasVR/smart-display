@@ -120,6 +120,12 @@ The older `/api/tasks/next/done` and `/next/snooze` still work.
 | cancel the timer | cancels them |
 | announce dinner is ready / tell everyone we're leaving | the wall says it out loud (see [voice.md](voice.md)) |
 
+That's the short list. The full one (time and date, what's playing, volume,
+"say that again", more ways to say each) is in
+[voice-commands.md](voice-commands.md), along with how a sentence is
+matched and a dry run, `POST /api/action/parse`, that shows what the wall
+makes of a phrase without doing it.
+
 Anything starting with "remind me", "add", "I need to" is always added,
 never treated as a command.
 
@@ -158,7 +164,9 @@ or cancel it.
   ten minutes, and a lookup that takes over two and a half seconds is skipped,
   so a press always answers fast.
 - **Misheard words.** Fillers ("um", "okay"), "can you please…" and "set a
-  reminder to…" are ignored, and number words work ("in two minutes").
+  reminder to…" are ignored, number words work ("in two minutes"), and a
+  chore's name can be a letter off ("done with the vaccum"). If two chores fit
+  equally well, the wall asks which one instead of guessing.
   When the wall still can't tell what you want, it asks, and you can answer
   (step 4 of Tell the wall).
 - **Display off or out of range.** Shortcuts shows its own error and stops.

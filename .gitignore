@@ -25,6 +25,9 @@ data/elevenlabs-key
 data/voice.json
 data/voice-usage.json
 data/voice-cache/
+# sounds made from the phone, and today's tally of them
+data/sounds/
+data/sounds-usage.json
 # paired phones (token hashes) and the pairing switch
 data/devices.json
 data/pairing.json

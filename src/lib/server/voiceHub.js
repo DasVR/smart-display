@@ -314,5 +314,6 @@ export function createVoiceHub({
 		return true;
 	}
 
-	return { say, snapshot, setSettings, setKey, forgetKey, handleHttp, clip };
+	// `key` is for the sound hub on the same kiosk; it is never sent to a phone
+	return { say, snapshot, setSettings, setKey, forgetKey, handleHttp, clip, key };
 }

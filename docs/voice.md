@@ -6,7 +6,8 @@ generation. Both are optional: without a key the wall shows what it would
 have said on the island, and every sound falls back to the built-in tapping
 sounds.
 
-Phone: **Stats → Sounds & voice** (`/remote/sounds`).
+Phone: **Stats → Sounds & voice** (`/remote/sounds`). Everything you can *say*
+to the wall is in [voice-commands.md](voice-commands.md).
 
 ## Set up the key
 
@@ -45,6 +46,7 @@ needed: it's read when the wall next speaks.
 | A reminder (alert) comes due | "Reminder: Call mom." |
 | You say "Hey Siri, tell the wall" … "announce dinner is ready" | A two-note chime, then "Dinner is ready." |
 | "tell everyone we're leaving in five minutes" | The same, for anything after "tell everyone" |
+| "say that again" | The last thing the wall said back to you |
 | The **Say it** box on the phone page | Whatever you type |
 
 `POST /api/voice/say` with `{ "text": "…" }` (or a plain-text body) does the
@@ -105,3 +107,56 @@ browser, copy the one you like over `static/sounds/<name>.mp3`, delete
 
 The small sounds that play all the time (tab taps, swipes, volume ticks)
 stay synthesized on purpose: they need zero delay.
+
+## Making sounds from the phone
+
+You don't need a laptop to add or fill in sounds. On **Stats → Sounds & voice**
+(needs the ElevenLabs key above) the wall can make them itself.
+
+**Make a sound.** Describe it ("a doorbell", "pouring tea into a cup") and tap
+**Make**. The wall sends it to ElevenLabs in the same quiet-room style as the
+rest, keeps the mp3 in `data/sounds/`, and plays it. Tap the chips for ideas,
+or pick a length (otherwise the wall guesses: a tap is short, a ring is
+longer). Start with `!` to send the words exactly as typed, with no house style
+added.
+
+**Use it for an event.** Under **Made on the wall**, each sound has a **Play it
+for** menu. Pick `timer`, `reminder`, `announce` or any other library sound and
+that event plays yours from then on, on the wall and on the phone. Pick
+**Nothing yet** to put the original back.
+
+**Fill in the stand-ins.** Any library sound without a recording shows a
+**Make this sound** button, and **Make the N missing sounds** makes them all, one
+after another. A sound made this way is tagged *made here* and takes over its
+own event. **Make another take** gives a new version if you don't like it.
+
+Sounds made this way live only on the kiosk. To keep one in the repo (so it
+survives a reinstall), use `npm run sounds:generate` as above.
+
+### Cost and limits
+
+- At most **24** sounds are kept. Delete one to make room.
+- At most **90 seconds** of sound a day (the whole built-in library is about 25).
+  The phone page shows the day's use.
+- Clips are 0.5 to 6 seconds. Credits are roughly in proportion to length, so
+  a failed or unwanted one still costs what it cost.
+- Only the wall's own screen or a [paired phone](pairing.md) can make, assign
+  or delete sounds (or any phone, before the first one is paired).
+
+### API
+
+Writes take the same Bearer token as `/api/tasks`. The list and the clips
+don't, because the kiosk's player can't send a header.
+
+| Call | |
+| --- | --- |
+| `GET /api/sounds/custom` | the list `{ sounds, assign, max, secondsToday, dailySeconds, hasKey }` |
+| `GET /api/sounds/custom/<name>.mp3` | one clip |
+| `POST /api/sounds/generate` `{ "idea": "a doorbell", "seconds": 2 }` | make one (`seconds` is optional) |
+| `POST /api/sounds/generate` `{ "kind": "timer" }` | make the library's own sound for that event |
+| `POST /api/sounds/assign` `{ "kind": "timer", "name": "doorbell" }` | play it for that event; `"name": null` undoes it |
+| `DELETE /api/sounds/custom/<name>` | forget it |
+
+Errors: `no-key`, `empty`, `too-many`, `daily-limit`, `rate-limited`,
+`bad-key`, `failed` (ElevenLabs didn't answer or sent nothing), `unknown-kind`
+and `not-found`.

@@ -1,7 +1,9 @@
 <!--
 	Phone page for the wall's voice and its sound library: turn the voice on
 	or off, set quiet hours, see today's ElevenLabs usage, say something on
-	the wall, and audition every sound (on the phone itself).
+	the wall, audition every sound (on the phone itself), and make new ones:
+	describe a sound and the wall generates it with ElevenLabs, or fill in a
+	built-in stand-in with one tap.
 -->
 <script>
 	import '../../../app.css';
@@ -10,7 +12,8 @@
 	import { onMount } from 'svelte';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 	import { SOUND_LIBRARY } from '$lib/sounds/library.js';
-	import { playChime, primeAudio } from '$lib/services/chime.js';
+	import { SOUND_IDEAS } from '$lib/sounds/custom.js';
+	import { playChime, playCustom, primeAudio, reloadCustomSounds } from '$lib/services/chime.js';
 
 	let ws;
 	let retry = 0;
@@ -25,6 +28,14 @@
 	let keyMessage = $state('');
 	let keyFailed = $state(false);
 	let keyEditing = $state(false);
+	// sounds made on the wall: the list, what's being made, and a queue for "make the missing ones"
+	let lib = $state({ sounds: {}, assign: {}, max: 24, secondsToday: 0, dailySeconds: 90, hasKey: true });
+	let idea = $state('');
+	let length = $state('auto');
+	let making = $state('');
+	let makeMessage = $state('');
+	let makeFailed = $state(false);
+	let queue = [];
 
 	const KEY_RESULTS = {
 		'bad-format': "That doesn't look like an ElevenLabs key. Copy it again from elevenlabs.io → Developers → API Keys.",
@@ -37,6 +48,21 @@
 		name: g,
 		sounds: SOUND_LIBRARY.filter((s) => s.group === g)
 	}));
+
+	const LENGTHS = { auto: undefined, short: 0.8, medium: 2, long: 4 };
+
+	const MAKE_RESULTS = {
+		'no-key': 'Add your ElevenLabs key above first; the wall needs it to make sounds.',
+		empty: 'Describe a sound first, like "a doorbell".',
+		'too-many': 'That is the most sounds the wall keeps. Delete one first.',
+		'daily-limit': "Today's sound budget is used up. Try again tomorrow.",
+		'rate-limited': 'ElevenLabs is busy. Try again in a minute.',
+		'bad-key': 'ElevenLabs refused the key.',
+		failed: "ElevenLabs didn't make that one. Try again, or describe it differently.",
+		'not-paired': 'Only a paired phone can make sounds. Pair this phone under Stats → Phones.',
+		'unknown-kind': 'The wall does not know that sound.',
+		'not-found': 'That sound has gone.'
+	};
 
 	const SILENT = {
 		off: 'The voice is off, so it was only shown.',
@@ -59,6 +85,7 @@
 			retry = 0;
 			ws.send(JSON.stringify({ type: 'hello', role: 'remote' }));
 			send({ op: 'get' });
+			sendSounds({ op: 'get' });
 		};
 		ws.onclose = () => {
 			status = 'offline';
@@ -68,6 +95,11 @@
 			try {
 				const msg = JSON.parse(e.data);
 				if (followPairing(msg)) return;
+				if (msg.type === 'sounds-changed') {
+					reloadCustomSounds();
+					return;
+				}
+				if (msg.type === 'sounds') return heardSounds(msg);
 				if (msg.type !== 'voice') return;
 				if (msg.settings) settings = msg.settings;
 				if (msg.keyResult) {
@@ -89,6 +121,82 @@
 				/* ignore */
 			}
 		};
+	}
+
+	function sendSounds(msg) {
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'sounds', ...msg }));
+	}
+
+	function heardSounds(msg) {
+		if (msg.library) lib = msg.library;
+		const r = msg.result;
+		if (!r) return;
+		if (r.op === 'generate') {
+			making = '';
+			if (r.ok) {
+				makeFailed = false;
+				makeMessage = r.assigned ? `Made "${r.assigned}". It plays on the wall now.` : `Made "${r.sound?.idea || r.name}". Tap it below to hear it.`;
+				reloadCustomSounds().then(() => (r.assigned ? playChime(r.assigned) : playCustom(r.name)));
+				if (!r.assigned) idea = '';
+				// the next of "make the missing ones"
+				const next = queue.shift();
+				if (next) makeLibrary(next);
+			} else {
+				queue = [];
+				makeFailed = true;
+				makeMessage = MAKE_RESULTS[r.error] || 'Something went wrong.';
+			}
+		} else if (!r.ok) {
+			makeFailed = true;
+			makeMessage = MAKE_RESULTS[r.error] || 'Something went wrong.';
+		}
+	}
+
+	function makeIdea(e) {
+		e?.preventDefault();
+		const text = idea.trim();
+		if (!text || making) return;
+		primeAudio();
+		making = text;
+		makeFailed = false;
+		makeMessage = 'Making it… this takes a few seconds.';
+		sendSounds({ op: 'generate', idea: text, seconds: LENGTHS[length] });
+	}
+
+	function makeLibrary(kind) {
+		if (making && making !== kind) return;
+		primeAudio();
+		making = kind;
+		makeFailed = false;
+		makeMessage = `Making "${kind}"…`;
+		sendSounds({ op: 'generate', kind });
+	}
+
+	function makeMissing() {
+		queue = missing.map((s) => s.name);
+		const first = queue.shift();
+		if (first) makeLibrary(first);
+	}
+
+	function assignTo(kind, name) {
+		sendSounds({ op: 'assign', kind, name: name || null });
+	}
+
+	function forget(name) {
+		sendSounds({ op: 'delete', name });
+	}
+
+	function playMade(name) {
+		primeAudio();
+		playCustom(name);
+		playingName = `custom:${name}`;
+		setTimeout(() => playingName === `custom:${name}` && (playingName = ''), 900);
+	}
+
+	function usedFor(name) {
+		return Object.entries(lib.assign)
+			.filter(([, n]) => n === name)
+			.map(([kind]) => kind);
 	}
 
 	function saveKey(e) {
@@ -140,6 +248,11 @@
 			}
 		};
 	});
+
+	// a sound counts as recorded when the repo has its file; otherwise it's a stand-in until one is made here
+	let missing = $derived(SOUND_LIBRARY.filter((s) => !have.has(s.name) && !lib.assign[s.name]));
+	let madeList = $derived(Object.entries(lib.sounds).sort((a, b) => (b[1].made || 0) - (a[1].made || 0)));
+	let budget = $derived(Math.min(100, Math.round((lib.secondsToday / Math.max(1, lib.dailySeconds)) * 100)));
 
 	let used = $derived(settings ? Math.min(100, Math.round((settings.charsToday / Math.max(1, settings.dailyChars)) * 100)) : 0);
 </script>
@@ -225,12 +338,83 @@
 		{/if}
 	</section>
 
+	<section class="card" aria-labelledby="make-h">
+		<h2 id="make-h">Make a sound</h2>
+		<form class="say" onsubmit={makeIdea}>
+			<input type="text" bind:value={idea} placeholder="a doorbell" maxlength="140" aria-label="Describe a sound" />
+			<button type="submit" disabled={!idea.trim() || !!making || status !== 'live'}>{making && making === idea.trim() ? 'Making…' : 'Make'}</button>
+		</form>
+		<div class="chips" aria-label="Ideas">
+			{#each SOUND_IDEAS as ex (ex)}
+				<button type="button" class="chip" onclick={() => (idea = ex)}>{ex}</button>
+			{/each}
+		</div>
+		<label class="row">
+			<span>Length</span>
+			<select bind:value={length} aria-label="Length">
+				<option value="auto">Let the wall pick</option>
+				<option value="short">Short tap</option>
+				<option value="medium">About 2 seconds</option>
+				<option value="long">Long, 4 seconds</option>
+			</select>
+		</label>
+		{#if makeMessage}<p class="note" class:warn={makeFailed} role="status">{makeMessage}</p>{/if}
+		<p class="note">
+			The wall makes it once with ElevenLabs, in the same quiet-room style as the rest, and keeps it. Start with "!" to
+			send exactly what you typed. {lib.secondsToday.toFixed(0)} of {lib.dailySeconds} seconds made today.
+		</p>
+		<div class="meter" aria-hidden="true"><span style="width: {budget}%"></span></div>
+
+		{#if madeList.length}
+			<h3>Made on the wall ({madeList.length} of {lib.max})</h3>
+			<ul class="sounds">
+				{#each madeList as [name, s] (name)}
+					<li>
+						<div class="made">
+							<button class="sound" class:playing={playingName === `custom:${name}`} onclick={() => playMade(name)}>
+								<span class="name">{s.idea}</span>
+								<span class="tag made">{s.seconds}s</span>
+							</button>
+							<button type="button" class="ghost small" onclick={() => forget(name)} aria-label="Delete {s.idea}">Delete</button>
+						</div>
+						<label class="use">
+							<span class="prompt">Play it for</span>
+							<select
+								value={usedFor(name)[0] || ''}
+								onchange={(e) => {
+									const kind = e.currentTarget.value;
+									for (const k of usedFor(name)) if (k !== kind) assignTo(k, null);
+									if (kind) assignTo(kind, name);
+								}}
+								aria-label="Use {s.idea} for"
+							>
+								<option value="">Nothing yet</option>
+								{#each groups as g (g.name)}
+									<optgroup label={g.name}>
+										{#each g.sounds as opt (opt.name)}
+											<option value={opt.name}>{opt.name}</option>
+										{/each}
+									</optgroup>
+								{/each}
+							</select>
+						</label>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
+
 	<section class="card" aria-labelledby="lib-h">
 		<h2 id="lib-h">Sound library</h2>
 		<p class="note">
-			Plays on this phone. {have.size} of {SOUND_LIBRARY.length} recorded; the rest use the built-in taps until
-			<code>npm run sounds:generate</code> makes them.
+			Plays on this phone. {have.size} of {SOUND_LIBRARY.length} recorded; the rest use the built-in taps until they're
+			made here (or with <code>npm run sounds:generate</code>).
 		</p>
+		{#if missing.length}
+			<button type="button" class="ghost" disabled={!!making || status !== 'live'} onclick={makeMissing}>
+				Make the {missing.length} missing {missing.length === 1 ? 'sound' : 'sounds'}
+			</button>
+		{/if}
 		{#each groups as g (g.name)}
 			<h3>{g.name}</h3>
 			<ul class="sounds">
@@ -238,8 +422,15 @@
 					<li>
 						<button class="sound" class:playing={playingName === s.name} onclick={() => audition(s.name)}>
 							<span class="name">{s.name}</span>
-							<span class="tag" class:made={have.has(s.name)}>{have.has(s.name) ? 'recorded' : 'stand-in'}</span>
+							<span class="tag" class:made={have.has(s.name) || lib.assign[s.name]}>
+								{lib.assign[s.name] ? 'made here' : have.has(s.name) ? 'recorded' : 'stand-in'}
+							</span>
 						</button>
+						{#if !have.has(s.name)}
+							<button type="button" class="ghost small remake" disabled={!!making || status !== 'live'} onclick={() => makeLibrary(s.name)}>
+								{making === s.name ? 'Making…' : lib.assign[s.name] ? 'Make another take' : 'Make this sound'}
+							</button>
+						{/if}
 						<p class="prompt">{s.prompt.replace(/, close-miked.*$/, '')}</p>
 					</li>
 				{/each}
@@ -457,6 +648,57 @@
 		font-size: var(--text-xs, 0.75rem);
 		color: var(--text-tertiary);
 		line-height: 1.35;
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+	.chip {
+		min-height: 2.25rem;
+		padding: 0 var(--space-3);
+		background: var(--abyss-1);
+		color: var(--foreground);
+		border: 1px solid var(--hairline);
+		font-weight: 500;
+		font-size: var(--text-sm);
+	}
+	select {
+		min-height: 2.75rem;
+		max-width: 12rem;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-sm);
+		background: var(--abyss-1);
+		color: var(--foreground);
+		font: inherit;
+	}
+	.made {
+		display: flex;
+		gap: var(--space-2);
+		align-items: center;
+	}
+	.made .sound {
+		flex: 1;
+		min-width: 0;
+	}
+	.made .name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.use {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		margin-top: var(--space-1, 0.25rem);
+	}
+	.remake {
+		display: block;
+		min-height: 2rem;
+		margin-top: var(--space-1, 0.25rem);
+		font-size: var(--text-xs, 0.75rem);
 	}
 	code {
 		font-family: var(--font-mono, monospace);

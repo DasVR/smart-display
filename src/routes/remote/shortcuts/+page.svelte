@@ -111,7 +111,9 @@
 		"I'm leaving",
 		'undo that',
 		'show me the weather',
-		'pause the music'
+		'pause the music',
+		'turn it up',
+		'what time is it'
 	];
 
 	function url(path) {
