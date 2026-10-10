@@ -13,7 +13,7 @@
 	import { tasks, approvals, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
-	import { primeAudio, playChime } from '$lib/services/chime.js';
+	import { primeAudio, playChime, reloadCustomSounds } from '$lib/services/chime.js';
 	import { speakClip, hushWall } from '$lib/services/wallSpeaker.js';
 	import { chimeKindForEvent } from '$lib/chimeKind.js';
 	import {
@@ -311,6 +311,7 @@
 					agentRoster.update((r) => applyNotifyToRoster(r, ev));
 					if (isAgentStatusEvent(ev)) playChime(chimeKindForEvent(ev));
 				}
+				if (msg.type === 'sounds-changed') reloadCustomSounds();
 				if (msg.type === 'speak' && msg.text) {
 					// the words always show (unless an alert already shows them);
 					// the voice comes with them when there's a clip

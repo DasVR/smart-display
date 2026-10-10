@@ -24,6 +24,7 @@ import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { createActionHub } from './lib/server/actionHub.js';
 import { createVoiceHub } from './lib/server/voiceHub.js';
+import { createSoundHub } from './lib/server/soundHub.js';
 import { createPairing, isLocalAddress } from './lib/server/pairing.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
@@ -61,7 +62,7 @@ import {
 } from './lib/server/agentRosterState.js';
 import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
-import { applyVolumePayload, getVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
+import { applyVolumePayload, getVolume, setMute, setVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
 	debounceSignal,
 	isPhoneWakeWindow,
@@ -100,6 +101,12 @@ const dayLog = createDayLogHub({ dataDir: path.join(PROJECT_ROOT, 'data') });
 // the wall's voice (ElevenLabs, cached; captions only without a key)
 const voiceHub = createVoiceHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
+	broadcast: (msg) => broadcast(msg)
+});
+// sounds made from the phone (ElevenLabs sound effects, kept in data/sounds/)
+const soundHub = createSoundHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	getKey: () => voiceHub.key(),
 	broadcast: (msg) => broadcast(msg)
 });
 const taskHub = createTaskHub({
@@ -146,6 +153,10 @@ const actionHub = createActionHub({
 		return r;
 	},
 	screen: (state) => applyHdmi(state, { reason: 'siri' }),
+	volume: {
+		get: () => getVolume(),
+		apply: (target) => (target.muted !== undefined ? setMute(target.muted) : setVolume(target.volume))
+	},
 	loadWeather: () => getWeather(24),
 	loadEvents: async () => (await getCalendar(1))?.events || [],
 	announce: (text) => voiceHub.say(text, { source: 'iPhone' })
@@ -614,6 +625,7 @@ const server = createServer(async (req, res) => {
 	if (await actionHub.handleHttp(req, res)) return;
 	if (await dayLog.handleHttp(req, res)) return;
 	if (await voiceHub.handleHttp(req, res)) return;
+	if (await soundHub.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
@@ -1038,6 +1050,24 @@ wss.on('connection', (ws, req) => {
 						.then((said) => reply({ said, settings: voiceHub.snapshot() }))
 						.catch(() => reply({ said: { ok: false } }));
 				} else reply({ settings: voiceHub.snapshot() });
+			}
+			if (msg.type === 'sounds') {
+				// the phone's sound maker: { op: 'get' | 'generate' | 'assign' | 'delete', ... }
+				const reply = (data) => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'sounds', ...data }));
+				// making a sound spends ElevenLabs credits: the wall, a paired phone, or
+				// anyone before the first phone is paired (same rule as the key)
+				const maySpend = ws.local || Boolean(ws.device) || pairing.status().devices.length === 0;
+				if (msg.op === 'get' || !msg.op) reply({ library: soundHub.snapshot() });
+				else if (!maySpend) reply({ result: { ok: false, error: 'not-paired', op: msg.op }, library: soundHub.snapshot() });
+				else if (msg.op === 'generate') {
+					const input = msg.kind ? { kind: String(msg.kind) } : { idea: String(msg.idea || ''), seconds: msg.seconds };
+					soundHub
+						.generate(input)
+						.then((result) => reply({ result: { ...result, op: 'generate', for: input.kind || input.idea }, library: soundHub.snapshot() }))
+						.catch(() => reply({ result: { ok: false, error: 'failed', op: 'generate' } }));
+				} else if (msg.op === 'assign') reply({ result: { ...soundHub.assign(String(msg.kind || ''), msg.name ?? null), op: 'assign' }, library: soundHub.snapshot() });
+				else if (msg.op === 'delete') reply({ result: { ...soundHub.remove(String(msg.name || '')), op: 'delete' }, library: soundHub.snapshot() });
+				else reply({ library: soundHub.snapshot() });
 			}
 			if (msg.type === 'approvals') {
 				const result = approvalHub.handleWs(msg);

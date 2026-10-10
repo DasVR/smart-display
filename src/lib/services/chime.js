@@ -21,6 +21,7 @@ function getContext() {
 	if (!ctx) {
 		ctx = new AudioCtx();
 		loadLibrary(ctx);
+		reloadCustomSounds();
 	}
 	if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 	return ctx;
@@ -55,8 +56,47 @@ async function loadLibrary(context) {
 	}
 }
 
-function playSample(context, name) {
-	const s = samples.get(name);
+/* ---------- sounds made on the phone (src/lib/server/soundHub.js) ----------
+   Kept on the kiosk, listed by /api/sounds/custom. A custom sound can be
+   assigned to a library kind, and then plays in its place everywhere. */
+const custom = new Map(); // name -> { buffer, gain, made }
+let assigned = {}; // kind -> custom name
+
+/** (Re)read the custom sounds. Called at startup and when the wall says they changed. */
+export async function reloadCustomSounds() {
+	const context = getContext();
+	if (!context) return;
+	try {
+		const res = await fetch('/api/sounds/custom', { cache: 'no-cache' });
+		if (!res.ok) return;
+		const { sounds = {}, assign = {} } = await res.json();
+		await Promise.all(
+			Object.entries(sounds).map(async ([name, meta]) => {
+				if (custom.get(name)?.made === meta.made) return;
+				try {
+					const r = await fetch(`/api/sounds/custom/${encodeURIComponent(name)}.mp3?v=${meta.made || 0}`);
+					if (!r.ok) return;
+					const buffer = await context.decodeAudioData(await r.arrayBuffer());
+					custom.set(name, { buffer, gain: Math.min(1, Math.max(0, Number(meta.gain) || 0.6)), made: meta.made });
+				} catch {
+					/* this one is skipped */
+				}
+			})
+		);
+		for (const name of [...custom.keys()]) if (!sounds[name]) custom.delete(name);
+		assigned = assign;
+	} catch {
+		/* no custom sounds (the static demo has no server) */
+	}
+}
+
+/** Play a sound made on the phone by its own name. */
+export function playCustom(name) {
+	const context = getContext();
+	return context ? playBuffer(context, custom.get(name)) : false;
+}
+
+function playBuffer(context, s) {
 	if (!s) return false;
 	const src = context.createBufferSource();
 	const gain = context.createGain();
@@ -66,6 +106,12 @@ function playSample(context, name) {
 	gain.connect(context.destination);
 	src.start();
 	return true;
+}
+
+function playSample(context, name) {
+	// a sound assigned from the phone wins over the built-in one for the same event
+	if (playBuffer(context, custom.get(assigned[name]))) return true;
+	return playBuffer(context, samples.get(name));
 }
 
 /** Library sounds with no synth profile of their own borrow one. */

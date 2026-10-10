@@ -5,6 +5,8 @@
  *   GET  /api/action/menu       choices for the "Wall menu" shortcut
  *                               (?format=text: one label per line, for Choose from List)
  *   POST /api/action/run        { choice } (or a text/plain body): run the chosen label
+ *   POST /api/action/parse      { text }: what the wall makes of a sentence, without doing it
+ *                               (GET ?text= works too)
  *
  * Same Bearer token as /api/tasks. Answers carry a `say` sentence; with
  * ?format=text (or Accept: text/plain) you get just the sentence, always 200,
@@ -20,10 +22,17 @@ import { speakBrief, speakDone, speakWhen } from '../quickSay.js';
 import {
 	buildMenu,
 	findMenuItem,
-	matchTask,
 	parseCommand,
+	understand,
 	pickPress,
+	resolveTask,
+	HELP_SAY,
 	speakBoard,
+	speakNow,
+	speakToday,
+	speakNowPlaying,
+	speakVolume,
+	volumeTarget,
 	speakTimersLeft,
 	speakTomorrow,
 	speakWeather,
@@ -38,6 +47,11 @@ const CONTEXT_TTL_MS = 10 * 60000;
 const LOOKUP_MS = 2500;
 const SCREEN_MS = 4000;
 const EVENTS = ['morning', 'night', 'home', 'leaving'];
+
+/** "Feed the cat, Feed the fish or Water the plants" */
+function orList(titles) {
+	return titles.length > 1 ? `${titles.slice(0, -1).join(', ')} or ${titles.at(-1)}` : titles[0];
+}
 
 function withTimeout(promise, ms) {
 	return Promise.race([Promise.resolve(promise), new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), ms))]);
@@ -77,6 +91,8 @@ export function createActionHub({
 	navigate = () => {},
 	player = async () => ({ ok: false }),
 	screen = async () => {},
+	// { volume (0..1.5), muted } now; apply({ volume } | { muted }); both resolve { ok, volume, muted }
+	volume = { get: async () => ({ ok: false }), apply: async () => ({ ok: false }) },
 	loadWeather = async () => null,
 	loadEvents = async () => [],
 	announce = async () => ({ ok: false }),
@@ -86,6 +102,8 @@ export function createActionHub({
 }) {
 	const tokenFile = path.join(dataDir, 'api-token');
 	const cache = { weather: null, events: [], at: 0 };
+	/** The last thing it said back, for "say that again" */
+	let lastSay = '';
 
 	/** Weather and calendar, cached 10 minutes; a slow or failed lookup keeps the last good copy. */
 	async function refreshContext() {
@@ -159,7 +177,9 @@ export function createActionHub({
 			case 'done': {
 				let id = action.taskId;
 				if (!id) {
-					const t = query ? matchTask(ctx.tasks, query) : ctx.tasks.find((x) => ['overdue', 'due', 'today'].includes(x.status));
+					const found = query ? resolveTask(ctx.tasks, query) : { task: ctx.tasks.find((x) => ['overdue', 'due', 'today'].includes(x.status)) };
+					if (found.ambiguous) return { say: `Which one: ${orList(found.ambiguous)}? Say a bit more.` };
+					const t = found.task;
 					if (!t) return { say: query ? `I couldn't find "${query}" on the wall.` : 'Nothing waiting. All clear.' };
 					// "done with the sheets" right after ticking them off must not
 					// skip the next occurrence too
@@ -174,7 +194,9 @@ export function createActionHub({
 			case 'snooze': {
 				let id = action.taskId;
 				if (!id) {
-					const t = query ? matchTask(ctx.tasks, query) : ctx.tasks.find((x) => ['overdue', 'due', 'today'].includes(x.status));
+					const found = query ? resolveTask(ctx.tasks, query) : { task: ctx.tasks.find((x) => ['overdue', 'due', 'today'].includes(x.status)) };
+					if (found.ambiguous) return { say: `Which one: ${orList(found.ambiguous)}? Say a bit more.` };
+					const t = found.task;
 					if (!t) return { say: query ? `I couldn't find "${query}" on the wall.` : 'Nothing waiting to snooze.' };
 					id = t.id;
 				}
@@ -206,6 +228,23 @@ export function createActionHub({
 			}
 			case 'tomorrow':
 				return { say: speakTomorrow(ctx.tasks, now()) };
+			case 'time':
+				return { say: speakNow(now()) };
+			case 'date':
+				return { say: speakToday(now()) };
+			case 'now-playing':
+				return { say: speakNowPlaying(ctx.nowPlaying) };
+			case 'help':
+				return { say: HELP_SAY };
+			case 'repeat':
+				return { say: lastSay || 'I have not said anything yet.' };
+			case 'volume': {
+				const current = await volume.get().catch(() => ({ ok: false }));
+				if (!current?.ok && action.change !== 'mute' && action.change !== 'unmute' && action.change !== 'set') return { say: "I couldn't reach the volume." };
+				const r = await volume.apply(volumeTarget(current, action)).catch(() => ({ ok: false }));
+				if (!r?.ok) return { say: "I couldn't change the volume." };
+				return { say: action.change === 'unmute' ? 'Unmuted.' : speakVolume(r) };
+			}
 			case 'timer-left':
 				return { say: speakTimersLeft(ctx.tasks, now()) };
 			case 'cancel-timer': {
@@ -220,10 +259,15 @@ export function createActionHub({
 		}
 	}
 
+	function remember(action, out) {
+		if (action.intent !== 'repeat' && out?.say) lastSay = out.say;
+	}
+
 	async function press() {
 		const ctx = await context();
 		const action = pickPress(ctx);
 		const out = await run(action, ctx);
+		remember(action, out);
 		return { did: action.intent, ...out };
 	}
 
@@ -238,6 +282,7 @@ export function createActionHub({
 		const item = findMenuItem(buildMenu(ctx), choice);
 		if (!item) return { say: 'That choice has gone; the wall changed. Try again.' };
 		const out = await run(item, ctx);
+		remember(item, out);
 		return { did: item.id, ...out };
 	}
 
@@ -247,6 +292,7 @@ export function createActionHub({
 		if (!cmd) return null;
 		const ctx = await context();
 		const out = await run(cmd, ctx, cmd.query || '');
+		remember(cmd, out);
 		return { did: cmd.intent, ...out };
 	}
 
@@ -315,6 +361,13 @@ export function createActionHub({
 			if (sub === 'menu' && req.method === 'GET') return send(req, res, url, 200, await menu()), true;
 			if (sub === 'event' && parts[3] && (req.method === 'POST' || req.method === 'GET')) {
 				return send(req, res, url, 200, await event(parts[3].toLowerCase())), true;
+			}
+			if (sub === 'parse' && (req.method === 'POST' || req.method === 'GET')) {
+				// a dry run: what the wall makes of a sentence, without doing it
+				const text = req.method === 'GET' ? (url.searchParams.get('text') ?? '') : ((await readBody(req)).text ?? '');
+				const u = understand(text);
+				const how = u.command ? `Understood as ${u.command.intent}.` : u.would === 'add' ? 'Not a command, so it would be added to the list.' : 'Nothing to understand.';
+				return send(req, res, url, 200, { ...u, say: how }), true;
 			}
 			if (sub === 'run' && req.method === 'POST') {
 				const body = await readBody(req);

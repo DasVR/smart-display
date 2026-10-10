@@ -71,8 +71,10 @@ display's address filled in. See [`docs/siri-shortcuts.md`](docs/siri-shortcuts.
   and "tell the wall … announce dinner is ready" makes the wall announce
   it. It uses ElevenLabs, cached and capped per day, and stays silent in
   quiet hours. A library of paper, brass and glass sound effects comes from
-  the same place. Without a key it shows the words instead. See
-  [`docs/voice.md`](docs/voice.md).
+  the same place, and the phone can make new ones (or fill in missing ones)
+  from a description. Without a key it shows the words instead. See
+  [`docs/voice.md`](docs/voice.md); what you can say is in
+  [`docs/voice-commands.md`](docs/voice-commands.md).
 - **Agent approvals.** When Claude Code (or any agent) stops to ask before
   running a tool, the wall and the phone show an Allow / Deny card. See
   [`docs/approvals.md`](docs/approvals.md).
@@ -252,7 +254,8 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/tasks-api.md`](docs/tasks-api.md): chores and alerts, webhooks, MCP bridge
 - [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md): Siri, the Action button and Shortcuts
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
-- [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs) and its sound library
+- [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
+- [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
 - [`docs/pairing.md`](docs/pairing.md): pair phones with a code on the wall; optionally only paired phones get in
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup
 - [`scripts/forced_align/README.md`](scripts/forced_align/README.md): lyrics lookup, cache and alignment

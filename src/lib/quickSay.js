@@ -64,7 +64,12 @@ function startOfDay(ms) {
  * "remind me to …". Also drops a trailing "please" / "thanks".
  */
 export function cleanSpeech(text) {
-	let s = String(text ?? '').replace(/\s+/g, ' ').trim();
+	// Siri and iOS dictation hand back curly quotes: "what’s on the wall" must read as what's
+	let s = String(text ?? '')
+		.replace(/[\u2018\u2019\u02bc\u0060]/g, "'")
+		.replace(/[\u201c\u201d]/g, '"')
+		.replace(/\s+/g, ' ')
+		.trim();
 	s = s.replace(/^(?:(?:um+|uh+|er+|hmm+|okay|ok|so|well|hi|hey siri|hey wall|siri|wall)[,.\s]+)+/i, '');
 	s = s.replace(/^(?:(?:can|could|would|will) you(?: please)?|please|i(?:'d| would) like(?: you)? to|i want(?: you)? to|i need you to|go ahead and|just)\s+/i, '');
 	s = s.replace(/^(?:set|make|create|add|put)(?: me)?(?: in)? an? (?:reminder|alert)(?: for me)?(?: to| about| for| that)?\s+/i, 'remind me to ');
