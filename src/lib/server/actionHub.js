@@ -79,6 +79,7 @@ export function createActionHub({
 	screen = async () => {},
 	loadWeather = async () => null,
 	loadEvents = async () => [],
+	announce = async () => ({ ok: false }),
 	now = () => Date.now(),
 	env = process.env,
 	log = console
@@ -131,6 +132,11 @@ export function createActionHub({
 		switch (action.intent) {
 			case 'brief':
 				return { say: speakBrief(ctx.tasks, now()) };
+			case 'announce': {
+				const out = await announce(action.text);
+				if (!out?.ok) return { say: "I couldn't put that on the wall." };
+				return { say: out.spoken ? 'Said on the wall.' : 'Shown on the wall.' };
+			}
 			case 'dictate':
 				return { say: 'Use the Tell the wall shortcut to say something to the wall.' };
 			case 'board': {

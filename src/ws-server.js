@@ -23,6 +23,8 @@ import { createTaskHub } from './lib/server/taskHub.js';
 import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { createActionHub } from './lib/server/actionHub.js';
+import { createVoiceHub } from './lib/server/voiceHub.js';
+import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
 import { listAddresses } from './lib/addresses.js';
 import os from 'node:os';
@@ -94,12 +96,21 @@ let schedule = loadSchedule(SCHEDULE_PATH);
 // kiosk and remote, a scheduler that raises due items on the island.
 // the day's tally, printed as a receipt when StandBy comes on at night
 const dayLog = createDayLogHub({ dataDir: path.join(PROJECT_ROOT, 'data') });
+// the wall's voice (ElevenLabs, cached; captions only without a key)
+const voiceHub = createVoiceHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	broadcast: (msg) => broadcast(msg)
+});
 const taskHub = createTaskHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => broadcast(msg),
 	onEvent: (event, task) => {
 		if (event === 'task.done' && task.kind === 'chore') dayLog.record('chore', { title: task.title });
-		if (event === 'task.due' && task.kind === 'alert') dayLog.record('alert', { title: task.title });
+		if (event === 'task.due' && task.kind === 'alert') {
+			dayLog.record('alert', { title: task.title });
+			// timers and reminders are said out loud where you are: at the wall
+			voiceHub.say(speechForDue(task), { source: 'Reminder', caption: false }).catch(() => {});
+		}
 	},
 	// "tell the wall" commands; actionHub is defined below and only called later
 	commands: (text) => actionHub.command(text),
@@ -135,7 +146,8 @@ const actionHub = createActionHub({
 	},
 	screen: (state) => applyHdmi(state, { reason: 'siri' }),
 	loadWeather: () => getWeather(24),
-	loadEvents: async () => (await getCalendar(1))?.events || []
+	loadEvents: async () => (await getCalendar(1))?.events || [],
+	announce: (text) => voiceHub.say(text, { source: 'iPhone' })
 });
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 let lastTickMinutes = null;
@@ -600,6 +612,7 @@ const server = createServer(async (req, res) => {
 	if (await approvalHub.handleHttp(req, res)) return;
 	if (await actionHub.handleHttp(req, res)) return;
 	if (await dayLog.handleHttp(req, res)) return;
+	if (await voiceHub.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
@@ -910,6 +923,17 @@ wss.on('connection', (ws, req) => {
 			}
 			if (msg.type === 'addresses') {
 				ws.send(JSON.stringify({ type: 'addresses', list: listAddresses(os.networkInterfaces(), port, os.hostname()) }));
+			}
+			if (msg.type === 'voice') {
+				// the phone's Sounds & voice page: { op: 'get' | 'set' | 'say' }
+				const reply = (data) => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'voice', ...data }));
+				if (msg.op === 'set' && msg.patch && typeof msg.patch === 'object') reply({ settings: voiceHub.setSettings(msg.patch) });
+				else if (msg.op === 'say') {
+					voiceHub
+						.say(String(msg.text || ''), { source: 'iPhone' })
+						.then((said) => reply({ said, settings: voiceHub.snapshot() }))
+						.catch(() => reply({ said: { ok: false } }));
+				} else reply({ settings: voiceHub.snapshot() });
 			}
 			if (msg.type === 'approvals') {
 				const result = approvalHub.handleWs(msg);

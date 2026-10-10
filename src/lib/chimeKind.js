@@ -32,6 +32,9 @@ export function chimeKindForEvent({
 		if (src.includes('ollama')) return 'done-ollama';
 		return 'success';
 	}
+	// due alerts (src/lib/tasks.js taskNotify): timers ring, reminders chime
+	if (k === 'alert') return /^timer\b/i.test(String(title || '')) ? 'timer' : 'reminder';
+	if (k === 'approval') return 'approval';
 	if (k === 'music') return 'music';
 	if (k === 'briefing') return 'info';
 	if (sev === 'ok' || sev === 'warn' || sev === 'error' || sev === 'info') return sev;
@@ -42,5 +45,6 @@ export function chimeKindForEvent({
  *  island does not double-hit them when the slip later becomes active. */
 export function islandOwnsChime(kind = '') {
 	const k = String(kind || '').toLowerCase();
-	return k !== 'done' && k !== 'working' && k !== 'start';
+	// 'speak': the wall's own voice is the sound
+	return k !== 'done' && k !== 'working' && k !== 'start' && k !== 'speak';
 }

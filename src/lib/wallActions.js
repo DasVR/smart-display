@@ -77,6 +77,9 @@ export function parseCommand(text) {
 
 	if (/^(undo|undo (that|it|this)|scratch that|take that back|oops|that was (wrong|a mistake)|cancel that|never ?mind that)$/i.test(s)) return { intent: 'undo' };
 
+	// the wall says it out loud: "announce dinner is ready", "tell everyone we're leaving"
+	if ((m = s.match(/^(?:announce|broadcast|tell everyone|tell everybody|say out loud|call out)(?: that)?[,:]?\s+(.+)$/i))) return { intent: 'announce', text: m[1] };
+
 	if (/^(cancel|stop|clear|delete|kill|turn off)\s+(?:the |my |all )?(?:\w+ )?timers?$/i.test(s)) return { intent: 'cancel-timer' };
 	if (/^how (?:long|much)\b.*\b(?:timer|left)\b|^(?:how much )?time (?:is )?(?:left|remaining)\b|^timers?$/i.test(s)) return { intent: 'timer-left' };
 

@@ -14,6 +14,7 @@
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime } from '$lib/services/chime.js';
+	import { speakClip, hushWall } from '$lib/services/wallSpeaker.js';
 	import { chimeKindForEvent } from '$lib/chimeKind.js';
 	import {
 		applyNotifyToRoster,
@@ -306,6 +307,26 @@
 					pushIslandEvent(ev);
 					agentRoster.update((r) => applyNotifyToRoster(r, ev));
 					if (isAgentStatusEvent(ev)) playChime(chimeKindForEvent(ev));
+				}
+				if (msg.type === 'speak' && msg.text) {
+					// the words always show (unless an alert already shows them);
+					// the voice comes with them when there's a clip
+					if (msg.caption !== false) {
+						pushIslandEvent({
+							title: msg.text,
+							source: msg.source === 'iPhone' ? 'Announcement' : 'Wall',
+							kind: 'speak',
+							ttl: Math.min(15000, 4000 + msg.text.length * 70)
+						});
+					}
+					const announcement = msg.source === 'iPhone';
+					if (announcement) playChime('announce');
+					if (msg.url && mode !== 'sleep' && !hdmiOff) {
+						// an announcement gets its two-note chime first, like a station
+						const url = msg.url;
+						if (announcement) setTimeout(() => speakClip(url), 900);
+						else speakClip(url);
+					} else if (msg.caption !== false) glowFor(2600);
 				}
 				if (msg.type === 'approvals' && Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
@@ -854,6 +875,10 @@
 	let voiceGlow = $state(false);
 	let voiceGlowTimer;
 	let lastVoiceEventId = 0;
+	// asleep or the panel off: stop mid-sentence rather than talk to a dark room
+	$effect(() => {
+		if (mode === 'sleep' || hdmiOff) hushWall();
+	});
 	function glowFor(ms) {
 		voiceGlow = true;
 		clearTimeout(voiceGlowTimer);

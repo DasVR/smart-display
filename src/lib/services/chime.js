@@ -1,10 +1,12 @@
 // Tactile, physical-feeling UI sounds — a pencil tapping paper, a mechanical
-// keycap bottoming out — instead of synth beeps. Everything here is still
-// generated on the fly from noise + oscillators (no audio files, no external
-// generation step); the "instruments" are just built from filtered noise
-// bursts rather than sustained tones, which is what makes them read as
-// paper/keyboard rather than a notification chime.
+// keycap bottoming out — instead of synth beeps. The bigger moments play
+// clips from the sound library (static/sounds/, made once with ElevenLabs:
+// see src/lib/sounds/library.js) when they're there; everything else, and
+// every kind before the library is generated, is synthesized on the fly from
+// filtered noise bursts, which is what makes it read as paper/keyboard
+// rather than a notification chime.
 
+import { base } from '$app/paths';
 import { volumeTickPitch } from '../chimeKind.js';
 
 export { chimeKindForEvent, islandOwnsChime, volumeTickPitch } from '../chimeKind.js';
@@ -16,10 +18,65 @@ function getContext() {
 	if (typeof window === 'undefined') return null;
 	const AudioCtx = window.AudioContext || window.webkitAudioContext;
 	if (!AudioCtx) return null;
-	if (!ctx) ctx = new AudioCtx();
+	if (!ctx) {
+		ctx = new AudioCtx();
+		loadLibrary(ctx);
+	}
 	if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 	return ctx;
 }
+
+/* ---------- the sound library (src/lib/sounds/library.js) ----------
+   Generated clips in static/sounds/, listed by static/sounds/index.json.
+   All of them are fetched and decoded once, up front, so a sound plays the
+   instant it's asked for. Until then (or with no files at all) every kind
+   falls back to the synthesized taps below. */
+const samples = new Map(); // name -> { buffer, gain }
+
+async function loadLibrary(context) {
+	try {
+		const res = await fetch(`${base}/sounds/index.json`, { cache: 'no-cache' });
+		if (!res.ok) return;
+		const { sounds = {} } = await res.json();
+		await Promise.all(
+			Object.entries(sounds).map(async ([name, meta]) => {
+				try {
+					const r = await fetch(`${base}/sounds/${encodeURIComponent(name)}.mp3`);
+					if (!r.ok) return;
+					const buffer = await context.decodeAudioData(await r.arrayBuffer());
+					samples.set(name, { buffer, gain: Math.min(1, Math.max(0, Number(meta?.gain) || 0.6)) });
+				} catch {
+					/* this one stays synthesized */
+				}
+			})
+		);
+	} catch {
+		/* no library: synth only */
+	}
+}
+
+function playSample(context, name) {
+	const s = samples.get(name);
+	if (!s) return false;
+	const src = context.createBufferSource();
+	const gain = context.createGain();
+	src.buffer = s.buffer;
+	gain.gain.value = s.gain;
+	src.connect(gain);
+	gain.connect(context.destination);
+	src.start();
+	return true;
+}
+
+/** Library sounds with no synth profile of their own borrow one. */
+const SYNTH_STAND_IN = {
+	timer: 'warn',
+	reminder: 'info',
+	announce: 'ok',
+	approval: 'warn',
+	morning: 'music',
+	goodnight: 'info'
+};
 
 /** A couple of seconds of white noise, generated once and reused as the
  *  source for every paper/key sound — cheaper than building a fresh buffer
@@ -249,7 +306,8 @@ const PROFILES = {
 export function playChime(kind = 'info') {
 	const context = getContext();
 	if (!context) return;
-	const hits = PROFILES[kind] || PROFILES.info;
+	if (playSample(context, kind)) return;
+	const hits = PROFILES[kind] || PROFILES[SYNTH_STAND_IN[kind]] || PROFILES.info;
 	hits.forEach((h) => {
 		const at = h.at || 0;
 		if (h.kind === 'key') keyClick(context, { at, peak: h.peak, pitch: h.pitch });
