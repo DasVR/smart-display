@@ -136,7 +136,17 @@ function demoCalendar() {
 			{ id: 'd2', title: 'Calculus problem set 4', start: at(1, 9, 0), location: 'Calculus · #hw' },
 			{ id: 'd3', title: 'Essay draft: unreliable narrators', start: at(2, 17, 0), location: 'English · #hw' },
 			{ id: 'd4', title: 'Spanish vocab quiz', start: at(4, 8, 30), location: 'Spanish · #hw' }
-		]
+		],
+		// the whole week for the Calendar view; the departure board uses only `events`
+		get all() {
+			return [
+				...this.events,
+				{ id: 'c1', title: 'Soccer practice', start: at(0, 17, 0), location: 'Field 3' },
+				{ id: 'c2', title: 'Dentist', start: at(2, 15, 0), location: '' },
+				{ id: 'c3', title: 'Family dinner', start: at(3, 19, 0), location: '' },
+				{ id: 'c4', title: 'Saturday market', start: at(5, 10, 0), location: '' }
+			];
+		}
 	};
 }
 

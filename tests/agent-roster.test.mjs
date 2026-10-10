@@ -100,9 +100,10 @@ test('relativeAge and demo roster stay readable', () => {
 });
 
 test('swipe order is Clock School Agents Music Weather', () => {
-	assert.deepEqual(KIOSK_VIEWS, ['clock', 'school', 'agents', 'music', 'weather']);
+	assert.deepEqual(KIOSK_VIEWS, ['clock', 'calendar', 'agents', 'music', 'weather']);
 	assert.equal(canonicalizeKioskView('dev'), 'agents');
-	assert.equal(swipeKioskView('school', 'left'), 'agents');
+	assert.equal(swipeKioskView('calendar', 'left'), 'agents');
+	assert.equal(swipeKioskView('school', 'left'), 'agents', 'the old School id still works');
 	assert.equal(swipeKioskView('agents', 'left'), 'music');
 	assert.equal(swipeKioskView('dev', 'left'), 'music');
 	assert.equal(swipeKioskView('clock', 'right'), 'weather');

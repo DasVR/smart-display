@@ -47,7 +47,8 @@ EOF
 done
 
 looks_like_cloud_pod() {
-	[[ -d /opt/cursor ]] || [[ "$(hostname -s 2>/dev/null || hostname)" == cursor ]]
+	# LYRIX_ASSUME_CLOUD=1 lets the test suite check the refusal on any machine
+	[[ "${LYRIX_ASSUME_CLOUD:-0}" == 1 ]] || [[ -d /opt/cursor ]] || [[ "$(hostname -s 2>/dev/null || hostname)" == cursor ]]
 }
 
 if looks_like_cloud_pod && [[ "${LYRIX_ALLOW_CLOUD:-0}" != "1" ]] && [[ "$DRY" != 1 ]]; then

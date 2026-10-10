@@ -20,8 +20,12 @@
 			const r = await fetch('/api/calendar?days=7');
 			if (!r.ok) throw new Error('calendar failed');
 			const d = await r.json();
-			events = d.events || [];
-			upcomingEvents.set(events);
+			// The departure board only wants homework (d.events); the calendar
+			// shows the whole week (d.all), with homework flagged.
+			const homework = d.events || [];
+			const hwIds = new Set(homework.map((e) => e.id));
+			events = (d.all ?? homework).map((e) => ({ ...e, homework: hwIds.has(e.id) }));
+			upcomingEvents.set(homework);
 			error = null;
 		} catch {
 			error = 'Calendar feed offline';
@@ -68,15 +72,17 @@
 		nextUp ? `${dayLabel(nextUp.start)}${isAllDay(nextUp.start) ? '' : ` · ${timeLabel(nextUp.start)}`}` : ''
 	);
 
+	let dueCount = $derived(events.filter((e) => e.homework).length);
+
 	let timetableCaption = $derived.by(() => {
 		if (loading) return '';
 		if (error) return error;
-		if (events.length === 0) return 'Nothing due';
+		if (events.length === 0) return 'Nothing on';
 		return '';
 	});
 </script>
 
-<div class="school-hub">
+<div class="calendar-hub">
 	<header class="running">
 		{#if loading}
 			<p class="head-meta">Checking calendar</p>
@@ -88,7 +94,9 @@
 				<span class="next-title">{nextUp.title}</span>
 				<span class="next-when num">{nextWhen}</span>
 			</p>
-			<p class="head-meta">{events.length} due in 7 days</p>
+			<p class="head-meta">
+				{events.length} this week{#if dueCount} · <span class="due-count">{dueCount} due</span>{/if}
+			</p>
 		{:else}
 			<p class="head-meta">Clear this week</p>
 		{/if}
@@ -98,7 +106,7 @@
 </div>
 
 <style>
-	.school-hub {
+	.calendar-hub {
 		height: 100%;
 		width: 100%;
 		flex: 1;
@@ -154,6 +162,9 @@
 	.next-when {
 		font-size: var(--text-lg);
 		color: var(--text-secondary);
+	}
+	.due-count {
+		color: var(--solve);
 	}
 	.next[data-urgency='now'] .next-when {
 		color: var(--warn);

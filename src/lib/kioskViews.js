@@ -2,11 +2,11 @@
  *  websocket swipe list on this one list so a new tab cannot land in only
  *  one of the three. */
 
-export const KIOSK_VIEWS = ['clock', 'school', 'agents', 'music', 'weather'];
+export const KIOSK_VIEWS = ['clock', 'calendar', 'agents', 'music', 'weather'];
 
 export const KIOSK_VIEW_LABELS = {
 	clock: 'Clock',
-	school: 'School',
+	calendar: 'Calendar',
 	agents: 'Agents',
 	music: 'Music',
 	weather: 'Weather'
@@ -16,9 +16,12 @@ export function kioskViewLabel(id) {
 	return KIOSK_VIEW_LABELS[id] || String(id || '');
 }
 
-/** Retired `dev` channel now lands on Agents. Unknown values fall back to clock. */
+/** Retired channels map to their successors: `dev` is Agents, `school` is
+ *  Calendar (Home Assistant automations may still send it). Unknown values
+ *  fall back to clock. */
 export function canonicalizeKioskView(id) {
 	if (id === 'dev') return 'agents';
+	if (id === 'school') return 'calendar';
 	if (KIOSK_VIEWS.includes(id)) return id;
 	return 'clock';
 }

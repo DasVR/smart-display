@@ -74,6 +74,13 @@ fi
 echo "[2/5] installing deps (npm ci via lockfile)"
 "$NPM" ci --no-audit --no-fund
 
+echo "[2b/5] running the test suite (a red suite keeps the wall on its current build)"
+if ! "$NPM" test >/tmp/smart-display-tests.log 2>&1; then
+	echo "ERROR: tests failed; not rebuilding or restarting. Last lines:"
+	tail -n 40 /tmp/smart-display-tests.log || true
+	exit 1
+fi
+
 echo "[3/5] building (adapter-node)"
 "$NPM" run build
 
