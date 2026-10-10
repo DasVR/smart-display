@@ -7,6 +7,7 @@
 <script>
 	import { onMount } from 'svelte';
 	import ApprovalCard from './ApprovalCard.svelte';
+	import { wallSocketUrl, followPairing } from '$lib/remoteAuth.js';
 
 	let list = $state([]);
 	let now = $state(Date.now());
@@ -14,13 +15,13 @@
 	let retry = 0;
 
 	function connect() {
-		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		ws = new WebSocket(`${proto}//${location.host}/ws`);
+		ws = new WebSocket(wallSocketUrl());
 		ws.onopen = () => (retry = 0);
 		ws.onclose = () => setTimeout(connect, Math.min(8000, 1000 * 2 ** retry++));
 		ws.onmessage = (e) => {
 			try {
 				const msg = JSON.parse(e.data);
+				if (followPairing(msg)) return;
 				if ((msg.type === 'init' || msg.type === 'approvals') && Array.isArray(msg.approvals)) list = msg.approvals;
 			} catch {
 				/* ignore */

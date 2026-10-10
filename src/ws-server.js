@@ -24,6 +24,7 @@ import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { createActionHub } from './lib/server/actionHub.js';
 import { createVoiceHub } from './lib/server/voiceHub.js';
+import { createPairing, isLocalAddress } from './lib/server/pairing.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
 import { listAddresses } from './lib/addresses.js';
@@ -868,6 +869,84 @@ const server = createServer(async (req, res) => {
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 const clients = new Set();
+
+// Pairing phones (src/lib/server/pairing.js). Off until turned on from a
+// paired phone; the kiosk's own browser is always trusted.
+const pairing = createPairing({ dataDir: path.join(PROJECT_ROOT, 'data') });
+function ownAddresses() {
+	return Object.values(os.networkInterfaces())
+		.flat()
+		.map((i) => i?.address)
+		.filter(Boolean);
+}
+const trusted = (ws) => ws.local || Boolean(ws.device) || !pairing.required();
+function toKiosk(data) {
+	const msg = JSON.stringify(data);
+	clients.forEach((ws) => ws.local && ws.readyState === 1 && ws.send(msg));
+}
+let pairCodeTimer = null;
+let pairCodeAskedBy = null;
+function handlePair(ws, msg) {
+	const reply = (data) => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'pair', ...data }));
+	const canManage = ws.local || Boolean(ws.device);
+	if (msg.op === 'start') {
+		// anyone may ask: the code only ever shows on the wall itself
+		const { code, expiresAt } = pairing.startCode();
+		pairCodeAskedBy = ws;
+		toKiosk({ type: 'pair-code', code, expiresAt });
+		clearTimeout(pairCodeTimer);
+		pairCodeTimer = setTimeout(() => toKiosk({ type: 'pair-code-clear' }), Math.max(0, expiresAt - Date.now()));
+		return reply({ started: true, expiresAt });
+	}
+	if (msg.op === 'cancel') {
+		// only whoever asked for the code (or a paired phone, or the wall) can take it down
+		if (!canManage && ws !== pairCodeAskedBy) return reply({ error: 'not-paired' });
+		pairing.cancelCode();
+		clearTimeout(pairCodeTimer);
+		toKiosk({ type: 'pair-code-clear' });
+		return reply({ cancelled: true });
+	}
+	if (msg.op === 'redeem') {
+		const out = pairing.redeem(msg.code, msg.name);
+		if (out.error) return reply({ error: out.error });
+		clearTimeout(pairCodeTimer);
+		toKiosk({ type: 'pair-code-clear', paired: out.device.name });
+		ws.device = out.device;
+		return reply({ token: out.token, device: out.device });
+	}
+	if (!canManage) return reply({ error: 'not-paired', status: { required: pairing.required() } });
+	if (msg.op === 'require') {
+		const status = pairing.setRequired(Boolean(msg.on));
+		// sockets that are no longer allowed in are let go
+		if (pairing.required()) {
+			for (const c of clients) {
+				if (trusted(c)) continue;
+				c.send(JSON.stringify({ type: 'pair-required' }));
+				clients.delete(c);
+				c.close(4401, 'pairing required');
+			}
+		}
+		return reply({ status, you: ws.device, local: ws.local });
+	}
+	if (msg.op === 'rename' && msg.id) {
+		const d = pairing.rename(String(msg.id), msg.name);
+		if (ws.device?.id === d?.id) ws.device = d;
+	}
+	if (msg.op === 'revoke' && msg.id) {
+		const id = String(msg.id);
+		pairing.revoke(id);
+		for (const c of clients) {
+			if (c.device?.id !== id) continue;
+			c.device = null;
+			if (!trusted(c)) {
+				c.send(JSON.stringify({ type: 'pair-required' }));
+				clients.delete(c);
+				c.close(4401, 'unpaired');
+			}
+		}
+	}
+	return reply({ status: pairing.status(), you: ws.device, local: ws.local });
+}
 let currentView = 'clock';
 
 function broadcast(data) {
@@ -888,7 +967,17 @@ setInstallProgressListener((progress) => {
 wss.on('connection', (ws, req) => {
 	const isRemote = req.headers['x-remote'] === 'phone' || req.url?.includes('remote');
 	ws.isRemote = isRemote;
-	clients.add(ws);
+	ws.local = isLocalAddress(req.socket?.remoteAddress, ownAddresses());
+	let token = '';
+	try {
+		token = new URL(req.url || '/', 'http://local').searchParams.get('token') || '';
+	} catch {
+		/* no token */
+	}
+	ws.device = pairing.verify(token);
+	const admitted = trusted(ws);
+	if (admitted) clients.add(ws);
+	else ws.send(JSON.stringify({ type: 'pair-required' }));
 
 	// Listeners go on before the (now async, since audioSnapshot shells out
 	// to wpctl) init send below, so a message the client fires off right
@@ -897,6 +986,9 @@ wss.on('connection', (ws, req) => {
 		try {
 			const msg = JSON.parse(raw.toString());
 			if (msg.type === 'ping') ws.send(JSON.stringify({ type: 'pong' }));
+			if (msg.type === 'pair') return handlePair(ws, msg);
+			// not paired while pairing is required: nothing but pairing
+			if (!trusted(ws) || !clients.has(ws)) return ws.send(JSON.stringify({ type: 'pair-required' }));
 			if (msg.type === 'hello' && msg.role === 'remote') ws.isRemote = true;
 			if (msg.type === 'navigate') {
 				currentView = canonicalizeKioskView(msg.view);
@@ -947,6 +1039,7 @@ wss.on('connection', (ws, req) => {
 	ws.on('close', () => clients.delete(ws));
 
 	(async () => {
+		if (!admitted) return;
 		const audio = await audioSnapshot();
 		if (ws.readyState !== 1) return;
 		ws.send(
@@ -962,7 +1055,8 @@ wss.on('connection', (ws, req) => {
 				installProgress: getInstallProgress(),
 				agents: getAgentRoster(),
 				tasks: taskHub.snapshot(),
-				approvals: approvalHub.snapshot()
+				approvals: approvalHub.snapshot(),
+				pairing: { required: pairing.required(), device: ws.device, local: ws.local }
 			})
 		);
 	})();

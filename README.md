@@ -138,6 +138,7 @@ These query parameters show a state without needing real hardware or data:
 | `/?wx=notify` | A sample agent-finished notification |
 | `/?standby=1` | StandBy night mode on the Clock view |
 | `/?depart=20` | Departure board for a sample "Leave for school" 20 minutes out |
+| `/?pair=1` | The pairing code as the wall shows it |
 | `/?tarnish=0.5` | Tarnished metal, as if chores were overdue (0 to 0.75) |
 | `/?receipt=1` | The end-of-day receipt, held on screen |
 
@@ -170,9 +171,13 @@ A floating tab bar at the bottom switches between:
 - **Tasks** (`/remote/tasks`): add, complete and snooze chores and alerts.
   **Siri & Shortcuts** (`/remote/shortcuts`) has the Siri recipes and a box
   to try phrases. Any page shows an Allow / Deny card while an agent waits.
-- **Lyrics** (`/remote/lyrics`): pick the lyrics provider for the current track
 - **Stats** (`/remote/stats`): AirPlay, speakers, Bluetooth, host load, services,
-  updates, git
+  updates, git. Links at the top lead to **Phones** (`/remote/pair`, pairing),
+  **Sounds & voice** (`/remote/sounds`) and **Lyrics source** (`/remote/lyrics`)
+
+Pair each phone once (Stats → Phones). After that you can switch on "Only
+paired phones" so nobody else on the network can drive the wall. See
+[`docs/pairing.md`](docs/pairing.md).
 
 Running as a home-screen app, the pages draw under the status bar. They
 pad every edge by its safe-area inset, and keep every tap target in the
@@ -248,6 +253,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md): Siri, the Action button and Shortcuts
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs) and its sound library
+- [`docs/pairing.md`](docs/pairing.md): pair phones with a code on the wall; optionally only paired phones get in
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup
 - [`scripts/forced_align/README.md`](scripts/forced_align/README.md): lyrics lookup, cache and alignment
 - [`PROGRESS.md`](PROGRESS.md): change log

@@ -5,6 +5,7 @@
 -->
 <script>
 	import '../../app.css';
+	import { wallSocketUrl, followPairing } from '$lib/remoteAuth.js';
 	import { onMount } from 'svelte';
 	import { writable } from 'svelte/store';
 	import { primeAudio, playChime, playVolumeTick } from '$lib/services/chime.js';
@@ -285,8 +286,7 @@
 			lastAction = 'no display address';
 			return;
 		}
-		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		const url = `${proto}//${pickHost()}/ws`;
+		const url = wallSocketUrl(pickHost());
 		try {
 			ws = new WebSocket(url);
 		} catch (e) {
@@ -318,6 +318,7 @@
 			lastMessageAt = Date.now();
 			try {
 				const msg = JSON.parse(e.data);
+				if (followPairing(msg)) return;
 				if (msg.type === 'init' || msg.type === 'navigate') {
 					current.set(msg.view || 'clock');
 				}

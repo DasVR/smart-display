@@ -5,6 +5,7 @@
 -->
 <script>
 	import '../../../app.css';
+	import { wallSocketUrl, followPairing } from '$lib/remoteAuth.js';
 	import { base } from '$app/paths';
 	import { onMount } from 'svelte';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
@@ -40,8 +41,7 @@
 	}
 
 	function connect() {
-		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		ws = new WebSocket(`${proto}//${location.host}/ws`);
+		ws = new WebSocket(wallSocketUrl());
 		ws.onopen = () => {
 			status = 'live';
 			retry = 0;
@@ -55,6 +55,7 @@
 		ws.onmessage = (e) => {
 			try {
 				const msg = JSON.parse(e.data);
+				if (followPairing(msg)) return;
 				if (msg.type !== 'voice') return;
 				if (msg.settings) settings = msg.settings;
 				if (msg.said) {
