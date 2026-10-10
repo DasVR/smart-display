@@ -17,6 +17,9 @@
  * Pure: src/lib/server/actionHub.js runs the actions; tests/wall-actions.test.mjs.
  */
 
+import { cleanSpeech, speakDuration } from './quickSay.js';
+import { eventDayKey, wallClock, wallDayKey } from './calendarItems.js';
+
 export const VIEWS = { clock: 'clock', time: 'clock', school: 'school', homework: 'school', agents: 'agents', music: 'music', weather: 'weather', radar: 'weather' };
 const VIEW_NAMES = { clock: 'the clock', school: 'school', agents: 'the agents', music: 'music', weather: 'the weather' };
 
@@ -65,15 +68,24 @@ function minutesFrom(n, unit) {
  * Returns { intent, ... }.
  */
 export function parseCommand(text) {
-	const s = String(text ?? '')
-		.replace(/^\s*(hey siri,?\s*)?(please\s+)?/i, '')
-		.replace(/[.!?]+$/, '')
-		.trim();
+	const s = cleanSpeech(text);
 	if (!s) return null;
 	let m;
 
-	// adding always wins: "remind me…", "add…"
+	// adding always wins: "remind me…", "add…", and a timer being set
 	if (/^(remind|alert|ping|add|chore|to-?do|i need to|i have to|i've got to|i gotta)\b/i.test(s)) return null;
+
+	if (/^(undo|undo (that|it|this)|scratch that|take that back|oops|that was (wrong|a mistake)|cancel that|never ?mind that)$/i.test(s)) return { intent: 'undo' };
+
+	if (/^(cancel|stop|clear|delete|kill|turn off)\s+(?:the |my |all )?(?:\w+ )?timers?$/i.test(s)) return { intent: 'cancel-timer' };
+	if (/^how (?:long|much)\b.*\b(?:timer|left)\b|^(?:how much )?time (?:is )?(?:left|remaining)\b|^timers?$/i.test(s)) return { intent: 'timer-left' };
+
+	if (/^(?:what'?s|whats|what is|how'?s|how is)\s+(?:the\s+)?(?:weather|forecast)\b|^(?:the )?(?:weather|forecast)(?: today| now| outside)?$|^(?:will|is) it (?:going to )?rain|^(?:do i need|should i (?:bring|take)) (?:an? )?(?:umbrella|jacket|coat)|^how'?s it (?:looking )?outside|^is it (?:cold|hot|warm|nice) outside/i.test(s))
+		return { intent: 'weather' };
+
+	// before the brief: "what do I have tomorrow" must not read today's list
+	if (/^(?:what'?s|whats|what is|what do i (?:have|need to do)|what have i got|what'?s on|what is on|read me)\b.*\btomorrow\b|^tomorrow(?:'s)?(?: list| brief| schedule| agenda)?$/i.test(s))
+		return { intent: 'tomorrow' };
 
 	if (/^(what('?s| is)|whats)\s+(on the wall|waiting|next|up|left|due|today)\b|^what do i (have|need to do)\b|^(read|give) me the (list|brief|wall)\b|^brief(ing)?$/i.test(s))
 		return { intent: 'brief' };
@@ -126,6 +138,8 @@ export function buildMenu(ctx = {}) {
 
 	// the shortcut handles this one itself: Dictate Text, then /api/tasks/say
 	add({ id: 'dictate', label: DICTATE_LABEL, intent: 'dictate' });
+	// an "oops" button for the last thing a voice command or the menu did
+	if (ctx.undo) add({ id: 'undo', label: `Undo: ${short(ctx.undo, 30)}`, intent: 'undo' });
 
 	const appr = (ctx.approvals || [])[0];
 	if (appr) {
@@ -145,6 +159,8 @@ export function buildMenu(ctx = {}) {
 	if (waiting) add({ id: `snooze:${waiting.id}`, label: `Snooze 1 h: ${short(waiting.title, 26)}`, intent: 'snooze', taskId: waiting.id, minutes: 60 });
 
 	add({ id: 'brief', label: "What's waiting?", intent: 'brief' });
+	add({ id: 'tomorrow', label: "What's tomorrow?", intent: 'tomorrow' });
+	add({ id: 'weather', label: "What's the weather?", intent: 'weather' });
 
 	const np = ctx.nowPlaying;
 	if (np?.playing) {
@@ -197,4 +213,67 @@ export function speakBoard(board) {
 
 export function viewName(view) {
 	return VIEW_NAMES[view] || view;
+}
+
+/* ---------- weather and tomorrow, out loud ---------- */
+
+/** "3 PM", "7:40 AM": on the wall's clock, said the way people say it */
+function sayClock(ms) {
+	return wallClock(ms).replace(':00 ', ' ');
+}
+
+/** "It's 61 and partly cloudy. High of 78. Rain likely around 3:00 PM." */
+export function speakWeather(w, now = Date.now()) {
+	const cur = w?.current;
+	const temp = Number(cur?.temp);
+	if (!Number.isFinite(temp)) return "I couldn't get the weather right now.";
+	const today = wallDayKey(now);
+	const hours = (w.hourly || []).filter((h) => String(h.time).startsWith(today) || (Date.parse(h.time) >= now && Date.parse(h.time) <= now + 12 * 3600000));
+	const parts = [`It's ${Math.round(temp)} degrees${cur.desc ? ` and ${String(cur.desc).toLowerCase()}` : ''}.`];
+	const highs = hours.filter((h) => String(h.time).startsWith(today)).map((h) => Number(h.temp)).filter(Number.isFinite);
+	if (highs.length) parts.push(`High of ${Math.round(Math.max(...highs))} today.`);
+	const wet = hours.find((h) => Date.parse(h.time) >= now - 1800000 && Number(h.precipitation_probability) >= 50);
+	const soon = Math.max(Number(w.prediction?.rain30min) || 0, Number(w.prediction?.rain60min) || 0);
+	if (soon >= 0.35) parts.push('Rain is on the radar right now.');
+	else if (wet) parts.push(`Rain likely around ${sayClock(Date.parse(wet.time))}.`);
+	else parts.push('No rain expected.');
+	const alert = (w.alerts || [])[0];
+	if (alert?.event) parts.push(`Weather alert: ${alert.event}.`);
+	return parts.join(' ');
+}
+
+function nextDayKey(key) {
+	const d = new Date(`${key}T12:00:00Z`);
+	d.setUTCDate(d.getUTCDate() + 1);
+	return d.toISOString().slice(0, 10);
+}
+
+/** "Tomorrow: Leave for school at 7:40 AM, Dentist at 3:00 PM and Physics lab report due." */
+export function speakTomorrow(tasks, now = Date.now()) {
+	const key = nextDayKey(wallDayKey(now));
+	const items = (tasks || [])
+		.filter((t) => t.status !== 'done' && t.nextDue && eventDayKey(t.nextDue) === key)
+		.sort((a, b) => Date.parse(a.nextDue) - Date.parse(b.nextDue));
+	if (!items.length) return 'Nothing on for tomorrow.';
+	const say = (t) => (t.allDay ? (t.kind === 'homework' ? `${t.title} due` : t.title) : `${t.title} at ${sayClock(Date.parse(t.nextDue))}`);
+	const shown = items.slice(0, 5).map(say);
+	const more = items.length - shown.length;
+	if (more) shown.push(`${more} more`);
+	const list = shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}` : shown[0];
+	return `Tomorrow: ${list}.`;
+}
+
+/** The timers on the wall: alerts titled "Timer…" that haven't gone off. */
+export function activeTimers(tasks, now = Date.now()) {
+	return (tasks || []).filter((t) => t.kind === 'alert' && /^timer\b/i.test(t.title) && t.status !== 'done' && Date.parse(t.nextDue) > now);
+}
+
+export function speakTimersLeft(tasks, now = Date.now()) {
+	const timers = activeTimers(tasks, now).sort((a, b) => Date.parse(a.nextDue) - Date.parse(b.nextDue));
+	if (!timers.length) return 'No timers running.';
+	const one = (t) => {
+		const label = t.title.replace(/^timer:?\s*/i, '');
+		return `${label ? `${label}: ` : ''}${speakDuration(Date.parse(t.nextDue) - now)} left`;
+	};
+	return `${timers.map(one).join('. ')}.`;
 }

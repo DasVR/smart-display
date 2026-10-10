@@ -7,7 +7,9 @@ remote has the same recipes with your display's address already filled in:
 **Try a phrase** box, so you can check how the wall understands a sentence
 before you set up Siri.
 
-Your phone needs to be on the same Wi-Fi as the display. If you locked the
+Use the **Tailscale** address (the phone page shows it as a chip under "Address
+for your shortcuts") if you want Siri to work away from home. The home Wi-Fi
+address only works at home. If you locked the
 API with `npm run api-token`, add a header to each **Get Contents of URL**:
 `Authorization` = `Bearer <your token>`.
 
@@ -17,7 +19,8 @@ API with `npm run api-token`, add a header to each **Get Contents of URL**:
 | --- | --- | --- |
 | **Wall** (menu) | the Action button | A list of what you can do right now, with **Tell the wall** at the top |
 | **Wall press** | Back Tap (double-tap the back of the phone) | Does the obvious thing, no list |
-| **Tell the wall** | "Hey Siri, tell the wall" … | Adds a chore or alert, or runs a command |
+| **Tell the wall** | "Hey Siri, tell the wall" … | Adds a chore, alert or timer, or runs a command |
+| **Automations** | nothing: they run by themselves (alarm stops, arrive home, a time of day) | Morning, leaving, home and night briefings, spoken |
 | **What's on the wall** | "Hey Siri, what's on the wall?" | Reads out what's waiting and what's next |
 
 ### Wall (the Action button)
@@ -109,9 +112,77 @@ The older `/api/tasks/next/done` and `/next/snooze` still work.
 | pause / play / next song / previous song | music |
 | goodnight / screen off · good morning / screen on | the panel |
 | allow it / deny it | answers a waiting agent |
+| undo that / scratch that / oops | takes back the last thing a voice command or the Action button did (see below) |
+| what's the weather / will it rain / do I need an umbrella | reads the weather, the high, and when rain is likely |
+| what's tomorrow / what do I have tomorrow | reads tomorrow's items |
+| set a timer for 10 minutes / pasta timer 12 minutes | an alert that pops up on the wall when it's up |
+| how long is left on the timer | reads the timers that are running |
+| cancel the timer | cancels them |
 
 Anything starting with "remind me", "add", "I need to" is always added,
 never treated as a command.
+
+## Hands-off
+
+Everything above can be done by voice alone, so it works with AirPods and
+CarPlay (and should on an Apple Watch, which runs the same shortcuts; I
+haven't tried those two myself).
+
+**Automations.** In the Shortcuts app, the **Automation** tab can run a
+shortcut for you when something happens. Each of these is one **Get Contents
+of URL** (POST) followed by **Speak Text**. Choose **Run Immediately** where
+iOS offers it, so nothing asks first.
+
+| Automation | Trigger | URL | What you hear |
+| --- | --- | --- | --- |
+| Morning | **Alarm**: when it stops | `/api/action/event/morning?format=text` | The wall's screen comes on. "Good morning. Leave for school in 40 minutes. Bring PE kit and umbrella. It's 58 degrees and clear. High of 72 today. One thing waiting: Feed the cat." |
+| Leaving | **Leave** your home, or CarPlay connecting | `/api/action/event/leaving?format=text` | The departure board read out, or what's still waiting |
+| Home | **Arrive** home | `/api/action/event/home?format=text` | "Welcome home." Then what's waiting. The screen comes on |
+| Night | **Time of Day**, say 10:00 pm | `/api/action/event/night?format=text` | "Tomorrow: Leave for school at 7:40 AM and Dentist at 3 PM. Good night." Then the screen goes off |
+
+**Timers.** "Hey Siri, tell the wall" … "set a pasta timer for twelve
+minutes". The wall pops up when it's up. You can also ask how long is left,
+or cancel it.
+
+## When something goes wrong
+
+- **Say it twice, get it once.** If Siri or Shortcuts sends the same request
+  again, the wall answers "Already on the list" and doesn't add a second
+  copy. Two minutes later it counts as a new request.
+- **Undo.** Say "undo that" (or pick **Undo: …** in the Wall menu) and the
+  last add, tick-off or snooze done by voice or the Action button is taken
+  back. It remembers up to five, for ten minutes. Things you do by tapping
+  the wall or the phone aren't undone by voice.
+- **Slow lookups can't stall you.** The weather and calendar are cached for
+  ten minutes, and a lookup that takes over two and a half seconds is skipped,
+  so a press always answers fast.
+- **Misheard words.** Fillers ("um", "okay"), "can you please…" and "set a
+  reminder to…" are ignored, and number words work ("in two minutes").
+  When the wall still can't tell what you want, it asks, and you can answer
+  (step 4 of Tell the wall).
+- **Display off or out of range.** Shortcuts shows its own error and stops.
+  Nothing is lost, and nothing was added. If that happens at home, check the
+  address under "Address for your shortcuts" on the phone page.
+- **The Action button tick-off has no confirmation**, so a wrong press is one
+  "undo that" away.
+
+## Alerts on your phone
+
+Alerts that pop up on the wall can also reach your phone, so you get them when
+you're away from it. The wall can post a plain-text message to a push service
+like [ntfy](https://ntfy.sh) (a free app, with iOS and Android versions):
+
+```bash
+curl -X POST http://<kiosk>:3000/api/webhooks \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://ntfy.sh/pick-a-long-random-topic","events":["task.due"],"format":"text","name":"My phone"}'
+```
+
+Then install ntfy on your phone and subscribe to the same topic. Anyone who
+knows a topic name can read and send to it, and the message contains your
+chore titles, so pick a long random name or run your own ntfy server.
+Alerts arrive as high priority and chores as normal. Add `"task.done"` to
+`events` to hear about completions too.
 
 ## What it understands
 

@@ -58,12 +58,90 @@ function startOfDay(ms) {
 }
 
 /**
+ * Tidy what dictation hands us before anything reads it: fillers ("um, okay"),
+ * polite lead-ins ("can you please"), and the ways people ask for a reminder
+ * ("set a reminder to…", "don't let me forget…", "make sure I…") all become
+ * "remind me to …". Also drops a trailing "please" / "thanks".
+ */
+export function cleanSpeech(text) {
+	let s = String(text ?? '').replace(/\s+/g, ' ').trim();
+	s = s.replace(/^(?:(?:um+|uh+|er+|hmm+|okay|ok|so|well|hi|hey siri|hey wall|siri|wall)[,.\s]+)+/i, '');
+	s = s.replace(/^(?:(?:can|could|would|will) you(?: please)?|please|i(?:'d| would) like(?: you)? to|i want(?: you)? to|i need you to|go ahead and|just)\s+/i, '');
+	s = s.replace(/^(?:set|make|create|add|put)(?: me)?(?: in)? an? (?:reminder|alert)(?: for me)?(?: to| about| for| that)?\s+/i, 'remind me to ');
+	s = s.replace(/^reminder(?: to| about| for| that)?\s+/i, 'remind me to ');
+	s = s.replace(/^remind me (?:about|that|of)\s+/i, 'remind me to ');
+	s = s.replace(/^don'?t let me forget(?: to| about)?\s+/i, 'remind me to ');
+	s = s.replace(/^make sure (?:i|that i)\s+/i, 'remind me to ');
+	s = s.replace(/[.!?]+$/, '').replace(/[,.\s]+(?:please|thanks|thank you|for me)$/i, '');
+	return s.replace(/[.!?]+$/, '').trim();
+}
+
+const TIMER_UNIT = '(hours?|hrs?|minutes?|mins?|seconds?|secs?)';
+
+/**
+ * "set a timer for 10 minutes", "10 minute timer", "pasta timer 12 minutes",
+ * "timer for twenty minutes called laundry". Returns null when the sentence
+ * isn't about a timer, { error } when it has no length, or
+ * { task, timer: { ms, text, label } } (an alert at now + ms).
+ */
+export function parseTimer(text, now = Date.now()) {
+	const s = spelledNumbers(cleanSpeech(text));
+	if (/^(?:remind|alert|ping|add|chore|to-?do|i need|i have|i've|i gotta|cancel|stop|clear|how long|how much)/i.test(s)) return null;
+	if (!/^(?:(?:set|start|begin|make|run)\s+)?(?:(?:a|an|the|my)\s+)?(?:[\w.-]+\s+){0,4}timer\b/i.test(s)) return null;
+	// "1 hour and 5 minutes" adds up
+	const parts = [...s.matchAll(new RegExp(`(\\d+(?:\\.\\d+)?|an?|half an)[ -]?${TIMER_UNIT}\\b`, 'gi'))];
+	if (!parts.length) return { error: 'How long should the timer be?', code: 'no-duration' };
+	let ms = 0;
+	let rest = s;
+	for (const m of parts) {
+		const n = m[1] === 'half an' ? 0.5 : /^an?$/i.test(m[1]) ? 1 : Number(m[1]);
+		const unit = m[2].toLowerCase();
+		ms += n * (unit.startsWith('h') ? 3600000 : unit.startsWith('m') ? 60000 : 1000);
+		rest = rest.replace(m[0], ' ');
+	}
+	ms = Math.round(ms);
+	if (!(ms >= 5000) || ms > 24 * 3600000) return { error: 'Timers can be from 5 seconds to 24 hours.', code: 'bad-duration' };
+
+	// what's left over is the label: "pasta", "laundry"
+	const label = rest
+		.replace(/\b(?:set|start|begin|make|run|a|an|the|my|timer|for|of|called|named|to|and)\b/gi, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+	const nice = label ? label[0].toUpperCase() + label.slice(1) : '';
+	const text2 = speakDuration(ms);
+	return {
+		task: { title: nice ? `Timer: ${nice}` : 'Timer', kind: 'alert', at: new Date(now + ms).toISOString(), severity: 'warn' },
+		timer: { ms, text: text2, label: nice }
+	};
+}
+
+/** "Timer set for 10 minutes." / "Pasta timer set for 10 minutes." */
+export function speakTimerSet(timer) {
+	return `${timer.label ? `${timer.label} timer` : 'Timer'} set for ${timer.text}.`;
+}
+
+/** "6 minutes", "45 seconds", "1 hour 5 minutes" */
+export function speakDuration(ms) {
+	const total = Math.max(0, Math.round(ms / 1000));
+	if (total < 60 || (total < 120 && total % 60)) return `${total} second${total === 1 ? '' : 's'}`;
+	const h = Math.floor(total / 3600);
+	const m = Math.round((total % 3600) / 60);
+	if (h && m === 60) return `${h + 1} hours`;
+	const parts = [];
+	if (h) parts.push(`${h} hour${h === 1 ? '' : 's'}`);
+	if (m) parts.push(`${m} minute${m === 1 ? '' : 's'}`);
+	return parts.join(' ');
+}
+
+/**
  * Parse one sentence. Returns { task } ready for normalizeTask (title, kind,
  * at, repeat) or { error } in words Siri can say back.
  */
 export function parseQuick(text, now = Date.now()) {
-	const raw = spelledNumbers(String(text ?? '').replace(/\s+/g, ' ').trim());
+	const raw = spelledNumbers(cleanSpeech(text));
 	if (!raw) return { error: "I didn't hear anything to add.", code: 'empty' };
+	const timer = parseTimer(raw, now);
+	if (timer) return timer;
 
 	const state = { rest: ` ${raw} ` };
 	let kind = 'chore';
@@ -224,7 +302,7 @@ const SMALL = {
 	eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, ninety: 90
 };
 const NUM_WORD = `(?:${Object.keys(SMALL).join('|')})(?:[- ](?:one|two|three|four|five|six|seven|eight|nine))?`;
-const UNIT = '(?:minutes?|mins?|hours?|hrs?|days?|weeks?)';
+const UNIT = '(?:seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)';
 
 function wordToNumber(w) {
 	const parts = w.toLowerCase().split(/[- ]/);

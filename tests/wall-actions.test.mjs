@@ -71,6 +71,8 @@ test('the menu is built from what is on the wall', () => {
 			'Done: Water the plants',
 			'Snooze 1 h: Feed the cat',
 			"What's waiting?",
+			"What's tomorrow?",
+			"What's the weather?",
 			'Pause music',
 			'Next song',
 			'Show the weather',
@@ -163,7 +165,7 @@ test('HTTP: press, menu, run, and commands through /api/tasks/say', async () => 
 
 		// the menu, one label per line
 		const lines = (await text('GET', '/api/action/menu')).split('\n');
-		assert.deepEqual(lines.slice(0, 5), ['Tell the wall', 'Read me the board', 'Leaving now (School)', 'Done: Take out the bins', "What's waiting?"]);
+		assert.deepEqual(lines.slice(0, 6), ['Tell the wall', 'Undo: Done Feed the cat', 'Read me the board', 'Leaving now (School)', 'Done: Take out the bins', "What's waiting?"]);
 		assert.ok(lines.includes('Pause music'));
 
 		assert.equal(await text('POST', '/api/action/run', 'Pause music', { 'Content-Type': 'text/plain' }), 'Paused.');

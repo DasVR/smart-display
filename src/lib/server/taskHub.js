@@ -51,7 +51,7 @@ import {
 	saveTasks,
 	saveWebhooks
 } from './taskService.js';
-import { parseQuick, pickNext, speakAdded, speakBrief, speakDone, speakWhen } from '../quickSay.js';
+import { parseQuick, pickNext, speakAdded, speakBrief, speakDone, speakTimerSet, speakWhen } from '../quickSay.js';
 
 const MAX_BODY = 64 * 1024;
 const DISMISS_KEEP_MS = 45 * 86400000;
@@ -67,6 +67,8 @@ function cleanSource(v) {
 }
 const TICK_MS = 15000;
 const ASK_WINDOW_MS = 2 * 60000;
+const UNDO_TTL_MS = 10 * 60000;
+const DUPLICATE_MS = 2 * 60000;
 
 function readBody(req) {
 	const plain = /^text\/plain/i.test(req.headers?.['content-type'] ?? '');
@@ -105,6 +107,29 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	/** a question the wall just asked back, answered by the next sentence */
 	let pendingAsk = null;
 
+	// What a voice command or the Action button just did, so "undo that"
+	// can take it back. Newest last; entries expire after 10 minutes.
+	const journal = [];
+	function noteUndo(label, run, said) {
+		journal.push({ at: now(), label, run, said });
+		if (journal.length > 5) journal.shift();
+	}
+	function liveJournal() {
+		const cut = now() - UNDO_TTL_MS;
+		while (journal.length && journal[0].at < cut) journal.shift();
+		return journal;
+	}
+	function undoLabel() {
+		return liveJournal().at(-1)?.label ?? '';
+	}
+	function undoLast() {
+		const entry = liveJournal().pop();
+		if (!entry) return { say: 'Nothing to undo.' };
+		const r = entry.run();
+		if (r?.error) return { say: `I couldn't undo that: ${r.error}.` };
+		return { say: entry.said };
+	}
+
 	// Google Calendar homework / reminders ticked off on the wall: hidden
 	// here only (Google isn't changed). id -> ISO time it was dismissed.
 	const dismissedFile = path.join(dataDir, 'dismissed.json');
@@ -128,8 +153,20 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	function findExternal(id) {
 		return externals().find((t) => t.id === id);
 	}
-	function dismiss(item) {
+	function dismiss(item, opts = {}) {
 		dismissed = { ...dismissed, [item.id]: new Date(now()).toISOString() };
+		if (opts.undo) {
+			noteUndo(`Done ${item.title}`, () => {
+				const { [item.id]: _gone, ...rest } = dismissed;
+				dismissed = rest;
+				try {
+					saveJson(dismissedFile, dismissed);
+				} catch {
+					/* kept in memory */
+				}
+				broadcast({ type: 'tasks', tasks: snapshot() });
+			}, `Undone. ${item.title} is back on the list.`);
+		}
 		try {
 			saveJson(dismissedFile, dismissed);
 		} catch (err) {
@@ -164,11 +201,12 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 
 	/* ---------- operations shared by HTTP and WS ---------- */
 
-	function create(input) {
+	function create(input, opts = {}) {
 		const { task, error } = normalizeTask(input, { now: now(), id: newTaskId() });
 		if (error) return { error, status: 400 };
 		tasks = [...tasks, task];
 		changed('task.created', task);
+		if (opts.undo) noteUndo(`Added ${task.title}`, () => remove(task.id), `Undone. Removed ${task.title}.`);
 		return { task: view(task) };
 	}
 	function find(id) {
@@ -193,23 +231,35 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		changed('task.deleted', existing);
 		return { ok: true };
 	}
-	function done(id) {
+	function done(id, opts = {}) {
 		const ext = findExternal(id);
-		if (ext) return dismiss(ext);
+		if (ext) return dismiss(ext, opts);
 		const existing = find(id);
 		if (!existing) return { error: 'not found', status: 404 };
 		const task = completeTask(existing, now());
 		tasks = tasks.map((t) => (t.id === id ? task : t));
 		changed('task.done', task);
+		if (opts.undo) {
+			noteUndo(`Done ${existing.title}`, () => {
+				tasks = tasks.map((t) => (t.id === id ? existing : t));
+				changed('task.updated', existing);
+			}, `Undone. ${existing.title} is back on the list.`);
+		}
 		return { task: view(task) };
 	}
-	function snooze(id, minutes) {
+	function snooze(id, minutes, opts = {}) {
 		if (findExternal(id)) return { error: 'calendar items can\u2019t be snoozed; tick it off or change it in Google Calendar', status: 409 };
 		const existing = find(id);
 		if (!existing) return { error: 'not found', status: 404 };
 		const task = snoozeTask(existing, minutes ?? 15, now());
 		tasks = tasks.map((t) => (t.id === id ? task : t));
 		changed('task.updated', task);
+		if (opts.undo) {
+			noteUndo(`Snoozed ${existing.title}`, () => {
+				tasks = tasks.map((t) => (t.id === id ? existing : t));
+				changed('task.updated', existing);
+			}, `Undone. ${existing.title} is back.`);
+		}
 		return { task: view(task) };
 	}
 
@@ -313,9 +363,25 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		const parsed = parseQuick(text, now());
 		if (parsed.code === 'no-time') pendingAsk = { title: parsed.title, kind: 'alert', until: now() + ASK_WINDOW_MS };
 		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error, asking: parsed.code === 'no-time' } };
-		const result = create({ ...parsed.task, source: cleanSource(body.source) || 'Siri' });
+
+		// Siri or Shortcuts re-running the same request (a retry after a slow
+		// answer, a double press) must not add it twice
+		const wanted = String(parsed.task.title).replace(/\s+/g, ' ').trim().toLowerCase();
+		const twin = tasks.find(
+			(t) =>
+				t.active &&
+				t.kind === parsed.task.kind &&
+				t.title.toLowerCase() === wanted &&
+				Math.abs(Date.parse(t.at) - Date.parse(parsed.task.at)) < 60000 &&
+				now() - Date.parse(t.createdAt) < DUPLICATE_MS
+		);
+		if (twin) {
+			return { status: 200, data: { task: view(twin), duplicate: true, say: parsed.timer ? 'That timer is already running.' : `Already on the list: ${twin.title}.` } };
+		}
+
+		const result = create({ ...parsed.task, source: cleanSource(body.source) || 'Siri' }, { undo: true });
 		if (result.error) return { status: result.status || 400, data: { error: result.error, say: `Sorry, ${result.error}.` } };
-		return { status: 201, data: { task: result.task, say: speakAdded(result.task, now()) } };
+		return { status: 201, data: { task: result.task, say: parsed.timer ? speakTimerSet(parsed.timer) : speakAdded(result.task, now()) } };
 	}
 	function brief() {
 		const list = snapshot();
@@ -412,5 +478,5 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		}
 	}
 
-	return { externalChanged, handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove, sayAdd, brief, nextDone };
+	return { undoLast, undoLabel, externalChanged, handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove, sayAdd, brief, nextDone };
 }

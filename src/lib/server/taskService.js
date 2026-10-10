@@ -116,7 +116,10 @@ export function normalizeWebhook(input = {}) {
 			url: url.toString(),
 			events: [...new Set(events)],
 			name: String(input.name || '').slice(0, 40),
-			secret: typeof input.secret === 'string' && input.secret ? input.secret.slice(0, 200) : ''
+			secret: typeof input.secret === 'string' && input.secret ? input.secret.slice(0, 200) : '',
+			// 'text' posts a plain sentence with ntfy-style headers, so a push
+			// service (ntfy.sh, Gotify…) can put it on your phone as it is
+			format: input.format === 'text' ? 'text' : 'json'
 		}
 	};
 }
@@ -136,12 +139,33 @@ export function signBody(secret, body) {
  * or dead endpoint never blocks the scheduler or an API response. Bodies are
  * HMAC-signed in `X-Display-Signature` when the subscriber set a secret.
  */
+const TEXT_LABELS = { 'task.created': 'Added', 'task.updated': 'Updated', 'task.deleted': 'Removed', 'task.due': 'Due now', 'task.done': 'Done' };
+
+/** The plain-text form: { body, headers } for ntfy and friends (headers stay ASCII). */
+export function textDelivery(event, payload) {
+	const t = payload?.task || {};
+	const body = `${TEXT_LABELS[event] || event}: ${t.title || ''}${t.notes ? `\n${t.notes}` : ''}`.trim();
+	const due = event === 'task.due';
+	return {
+		body,
+		headers: {
+			Title: due ? (t.kind === 'alert' ? 'Alert' : 'Chore due') : 'Smart Display',
+			Priority: due ? (t.kind === 'alert' ? '4' : '3') : '2',
+			Tags: due ? 'bell' : event === 'task.done' ? 'white_check_mark' : 'memo'
+		}
+	};
+}
+
 export function deliverWebhooks(hooks, event, payload, { fetchImpl = fetch, now = Date.now(), log = console } = {}) {
 	const targets = hooks.filter((h) => h.events.includes(event));
-	const body = JSON.stringify({ event, at: new Date(now).toISOString(), ...payload });
+	const json = JSON.stringify({ event, at: new Date(now).toISOString(), ...payload });
 	return Promise.allSettled(
 		targets.map(async (h) => {
-			const headers = { 'Content-Type': 'application/json', 'X-Display-Event': event };
+			const text = h.format === 'text' ? textDelivery(event, payload) : null;
+			const body = text ? text.body : json;
+			const headers = text
+				? { 'Content-Type': 'text/plain; charset=utf-8', 'X-Display-Event': event, ...text.headers }
+				: { 'Content-Type': 'application/json', 'X-Display-Event': event };
 			if (h.secret) headers['X-Display-Signature'] = signBody(h.secret, body);
 			try {
 				const res = await fetchImpl(h.url, { method: 'POST', headers, body, signal: AbortSignal.timeout(5000) });

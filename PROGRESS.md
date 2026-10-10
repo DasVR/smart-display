@@ -1,5 +1,30 @@
 # Smart Display Progress Log
 
+## 2026-10-10: Making Siri reliable and hands-off
+
+### Done
+- **Reliability:**
+  - The same request twice no longer adds two items (a 2-minute window).
+  - "Undo that" takes back the last voice add, tick-off or snooze. It keeps
+    five entries for ten minutes, and the Wall menu offers an Undo item.
+  - Weather and calendar lookups are cached for 10 minutes and skipped after
+    2.5 s, so a press always answers fast.
+  - The screen command waits at most 4 s.
+- **Understanding:** fillers, "can you please…", "set a reminder to…",
+  "don't let me forget…" and "make sure I…" are tidied (`cleanSpeech`).
+- **New commands:**
+  - Timers: set, ask how long is left, cancel.
+  - Spoken weather ("will it rain").
+  - Tomorrow's list.
+- **Hands-off:** `/api/action/event/morning|leaving|home|night` for Shortcuts
+  automations, each one URL plus Speak Text.
+- **Phone page:** an address picker (home Wi-Fi, Tailscale) so the Copy
+  buttons use an address that works away from home, an Automations recipe,
+  and more example phrases.
+- **Phone notifications:** webhooks can send `"format": "text"` with
+  ntfy-style headers, so alerts reach your phone.
+- 13 new tests.
+
 ## 2026-10-09: Google Calendar homework and reminders, and the "Today" date fix
 
 ### Done
