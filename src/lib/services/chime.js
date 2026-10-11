@@ -1,10 +1,10 @@
-// Tactile, physical-feeling UI sounds — a pencil tapping paper, a mechanical
-// keycap bottoming out — instead of synth beeps. The bigger moments play
-// clips from the sound library (static/sounds/, made once with ElevenLabs:
-// see src/lib/sounds/library.js) when they're there; everything else, and
-// every kind before the library is generated, is synthesized on the fly from
-// filtered noise bursts, which is what makes it read as paper/keyboard
-// rather than a notification chime.
+// Tactile, physical-feeling UI sounds — a pencil tapping paper, a creamy
+// keycap bottoming out — instead of synth beeps. Every kind plays its clip
+// from the sound library (static/sounds/, made once with ElevenLabs: see
+// src/lib/sounds/library.js), or a sound made on the phone and assigned to
+// it, when there is one. Before the library is generated, every kind is
+// synthesized on the fly from filtered noise bursts, which is what makes it
+// read as paper/keyboard rather than a notification chime.
 
 import { base } from '$app/paths';
 import { volumeTickPitch } from '../chimeKind.js';
@@ -45,7 +45,7 @@ async function loadLibrary(context) {
 					const r = await fetch(`${base}/sounds/${encodeURIComponent(name)}.mp3`);
 					if (!r.ok) return;
 					const buffer = await context.decodeAudioData(await r.arrayBuffer());
-					samples.set(name, { buffer, gain: Math.min(1, Math.max(0, Number(meta?.gain) || 0.6)) });
+					samples.set(name, { buffer, offset: leadingSilence(buffer), gain: Math.min(1, Math.max(0, Number(meta?.gain) || 0.6)) });
 				} catch {
 					/* this one stays synthesized */
 				}
@@ -77,7 +77,7 @@ export async function reloadCustomSounds() {
 					const r = await fetch(`/api/sounds/custom/${encodeURIComponent(name)}.mp3?v=${meta.made || 0}`);
 					if (!r.ok) return;
 					const buffer = await context.decodeAudioData(await r.arrayBuffer());
-					custom.set(name, { buffer, gain: Math.min(1, Math.max(0, Number(meta.gain) || 0.6)), made: meta.made });
+					custom.set(name, { buffer, offset: leadingSilence(buffer), gain: Math.min(1, Math.max(0, Number(meta.gain) || 0.6)), made: meta.made });
 				} catch {
 					/* this one is skipped */
 				}
@@ -96,15 +96,25 @@ export function playCustom(name) {
 	return context ? playBuffer(context, custom.get(name)) : false;
 }
 
-function playBuffer(context, s) {
+/** Seconds of near-silence at the start of a clip. Generated clips often
+ *  open with a few quiet milliseconds; skipping them makes a tap feel instant. */
+function leadingSilence(buffer) {
+	const data = buffer.getChannelData(0);
+	const limit = Math.min(data.length, Math.floor(buffer.sampleRate * 0.25));
+	for (let i = 0; i < limit; i++) if (Math.abs(data[i]) > 0.01) return Math.max(0, i - Math.floor(buffer.sampleRate * 0.002)) / buffer.sampleRate;
+	return 0;
+}
+
+function playBuffer(context, s, rate = 1) {
 	if (!s) return false;
 	const src = context.createBufferSource();
 	const gain = context.createGain();
 	src.buffer = s.buffer;
+	src.playbackRate.value = rate;
 	gain.gain.value = s.gain;
 	src.connect(gain);
 	gain.connect(context.destination);
-	src.start();
+	src.start(0, s.offset || 0);
 	return true;
 }
 
@@ -362,11 +372,16 @@ export function playChime(kind = 'info') {
 	});
 }
 
-/** A keycap whose pitch follows the slider (0 quiet/low, 1 bright/high). */
+/** The volume sound, its pitch following the slider (0 quiet/low, 1 bright/high).
+ *  The library's (or an assigned) clip is played faster or slower; without one,
+ *  a synthesized keycap. */
 export function playVolumeTick(level) {
 	const context = getContext();
 	if (!context) return;
-	keyClick(context, { peak: 0.12, pitch: volumeTickPitch(level) });
+	const pitch = volumeTickPitch(level);
+	const clip = custom.get(assigned.volume) || samples.get('volume');
+	if (playBuffer(context, clip, 0.8 + pitch * 0.5)) return;
+	keyClick(context, { peak: 0.12, pitch });
 }
 
 /** Unlocks the AudioContext on the first real user gesture, since browsers

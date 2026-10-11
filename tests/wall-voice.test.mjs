@@ -228,8 +228,8 @@ test('sound library: unique names, sane lengths, one quiet desk, no bells', () =
 		assert.ok(s.gain > 0 && s.gain <= 1, `${s.name} gain`);
 		assert.match(s.prompt, /no music, no voice, no bells, no chimes, no dings, no ringing$/, `${s.name} keeps the shared desk`);
 	}
-	// the frequent, latency-sensitive sounds stay synthesized
-	for (const synthOnly of ['tap', 'swap-next', 'swap-prev', 'volume', 'mute', 'unmute']) assert.ok(!names.includes(synthOnly));
+	// every sound the wall or the phone plays is in the library, down to the small ones
+	for (const kind of ['tap', 'swap-next', 'swap-prev', 'volume', 'mute', 'unmute', 'morning', 'goodnight']) assert.ok(names.includes(kind), kind);
 });
 
 test('a key typed on the phone is checked, saved owner-only, and never read back', async () => {

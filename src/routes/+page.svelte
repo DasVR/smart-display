@@ -399,7 +399,8 @@
 						body: 'Panel off for the night. See you tomorrow.',
 						severity: 'info',
 						ttl: 4000,
-						source: 'Display'
+						source: 'Display',
+						kind: 'goodnight'
 					});
 				}
 				if (msg.type === 'trigger' && msg.event === 'normal') {

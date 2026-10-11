@@ -8,11 +8,12 @@
 // Each entry is generated once with ElevenLabs sound effects
 // (`npm run sounds:generate`, or from the phone) into static/sounds/<name>.mp3,
 // so the kiosk never calls ElevenLabs to play a sound. A name matches a
-// playChime() kind; kinds without a file (or before generation) fall back to
-// the synthesized taps in src/lib/services/chime.js, which are in the same
-// pencil-and-keycap family. The tiny, constant sounds (a tab tap, a swipe,
-// volume ticks) stay synthesized on purpose: they need zero latency and play
-// dozens of times a day.
+// playChime() kind, and every kind the wall or the phone plays is here, down
+// to a tab tap and the volume slider's tick. Clips are decoded up front and
+// trimmed of leading silence, so even the small ones play the instant they're
+// asked for. A kind without a file (or before generation) falls back to the
+// synthesized taps in src/lib/services/chime.js, in the same
+// pencil-and-keycap family.
 //
 //   prompt     what ElevenLabs is asked for
 //   seconds    clip length (0.5 to 30)
@@ -196,6 +197,54 @@ export const SOUND_LIBRARY = [
 		seconds: 1.0,
 		influence: 0.7,
 		gain: 0.5
+	},
+	{
+		name: 'tap',
+		group: 'Touch',
+		prompt: `one very light quick keypress on ${CREAMY}, barely there, ${DESK}, ${NO_BELLS}`,
+		seconds: 0.5,
+		influence: 0.8,
+		gain: 0.35
+	},
+	{
+		name: 'swap-next',
+		group: 'Touch',
+		prompt: `one notebook page flicked forward quickly with a fingertip, a short soft paper swish, ${DESK}, ${NO_BELLS}`,
+		seconds: 0.5,
+		influence: 0.75,
+		gain: 0.4
+	},
+	{
+		name: 'swap-prev',
+		group: 'Touch',
+		prompt: `one notebook page flicked back quickly with a fingertip, a short soft paper swish, slightly lower, ${DESK}, ${NO_BELLS}`,
+		seconds: 0.5,
+		influence: 0.75,
+		gain: 0.4
+	},
+	{
+		name: 'volume',
+		group: 'Touch',
+		prompt: `a single tiny soft detent click of a small pocket gadget's scroll wheel, ${DESK}, ${NO_BELLS}`,
+		seconds: 0.5,
+		influence: 0.8,
+		gain: 0.4
+	},
+	{
+		name: 'mute',
+		group: 'Touch',
+		prompt: `a soft rubber button on a small pocket gadget pressed down firmly, a low muted click, ${DESK}, ${NO_BELLS}`,
+		seconds: 0.5,
+		influence: 0.8,
+		gain: 0.45
+	},
+	{
+		name: 'unmute',
+		group: 'Touch',
+		prompt: `a soft rubber button on a small pocket gadget released, a light rounded upward click, ${DESK}, ${NO_BELLS}`,
+		seconds: 0.5,
+		influence: 0.8,
+		gain: 0.45
 	}
 ];
 

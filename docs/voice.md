@@ -119,6 +119,13 @@ there are no bells: every prompt also says "no bells, no chimes, no dings"
 | `done-ollama` | one deep spacebar thock |
 | `install` | three slow scroll-wheel clicks |
 | `update` | a page turned, then one quiet keypress |
+| `tap` | one very light creamy keypress (every tab and button) |
+| `swap-next` / `swap-prev` | a notebook page flicked forward / back (swiping views) |
+| `volume` | one scroll-wheel detent, pitched up and down with the slider |
+| `mute` / `unmute` | a soft rubber button pressed / released |
+
+`morning` plays with the morning briefing and `goodnight` when the panel goes
+to sleep.
 
 Each sound is a prompt in `src/lib/sounds/library.js`, and every prompt ends
 with the same desk description (`DESK`, then `NO_BELLS`) so they sit together. They're made
@@ -137,8 +144,10 @@ browser, copy the one you like over `static/sounds/<name>.mp3`, delete
 `takes/`, and run `npm run sounds:generate` once more to refresh
 `static/sounds/index.json`. Then commit.
 
-The small sounds that play all the time (tab taps, swipes, volume ticks)
-stay synthesized on purpose: they need zero delay.
+Every sound the wall and the phone play is in the library, down to a tab tap
+and the volume slider's tick. Clips are decoded when the page loads and their
+leading silence is trimmed, so the small ones still play instantly. Until a
+sound has a file, it falls back to a synthesized pencil tap or keycap.
 
 ## Making sounds from the phone
 
@@ -174,7 +183,7 @@ survives a reinstall), use `npm run sounds:generate` as above.
 ### Cost and limits
 
 - At most **24** sounds are kept. Delete one to make room.
-- At most **90 seconds** of sound a day (the whole built-in library is about 25).
+- At most **90 seconds** of sound a day (the whole built-in library is about 27).
   The phone page shows the day's use.
 - Clips are 0.5 to 6 seconds. Credits are roughly in proportion to length, so
   a failed or unwanted one still costs what it cost.
