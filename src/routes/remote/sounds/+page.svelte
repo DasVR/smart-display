@@ -53,7 +53,7 @@
 
 	const MAKE_RESULTS = {
 		'no-key': 'Add your ElevenLabs key above first; the wall needs it to make sounds.',
-		empty: 'Describe a sound first, like "a doorbell".',
+		empty: 'Describe a sound first, like "a pencil being sharpened".',
 		'too-many': 'That is the most sounds the wall keeps. Delete one first.',
 		'daily-limit': "Today's sound budget is used up. Try again tomorrow.",
 		'rate-limited': 'ElevenLabs is busy. Try again in a minute.',
@@ -193,6 +193,12 @@
 		setTimeout(() => playingName === `custom:${name}` && (playingName = ''), 900);
 	}
 
+	/** Made here from an older version of the library's prompt (the library changed since). */
+	function oldStyle(entry) {
+		const made = lib.sounds[`lib-${entry.name}`];
+		return Boolean(made && lib.assign[entry.name] === `lib-${entry.name}` && made.prompt && made.prompt !== entry.prompt);
+	}
+
 	function usedFor(name) {
 		return Object.entries(lib.assign)
 			.filter(([, n]) => n === name)
@@ -250,7 +256,9 @@
 	});
 
 	// a sound counts as recorded when the repo has its file; otherwise it's a stand-in until one is made here
-	let missing = $derived(SOUND_LIBRARY.filter((s) => !have.has(s.name) && !lib.assign[s.name]));
+	// stand-ins, plus sounds made here from an older version of the library's prompts
+	let missing = $derived(SOUND_LIBRARY.filter((s) => (!have.has(s.name) && !lib.assign[s.name]) || oldStyle(s)));
+	let anyOld = $derived(SOUND_LIBRARY.some((s) => oldStyle(s)));
 	let madeList = $derived(Object.entries(lib.sounds).sort((a, b) => (b[1].made || 0) - (a[1].made || 0)));
 	let budget = $derived(Math.min(100, Math.round((lib.secondsToday / Math.max(1, lib.dailySeconds)) * 100)));
 
@@ -341,7 +349,7 @@
 	<section class="card" aria-labelledby="make-h">
 		<h2 id="make-h">Make a sound</h2>
 		<form class="say" onsubmit={makeIdea}>
-			<input type="text" bind:value={idea} placeholder="a doorbell" maxlength="140" aria-label="Describe a sound" />
+			<input type="text" bind:value={idea} placeholder="a pencil being sharpened" maxlength="140" aria-label="Describe a sound" />
 			<button type="submit" disabled={!idea.trim() || !!making || status !== 'live'}>{making && making === idea.trim() ? 'Making…' : 'Make'}</button>
 		</form>
 		<div class="chips" aria-label="Ideas">
@@ -360,7 +368,7 @@
 		</label>
 		{#if makeMessage}<p class="note" class:warn={makeFailed} role="status">{makeMessage}</p>{/if}
 		<p class="note">
-			The wall makes it once with ElevenLabs, in the same quiet-room style as the rest, and keeps it. Start with "!" to
+			The wall makes it once with ElevenLabs, in the same soft, creamy desk style as the rest, and keeps it. Start with "!" to
 			send exactly what you typed. {lib.secondsToday.toFixed(0)} of {lib.dailySeconds} seconds made today.
 		</p>
 		<div class="meter" aria-hidden="true"><span style="width: {budget}%"></span></div>
@@ -412,7 +420,7 @@
 		</p>
 		{#if missing.length}
 			<button type="button" class="ghost" disabled={!!making || status !== 'live'} onclick={makeMissing}>
-				Make the {missing.length} missing {missing.length === 1 ? 'sound' : 'sounds'}
+				{anyOld ? `Make ${missing.length} in the new style` : `Make the ${missing.length} missing ${missing.length === 1 ? 'sound' : 'sounds'}`}
 			</button>
 		{/if}
 		{#each groups as g (g.name)}
@@ -422,13 +430,13 @@
 					<li>
 						<button class="sound" class:playing={playingName === s.name} onclick={() => audition(s.name)}>
 							<span class="name">{s.name}</span>
-							<span class="tag" class:made={have.has(s.name) || lib.assign[s.name]}>
-								{lib.assign[s.name] ? 'made here' : have.has(s.name) ? 'recorded' : 'stand-in'}
+							<span class="tag" class:made={(have.has(s.name) || lib.assign[s.name]) && !oldStyle(s)}>
+								{oldStyle(s) ? 'old style' : lib.assign[s.name] ? 'made here' : have.has(s.name) ? 'recorded' : 'stand-in'}
 							</span>
 						</button>
-						{#if !have.has(s.name)}
+						{#if !have.has(s.name) || oldStyle(s)}
 							<button type="button" class="ghost small remake" disabled={!!making || status !== 'live'} onclick={() => makeLibrary(s.name)}>
-								{making === s.name ? 'Making…' : lib.assign[s.name] ? 'Make another take' : 'Make this sound'}
+								{making === s.name ? 'Making…' : oldStyle(s) ? 'Remake in the new style' : lib.assign[s.name] ? 'Make another take' : 'Make this sound'}
 							</button>
 						{/if}
 						<p class="prompt">{s.prompt.replace(/, close-miked.*$/, '')}</p>

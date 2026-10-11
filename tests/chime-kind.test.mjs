@@ -13,6 +13,8 @@ test('volumeTickPitch clamps to 0..1', () => {
 
 test('chimeKindForEvent maps volume, schedule, install, update', () => {
 	assert.equal(chimeKindForEvent({ kind: 'volume' }), 'volume');
+	assert.equal(chimeKindForEvent({ kind: 'briefing' }), 'morning', 'the morning briefing');
+	assert.equal(chimeKindForEvent({ kind: 'goodnight' }), 'goodnight', 'the panel going to sleep');
 	assert.equal(chimeKindForEvent({ kind: 'volume', muted: true }), 'mute');
 	assert.equal(chimeKindForEvent({ kind: 'schedule' }), 'schedule');
 	assert.equal(chimeKindForEvent({ kind: 'install' }), 'install');

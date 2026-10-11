@@ -36,7 +36,9 @@ export function chimeKindForEvent({
 	if (k === 'alert') return /^timer\b/i.test(String(title || '')) ? 'timer' : 'reminder';
 	if (k === 'approval') return 'approval';
 	if (k === 'music') return 'music';
-	if (k === 'briefing') return 'info';
+	// the morning briefing and the panel going to sleep have their own sounds
+	if (k === 'briefing') return 'morning';
+	if (k === 'goodnight') return 'goodnight';
 	if (sev === 'ok' || sev === 'warn' || sev === 'error' || sev === 'info') return sev;
 	return 'info';
 }

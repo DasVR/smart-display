@@ -3,14 +3,15 @@
 //
 // A custom sound is a short idea ("a doorbell", "pouring tea") turned into a
 // full ElevenLabs sound-effect prompt in the same family as the built-in
-// library (src/lib/sounds/library.js): paper, brass and glass in a quiet room.
+// library (src/lib/sounds/library.js): pencils, notebooks, creamy keyboard
+// switches and soft pocket-gadget buttons on a quiet desk.
 // The mp3 lives on the kiosk in data/sounds/, so it survives restarts and
 // plays without ever calling ElevenLabs again.
 
-import { SOUND_LIBRARY, soundEntry } from './library.js';
+import { DESK, NO_BELLS, SOUND_LIBRARY, soundEntry } from './library.js';
 
-/** The look of every built-in sound; added to an idea unless it says otherwise. */
-export const ROOM = 'close-miked in a quiet wooden room, dry, no music, no voice';
+/** The feel of every built-in sound; added to an idea unless it says otherwise. */
+export const ROOM = DESK;
 
 export const MAX_CUSTOM = 24;
 export const MIN_SECONDS = 0.5;
@@ -23,14 +24,14 @@ export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /** Prompts to try, shown as chips on the phone page. */
 export const SOUND_IDEAS = [
-	'a doorbell',
-	'pouring tea into a cup',
-	'a wooden door creaking open',
-	'a coin spinning on a table',
-	'a match being struck',
-	'a small music box winding down',
-	'rain on a window',
-	'a cat bell jingling'
+	'a pencil being sharpened',
+	'a typewriter carriage return',
+	'creamy keyboard typing',
+	'a notebook snapping shut',
+	'a pen cap clicking on',
+	'a pocket gadget button with a haptic tick',
+	'sticky note peeled off a pad',
+	'two pencil taps on a notebook'
 ];
 
 /** Library kinds a custom sound can stand in for (each one is a playChime() kind). */
@@ -53,15 +54,19 @@ export function cleanIdea(text) {
 }
 
 /**
- * The full prompt. In the wall's house style (a quiet wooden room) unless the
- * idea is typed with a leading "!", which sends it as written.
+ * The full prompt. In the wall's house style (a quiet desk, no bells unless
+ * the idea asks for one) unless it's typed with a leading "!", which sends it
+ * as written.
  */
 export function buildSoundPrompt(idea) {
 	const raw = String(idea ?? '').trim();
 	const literal = raw.startsWith('!');
 	const clean = cleanIdea(literal ? raw.slice(1) : raw);
 	if (!clean) return { idea: '', prompt: '', literal };
-	const prompt = literal || /\bquiet\b.*\broom\b|\bno music\b/i.test(clean) ? clean : `${clean}, soft and gentle, ${ROOM}`;
+	if (literal || /\bquiet\b.*\b(?:room|desk)\b|\bno music\b/i.test(clean)) return { idea: clean, prompt: clean, literal };
+	// the wall has no bells, unless you ask for one
+	const asksForBell = /\b(?:bells?|chimes?|dings?|ring(?:s|ing)?|doorbell)\b/i.test(clean);
+	const prompt = asksForBell ? `${clean}, ${ROOM}` : `${clean}, ${ROOM}, ${NO_BELLS}`;
 	return { idea: clean, prompt, literal };
 }
 
@@ -69,7 +74,7 @@ export function buildSoundPrompt(idea) {
 export function guessSeconds(idea) {
 	const s = String(idea ?? '').toLowerCase();
 	if (/\b(?:long|ring(?:ing)?|alarm|bell|chime|swell|rain|pour|wind|creak|jingl|music box|fade|ocean|wave)\b/.test(s)) return 2.5;
-	if (/\b(?:tap|click|knock|tick|pop|tick|snap|drop|ping|ting|thud|clack)\b/.test(s)) return 0.8;
+	if (/\b(?:tap|click|knock|tick|pop|snap|drop|ping|ting|thud|clack|thock|keypress)\b/.test(s)) return 0.8;
 	return 1.5;
 }
 

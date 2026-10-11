@@ -70,7 +70,8 @@ display's address filled in. See [`docs/siri-shortcuts.md`](docs/siri-shortcuts.
 - **A voice.** Timers and reminders are said out loud when they come due,
   and "tell the wall … announce dinner is ready" makes the wall announce
   it. It uses ElevenLabs, cached and capped per day, and stays silent in
-  quiet hours. A library of paper, brass and glass sound effects comes from
+  quiet hours. A library of writer's-desk sound effects (pencils, notebooks, a soft
+  typewriter, creamy keyboard switches, pocket-gadget clicks) comes from
   the same place, and the phone can make new ones (or fill in missing ones)
   from a description. Without a key it shows the words instead. See
   [`docs/voice.md`](docs/voice.md); what you can say is in

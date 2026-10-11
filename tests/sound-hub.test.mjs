@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { NO_BELLS } from '../src/lib/sounds/library.js';
 import { ROOM, buildSoundPrompt, cleanIdea, clampSeconds, guessSeconds, libraryRequest, soundName } from '../src/lib/sounds/custom.js';
 import { createSoundHub } from '../src/lib/server/soundHub.js';
 
@@ -30,10 +31,12 @@ test('an idea becomes a prompt in the wall\'s style', () => {
 
 	const built = buildSoundPrompt('a doorbell');
 	assert.equal(built.idea, 'a doorbell');
-	assert.ok(built.prompt.startsWith('a doorbell, soft and gentle,'));
+	assert.equal(built.prompt, `a doorbell, ${ROOM}`, 'asked for a bell, so no "no bells"');
+	assert.equal(buildSoundPrompt('a pencil tap').prompt, `a pencil tap, ${ROOM}, ${NO_BELLS}`, 'otherwise the wall has no bells');
 	assert.ok(built.prompt.endsWith(ROOM));
 	assert.equal(buildSoundPrompt('!a harsh buzzer').prompt, 'a harsh buzzer', '"!" sends it as typed');
 	assert.equal(buildSoundPrompt('a bell in a quiet room, no music').prompt, 'a bell in a quiet room, no music', 'already styled');
+	assert.equal(buildSoundPrompt('a click on a quiet desk').prompt, 'a click on a quiet desk');
 	assert.equal(buildSoundPrompt('').prompt, '');
 });
 
@@ -88,7 +91,7 @@ test('making, assigning and deleting sounds', async () => {
 	assert.equal(lib.assigned, 'timer');
 	assert.equal(lib.name, 'lib-timer');
 	assert.equal(hub.snapshot().assign.timer, 'lib-timer');
-	assert.match(calls.at(-1).body.text, /kitchen timer bell/);
+	assert.match(calls.at(-1).body.text, /desk timer/);
 
 	// assign a custom sound to another event, and take it away again
 	assert.deepEqual(hub.assign('reminder', 'doorbell'), { ok: true, assign: { timer: 'lib-timer', reminder: 'doorbell' } });
@@ -190,4 +193,16 @@ test('HTTP: the list and clips are open, changes need the token', async () => {
 	} finally {
 		server.close();
 	}
+});
+
+test('the library is one family: every prompt ends on the same desk', async () => {
+	const { SOUND_LIBRARY, DESK } = await import('../src/lib/sounds/library.js');
+	const suffix = `, ${DESK}, ${NO_BELLS}`;
+	for (const s of SOUND_LIBRARY) {
+		assert.ok(s.prompt.endsWith(suffix), s.name);
+		const what = s.prompt.slice(0, -suffix.length);
+		assert.doesNotMatch(what, /\b(?:brass|crystal|marimba|wooden room|beeps?|bells?|chimes?|dings?|ring(?:s|ing)?|tings?)\b/i, `${s.name}: no bells`);
+		assert.ok(s.seconds >= 0.5 && s.seconds <= 30 && s.gain > 0 && s.gain <= 1, s.name);
+	}
+	assert.equal(new Set(SOUND_LIBRARY.map((s) => s.name)).size, SOUND_LIBRARY.length);
 });
