@@ -23,6 +23,7 @@ import {
 	buildMenu,
 	findMenuItem,
 	parseCommand,
+	normalizeCommand,
 	understand,
 	pickPress,
 	resolveTask,
@@ -39,6 +40,7 @@ import {
 	activeTimers,
 	viewName
 } from '../wallActions.js';
+import { ACK_RE } from '../attention.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const MAX_BODY = 8 * 1024;
@@ -93,6 +95,8 @@ export function createActionHub({
 	screen = async () => {},
 	// { volume (0..1.5), muted } now; apply({ volume } | { muted }); both resolve { ok, volume, muted }
 	volume = { get: async () => ({ ok: false }), apply: async () => ({ ok: false }) },
+	// what's calling for attention (src/lib/server/attentionHub.js)
+	attention = { list: () => [], ack: () => 0 },
 	loadWeather = async () => null,
 	loadEvents = async () => [],
 	announce = async () => ({ ok: false }),
@@ -127,6 +131,7 @@ export function createActionHub({
 		return {
 			tasks,
 			approvals: approvalHub?.snapshot() ?? [],
+			attention: attention.list() ?? [],
 			board: await boardFor(tasks),
 			undo: taskHub.undoLabel?.() ?? '',
 			...state
@@ -228,6 +233,12 @@ export function createActionHub({
 			}
 			case 'tomorrow':
 				return { say: speakTomorrow(ctx.tasks, now()) };
+			case 'ack': {
+				const top = (ctx.attention || [])[0];
+				const gone = attention.ack(action.all ? undefined : top?.id);
+				if (!gone) return { say: 'Nothing is calling for you.' };
+				return { say: top ? `Okay. ${top.title} acknowledged.` : 'Okay.' };
+			}
 			case 'time':
 				return { say: speakNow(now()) };
 			case 'date':
@@ -265,7 +276,8 @@ export function createActionHub({
 
 	async function press() {
 		const ctx = await context();
-		const action = pickPress(ctx);
+		// the wall is ringing: one press stops it, before anything else
+		const action = ctx.attention.length ? { intent: 'ack' } : pickPress(ctx);
 		const out = await run(action, ctx);
 		remember(action, out);
 		return { did: action.intent, ...out };
@@ -288,8 +300,25 @@ export function createActionHub({
 
 	/** Spoken command from "tell the wall", or null to let it be added. */
 	async function command(text) {
+		// while something is ringing, "got it", "okay", "stop" and the like answer it
+		// (a bare "stop" would otherwise pause the music)
+		const ringing = attention.list() ?? [];
+		if (ringing.length) {
+			const said = normalizeCommand(text);
+			if (ACK_RE.test(said) || /^stop(?: it| that)?$/i.test(said)) {
+				const ctx = await context();
+				const action = { intent: 'ack', all: /\b(?:all|everything)\b/i.test(said) };
+				const out = await run(action, ctx);
+				remember(action, out);
+				return { did: 'ack', ...out };
+			}
+		}
 		const cmd = parseCommand(text);
-		if (!cmd) return null;
+		if (!cmd) {
+			// "got it" with nothing ringing is an answer, not a chore called "Got it"
+			if (ACK_RE.test(normalizeCommand(text))) return { did: 'ack', say: 'Nothing is calling for you.' };
+			return null;
+		}
 		const ctx = await context();
 		const out = await run(cmd, ctx, cmd.query || '');
 		remember(cmd, out);

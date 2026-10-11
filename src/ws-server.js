@@ -25,6 +25,7 @@ import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { createActionHub } from './lib/server/actionHub.js';
 import { createVoiceHub } from './lib/server/voiceHub.js';
 import { createSoundHub } from './lib/server/soundHub.js';
+import { createAttentionHub } from './lib/server/attentionHub.js';
 import { createPairing, isLocalAddress } from './lib/server/pairing.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
@@ -109,15 +110,49 @@ const soundHub = createSoundHub({
 	getKey: () => voiceHub.key(),
 	broadcast: (msg) => broadcast(msg)
 });
+// what must get your attention: timers, reminders, agents asking, severe
+// weather, chores due. Wakes the panel and keeps ringing until acknowledged
+// (src/lib/attention.js). It listens to what the hubs announce (attentionTap).
+const attentionHub = createAttentionHub({
+	broadcast: (msg) => broadcast(msg),
+	isQuiet: () => Boolean(voiceHub.snapshot().quietNow),
+	wake: async () => {
+		if (hdmiState === 'on') return false;
+		// not a hand-made change: keep whatever hold the schedule had
+		const hold = hdmiHold;
+		await applyHdmi('on', { reason: 'attention' });
+		hdmiHold = hold;
+		return true;
+	},
+	restore: async () => {
+		if (hdmiState !== 'on') return;
+		const hold = hdmiHold;
+		await applyHdmi('off', { reason: 'attention' });
+		hdmiHold = hold;
+	}
+});
+/** Raise and settle attention items from what the hubs broadcast. */
+function attentionTap(msg) {
+	if (msg?.type === 'notify') attentionHub.fromNotify(msg);
+	else if (msg?.type === 'tasks' && Array.isArray(msg.tasks)) attentionHub.syncTasks(msg.tasks);
+	else if (msg?.type === 'approvals' && Array.isArray(msg.approvals)) attentionHub.syncApprovals(msg.approvals);
+}
 const taskHub = createTaskHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
-	broadcast: (msg) => broadcast(msg),
+	broadcast: (msg) => {
+		broadcast(msg);
+		attentionTap(msg);
+	},
 	onEvent: (event, task) => {
 		if (event === 'task.done' && task.kind === 'chore') dayLog.record('chore', { title: task.title });
 		if (event === 'task.due' && task.kind === 'alert') {
 			dayLog.record('alert', { title: task.title });
-			// timers and reminders are said out loud where you are: at the wall
-			voiceHub.say(speechForDue(task), { source: 'Reminder', caption: false }).catch(() => {});
+			// timers and reminders are said out loud where you are: at the wall,
+			// once the panel is awake (raising the alert may have just turned it on)
+			attentionHub
+				.awake()
+				.then(() => voiceHub.say(speechForDue(task), { source: 'Reminder', caption: false }))
+				.catch(() => {});
 		}
 	},
 	// "tell the wall" commands; actionHub is defined below and only called later
@@ -132,7 +167,10 @@ const calendarFeed = createCalendarFeed({
 });
 const approvalHub = createApprovalHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
-	broadcast: (msg) => broadcast(msg),
+	broadcast: (msg) => {
+		broadcast(msg);
+		attentionTap(msg);
+	},
 	onDecide: (a) => dayLog.record('approval', { decision: a.status })
 });
 // the Action button and spoken commands (see src/lib/wallActions.js)
@@ -143,6 +181,7 @@ const actionHub = createActionHub({
 	approvalHub,
 	broadcast: (msg) => broadcast(msg),
 	getState: () => ({ nowPlaying: lastNowPlaying, view: currentView, hdmi: hdmiState }),
+	attention: { list: () => attentionHub.snapshot(), ack: (id) => attentionHub.ack(id) },
 	navigate: (view) => {
 		currentView = canonicalizeKioskView(view);
 		broadcast({ type: 'navigate', view: currentView, from: 'siri' });
@@ -433,6 +472,8 @@ async function commitHdmi(state, reason) {
 
 async function applyHdmi(state, { reason } = {}) {
 	if (state !== 'on' && state !== 'off') return hdmiState;
+	// a change anyone else makes is theirs: attention won't turn it back off
+	if (reason !== 'attention') attentionHub.panelChanged();
 	if (reason !== 'schedule') {
 		noteManualHdmi(state);
 		pendingHdmi = { state, reason };
@@ -1051,6 +1092,14 @@ wss.on('connection', (ws, req) => {
 						.catch(() => reply({ said: { ok: false } }));
 				} else reply({ settings: voiceHub.snapshot() });
 			}
+			if (msg.type === 'attention') {
+				// { op: 'ack', id? } from the wall or the phone; { op: 'raise' } for the
+				// severe weather the kiosk itself notices
+				if (msg.op === 'ack') attentionHub.ack(typeof msg.id === 'string' ? msg.id : undefined);
+				else if (msg.op === 'raise' && ws.local && msg.kind === 'severe') {
+					attentionHub.raise({ kind: 'severe', title: String(msg.title || ''), body: String(msg.body || ''), ref: `weather:${String(msg.ref || msg.title || '').slice(0, 80)}` });
+				} else ws.send(JSON.stringify({ type: 'attention', items: attentionHub.snapshot() }));
+			}
 			if (msg.type === 'sounds') {
 				// the phone's sound maker: { op: 'get' | 'generate' | 'assign' | 'delete', ... }
 				const reply = (data) => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'sounds', ...data }));
@@ -1098,6 +1147,7 @@ wss.on('connection', (ws, req) => {
 				agents: getAgentRoster(),
 				tasks: taskHub.snapshot(),
 				approvals: approvalHub.snapshot(),
+				attention: attentionHub.snapshot(),
 				pairing: { required: pairing.required(), device: ws.device, local: ws.local }
 			})
 		);

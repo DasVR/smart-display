@@ -1,16 +1,17 @@
 <script>
 	// Siri-style light around the screen edge while the wall is listening or
-	// talking. Cheap by construction: the colour wheel only rotates (a
+	// talking. tone 'alert' is the warm, faster, breathing version for when
+	// something needs you (src/lib/attention.js). Cheap by construction: the colour wheel only rotates (a
 	// compositor transform, no repaint), and the soft edge is a static mask
 	// rather than a blur filter. Nothing is mounted while it's idle.
 	import { fade } from 'svelte/transition';
 
-	/** @type {{ active?: boolean, still?: boolean }} */
-	let { active = false, still = false } = $props();
+	/** @type {{ active?: boolean, still?: boolean, tone?: 'voice' | 'alert' }} */
+	let { active = false, still = false, tone = 'voice' } = $props();
 </script>
 
 {#if active}
-	<div class="edge-glow" class:still aria-hidden="true" transition:fade={{ duration: 420 }}>
+	<div class="edge-glow" class:still class:alert={tone === 'alert'} aria-hidden="true" transition:fade={{ duration: 420 }}>
 		<div class="wheel"></div>
 	</div>
 {/if}
@@ -59,6 +60,21 @@
 		animation: none;
 	}
 
+	/* something needs you: warm, quicker, and the whole ring breathes */
+	.alert {
+		--edge: 64px;
+		animation: alert-breathe 1.6s ease-in-out infinite;
+	}
+	.alert .wheel {
+		background: conic-gradient(from 0deg, #ff9b4a, #ffd36b, #ff5f5f, #ff9b4a, #ffd36b, #ff5f5f, #ff9b4a);
+		animation-duration: 2.2s;
+	}
+	@keyframes alert-breathe {
+		50% {
+			opacity: 0.45;
+		}
+	}
+
 	@keyframes spin {
 		to {
 			transform: rotate(1turn);
@@ -66,7 +82,8 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
-		.wheel {
+		.wheel,
+		.alert {
 			animation: none;
 		}
 	}

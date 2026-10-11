@@ -2,6 +2,7 @@
  * What the Action button and "tell the wall" can do beyond adding things.
  *
  *  - pickPress(ctx): one press does the most useful thing right now.
+ *      (the wall is ringing     -> actionHub answers that first: "got it")
  *      an agent is waiting      -> read the request out (never auto-allow)
  *      a departure is on        -> read the board, bring it up on the wall
  *      something's waiting      -> tick off the most urgent item
@@ -342,6 +343,9 @@ export function buildMenu(ctx = {}) {
 		if (!items.some((x) => x.label === item.label)) items.push(item);
 	};
 
+	// something is ringing on the wall: answering it comes first
+	const calling = (ctx.attention || [])[0];
+	if (calling) add({ id: 'ack', label: `Got it: ${short(calling.title, 28)}`, intent: 'ack' });
 	// the shortcut handles this one itself: Dictate Text, then /api/tasks/say
 	add({ id: 'dictate', label: DICTATE_LABEL, intent: 'dictate' });
 	// an "oops" button for the last thing a voice command or the menu did

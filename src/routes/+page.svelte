@@ -10,10 +10,12 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { tasks, approvals, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { tasks, approvals, attention, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime, reloadCustomSounds } from '$lib/services/chime.js';
+	import { boostFor, nextSound } from '$lib/attention.js';
+	import AttentionCard from '$lib/components/AttentionCard.svelte';
 	import { speakClip, hushWall } from '$lib/services/wallSpeaker.js';
 	import { chimeKindForEvent } from '$lib/chimeKind.js';
 	import {
@@ -138,6 +140,53 @@
 		markInput();
 		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'tasks', op: 'done', id }));
 	}
+
+	/* ---------- attention (src/lib/attention.js) ----------
+	   The server keeps the list; the wall shows the card, lights the edge and
+	   plays the sound again, louder each time, until it's answered here, on
+	   the phone, with the Action button or by saying "got it". The island has
+	   already played the first sound, so this loop only plays the repeats. */
+	function ackAttention(item) {
+		markInput();
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'attention', op: 'ack', id: item?.id }));
+	}
+	function attentionDone(item) {
+		const id = item?.ref?.startsWith('task:') ? item.ref.slice(5) : '';
+		if (id) completeTask(id);
+		else ackAttention(item);
+	}
+	function attentionLater(item) {
+		const id = item?.ref?.startsWith('task:') ? item.ref.slice(5) : '';
+		markInput();
+		if (id && ws?.readyState === 1) ws.send(JSON.stringify({ type: 'tasks', op: 'snooze', id, minutes: 60 }));
+		else ackAttention(item);
+	}
+	const attentionPlays = new Map(); // item id -> sounds played so far
+	function ringAttention() {
+		const now = Date.now();
+		const live = new Set();
+		for (const item of $attention) {
+			live.add(item.id);
+			if (!attentionPlays.has(item.id)) {
+				// first sight: whatever was due by now counts as played (no backlog)
+				attentionPlays.set(item.id, nextSound(item, now, 0, { quiet: item.quiet }) + 1 || 1);
+				continue;
+			}
+			const played = attentionPlays.get(item.id);
+			const play = nextSound(item, now, played, { quiet: item.quiet });
+			if (play < 0) continue;
+			attentionPlays.set(item.id, play + 1);
+			playChime(item.sound, { boost: boostFor(play) });
+		}
+		for (const id of [...attentionPlays.keys()]) if (!live.has(id)) attentionPlays.delete(id);
+	}
+	$effect(() => {
+		if (!$attention.length) return;
+		const t = setInterval(ringAttention, 1000);
+		return () => clearInterval(t);
+	});
+	// the edge stays lit while something urgent or important is waiting
+	let attentionGlow = $derived($attention.some((i) => i.level === 'urgent' || i.level === 'important'));
 
 	// Which way the last view change went, so the incoming pane slides in
 	// from the side you moved toward (shortest way round the tab strip).
@@ -338,6 +387,7 @@
 					if (msg.paired) pushIslandEvent({ title: `${msg.paired} is paired`, severity: 'ok', source: 'Wall', ttl: 5000 });
 				}
 				if (msg.type === 'approvals' && Array.isArray(msg.approvals)) approvals.set(msg.approvals);
+				if (msg.type === 'attention' && Array.isArray(msg.items)) attention.set(msg.items);
 				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
 					tasks.set(msg.tasks);
 				}
@@ -374,6 +424,7 @@
 					if (Array.isArray(msg.agents) && !lockDemoView) agentRoster.set(msg.agents);
 					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
 					if (Array.isArray(msg.approvals)) approvals.set(msg.approvals);
+					if (Array.isArray(msg.attention)) attention.set(msg.attention);
 					if (msg.power) {
 						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
 					}
@@ -454,6 +505,8 @@
 				source: 'Extreme Alert',
 				kind: 'severe-weather'
 			});
+			// and keep it on the wall, ringing, until someone sees it
+			if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'attention', op: 'raise', kind: 'severe', title: top.event || 'Severe weather', body: String(top.headline || '').replace(/\s+/g, ' ').trim(), ref: extremeKey }));
 		} else if (!extremeKey) {
 			lastExtremePing = '';
 		}
@@ -993,7 +1046,7 @@
 		<PairCode code={pairCode.code} expiresAt={pairCode.expiresAt} />
 	{/if}
 
-	<EdgeGlow active={voiceGlow && mode !== 'sleep' && !hdmiOff} still={glass === 'flat'} />
+	<EdgeGlow active={(voiceGlow || attentionGlow) && mode !== 'sleep' && !hdmiOff} still={glass === 'flat'} tone={attentionGlow ? 'alert' : 'voice'} />
 
 	<IslandStack
 		nowPlaying={$nowPlaying}
@@ -1134,6 +1187,11 @@
 		</div>
 	{/if}
 
+	{#if $attention.some((i) => i.kind !== 'approval')}
+		<div class="attention-layer">
+			<AttentionCard items={$attention} now={time.getTime()} onack={ackAttention} ondone={attentionDone} onsnooze={attentionLater} />
+		</div>
+	{/if}
 	{#if $approvals.length}
 		<div class="approval-layer">
 			<ApprovalCard approvals={$approvals} now={time.getTime()} ondecide={decideApproval} />
@@ -1152,6 +1210,15 @@
 		perspective: 900px;
 	}
 	/* an agent waiting on the wall: above everything but the island */
+	.attention-layer {
+		position: fixed;
+		inset: 0;
+		z-index: 61;
+		display: grid;
+		place-items: center;
+		background: radial-gradient(70% 60% at 50% 50%, color-mix(in srgb, #000 55%, transparent), transparent 75%);
+		pointer-events: none;
+	}
 	.approval-layer {
 		position: fixed;
 		inset: 0;

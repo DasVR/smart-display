@@ -86,6 +86,7 @@ export function createApprovalHub({ dataDir, broadcast, log = console, now = () 
 			severity: 'warn',
 			source: approval.source,
 			kind: 'approval',
+			approvalId: approval.id,
 			ttl: 12000
 		});
 		return { approval };
