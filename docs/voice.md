@@ -44,7 +44,7 @@ needed: it's read when the wall next speaks.
 | --- | --- |
 | A timer finishes | "Pasta timer is done." |
 | A reminder (alert) comes due | "Reminder: Call mom." |
-| You say "Hey Siri, tell the wall" … "announce dinner is ready" | A two-note chime, then "Dinner is ready." |
+| You say "Hey Siri, tell the wall" … "announce dinner is ready" | A two-note chirp, then "Dinner is ready." |
 | "tell everyone we're leaving in five minutes" | The same, for anything after "tell everyone" |
 | "say that again" | The last thing the wall said back to you |
 | The **Say it** box on the phone page | Whatever you type |
@@ -89,10 +89,12 @@ again once.
 ## The sound library
 
 One family: a writer's desk with good tech on it. Pencil taps and checkmarks,
-notebooks opening, snapping shut and turning a page, a softened typewriter
-with a muted bell, creamy lubed keyboard switches (a deep, rounded thock, not
+notebooks opening, snapping shut and turning a page, a softened typewriter,
+creamy lubed keyboard switches (a deep, rounded thock, not
 a clack), and the soft rubber buttons, scroll-wheel clicks and haptic ticks of
-a small pocket gadget. Everything is close, muted and dry; nothing beeps.
+a small pocket gadget. Everything is close, muted and dry. Nothing beeps, and
+there are no bells: every prompt also says "no bells, no chimes, no dings"
+(`NO_BELLS`), because ElevenLabs likes to add a ding to anything typewriter-ish.
 
 | Sound | What it is |
 | --- | --- |
@@ -100,11 +102,11 @@ a small pocket gadget. Everything is close, muted and dry; nothing beeps.
 | `ok` | two creamy keypresses, the second a touch higher |
 | `warn` | two muffled eraser taps on a hardcover notebook |
 | `error` | a hardcover notebook set down flat |
-| `severe` | four firm typewriter keys, a muted bell on the last |
+| `severe` | four firm typewriter keys, the last one striking hard |
 | `success` | a pencil checkmark, then one creamy keypress |
 | `music` | three rising pocket-gadget buttons with haptic ticks |
 | `schedule` | a notebook's elastic band snapping shut |
-| `timer` | a desk timer winding down to a muted typewriter bell |
+| `timer` | a desk timer ticking down to a click, then two keypresses |
 | `reminder` | a pen click, two taps on the page |
 | `announce` | a pocket recorder's button and a two-note haptic chirp |
 | `morning` | a notebook opened, the page smoothed flat, one keypress |
@@ -112,14 +114,14 @@ a small pocket gadget. Everything is close, muted and dry; nothing beeps.
 | `approval` | two fingertip taps on a pocket device's screen, with a buzz |
 | `working` | a short burst of creamy typing |
 | `done-claude` | a fountain-pen signature and the cap clicking on |
-| `done-cursor` | a softened typewriter carriage return and bell |
+| `done-cursor` | a softened typewriter carriage return, a muted thunk |
 | `done-hermes` | a page torn from a spiral notebook and folded |
 | `done-ollama` | one deep spacebar thock |
 | `install` | three slow scroll-wheel clicks |
 | `update` | a page turned, then one quiet keypress |
 
 Each sound is a prompt in `src/lib/sounds/library.js`, and every prompt ends
-with the same desk description (`DESK`) so they sit together. They're made
+with the same desk description (`DESK`, then `NO_BELLS`) so they sit together. They're made
 once and committed to `static/sounds/`. The kiosk only plays the files; it never calls ElevenLabs
 to play a sound.
 
@@ -143,9 +145,10 @@ stay synthesized on purpose: they need zero delay.
 You don't need a laptop to add or fill in sounds. On **Stats → Sounds & voice**
 (needs the ElevenLabs key above) the wall can make them itself.
 
-**Make a sound.** Describe it ("a doorbell", "pouring tea into a cup") and tap
+**Make a sound.** Describe it ("a pencil being sharpened", "a notebook snapping shut") and tap
 **Make**. The wall sends it to ElevenLabs in the same quiet-desk style as the
-rest (soft, creamy, muted, close-miked), keeps the mp3 in `data/sounds/`, and plays it. Tap the chips for ideas,
+rest (soft, creamy, muted, close-miked, and no bells unless you ask for
+one), keeps the mp3 in `data/sounds/`, and plays it. Tap the chips for ideas,
 or pick a length (otherwise the wall guesses: a tap is short, a ring is
 longer). Start with `!` to send the words exactly as typed, with no house style
 added.

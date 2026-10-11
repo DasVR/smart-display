@@ -53,7 +53,7 @@
 
 	const MAKE_RESULTS = {
 		'no-key': 'Add your ElevenLabs key above first; the wall needs it to make sounds.',
-		empty: 'Describe a sound first, like "a doorbell".',
+		empty: 'Describe a sound first, like "a pencil being sharpened".',
 		'too-many': 'That is the most sounds the wall keeps. Delete one first.',
 		'daily-limit': "Today's sound budget is used up. Try again tomorrow.",
 		'rate-limited': 'ElevenLabs is busy. Try again in a minute.',
@@ -349,7 +349,7 @@
 	<section class="card" aria-labelledby="make-h">
 		<h2 id="make-h">Make a sound</h2>
 		<form class="say" onsubmit={makeIdea}>
-			<input type="text" bind:value={idea} placeholder="a doorbell" maxlength="140" aria-label="Describe a sound" />
+			<input type="text" bind:value={idea} placeholder="a pencil being sharpened" maxlength="140" aria-label="Describe a sound" />
 			<button type="submit" disabled={!idea.trim() || !!making || status !== 'live'}>{making && making === idea.trim() ? 'Making…' : 'Make'}</button>
 		</form>
 		<div class="chips" aria-label="Ideas">

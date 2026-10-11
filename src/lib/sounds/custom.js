@@ -8,7 +8,7 @@
 // The mp3 lives on the kiosk in data/sounds/, so it survives restarts and
 // plays without ever calling ElevenLabs again.
 
-import { DESK, SOUND_LIBRARY, soundEntry } from './library.js';
+import { DESK, NO_BELLS, SOUND_LIBRARY, soundEntry } from './library.js';
 
 /** The feel of every built-in sound; added to an idea unless it says otherwise. */
 export const ROOM = DESK;
@@ -24,14 +24,14 @@ export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 /** Prompts to try, shown as chips on the phone page. */
 export const SOUND_IDEAS = [
-	'a doorbell',
 	'a pencil being sharpened',
-	'a softened typewriter bell',
+	'a typewriter carriage return',
 	'creamy keyboard typing',
 	'a notebook snapping shut',
 	'a pen cap clicking on',
 	'a pocket gadget button with a haptic tick',
-	'sticky note peeled off a pad'
+	'sticky note peeled off a pad',
+	'two pencil taps on a notebook'
 ];
 
 /** Library kinds a custom sound can stand in for (each one is a playChime() kind). */
@@ -54,15 +54,19 @@ export function cleanIdea(text) {
 }
 
 /**
- * The full prompt. In the wall's house style (a quiet wooden room) unless the
- * idea is typed with a leading "!", which sends it as written.
+ * The full prompt. In the wall's house style (a quiet desk, no bells unless
+ * the idea asks for one) unless it's typed with a leading "!", which sends it
+ * as written.
  */
 export function buildSoundPrompt(idea) {
 	const raw = String(idea ?? '').trim();
 	const literal = raw.startsWith('!');
 	const clean = cleanIdea(literal ? raw.slice(1) : raw);
 	if (!clean) return { idea: '', prompt: '', literal };
-	const prompt = literal || /\bquiet\b.*\b(?:room|desk)\b|\bno music\b/i.test(clean) ? clean : `${clean}, ${ROOM}`;
+	if (literal || /\bquiet\b.*\b(?:room|desk)\b|\bno music\b/i.test(clean)) return { idea: clean, prompt: clean, literal };
+	// the wall has no bells, unless you ask for one
+	const asksForBell = /\b(?:bells?|chimes?|dings?|ring(?:s|ing)?|doorbell)\b/i.test(clean);
+	const prompt = asksForBell ? `${clean}, ${ROOM}` : `${clean}, ${ROOM}, ${NO_BELLS}`;
 	return { idea: clean, prompt, literal };
 }
 
