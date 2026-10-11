@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inQuietHours, speechText, speechForDue, normalizeVoiceSettings, DEFAULT_VOICE } from '../src/lib/wallVoice.js';
+import { inQuietHours, speechText, speechForDue, normalizeVoiceSettings, voiceVolumeAt, DEFAULT_VOICE } from '../src/lib/wallVoice.js';
 import { createVoiceHub, clipKey, loadElevenLabsKey } from '../src/lib/server/voiceHub.js';
 import { parseCommand } from '../src/lib/wallActions.js';
 import { chimeKindForEvent, islandOwnsChime } from '../src/lib/chimeKind.js';
@@ -45,6 +45,8 @@ function hub({ key = 'sk_test', at = NOON, fetchImpl, settings } = {}) {
 }
 
 test('quiet hours wrap midnight on the wall clock', () => {
+	assert.equal(voiceVolumeAt(NOON, DEFAULT_VOICE), 0.5);
+	assert.equal(voiceVolumeAt(ELEVEN_PM, DEFAULT_VOICE), 0.22);
 	const q = { quietStart: '22:00', quietEnd: '07:00' };
 	assert.equal(inQuietHours(NOON, q), false);
 	assert.equal(inQuietHours(ELEVEN_PM, q), true);
@@ -93,7 +95,7 @@ test('say: synthesizes once, caches, and sends the clip to the wall', async () =
 	const eleven = fakeEleven();
 	const { h, sent, dataDir } = hub({ fetchImpl: eleven.fetchImpl });
 	const a = await h.say('dinner is ready', { source: 'iPhone' });
-	assert.deepEqual(a, { ok: true, text: 'Dinner is ready.', spoken: true });
+	assert.deepEqual(a, { ok: true, text: 'Dinner is ready.', spoken: true, volume: 0.5 });
 	assert.equal(eleven.calls.length, 1);
 	const call = eleven.calls[0];
 	assert.match(call.url, /\/v1\/text-to-speech\/JBFqnCBsd6RMkjVDRZzb\?output_format=mp3_44100_128$/);
@@ -119,8 +121,8 @@ test('say: captions only without a key, in quiet hours, when off, or over budget
 	assert.equal(noKey.sent[0].url, null);
 	assert.equal(noKey.sent[0].text, 'Hello.');
 
-	const night = hub({ at: ELEVEN_PM, fetchImpl: eleven.fetchImpl });
-	assert.equal((await night.h.say('hello')).silent, 'quiet-hours');
+	const night = hub({ at: ELEVEN_PM, fetchImpl: eleven.fetchImpl, settings: { nightSilent: true } });
+	assert.equal((await night.h.say('hello')).silent, 'quiet-hours', 'silent at night when asked');
 	assert.equal((await night.h.say('the house is on fire', { urgent: true })).spoken, true, 'urgent speaks anyway');
 
 	const off = hub({ fetchImpl: eleven.fetchImpl, settings: { enabled: false } });
@@ -129,6 +131,27 @@ test('say: captions only without a key, in quiet hours, when off, or over budget
 	const tight = hub({ fetchImpl: eleven.fetchImpl, settings: { dailyChars: 10 } });
 	assert.equal((await tight.h.say('this sentence is longer than ten')).silent, 'daily-limit');
 	assert.equal(eleven.calls.length, 1, 'only the urgent one reached ElevenLabs');
+});
+
+test('the voice is softer at night, and only the voice', async () => {
+	const eleven = fakeEleven();
+	const day = hub({ fetchImpl: eleven.fetchImpl });
+	const said = await day.h.say('Dinner is ready.');
+	assert.equal(said.spoken, true);
+	assert.equal(said.volume, 0.5, 'day: 50%');
+	assert.equal(day.sent.at(-1).volume, 0.5, 'the clip carries its volume to the wall');
+	assert.equal(day.h.snapshot().volumeNow, 0.5);
+
+	const night = hub({ at: ELEVEN_PM, fetchImpl: eleven.fetchImpl });
+	const late = await night.h.say('Pasta timer is done.');
+	assert.equal(late.spoken, true, 'night speaks, quietly, instead of going silent');
+	assert.equal(late.volume, 0.22, 'night: 22%');
+	assert.equal(night.sent.at(-1).volume, 0.22);
+	assert.equal((await night.h.say('Fire!', { urgent: true })).volume, 0.22, 'urgent follows the night volume too');
+
+	const custom = hub({ at: ELEVEN_PM, fetchImpl: eleven.fetchImpl, settings: { nightVolume: 15, dayVolume: 0.8 } });
+	assert.equal((await custom.h.say('hi')).volume, 0.15, 'a percent works too');
+	assert.equal(custom.h.snapshot().dayVolume, 0.8);
 });
 
 test('say: ElevenLabs failures fall back to the caption', async () => {

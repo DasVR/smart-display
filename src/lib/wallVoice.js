@@ -9,8 +9,15 @@ export const DEFAULT_VOICE = {
 	voiceId: 'JBFqnCBsd6RMkjVDRZzb',
 	// Flash is the fast, cheap model (half a credit per character).
 	model: 'eleven_flash_v2_5',
+	// night, on the wall's clock: the voice speaks softer (or not at all, with nightSilent)
 	quietStart: '22:00',
 	quietEnd: '07:00',
+	// how loud the voice is, as a share of the speaker's volume. Only the voice:
+	// music, sound effects and the speaker volume itself are left alone.
+	dayVolume: 0.5,
+	nightVolume: 0.22,
+	// the old behaviour: say nothing at night (urgent things still speak)
+	nightSilent: false,
 	// Characters sent to ElevenLabs per day. Cached phrases are free, so
 	// this is only new sentences. Creator is 100k credits a month.
 	dailyChars: 3000
@@ -38,6 +45,11 @@ export function inQuietHours(ms, { quietStart, quietEnd } = DEFAULT_VOICE, tz = 
 	if (a === null || b === null || a === b) return false;
 	const now = wallMinutes(ms, tz);
 	return a < b ? now >= a && now < b : now >= a || now < b;
+}
+
+/** How loud the voice speaks right now: the night volume inside the night window, the day volume outside it. */
+export function voiceVolumeAt(ms, settings = DEFAULT_VOICE, tz = DISPLAY_TZ) {
+	return inQuietHours(ms, settings, tz) ? settings.nightVolume ?? DEFAULT_VOICE.nightVolume : settings.dayVolume ?? DEFAULT_VOICE.dayVolume;
 }
 
 /** Text that is safe and short enough to speak: no markup, no runaway
@@ -76,6 +88,12 @@ export function normalizeVoiceSettings(raw = {}) {
 	if (typeof raw.model === 'string' && /^eleven_[a-z0-9_]+$/.test(raw.model)) out.model = raw.model;
 	if (HHMM.test(String(raw.quietStart ?? ''))) out.quietStart = raw.quietStart;
 	if (HHMM.test(String(raw.quietEnd ?? ''))) out.quietEnd = raw.quietEnd;
+	for (const key of ['dayVolume', 'nightVolume']) {
+		const v = Number(raw[key]);
+		// 0 to 1; a percent (22) is read as 0.22
+		if (Number.isFinite(v) && v >= 0 && v <= 100) out[key] = Math.round((v > 1 ? v / 100 : v) * 100) / 100;
+	}
+	if (typeof raw.nightSilent === 'boolean') out.nightSilent = raw.nightSilent;
 	const chars = Number(raw.dailyChars);
 	if (Number.isFinite(chars) && chars >= 0 && chars <= 100000) out.dailyChars = Math.round(chars);
 	return out;

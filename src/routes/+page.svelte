@@ -377,8 +377,9 @@
 					if (msg.url && mode !== 'sleep' && !hdmiOff) {
 						// an announcement gets its two-note chime first, like a station
 						const url = msg.url;
-						if (announcement) setTimeout(() => speakClip(url), 900);
-						else speakClip(url);
+						const volume = msg.volume ?? 1;
+						if (announcement) setTimeout(() => speakClip(url, volume), 900);
+						else speakClip(url, volume);
 					} else if (msg.caption !== false) glowFor(2600);
 				}
 				if (msg.type === 'pair-code' && /^\d{6}$/.test(msg.code)) pairCode = { code: msg.code, expiresAt: msg.expiresAt };

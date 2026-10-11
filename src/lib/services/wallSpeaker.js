@@ -11,15 +11,16 @@ function signal(on) {
 }
 
 function next() {
-	const url = queue.shift();
-	if (!url) {
+	const item = queue.shift();
+	if (!item) {
 		playing = null;
 		signal(false);
 		return;
 	}
-	const audio = new Audio(url);
+	const audio = new Audio(item.url);
 	playing = audio;
-	audio.volume = 1;
+	// the voice's own level (day or night, from the server); the speaker volume isn't touched
+	audio.volume = item.volume;
 	const done = () => {
 		audio.onended = audio.onerror = null;
 		if (playing === audio) next();
@@ -32,10 +33,11 @@ function next() {
 	audio.play().catch(done);
 }
 
-/** Queue a clip (a /api/voice/clip/… URL from the server). */
-export function speakClip(url) {
+/** Queue a clip (a /api/voice/clip/… URL from the server) at a volume from 0 to 1. */
+export function speakClip(url, volume = 1) {
 	if (typeof window === 'undefined' || !url) return;
-	queue.push(url);
+	const v = Number(volume);
+	queue.push({ url, volume: Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1 });
 	if (queue.length > 4) queue.splice(0, queue.length - 4); // never a backlog
 	if (!playing) next();
 }

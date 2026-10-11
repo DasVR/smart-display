@@ -57,8 +57,12 @@ While the wall talks, the edge of the screen glows.
 
 ## Staying quiet and cheap
 
-- **Quiet hours** (22:00 to 07:00 by default, on the wall's clock): the words
-  still show, but nothing is spoken.
+- **Softer at night.** The voice speaks at **50%** during the day and **22%**
+  at night (22:00 to 07:00 by default, on the wall's clock). Only the voice
+  changes: it's the volume of each spoken clip, so music, sound effects and the
+  speaker's own volume are left alone. Set both levels and the night hours on
+  the phone page. Turn on **Silent at night** to have the words only show at
+  night instead, as before (urgent messages still speak).
 - **Off switch** on the phone page.
 - **Cache.** Each sentence is synthesized once and kept in
   `data/voice-cache/`, so "Pasta timer is done." costs nothing the second
@@ -80,7 +84,9 @@ shows the words and the phone page says why.
 | `enabled` | `true` | speak at all |
 | `voiceId` | `JBFqnCBsd6RMkjVDRZzb` (George) | any voice ID from your ElevenLabs voice library |
 | `model` | `eleven_flash_v2_5` | |
-| `quietStart`, `quietEnd` | `22:00`, `07:00` | `HH:MM` on the wall's clock |
+| `quietStart`, `quietEnd` | `22:00`, `07:00` | night, `HH:MM` on the wall's clock |
+| `dayVolume`, `nightVolume` | `0.5`, `0.22` | how loud the voice speaks, 0 to 1 (or a percent: `22`), as a share of the speaker's volume |
+| `nightSilent` | `false` | say nothing at night (the words still show; urgent messages still speak) |
 | `dailyChars` | `3000` | new characters per day |
 
 Changing the voice or model starts a fresh cache, so phrases are paid for

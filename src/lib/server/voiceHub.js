@@ -2,7 +2,8 @@
  * The wall's voice: ElevenLabs text to speech, cached on disk.
  *
  *   GET  /api/voice                 settings, whether a key is set, today's usage
- *   POST /api/voice                 change settings { enabled, voiceId, quietStart, quietEnd, dailyChars }
+ *   POST /api/voice                 change settings { enabled, voiceId, quietStart, quietEnd,
+ *                                   dayVolume, nightVolume, nightSilent, dailyChars }
  *   POST /api/voice/say             { text, urgent? } (or a text/plain body): say it on the wall
  *   GET  /api/voice/clip/<id>.mp3   a cached clip (the kiosk's <audio> fetches these)
  *
@@ -21,7 +22,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import { wallDayKey } from '../calendarItems.js';
-import { CLIP_NAME, inQuietHours, normalizeVoiceSettings, speechText } from '../wallVoice.js';
+import { CLIP_NAME, inQuietHours, normalizeVoiceSettings, speechText, voiceVolumeAt } from '../wallVoice.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const API = 'https://api.elevenlabs.io/v1/text-to-speech';
@@ -125,7 +126,8 @@ export function createVoiceHub({
 			keySource: !k ? '' : fromEnv ? 'env' : 'file',
 			keyHint: k ? `…${k.slice(-4)}` : '',
 			charsToday: usedToday(),
-			quietNow: inQuietHours(now(), settings)
+			quietNow: inQuietHours(now(), settings),
+			volumeNow: voiceVolumeAt(now(), settings)
 		};
 	}
 
@@ -230,8 +232,10 @@ export function createVoiceHub({
 	/**
 	 * Say something on the wall. The words show on the island (unless
 	 * `caption` is false, when something else already shows them); the
-	 * audio comes along when there's a key, it's not quiet hours (unless
-	 * urgent) and the voice is on. Returns what happened.
+	 * audio comes along when there's a key and the voice is on, at the day or
+	 * night volume (only the voice gets quieter; nothing else on the wall
+	 * changes). With nightSilent it says nothing at night unless urgent.
+	 * Returns what happened.
 	 */
 	async function say(text, { urgent = false, source = 'Wall', caption = true } = {}) {
 		const words = speechText(text);
@@ -240,7 +244,7 @@ export function createVoiceHub({
 		let reason = '';
 		let clipId = null;
 		if (!settings.enabled) reason = 'off';
-		else if (!urgent && inQuietHours(now(), settings)) reason = 'quiet-hours';
+		else if (!urgent && settings.nightSilent && inQuietHours(now(), settings)) reason = 'quiet-hours';
 		else {
 			const c = await clip(words);
 			if (c.id) clipId = c.id;
@@ -253,9 +257,11 @@ export function createVoiceHub({
 			source,
 			url: clipId ? `/api/voice/clip/${clipId}.mp3` : null,
 			caption,
+			// how loud this clip plays (0 to 1): the day or night voice volume
+			volume: voiceVolumeAt(now(), settings),
 			silent: reason || undefined
 		});
-		return { ok: true, text: words, spoken: Boolean(clipId), ...(reason ? { silent: reason } : {}) };
+		return { ok: true, text: words, spoken: Boolean(clipId), volume: voiceVolumeAt(now(), settings), ...(reason ? { silent: reason } : {}) };
 	}
 
 	function json(res, data, status = 200) {
