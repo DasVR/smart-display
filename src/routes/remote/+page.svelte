@@ -12,12 +12,30 @@
 	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
 	import { page } from '$app/state';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
+	import AttentionCard from '$lib/components/AttentionCard.svelte';
 
 	// Two panes on one page, picked by the bottom tab bar: the everyday
 	// controls, and the night schedule + proximity settings (#night).
 	let pane = $derived(page.url.hash === '#night' ? 'night' : 'control');
 
 	const current = writable('clock');
+	// what the wall is calling about (src/lib/attention.js); answerable from here too
+	let calling = $state([]);
+	let callingNow = $state(Date.now());
+	function sendAttention(msg) {
+		if (ws?.readyState === 1) ws.send(JSON.stringify(msg));
+	}
+	function taskOf(item) {
+		return item?.ref?.startsWith('task:') ? item.ref.slice(5) : '';
+	}
+	const ackCalling = (item) => sendAttention({ type: 'attention', op: 'ack', id: item?.id });
+	const doneCalling = (item) => (taskOf(item) ? sendAttention({ type: 'tasks', op: 'done', id: taskOf(item) }) : ackCalling(item));
+	const laterCalling = (item) => (taskOf(item) ? sendAttention({ type: 'tasks', op: 'snooze', id: taskOf(item), minutes: 60 }) : ackCalling(item));
+	$effect(() => {
+		if (!calling.length) return;
+		const t = setInterval(() => (callingNow = Date.now()), 15000);
+		return () => clearInterval(t);
+	});
 	const views = KIOSK_VIEWS.map((id) => ({ id, label: kioskViewLabel(id) }));
 	const weekDays = [
 		{ id: 0, short: 'S', name: 'Sunday' },
@@ -325,6 +343,11 @@
 				if (msg.type === 'init') {
 					applyDisplay(msg.display);
 					applyAudio(msg.audio);
+					if (Array.isArray(msg.attention)) calling = msg.attention;
+				}
+				if (msg.type === 'attention' && Array.isArray(msg.items)) {
+					calling = msg.items;
+					callingNow = Date.now();
 				}
 				if (msg.type === 'display') applyDisplay(msg);
 				if (msg.type === 'proximity') proximity = { ...proximity, ...msg };
@@ -573,6 +596,10 @@
 
 	{#if linkFault || saveFault}
 		<p class="link-alert" role="alert">{linkFault || saveFault}</p>
+	{/if}
+
+	{#if calling.some((i) => i.kind !== 'approval')}
+		<AttentionCard items={calling} now={callingNow} compact onack={ackCalling} ondone={doneCalling} onsnooze={laterCalling} />
 	{/if}
 
 	{#if pane === 'control'}

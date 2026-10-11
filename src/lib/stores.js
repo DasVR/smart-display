@@ -36,6 +36,8 @@ export const tasks = writable([]);
 
 // Agents waiting on an Allow / Deny from the wall (see src/lib/approvals.js).
 export const approvals = writable([]);
+/** What's calling for attention right now (src/lib/attention.js), from the server. */
+export const attention = writable([]);
 
 export const islandQueue = writable([]);
 export const islandActivities = writable([]);

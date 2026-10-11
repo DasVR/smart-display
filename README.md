@@ -24,6 +24,13 @@ On every view, the **Dynamic Island** (top-center) shows transient events:
 notifications from `/api/notify`, chores and alerts as they come due, now
 playing, install progress, severe weather, and volume changes.
 
+What matters more gets your attention and keeps it: a timer finishing, a
+reminder, an agent waiting on you, severe weather or a chore coming due puts
+a card in the middle of the wall, lights the edge, turns the panel on if it
+was off, and plays its sound again (a little louder each time) until you
+answer from the wall, the phone, the Action button or by saying "got it". See
+[`docs/attention.md`](docs/attention.md).
+
 ### Chores, jobs and alerts
 
 There's one shared list of chores (stay until done) and alerts (pop up at
@@ -257,6 +264,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
+- [`docs/attention.md`](docs/attention.md): how the wall gets your attention for timers, reminders, agents and severe weather, and how to answer it
 - [`docs/pairing.md`](docs/pairing.md): pair phones with a code on the wall; optionally only paired phones get in
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup
 - [`scripts/forced_align/README.md`](scripts/forced_align/README.md): lyrics lookup, cache and alignment

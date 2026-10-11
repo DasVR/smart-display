@@ -43,6 +43,20 @@ That's why "skip rope at 4" is a chore and "skip" is a command.
 | I'm leaving / what do I need to bring | reads the departure board and brings it up |
 | undo that / scratch that / oops | takes back the last voice or Action-button change (up to five, ten minutes) |
 
+### When the wall is ringing
+
+While something is calling for you (a timer, a reminder, an agent waiting,
+severe weather; see [attention.md](attention.md)):
+
+| You say | It does |
+| --- | --- |
+| got it / okay / thanks / dismiss / I heard you / quiet | answers it: the sound, the card and the glow stop |
+| stop / stop the timer / stop ringing | the same. A bare "stop" only pauses the music when nothing is ringing |
+| dismiss all | answers everything that's waiting |
+
+Saying "got it" when nothing is ringing just says so; it never adds a chore
+called "Got it".
+
 ### Timers
 
 | You say | It does |

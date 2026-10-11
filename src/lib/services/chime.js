@@ -105,23 +105,23 @@ function leadingSilence(buffer) {
 	return 0;
 }
 
-function playBuffer(context, s, rate = 1) {
+function playBuffer(context, s, rate = 1, boost = 1) {
 	if (!s) return false;
 	const src = context.createBufferSource();
 	const gain = context.createGain();
 	src.buffer = s.buffer;
 	src.playbackRate.value = rate;
-	gain.gain.value = s.gain;
+	gain.gain.value = Math.min(1, s.gain * boost);
 	src.connect(gain);
 	gain.connect(context.destination);
 	src.start(0, s.offset || 0);
 	return true;
 }
 
-function playSample(context, name) {
+function playSample(context, name, boost = 1) {
 	// a sound assigned from the phone wins over the built-in one for the same event
-	if (playBuffer(context, custom.get(assigned[name]))) return true;
-	return playBuffer(context, samples.get(name));
+	if (playBuffer(context, custom.get(assigned[name]), 1, boost)) return true;
+	return playBuffer(context, samples.get(name), 1, boost);
 }
 
 /** Library sounds with no synth profile of their own borrow one. */
@@ -359,16 +359,19 @@ const PROFILES = {
 /** Plays a short tactile sound for the given kind. Safe to call from
  *  anywhere (server-rendered code included) — it's a no-op without a
  *  window/AudioContext. */
-export function playChime(kind = 'info') {
+/** Play a sound by kind. `boost` (1 to 2) makes it louder, for a repeat that
+ *  still hasn't been answered (src/lib/attention.js). */
+export function playChime(kind = 'info', { boost = 1 } = {}) {
 	const context = getContext();
 	if (!context) return;
-	if (playSample(context, kind)) return;
+	if (playSample(context, kind, boost)) return;
 	const hits = PROFILES[kind] || PROFILES[SYNTH_STAND_IN[kind]] || PROFILES.info;
 	hits.forEach((h) => {
 		const at = h.at || 0;
-		if (h.kind === 'key') keyClick(context, { at, peak: h.peak, pitch: h.pitch });
-		else if (h.kind === 'scribble') scribble(context, { at, peak: h.peak, dir: h.dir, dur: h.dur });
-		else paperTap(context, { at, peak: h.peak, tone: h.tone, dur: h.dur });
+		const peak = Math.min(0.4, h.peak * boost);
+		if (h.kind === 'key') keyClick(context, { at, peak, pitch: h.pitch });
+		else if (h.kind === 'scribble') scribble(context, { at, peak, dir: h.dir, dur: h.dur });
+		else paperTap(context, { at, peak, tone: h.tone, dur: h.dur });
 	});
 }
 

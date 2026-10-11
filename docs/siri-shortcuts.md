@@ -57,6 +57,8 @@ iPhone) so you can see the press land.
 
 `POST /api/action?format=text`, then **Speak Text**. One press picks, in order:
 
+0. **Something is ringing** (a timer, a reminder, severe weather; see
+   [attention.md](attention.md)): it answers it, and the wall goes quiet.
 1. **An agent is waiting**: it reads the request out. It never allows it
    by itself; answer from the menu, the wall or the phone.
 2. **A departure is on**: it reads the board ("Leave for school in 6
