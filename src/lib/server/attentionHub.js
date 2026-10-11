@@ -151,6 +151,30 @@ export function createAttentionHub({
 		if (gone) changed();
 	}
 
+	/** The thing behind an item is over (a warning expired or was cancelled). */
+	function settle(ref) {
+		const item = items.find((i) => i.ref === ref);
+		if (!item) return false;
+		drop(item.id);
+		changed();
+		return true;
+	}
+
+	/**
+	 * The same thing, newly described (NWS updates a warning under a new id):
+	 * keep the item and how long it's been ringing, just follow the new ref.
+	 * Nothing happens if it was already answered.
+	 */
+	function rekey(fromRef, toRef, { title, body } = {}) {
+		const item = items.find((i) => i.ref === fromRef);
+		if (!item) return false;
+		item.ref = toRef;
+		if (title) item.title = String(title).replace(/\s+/g, ' ').trim().slice(0, 120);
+		if (body !== undefined) item.body = String(body || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+		changed();
+		return true;
+	}
+
 	/** Someone turned the panel on or off by hand: it's theirs now, don't restore it. */
 	function panelChanged() {
 		woke = false;
@@ -169,5 +193,5 @@ export function createAttentionHub({
 		return lastWake;
 	}
 
-	return { raise, fromNotify, ack, syncTasks, syncApprovals, panelChanged, awake, snapshot, stop, count: () => items.length };
+	return { raise, fromNotify, ack, settle, rekey, syncTasks, syncApprovals, panelChanged, awake, snapshot, stop, count: () => items.length };
 }
