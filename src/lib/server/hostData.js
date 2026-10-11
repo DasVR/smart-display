@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { createNwsWatch } from './nwsWatch.js';
 import { writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import path from 'node:path';
@@ -668,26 +669,14 @@ async function getRainViewer() {
 	}
 }
 
+/** NWS alerts for home (src/lib/server/nwsWatch.js). The server starts it
+ *  polling every 15 to 30 seconds; anything else just asks once. */
+export const nwsWatch = createNwsWatch({ lat: WEATHER_LAT, lon: WEATHER_LON });
+
 async function getNWSAlerts() {
-	try {
-		const r = await fetch(
-			`https://api.weather.gov/alerts/active?point=${WEATHER_LAT},${WEATHER_LON}`,
-			{ signal: AbortSignal.timeout(5000) }
-		);
-		if (!r.ok) throw new Error(`nws ${r.status}`);
-		const d = await r.json();
-		return (d.features || []).map((a) => ({
-			event: a.properties?.event || 'Alert',
-			severity: a.properties?.severity || 'Unknown',
-			headline: a.properties?.headline || '',
-			description: a.properties?.description || '',
-			onset: a.properties?.onset,
-			ends: a.properties?.ends
-		}));
-	} catch (e) {
-		console.error('nws alerts error:', e.message);
-		return [];
-	}
+	// the watcher is running and fresh: use what it has, it's at most 30 s old
+	if (nwsWatch.running() && !nwsWatch.status().stale) return nwsWatch.alerts();
+	return nwsWatch.check();
 }
 
 function wmoLabel(code) {

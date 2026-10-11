@@ -18,7 +18,7 @@ Ollama, the package updater).
 | **Calendar** | A rolling seven-day week starting today: every event, with homework (`#hw`) tagged Due | `/api/calendar` (Google Calendar) |
 | **Agents** | The active coding agent, the rest of the roster, host load and services | `/api/agents`, `/api/telemetry`, `/api/ollama/ps` |
 | **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
-| **Weather** | Live radar with a nowcast, current conditions, NWS alerts | `/api/weather`, `/api/weather/station` |
+| **Weather** | Live radar with a nowcast, current conditions, NWS alerts (checked every 15 to 30 s; act-now warnings ring the wall) | `/api/weather`, `/api/weather/station`, NWS |
 
 On every view, the **Dynamic Island** (top-center) shows transient events:
 notifications from `/api/notify`, chores and alerts as they come due, now
@@ -264,6 +264,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
+- [`docs/weather-alerts.md`](docs/weather-alerts.md): NWS watches and warnings, checked every 15 to 30 seconds, and what each one does on the wall
 - [`docs/attention.md`](docs/attention.md): how the wall gets your attention for timers, reminders, agents and severe weather, and how to answer it
 - [`docs/pairing.md`](docs/pairing.md): pair phones with a code on the wall; optionally only paired phones get in
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup

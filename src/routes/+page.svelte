@@ -388,6 +388,8 @@
 				}
 				if (msg.type === 'approvals' && Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 				if (msg.type === 'attention' && Array.isArray(msg.items)) attention.set(msg.items);
+				// NWS alerts arrive the moment they change (every 15 to 30 s), not with the 5-minute forecast
+				if (msg.type === 'weather-alerts' && Array.isArray(msg.alerts)) applyWeatherAlerts(msg.alerts);
 				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
 					tasks.set(msg.tasks);
 				}
@@ -425,6 +427,7 @@
 					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
 					if (Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 					if (Array.isArray(msg.attention)) attention.set(msg.attention);
+					if (Array.isArray(msg.weatherAlerts?.alerts)) applyWeatherAlerts(msg.weatherAlerts.alerts);
 					if (msg.power) {
 						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
 					}
@@ -493,7 +496,8 @@
 	function maybePingWeather(data) {
 		if (!data) return;
 		const { extreme } = splitNwsAlerts(data.alerts);
-		const extremeKey = extreme.length ? extreme.map((a) => a.event).join('|') : '';
+		// by alert id: a second tornado warning for a new storm is news even with the same name
+		const extremeKey = extreme.length ? extreme.map((a) => a.id || a.event).join('|') : '';
 		if (extremeKey && extremeKey !== lastExtremePing) {
 			lastExtremePing = extremeKey;
 			const top = extreme[0];
@@ -505,8 +509,7 @@
 				source: 'Extreme Alert',
 				kind: 'severe-weather'
 			});
-			// and keep it on the wall, ringing, until someone sees it
-			if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'attention', op: 'raise', kind: 'severe', title: top.event || 'Severe weather', body: String(top.headline || '').replace(/\s+/g, ' ').trim(), ref: extremeKey }));
+			// the server keeps it on the wall, ringing, until someone sees it (nwsWatch → attention)
 		} else if (!extremeKey) {
 			lastExtremePing = '';
 		}
@@ -540,6 +543,14 @@
 			source: slip.kicker,
 			kind: 'weather'
 		});
+	}
+
+	/** Fresh alerts from the server's watcher, folded into the weather the views read. */
+	function applyWeatherAlerts(alerts) {
+		// before the first forecast there's nothing to fold into; /api/weather carries the same alerts
+		if (!weatherData) return;
+		weatherData = { ...weatherData, alerts };
+		weatherDetail.set(weatherData);
 	}
 
 	async function fetchWeather() {

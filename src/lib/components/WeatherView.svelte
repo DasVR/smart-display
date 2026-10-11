@@ -1,5 +1,7 @@
 <script>
 	import { isExtremeAlert, tickerText } from '$lib/nwsAlerts.js';
+
+	const TIER_LABEL = { warning: 'Act now', watch: 'Be ready', advisory: 'Heads up' };
 	import SevereTicker from './SevereTicker.svelte';
 
 	let { data } = $props();
@@ -65,7 +67,7 @@
 			{#each alerts as a}
 				<div class="alert-card" class:extreme={isExtremeAlert(a)} data-severity={a.severity?.toLowerCase()}>
 					<div class="alert-title">{a.event}</div>
-					<div class="alert-sev">{a.severity}</div>
+					<div class="alert-sev">{TIER_LABEL[a.tier] || a.severity}</div>
 					<div class="alert-body">{a.headline}</div>
 				</div>
 			{/each}

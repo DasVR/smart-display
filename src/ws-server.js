@@ -14,6 +14,7 @@ import {
 	getHAStates,
 	triggerHAView,
 	getWeather,
+	nwsWatch,
 	getGoogleTasks,
 	saveStationData,
 	fetchHAStates
@@ -26,6 +27,7 @@ import { createActionHub } from './lib/server/actionHub.js';
 import { createVoiceHub } from './lib/server/voiceHub.js';
 import { createSoundHub } from './lib/server/soundHub.js';
 import { createAttentionHub } from './lib/server/attentionHub.js';
+import { ringForWarnings } from './lib/server/nwsWatch.js';
 import { createPairing, isLocalAddress } from './lib/server/pairing.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
@@ -131,6 +133,14 @@ const attentionHub = createAttentionHub({
 		hdmiHold = hold;
 	}
 });
+// NWS alerts for home, checked every 15 to 30 seconds (src/lib/server/nwsWatch.js).
+// Every change goes straight to the wall and the phone; a new act-now warning
+// (tornado, severe thunderstorm, flash flood…) rings until someone answers,
+// and goes quiet by itself when NWS ends or cancels it.
+nwsWatch.subscribe(() => broadcast({ type: 'weather-alerts', ...nwsWatch.status() }));
+ringForWarnings(nwsWatch, attentionHub);
+nwsWatch.start();
+
 /** Raise and settle attention items from what the hubs broadcast. */
 function attentionTap(msg) {
 	if (msg?.type === 'notify') attentionHub.fromNotify(msg);
@@ -1093,12 +1103,10 @@ wss.on('connection', (ws, req) => {
 				} else reply({ settings: voiceHub.snapshot() });
 			}
 			if (msg.type === 'attention') {
-				// { op: 'ack', id? } from the wall or the phone; { op: 'raise' } for the
-				// severe weather the kiosk itself notices
+				// { op: 'ack', id? } from the wall or the phone (severe weather is raised
+				// here on the server, from nwsWatch)
 				if (msg.op === 'ack') attentionHub.ack(typeof msg.id === 'string' ? msg.id : undefined);
-				else if (msg.op === 'raise' && ws.local && msg.kind === 'severe') {
-					attentionHub.raise({ kind: 'severe', title: String(msg.title || ''), body: String(msg.body || ''), ref: `weather:${String(msg.ref || msg.title || '').slice(0, 80)}` });
-				} else ws.send(JSON.stringify({ type: 'attention', items: attentionHub.snapshot() }));
+				else ws.send(JSON.stringify({ type: 'attention', items: attentionHub.snapshot() }));
 			}
 			if (msg.type === 'sounds') {
 				// the phone's sound maker: { op: 'get' | 'generate' | 'assign' | 'delete', ... }
@@ -1148,6 +1156,7 @@ wss.on('connection', (ws, req) => {
 				tasks: taskHub.snapshot(),
 				approvals: approvalHub.snapshot(),
 				attention: attentionHub.snapshot(),
+				weatherAlerts: nwsWatch.status(),
 				pairing: { required: pairing.required(), device: ws.device, local: ws.local }
 			})
 		);
