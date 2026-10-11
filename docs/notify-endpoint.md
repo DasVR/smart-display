@@ -52,7 +52,7 @@ The kiosk also raises some of these itself:
 
 - volume changes from `/remote` (keycap pitch follows the slider, island
   says `Volume 72%` / `Muted`)
-- night schedule edits (`Nights 22:30 to 06:00`)
+- schedule edits (`On Mon–Fri 6 AM–10:30 PM · Sat, Sun 8 AM–1 AM`)
 - apt or firmware updates waiting (`Package updates` / `Firmware update`)
 - the box then applies them (`Installing packages` / `Installing firmware`)
   on a smaller metaball under the island, with a progress bar and a

@@ -75,7 +75,10 @@ import {
 	saveSchedule,
 	schedulePatchAction,
 	scheduleTick,
-	daysEqual
+	applyDisplayPatch,
+	describeWeek,
+	desiredHdmi,
+	nextChange
 } from './lib/server/displaySchedule.js';
 import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
 import { probeAlignEngine } from './lib/server/forcedAlign.js';
@@ -211,7 +214,8 @@ const actionHub = createActionHub({
 	announce: (text) => voiceHub.say(text, { source: 'iPhone' })
 });
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
-let lastTickMinutes = null;
+/** What the schedule wanted at the last check ('on' | 'off'), to notice when it changes its mind. */
+let lastDesired = null;
 let hdmiHold = null;
 let applyingHdmi = false;
 let pendingHdmi = null;
@@ -453,6 +457,7 @@ function displaySnapshot() {
 		hdmi: hdmiState,
 		schedule,
 		quiet: isQuietHours(new Date(), schedule),
+		next: nextChange(new Date(), schedule),
 		hold: hdmiHold,
 		phone: {
 			...phoneWatch,
@@ -634,12 +639,12 @@ function proximityLoop() {
 async function tickSchedule() {
 	const now = new Date();
 	const result = scheduleTick({
-		lastMinutes: lastTickMinutes,
+		lastDesired,
 		hold: hdmiHold,
 		schedule,
 		date: now
 	});
-	lastTickMinutes = result.lastMinutes;
+	lastDesired = result.lastDesired;
 	hdmiHold = result.hold;
 	if (result.action) await applyHdmi(result.action, { reason: 'schedule' });
 }
@@ -651,10 +656,10 @@ async function patchSchedule(input) {
 	hdmiHold = patched.hold;
 	const changed =
 		prev.enabled !== schedule.enabled ||
-		prev.offAt !== schedule.offAt ||
-		prev.onAt !== schedule.onAt ||
 		prev.wakeOnPhone !== schedule.wakeOnPhone ||
-		!daysEqual(prev.days, schedule.days);
+		JSON.stringify(prev.week) !== JSON.stringify(schedule.week);
+	// the next check compares against what the new schedule wants now
+	lastDesired = desiredHdmi(new Date(), schedule);
 	if (changed) broadcast(scheduleNotify(schedule));
 	if (patched.action) await applyHdmi(patched.action, { reason: 'schedule' });
 	else broadcast({ type: 'display', ...displaySnapshot() });
@@ -728,30 +733,8 @@ const server = createServer(async (req, res) => {
 				if (data.hdmi === 'on' || data.hdmi === 'off') {
 					await applyHdmi(data.hdmi);
 				}
-				const next = { ...schedule };
-				if (typeof data.enabled === 'boolean') next.enabled = data.enabled;
-				if (typeof data.wakeOnPhone === 'boolean') next.wakeOnPhone = data.wakeOnPhone;
-				if (data.offAt) next.offAt = data.offAt;
-				if (data.onAt) next.onAt = data.onAt;
-				if (data.timeZone) next.timeZone = data.timeZone;
-				if (data.phoneWakeAfter) next.phoneWakeAfter = data.phoneWakeAfter;
-				if (Array.isArray(data.days) || typeof data.days === 'string') next.days = data.days;
-				if (typeof data.wakeOnProximity === 'boolean') next.wakeOnProximity = data.wakeOnProximity;
-				if (typeof data.proximityDevice === 'string') next.proximityDevice = data.proximityDevice;
-				if (data.proximityMeters !== undefined) next.proximityMeters = data.proximityMeters;
-				if (data.schedule && typeof data.schedule === 'object') Object.assign(next, data.schedule);
-				const changedSchedule =
-					data.enabled !== undefined ||
-					data.wakeOnPhone !== undefined ||
-					data.offAt ||
-					data.onAt ||
-					data.timeZone ||
-					data.phoneWakeAfter ||
-					data.days !== undefined ||
-					data.wakeOnProximity !== undefined ||
-					data.proximityDevice !== undefined ||
-					data.proximityMeters !== undefined ||
-					data.schedule;
+				// the week, one day, a copy, or the old single window (displaySchedule.js)
+				const { next, changed: changedSchedule } = applyDisplayPatch(schedule, data);
 				if (changedSchedule) {
 					json(res, { ok: true, ...await patchSchedule(next) });
 					return;
@@ -1172,8 +1155,7 @@ process.once('SIGTERM', () => {
 server.listen(port, '0.0.0.0', () => {
 	console.log(`smart-display running on :${port}`);
 	console.log(
-		`display schedule ${schedule.enabled ? 'on' : 'off'} ${schedule.offAt}->${schedule.onAt} ${schedule.timeZone}` +
-			` days ${schedule.days.join(',')}` +
+		`display schedule ${schedule.enabled ? 'on' : 'off'} ${describeWeek(schedule.week)} ${schedule.timeZone}` +
 			` phone-wake ${schedule.wakeOnPhone ? 'on' : 'off'} after ${schedule.phoneWakeAfter}`
 	);
 	setTimeout(tickSchedule, 2500);

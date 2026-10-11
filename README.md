@@ -177,7 +177,7 @@ Open `/remote` on a phone and use **Add to Home Screen** to run it as an app.
 A floating tab bar at the bottom switches between:
 
 - **Remote** (`/remote`): panel power, channel picker, volume
-- **Night** (`/remote#night`): night schedule and proximity wake
+- **Night** (`/remote#night`): when the panel is on, per day, and proximity wake (see [`docs/display-schedule.md`](docs/display-schedule.md))
 - **Tasks** (`/remote/tasks`): add, complete and snooze chores and alerts.
   **Siri & Shortcuts** (`/remote/shortcuts`) has the Siri recipes and a box
   to try phrases. Any page shows an Allow / Deny card while an agent waits.
@@ -231,7 +231,8 @@ restarts both services.
 | Variable | Purpose |
 | --- | --- |
 | `PORT` | HTTP/WebSocket port (default `3000`) |
-| `DISPLAY_SCHEDULE_PATH` | Night schedule JSON (default `data/display-schedule.json`) |
+| `DISPLAY_SCHEDULE_PATH` | Panel schedule JSON (default `data/display-schedule.json`) |
+| `DISPLAY_WEEK` | The panel's week as JSON, seven `{ mode, on, off }` days from Sunday (see [`docs/display-schedule.md`](docs/display-schedule.md)) |
 | `DISPLAY_HDMI_STAMP` | File holding the panel power state (`on`/`off`) |
 | `GOOGLE_TOKEN_PATH` | OAuth token for the Calendar view's calendar |
 | `HA_TOKEN_PATH` | Home Assistant token for phone wake |
@@ -264,6 +265,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
+- [`docs/display-schedule.md`](docs/display-schedule.md): when the panel turns on and off, per day of the week
 - [`docs/weather-alerts.md`](docs/weather-alerts.md): NWS watches and warnings, checked every 15 to 30 seconds, and what each one does on the wall
 - [`docs/attention.md`](docs/attention.md): how the wall gets your attention for timers, reminders, agents and severe weather, and how to answer it
 - [`docs/pairing.md`](docs/pairing.md): pair phones with a code on the wall; optionally only paired phones get in

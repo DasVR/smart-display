@@ -2,9 +2,11 @@ import path from 'node:path';
 import { json } from '@sveltejs/kit';
 import { PROJECT_ROOT, readHdmiStamp } from '$lib/server/displayPower.js';
 import {
+	applyDisplayPatch,
 	isPhoneWakeWindow,
 	isQuietHours,
 	loadSchedule,
+	nextChange,
 	normalizeSchedule,
 	saveSchedule
 } from '$lib/server/displaySchedule.js';
@@ -21,6 +23,7 @@ function snapshot() {
 		hdmi: hdmi === 'on' || hdmi === 'off' ? hdmi : 'unknown',
 		schedule,
 		quiet: isQuietHours(new Date(), schedule),
+		next: nextChange(new Date(), schedule),
 		hold: null,
 		phone: { wakeWindow: isPhoneWakeWindow(new Date(), schedule) }
 	};
@@ -39,32 +42,8 @@ export async function POST({ request }) {
 	}
 
 	const current = loadSchedule(SCHEDULE_PATH);
-	const next = { ...current };
-	if (typeof data.enabled === 'boolean') next.enabled = data.enabled;
-	if (typeof data.wakeOnPhone === 'boolean') next.wakeOnPhone = data.wakeOnPhone;
-	if (data.offAt) next.offAt = data.offAt;
-	if (data.onAt) next.onAt = data.onAt;
-	if (data.timeZone) next.timeZone = data.timeZone;
-	if (data.phoneWakeAfter) next.phoneWakeAfter = data.phoneWakeAfter;
-	if (Array.isArray(data.days) || typeof data.days === 'string') next.days = data.days;
-	if (typeof data.wakeOnProximity === 'boolean') next.wakeOnProximity = data.wakeOnProximity;
-	if (typeof data.proximityDevice === 'string') next.proximityDevice = data.proximityDevice;
-	if (data.proximityMeters !== undefined) next.proximityMeters = data.proximityMeters;
-	if (data.schedule && typeof data.schedule === 'object') Object.assign(next, data.schedule);
-
-	const changedSchedule =
-		data.enabled !== undefined ||
-		data.wakeOnPhone !== undefined ||
-		data.offAt ||
-		data.onAt ||
-		data.timeZone ||
-		data.phoneWakeAfter ||
-		data.days !== undefined ||
-		data.wakeOnProximity !== undefined ||
-		data.proximityDevice !== undefined ||
-		data.proximityMeters !== undefined ||
-		data.schedule;
-	if (changedSchedule) saveSchedule(SCHEDULE_PATH, normalizeSchedule(next, current));
+	const { next, changed } = applyDisplayPatch(current, data);
+	if (changed) saveSchedule(SCHEDULE_PATH, normalizeSchedule(next, current));
 
 	return json({ ok: true, ...snapshot() });
 }
