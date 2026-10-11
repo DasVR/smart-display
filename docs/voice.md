@@ -88,9 +88,39 @@ again once.
 
 ## The sound library
 
-One family: paper, brass and glass in a quiet wooden room. Each sound is a
-prompt in `src/lib/sounds/library.js`, made once and committed to
-`static/sounds/`. The kiosk only plays the files; it never calls ElevenLabs
+One family: a writer's desk with good tech on it. Pencil taps and checkmarks,
+notebooks opening, snapping shut and turning a page, a softened typewriter
+with a muted bell, creamy lubed keyboard switches (a deep, rounded thock, not
+a clack), and the soft rubber buttons, scroll-wheel clicks and haptic ticks of
+a small pocket gadget. Everything is close, muted and dry; nothing beeps.
+
+| Sound | What it is |
+| --- | --- |
+| `info` | a pencil tap on a notebook page |
+| `ok` | two creamy keypresses, the second a touch higher |
+| `warn` | two muffled eraser taps on a hardcover notebook |
+| `error` | a hardcover notebook set down flat |
+| `severe` | four firm typewriter keys, a muted bell on the last |
+| `success` | a pencil checkmark, then one creamy keypress |
+| `music` | three rising pocket-gadget buttons with haptic ticks |
+| `schedule` | a notebook's elastic band snapping shut |
+| `timer` | a desk timer winding down to a muted typewriter bell |
+| `reminder` | a pen click, two taps on the page |
+| `announce` | a pocket recorder's button and a two-note haptic chirp |
+| `morning` | a notebook opened, the page smoothed flat, one keypress |
+| `goodnight` | a laptop lid's magnetic click, a pencil set down |
+| `approval` | two fingertip taps on a pocket device's screen, with a buzz |
+| `working` | a short burst of creamy typing |
+| `done-claude` | a fountain-pen signature and the cap clicking on |
+| `done-cursor` | a softened typewriter carriage return and bell |
+| `done-hermes` | a page torn from a spiral notebook and folded |
+| `done-ollama` | one deep spacebar thock |
+| `install` | three slow scroll-wheel clicks |
+| `update` | a page turned, then one quiet keypress |
+
+Each sound is a prompt in `src/lib/sounds/library.js`, and every prompt ends
+with the same desk description (`DESK`) so they sit together. They're made
+once and committed to `static/sounds/`. The kiosk only plays the files; it never calls ElevenLabs
 to play a sound.
 
 ```bash
@@ -114,8 +144,8 @@ You don't need a laptop to add or fill in sounds. On **Stats → Sounds & voice*
 (needs the ElevenLabs key above) the wall can make them itself.
 
 **Make a sound.** Describe it ("a doorbell", "pouring tea into a cup") and tap
-**Make**. The wall sends it to ElevenLabs in the same quiet-room style as the
-rest, keeps the mp3 in `data/sounds/`, and plays it. Tap the chips for ideas,
+**Make**. The wall sends it to ElevenLabs in the same quiet-desk style as the
+rest (soft, creamy, muted, close-miked), keeps the mp3 in `data/sounds/`, and plays it. Tap the chips for ideas,
 or pick a length (otherwise the wall guesses: a tap is short, a ring is
 longer). Start with `!` to send the words exactly as typed, with no house style
 added.
@@ -129,6 +159,11 @@ that event plays yours from then on, on the wall and on the phone. Pick
 **Make this sound** button, and **Make the N missing sounds** makes them all, one
 after another. A sound made this way is tagged *made here* and takes over its
 own event. **Make another take** gives a new version if you don't like it.
+
+When the library's prompts change (as they did for the desk-and-keyboard
+family), sounds made here from the old prompts are tagged *old style* and get
+a **Remake in the new style** button; the bulk button becomes **Make N in the
+new style** and remakes them along with any stand-ins.
 
 Sounds made this way live only on the kiosk. To keep one in the repo (so it
 survives a reinstall), use `npm run sounds:generate` as above.
