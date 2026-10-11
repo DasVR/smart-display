@@ -1,6 +1,7 @@
 <!--
 	Phone page for the wall's voice and its sound library: turn the voice on
-	or off, set quiet hours, see today's ElevenLabs usage, say something on
+	or off, set its night and how loud it speaks by day and by night, see
+	today's ElevenLabs usage, say something on
 	the wall, audition every sound (on the phone itself), and make new ones:
 	describe a sound and the wall generates it with ElevenLabs, or fill in a
 	built-in stand-in with one tap.
@@ -66,7 +67,7 @@
 
 	const SILENT = {
 		off: 'The voice is off, so it was only shown.',
-		'quiet-hours': 'Quiet hours, so it was only shown.',
+		'quiet-hours': 'Night, and the voice is set to stay silent, so it was only shown.',
 		'no-key': 'No ElevenLabs key on the display yet, so it was only shown.',
 		'bad-key': 'ElevenLabs refused the key. It was only shown.',
 		'daily-limit': "Today's voice budget is spent, so it was only shown.",
@@ -320,15 +321,47 @@
 				{#if keyMessage}<p class="note" class:warn={keyFailed} role="status">{keyMessage}</p>{/if}
 			</div>
 			<div class="quiet">
-				<span>Quiet hours</span>
+				<span>Night</span>
 				<span class="times">
-					<input type="time" value={settings.quietStart} onchange={(e) => patch({ quietStart: e.currentTarget.value })} aria-label="Quiet hours start" />
+					<input type="time" value={settings.quietStart} onchange={(e) => patch({ quietStart: e.currentTarget.value })} aria-label="Night starts" />
 					<span>to</span>
-					<input type="time" value={settings.quietEnd} onchange={(e) => patch({ quietEnd: e.currentTarget.value })} aria-label="Quiet hours end" />
+					<input type="time" value={settings.quietEnd} onchange={(e) => patch({ quietEnd: e.currentTarget.value })} aria-label="Night ends" />
 				</span>
 			</div>
+			<label class="level">
+				<span>Day voice</span>
+				<input
+					type="range"
+					min="0"
+					max="100"
+					step="1"
+					value={Math.round(settings.dayVolume * 100)}
+					onchange={(e) => patch({ dayVolume: Number(e.currentTarget.value) / 100 })}
+					aria-label="Voice volume during the day"
+				/>
+				<span class="pct">{Math.round(settings.dayVolume * 100)}%</span>
+			</label>
+			<label class="level">
+				<span>Night voice</span>
+				<input
+					type="range"
+					min="0"
+					max="100"
+					step="1"
+					value={Math.round(settings.nightVolume * 100)}
+					disabled={settings.nightSilent}
+					onchange={(e) => patch({ nightVolume: Number(e.currentTarget.value) / 100 })}
+					aria-label="Voice volume at night"
+				/>
+				<span class="pct">{settings.nightSilent ? 'off' : `${Math.round(settings.nightVolume * 100)}%`}</span>
+			</label>
+			<label class="row">
+				<span>Silent at night</span>
+				<input type="checkbox" checked={settings.nightSilent} onchange={(e) => patch({ nightSilent: e.currentTarget.checked })} />
+			</label>
 			<p class="note">
-				{settings.quietNow ? 'Quiet now: the wall shows things but stays silent.' : 'Not quiet hours.'}
+				{settings.quietNow ? (settings.nightSilent ? 'Night now: the wall shows things but stays silent.' : `Night now: the voice speaks at ${Math.round(settings.nightVolume * 100)}%.`) : `Day: the voice speaks at ${Math.round(settings.dayVolume * 100)}%.`}
+				Only the voice changes; music and sounds keep the speaker's volume.
 			</p>
 			<div class="usage" aria-label="Today's voice use">
 				<div class="meter"><span style="width: {used}%"></span></div>
@@ -522,6 +555,27 @@
 		width: 1.5rem;
 		height: 1.5rem;
 		accent-color: var(--brand);
+	}
+	.level {
+		display: grid;
+		grid-template-columns: 7rem minmax(0, 1fr) 2.75rem;
+		white-space: nowrap;
+		align-items: center;
+		gap: var(--space-2);
+		min-height: 2.75rem;
+	}
+	.level input[type='range'] {
+		width: 100%;
+		accent-color: var(--brand);
+	}
+	.level input:disabled {
+		opacity: 0.4;
+	}
+	.level .pct {
+		text-align: right;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-tertiary);
+		font-size: var(--text-sm);
 	}
 	.quiet {
 		display: flex;
