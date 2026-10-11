@@ -115,14 +115,12 @@ test('event install and update fill titles', () => {
 	);
 });
 
-test('scheduleNotify names the window and selected nights', () => {
-	assert.equal(
-		scheduleNotify({ enabled: true, offAt: '22:30', onAt: '06:00' }).title,
-		'Nights 22:30 to 06:00'
-	);
-	assert.equal(
-		scheduleNotify({ enabled: true, offAt: '22:30', onAt: '06:00', days: [5, 6] }).title,
-		'Nights 22:30 to 06:00 · Fri Sat'
-	);
-	assert.equal(scheduleNotify({ enabled: false, offAt: '22:30', onAt: '06:00' }).title, 'Auto nights off');
+test('scheduleNotify sums up the week', () => {
+	const day = (on, off, mode = 'times') => ({ mode, on, off });
+	const weekdays = day('06:00', '22:30');
+	const weekend = day('08:00', '00:30');
+	const week = [weekend, weekdays, weekdays, weekdays, weekdays, weekdays, weekend];
+	assert.equal(scheduleNotify({ enabled: true, week }).title, 'On Mon–Fri 6 AM–10:30 PM · Sat, Sun 8 AM–12:30 AM');
+	assert.equal(scheduleNotify({ enabled: true, week: Array(7).fill(weekdays) }).title, 'On Every day 6 AM–10:30 PM');
+	assert.equal(scheduleNotify({ enabled: false, week }).title, 'Auto schedule off');
 });

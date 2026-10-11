@@ -58,8 +58,11 @@
 	let hdmi = $state('on');
 	let autoNights = $state(true);
 	let wakeOnPhone = $state(true);
-	let offAt = $state('22:30');
-	let onAt = $state('06:00');
+	// when the panel is on, per day (src/lib/server/displaySchedule.js); index 0 is Sunday
+	let week = $state(Array.from({ length: 7 }, () => ({ mode: 'times', on: '06:00', off: '22:30' })));
+	let nextChange = $state(null);
+	let scheduleTz = $state('America/New_York');
+	let copyFrom = $state(new Date().getDay());
 	let hold = $state(null);
 	let phone = $state({ entity: '', label: '', on: false, status: 'idle', wakeWindow: false });
 	let wakeOnProximity = $state(false);
@@ -69,8 +72,6 @@
 	let nearbyDevices = $state([]);
 	let proximitySaveTimer = 0;
 	let saveTimer = 0;
-	let nightTab = $state('times');
-	let days = $state([0, 1, 2, 3, 4, 5, 6]);
 	let volume = $state(0.6);
 	let muted = $state(false);
 	let volumeError = $state('');
@@ -117,13 +118,11 @@
 		const schedule = display.schedule || {};
 		if (typeof schedule.enabled === 'boolean') autoNights = schedule.enabled;
 		if (typeof schedule.wakeOnPhone === 'boolean') wakeOnPhone = schedule.wakeOnPhone;
-		if (schedule.offAt) offAt = clockValue(schedule.offAt);
-		if (schedule.onAt) onAt = clockValue(schedule.onAt);
-		if (Array.isArray(schedule.days)) {
-			days = [...new Set(schedule.days.map((day) => Number(day)).filter((day) => day >= 0 && day <= 6))].sort(
-				(a, b) => a - b
-			);
+		if (Array.isArray(schedule.week) && schedule.week.length === 7) {
+			week = schedule.week.map((d) => ({ mode: d.mode, on: clockValue(d.on), off: clockValue(d.off) }));
 		}
+		if (schedule.timeZone) scheduleTz = schedule.timeZone;
+		if ('next' in display) nextChange = display.next;
 		if (typeof schedule.wakeOnProximity === 'boolean') wakeOnProximity = schedule.wakeOnProximity;
 		if (typeof schedule.proximityDevice === 'string') proximityDevice = schedule.proximityDevice;
 		if (schedule.proximityMeters != null) {
@@ -237,17 +236,11 @@
 			const r = await fetch('/api/display', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					enabled: autoNights,
-					wakeOnPhone,
-					offAt: clockValue(offAt),
-					onAt: clockValue(onAt),
-					days
-				})
+				body: JSON.stringify({ enabled: autoNights, wakeOnPhone })
 			});
 			const data = await r.json();
 			applyDisplay(data);
-			lastAction = autoNights ? nightSummaryText() : 'auto nights off';
+			lastAction = autoNights ? 'schedule on' : 'schedule off';
 			playChime('schedule');
 			saveFault = '';
 		} catch {
@@ -465,32 +458,68 @@
 		saveVolume({ muted: !muted });
 	}
 
-	function daysLabel(selected = days) {
-		if (!selected.length) return 'no days';
-		if (selected.length === 7) return '';
-		return selected.map((day) => dayNames[day]).join(' ');
+	/** Save one day ({ mode } or { on } or { off }), or copy a day: the server answers with the new schedule. */
+	async function postSchedule(body, what) {
+		lastAction = 'saving schedule';
+		try {
+			const r = await fetch('/api/display', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			});
+			applyDisplay(await r.json());
+			lastAction = what;
+			playChime('schedule');
+			saveFault = '';
+		} catch {
+			saveFault = 'That setting did not save. The display did not answer.';
+			lastAction = 'save failed';
+		}
 	}
 
-	function nightSummaryText() {
-		if (!autoNights) return 'manual';
-		const when = `${clockValue(offAt)} to ${clockValue(onAt)}`;
-		if (hold) return `${hdmi === 'off' ? 'held off' : 'held on'} · ${when}`;
-		const dayBit = daysLabel();
-		return dayBit ? `${when} · ${dayBit}` : when;
+	function setDay(day, patch) {
+		const value = Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, k === 'mode' ? v : clockValue(v)]));
+		week = week.map((d, i) => (i === day ? { ...d, ...value } : d));
+		copyFrom = day;
+		postSchedule({ day, ...value }, `${weekDays[day].name} saved`);
 	}
 
-	function toggleDay(day) {
-		if (days.includes(day)) days = days.filter((item) => item !== day);
-		else days = [...days, day].sort((a, b) => a - b);
-		queueSave();
+	function copyDay(to) {
+		const label = { weekdays: 'weekdays', weekend: 'the weekend', all: 'every day' }[to];
+		postSchedule({ copyDay: copyFrom, to }, `${weekDays[copyFrom].name} copied to ${label}`);
 		playChime('tap');
 	}
 
-	function setNightTab(tab) {
-		if (nightTab === tab) return;
-		nightTab = tab;
-		playChime('tap');
+	/** "10:30 PM" from "22:30" */
+	function clock12(hhmm) {
+		const [h, m] = String(hhmm).split(':').map(Number);
+		return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`;
 	}
+
+	/** "Off tonight at 10:30 PM", "On tomorrow at 6 AM", "On Sat at 8 AM", on the display's clock. */
+	function nextText() {
+		if (!autoNights) return 'Manual';
+		if (!nextChange) return 'No changes this week';
+		const at = new Date(nextChange.at);
+		const day = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: scheduleTz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+		const time = new Intl.DateTimeFormat('en-US', { timeZone: scheduleTz, hour: 'numeric', minute: '2-digit' }).format(at).replace(':00', '');
+		const today = day(new Date());
+		const tomorrow = day(new Date(Date.now() + 86400000));
+		const when =
+			day(at) === today ? (Number(new Intl.DateTimeFormat('en-US', { timeZone: scheduleTz, hour: 'numeric', hourCycle: 'h23' }).format(at)) >= 17 ? 'tonight' : 'today')
+			: day(at) === tomorrow ? 'tomorrow'
+			: new Intl.DateTimeFormat('en-US', { timeZone: scheduleTz, weekday: 'short' }).format(at);
+		const lead = hold ? `Held ${hdmi} · ` : '';
+		return `${lead}${nextChange.to === 'on' ? 'On' : 'Off'} ${when} at ${time}`;
+	}
+
+	/** Monday first, the way a week reads */
+	const weekOrder = [1, 2, 3, 4, 5, 6, 0];
+	let todayIndex = $state(new Date().getDay());
+	$effect(() => {
+		const t = setInterval(() => (todayIndex = new Date().getDay()), 60000);
+		return () => clearInterval(t);
+	});
 
 	function phoneNote() {
 		if (phone.status === 'ok' && phone.label) return `Watching ${phone.label}`;
@@ -702,113 +731,95 @@
 				ontouchend={(e) => e.stopPropagation()}
 			>
 				<header class="night-head">
-					<span>Night</span>
-					<span class="night-summary">{nightSummaryText()}</span>
+					<span>Schedule</span>
+					<span class="night-summary">{nextText()}</span>
 				</header>
-				<div class="night-tabs" role="tablist" aria-label="Schedule">
+				<div class="rockers">
 					<button
-						class="night-tab"
-						class:on={nightTab === 'times'}
-						role="tab"
-						aria-selected={nightTab === 'times'}
-						onclick={() => setNightTab('times')}
+						class="rocker"
+						class:on={autoNights}
+						aria-pressed={autoNights}
+						onclick={() => {
+							autoNights = !autoNights;
+							clearTimeout(saveTimer);
+							saveNightSchedule();
+							playChime('tap');
+						}}
 					>
-						Times
+						Auto schedule
 					</button>
 					<button
-						class="night-tab"
-						class:on={nightTab === 'days'}
-						role="tab"
-						aria-selected={nightTab === 'days'}
-						onclick={() => setNightTab('days')}
+						class="rocker"
+						class:on={wakeOnPhone}
+						aria-pressed={wakeOnPhone}
+						onclick={() => {
+							wakeOnPhone = !wakeOnPhone;
+							clearTimeout(saveTimer);
+							saveNightSchedule();
+							playChime('tap');
+						}}
 					>
-						Days
+						Phone wake
 					</button>
 				</div>
-				<div class="night-body">
-					{#if nightTab === 'times'}
-						<div class="rockers">
+				<ul class="week" class:disabled={!autoNights} aria-label="When the panel is on, each day">
+					{#each weekOrder as d (d)}
+						{@const w = week[d]}
+						<li class="day-row" class:today={d === todayIndex} class:picked={d === copyFrom}>
 							<button
-								class="rocker"
-								class:on={autoNights}
-								aria-pressed={autoNights}
+								type="button"
+								class="day-name"
+								aria-label="{weekDays[d].name}: pick to copy"
+								aria-pressed={d === copyFrom}
+								disabled={!autoNights}
 								onclick={() => {
-									autoNights = !autoNights;
-									clearTimeout(saveTimer);
-									saveNightSchedule();
+									copyFrom = d;
 									playChime('tap');
 								}}
 							>
-								Auto schedule
+								{dayNames[d]}
 							</button>
-							<button
-								class="rocker"
-								class:on={wakeOnPhone}
-								aria-pressed={wakeOnPhone}
-								onclick={() => {
-									wakeOnPhone = !wakeOnPhone;
-									clearTimeout(saveTimer);
-									saveNightSchedule();
-									playChime('tap');
-								}}
-							>
-								Phone wake
-							</button>
-						</div>
-						<div class="times" class:disabled={!autoNights}>
-							<label>
-								<span>Off</span>
+							{#if w.mode === 'times'}
 								<input
 									type="time"
-									bind:value={offAt}
+									value={w.on}
 									disabled={!autoNights}
-									onchange={(e) => {
-										offAt = clockValue(e.currentTarget.value);
-										queueSave();
-									}}
+									aria-label="{weekDays[d].name} on at"
+									onchange={(e) => setDay(d, { on: e.currentTarget.value })}
 								/>
-							</label>
-							<label>
-								<span>On</span>
 								<input
 									type="time"
-									bind:value={onAt}
+									value={w.off}
 									disabled={!autoNights}
-									onchange={(e) => {
-										onAt = clockValue(e.currentTarget.value);
-										queueSave();
-									}}
+									aria-label="{weekDays[d].name} off at"
+									onchange={(e) => setDay(d, { off: e.currentTarget.value })}
 								/>
-							</label>
-						</div>
-						<p class="note">{phoneNote()}</p>
-					{:else}
-						<p class="kicker">Off on these nights</p>
-						<div class="day-pad" class:disabled={!autoNights} role="group" aria-label="Nights the panel turns off">
-							{#each weekDays as day}
-								<button
-									class="day-key"
-									class:on={days.includes(day.id)}
-									aria-pressed={days.includes(day.id)}
-									aria-label={day.name}
-									disabled={!autoNights}
-									onclick={() => toggleDay(day.id)}
-								>
-									{day.short}
-								</button>
-							{/each}
-						</div>
-						<p class="note">
-							{#if !days.length}
-								No nights selected. The panel stays on.
-							{:else if days.length === 7}
-								Every night.
 							{:else}
-								Overnight mornings follow the night that started the evening before.
+								<span class="whole" class:on={w.mode === 'on'}>{w.mode === 'on' ? 'On all day' : 'Off all day'}</span>
 							{/if}
-						</p>
-					{/if}
+							<select
+								value={w.mode}
+								disabled={!autoNights}
+								aria-label="{weekDays[d].name}"
+								onchange={(e) => setDay(d, { mode: e.currentTarget.value })}
+							>
+								<option value="times">Times</option>
+								<option value="on">On all day</option>
+								<option value="off">Off all day</option>
+							</select>
+						</li>
+					{/each}
+				</ul>
+				<div class="copy" class:disabled={!autoNights}>
+					<span>Copy {dayNames[copyFrom]} to</span>
+					<button type="button" disabled={!autoNights} onclick={() => copyDay('weekdays')}>Weekdays</button>
+					<button type="button" disabled={!autoNights} onclick={() => copyDay('weekend')}>Weekend</button>
+					<button type="button" disabled={!autoNights} onclick={() => copyDay('all')}>Every day</button>
 				</div>
+				<p class="note">
+					On, then off. An off time earlier than the on time means after midnight: Fri 8 AM – 1 AM stays on until 1 AM
+					Saturday. {phoneNote()}.
+				</p>
 			</section>
 
 			<section
@@ -1233,6 +1244,119 @@
 		text-align: right;
 		overflow-wrap: anywhere;
 		min-width: 0;
+	}
+	.week {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+	.week.disabled,
+	.copy.disabled {
+		opacity: 0.45;
+	}
+	.day-row {
+		display: grid;
+		grid-template-columns: 2.75rem minmax(0, 1fr) minmax(0, 1fr) 2.25rem;
+		align-items: center;
+		gap: var(--space-1);
+		min-width: 0;
+	}
+	.day-row .whole {
+		grid-column: 2 / span 2;
+		min-height: 2.5rem;
+		display: grid;
+		place-items: center;
+		border-radius: var(--radius-md);
+		border: 1px dashed var(--hairline);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		color: var(--text-tertiary);
+	}
+	.day-row .whole.on {
+		color: var(--ok);
+		border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+	}
+	.day-name {
+		min-height: 2.5rem;
+		padding: 0;
+		border: 1px solid transparent;
+		border-radius: var(--radius-md);
+		background: transparent;
+		color: var(--text-secondary);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 700;
+		cursor: pointer;
+	}
+	.day-row.today .day-name {
+		color: var(--foreground);
+	}
+	.day-row.picked .day-name {
+		border-color: color-mix(in srgb, var(--foreground) 22%, transparent);
+		background: var(--shell-fill);
+	}
+	.day-row input[type='time'] {
+		width: 100%;
+		min-width: 0;
+		box-sizing: border-box;
+		min-height: 2.5rem;
+		padding: 0 var(--space-2);
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		color: var(--foreground);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		color-scheme: dark;
+	}
+	.day-row input[type='time']::-webkit-calendar-picker-indicator {
+		display: none;
+	}
+	/* the mode menu: a small chevron button over a native select */
+	.day-row select {
+		width: 2.25rem;
+		min-height: 2.5rem;
+		padding: 0;
+		border-radius: var(--radius-md);
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill)
+			url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")
+			center / 1rem no-repeat;
+		color: transparent;
+		appearance: none;
+		-webkit-appearance: none;
+		cursor: pointer;
+	}
+	.day-row select option {
+		color: initial;
+	}
+	.copy {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
+	}
+	.copy span {
+		margin-right: var(--space-1);
+	}
+	.copy button {
+		min-height: 2.25rem;
+		padding: 0 var(--space-3);
+		border-radius: 999px;
+		border: 1px solid var(--hairline);
+		background: var(--shell-fill);
+		color: var(--text-secondary);
+		font-family: var(--font-body);
+		font-size: var(--text-sm);
+		font-weight: 600;
+		cursor: pointer;
 	}
 	.night-tabs {
 		display: grid;

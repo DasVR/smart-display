@@ -6,347 +6,285 @@ import assert from 'node:assert/strict';
 
 import {
 	ALL_DAYS,
-	crossedMinute,
+	applyDisplayPatch,
 	debounceSignal,
+	describeWeek,
 	desiredHdmi,
 	envDefaults,
-	formatDaysLabel,
 	formatHHMM,
+	isAwake,
+	isPhoneWakeWindow,
 	isQuietHours,
 	loadSchedule,
 	minutesOfDay,
-	nightOwnerWeekday,
+	nextChange,
+	normalizeDay,
 	normalizeDays,
 	normalizeSchedule,
+	normalizeWeek,
 	parseHHMM,
 	saveSchedule,
 	schedulePatchAction,
 	scheduleTick,
-	scheduledAction,
+	weekFromLegacy,
 	weekdayInZone
 } from '../src/lib/server/displaySchedule.js';
 
 const tmpDirs = [];
-
 function tmpDir() {
 	const dir = mkdtempSync(path.join(os.tmpdir(), 'display-schedule-'));
 	tmpDirs.push(dir);
 	return dir;
 }
-
 after(() => {
 	for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true });
 });
 
-describe('parseHHMM', () => {
-	test('accepts padded and unpadded hours', () => {
+const day = (on, off, mode = 'times') => ({ mode, on, off });
+// 2026-10-05 is a Monday; UTC keeps these readable
+const at = (iso) => new Date(`${iso}Z`);
+const weekdays = day('06:30', '22:30');
+const weekendLate = day('08:00', '01:00'); // runs past midnight
+const UTC = (week, extra = {}) => ({ enabled: true, wakeOnPhone: true, phoneWakeAfter: '05:00', timeZone: 'UTC', week, ...extra });
+const mine = UTC([day('08:00', '22:30'), weekdays, weekdays, weekdays, weekdays, weekendLate, weekendLate]);
+
+describe('times', () => {
+	test('parseHHMM accepts what time inputs send, rejects garbage', () => {
 		assert.equal(parseHHMM('22:30'), 22 * 60 + 30);
 		assert.equal(parseHHMM('6:00'), 6 * 60);
-		assert.equal(parseHHMM('00:00'), 0);
-		assert.equal(parseHHMM('23:59'), 23 * 60 + 59);
-	});
-
-	test('accepts seconds from time inputs', () => {
-		assert.equal(parseHHMM('22:30:00'), 22 * 60 + 30);
-		assert.equal(parseHHMM('6:00:00'), 6 * 60);
 		assert.equal(parseHHMM('07:05:09.5'), 7 * 60 + 5);
-		assert.equal(normalizeSchedule({ offAt: '22:30:00', onAt: '6:00:00' }).offAt, '22:30');
-		assert.equal(normalizeSchedule({ offAt: '22:30:00', onAt: '6:00:00' }).onAt, '06:00');
+		for (const bad of ['24:00', '9', '12:60', '']) assert.equal(parseHHMM(bad), null, bad);
+		assert.equal(formatHHMM(65), '01:05');
+		assert.equal(formatHHMM(-30), '23:30');
 	});
 
-	test('rejects garbage', () => {
-		assert.equal(parseHHMM('24:00'), null);
-		assert.equal(parseHHMM('9'), null);
-		assert.equal(parseHHMM('12:60'), null);
-		assert.equal(parseHHMM(''), null);
-	});
-});
-
-describe('quiet hours', () => {
-	const overnight = { enabled: true, offAt: '22:30', onAt: '06:00', timeZone: 'UTC' };
-	const nap = { enabled: true, offAt: '13:00', onAt: '14:30', timeZone: 'UTC' };
-
-	test('overnight window includes late night and early morning', () => {
-		assert.equal(isQuietHours(new Date('2026-09-12T22:30:00Z'), overnight), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T23:59:00Z'), overnight), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T00:00:00Z'), overnight), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T05:59:00Z'), overnight), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T06:00:00Z'), overnight), false);
-		assert.equal(isQuietHours(new Date('2026-09-12T21:00:00Z'), overnight), false);
-	});
-
-	test('same-day window is half-open [off, on)', () => {
-		assert.equal(isQuietHours(new Date('2026-09-12T12:59:00Z'), nap), false);
-		assert.equal(isQuietHours(new Date('2026-09-12T13:00:00Z'), nap), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T14:29:00Z'), nap), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T14:30:00Z'), nap), false);
-	});
-
-	test('disabled schedule is never quiet', () => {
-		assert.equal(
-			isQuietHours(new Date('2026-09-12T23:00:00Z'), { ...overnight, enabled: false }),
-			false
-		);
-		assert.equal(desiredHdmi(new Date('2026-09-12T23:00:00Z'), { ...overnight, enabled: false }), null);
-	});
-
-	test('uses America/New_York wall time', () => {
-		const eastern = { enabled: true, offAt: '22:30', onAt: '06:00', timeZone: 'America/New_York' };
-		// 2026-09-12 02:30 UTC = 2026-09-11 22:30 EDT
-		assert.equal(minutesOfDay(new Date('2026-09-12T02:30:00Z'), 'America/New_York'), 22 * 60 + 30);
-		assert.equal(isQuietHours(new Date('2026-09-12T02:30:00Z'), eastern), true);
-		// 2026-09-12 10:00 UTC = 2026-09-12 06:00 EDT
-		assert.equal(isQuietHours(new Date('2026-09-12T10:00:00Z'), eastern), false);
+	test('a day: cleaned up, equal times mean on all day', () => {
+		assert.deepEqual(normalizeDay({ mode: 'times', on: '6:00:00', off: '22:30' }), day('06:00', '22:30'));
+		assert.deepEqual(normalizeDay({ mode: 'times', on: '07:00', off: '07:00' }), day('07:00', '07:00', 'on'));
+		assert.deepEqual(normalizeDay({ mode: 'nonsense', on: 'x', off: 'y' }, day('09:00', '17:00', 'off')), day('09:00', '17:00', 'off'));
+		const week = normalizeWeek([day('08:00', '20:00')]);
+		assert.equal(week.length, 7);
+		assert.deepEqual(week[0], day('08:00', '20:00'));
+		assert.deepEqual(week[1], day('06:00', '22:30'), 'missing days take the default');
 	});
 });
 
-describe('schedule ticks', () => {
-	const schedule = { enabled: true, offAt: '22:30', onAt: '06:00', timeZone: 'UTC' };
-
-	test('fires off and on when the minute rolls across the boundary', () => {
-		assert.equal(scheduledAction(22 * 60 + 29, 22 * 60 + 30, schedule), 'off');
-		assert.equal(scheduledAction(5 * 60 + 59, 6 * 60, schedule), 'on');
-		assert.equal(scheduledAction(12 * 60, 12 * 60 + 1, schedule), null);
+describe('on and off, per day', () => {
+	test('each day has its own on and off', () => {
+		assert.equal(desiredHdmi(at('2026-10-05T06:29'), mine), 'off', 'Monday before 6:30');
+		assert.equal(desiredHdmi(at('2026-10-05T06:30'), mine), 'on', 'Monday at 6:30');
+		assert.equal(desiredHdmi(at('2026-10-05T22:29'), mine), 'on');
+		assert.equal(desiredHdmi(at('2026-10-05T22:30'), mine), 'off', 'Monday off at 22:30');
+		assert.equal(desiredHdmi(at('2026-10-04T07:59'), mine), 'off', 'Sunday sleeps in');
+		assert.equal(desiredHdmi(at('2026-10-04T08:00'), mine), 'on');
 	});
 
-	test('catches a midnight wrap for a 00:00 off time', () => {
-		const midnight = { ...schedule, offAt: '00:00', onAt: '06:00' };
-		assert.equal(crossedMinute(23 * 60 + 59, 0, 0), true);
-		assert.equal(scheduledAction(23 * 60 + 59, 0, midnight), 'off');
+	test('an off time after midnight belongs to the evening before', () => {
+		assert.equal(desiredHdmi(at('2026-10-09T23:30'), mine), 'on', 'Friday night');
+		assert.equal(desiredHdmi(at('2026-10-10T00:59'), mine), 'on', 'still Friday night, Saturday morning');
+		assert.equal(desiredHdmi(at('2026-10-10T01:00'), mine), 'off');
+		assert.equal(desiredHdmi(at('2026-10-10T07:59'), mine), 'off');
+		assert.equal(desiredHdmi(at('2026-10-10T08:00'), mine), 'on', 'Saturday on');
+		assert.equal(desiredHdmi(at('2026-10-11T00:30'), mine), 'on', 'Saturday night runs late too');
+		assert.equal(desiredHdmi(at('2026-10-05T00:30'), mine), 'off', 'but Sunday night does not');
+	});
+
+	test('on all day, off all day', () => {
+		const away = UTC([day('08:00', '22:00', 'off'), weekdays, weekdays, weekdays, weekdays, weekdays, day('00:00', '00:00', 'on')]);
+		assert.equal(desiredHdmi(at('2026-10-10T03:00'), away), 'on', 'Saturday all day');
+		assert.equal(desiredHdmi(at('2026-10-10T23:59'), away), 'on');
+		assert.equal(desiredHdmi(at('2026-10-11T12:00'), away), 'off', 'Sunday all day');
+		assert.equal(isQuietHours(at('2026-10-11T12:00'), away), true);
+	});
+
+	test('paused: never quiet, no opinion', () => {
+		const paused = { ...mine, enabled: false };
+		assert.equal(desiredHdmi(at('2026-10-05T03:00'), paused), null);
+		assert.equal(isQuietHours(at('2026-10-05T03:00'), paused), false);
+		assert.equal(isAwake(at('2026-10-05T03:00'), paused), false, 'what the week says, regardless');
+	});
+
+	test('the wall clock, not UTC', () => {
+		const ny = { ...mine, timeZone: 'America/New_York' };
+		// 2026-10-06 02:29 UTC = Monday 22:29 EDT
+		assert.equal(minutesOfDay(at('2026-10-06T02:29'), 'America/New_York'), 22 * 60 + 29);
+		assert.equal(weekdayInZone(at('2026-10-06T02:29'), 'America/New_York'), 1);
+		assert.equal(desiredHdmi(at('2026-10-06T02:29'), ny), 'on');
+		assert.equal(desiredHdmi(at('2026-10-06T02:30'), ny), 'off');
+	});
+
+	test('daylight saving: a skipped hour still lands right', () => {
+		// 2026-03-08 in New York: 2:00 AM jumps to 3:00 AM
+		const ny = UTC(ALL_DAYS.map(() => day('02:30', '23:00')), { timeZone: 'America/New_York' });
+		assert.equal(desiredHdmi(new Date('2026-03-08T06:59:00Z'), ny), 'off', '1:59 AM EST');
+		assert.equal(desiredHdmi(new Date('2026-03-08T07:00:00Z'), ny), 'on', '3:00 AM EDT: 2:30 never happened, but it is past it');
 	});
 });
 
-describe('persist', () => {
-	test('normalizes env defaults and round-trips JSON', () => {
-		assert.deepEqual(
-			envDefaults({ DISPLAY_SCHEDULE: '0', DISPLAY_OFF_AT: '21:15', DISPLAY_ON_AT: '7:05', TZ: 'America/New_York' }),
-			{
-				enabled: false,
-				wakeOnPhone: true,
-				offAt: '21:15',
-				onAt: '07:05',
-				phoneWakeAfter: '05:00',
-				timeZone: 'America/New_York',
-				wakeOnProximity: false,
-				proximityDevice: '',
-				proximityMeters: 5,
-				days: ALL_DAYS
-			}
-		);
+describe('the next change', () => {
+	test('names when and which way', () => {
+		assert.deepEqual(nextChange(at('2026-10-05T12:00'), mine), { at: '2026-10-05T22:30:00.000Z', to: 'off' });
+		assert.deepEqual(nextChange(at('2026-10-05T23:00'), mine), { at: '2026-10-06T06:30:00.000Z', to: 'on' });
+		assert.deepEqual(nextChange(at('2026-10-09T23:00'), mine), { at: '2026-10-10T01:00:00.000Z', to: 'off' }, 'Friday late');
+		assert.deepEqual(nextChange(at('2026-10-05T22:29:40'), mine), { at: '2026-10-05T22:30:00.000Z', to: 'off' }, 'to the minute');
+	});
+
+	test('nothing changes: null', () => {
+		assert.equal(nextChange(at('2026-10-05T12:00'), UTC(ALL_DAYS.map(() => day('00:00', '00:00', 'on')))), null);
+		assert.equal(nextChange(at('2026-10-05T12:00'), { ...mine, enabled: false }), null);
+	});
+});
+
+describe('the server tick', () => {
+	test('boot follows the schedule unless someone held the power', () => {
+		assert.deepEqual(scheduleTick({ lastDesired: null, hold: null, schedule: mine, date: at('2026-10-05T03:00') }), { lastDesired: 'off', hold: null, action: 'off' });
+		assert.deepEqual(scheduleTick({ lastDesired: null, hold: 'on', schedule: mine, date: at('2026-10-05T03:00') }), { lastDesired: 'off', hold: 'on', action: null });
+	});
+
+	test('acts when the schedule changes its mind, and only then', () => {
+		const t = (iso, lastDesired, hold = null) => scheduleTick({ lastDesired, hold, schedule: mine, date: at(iso) });
+		assert.equal(t('2026-10-05T12:00', 'on').action, null);
+		assert.deepEqual(t('2026-10-05T22:30', 'on'), { lastDesired: 'off', hold: null, action: 'off' });
+		// the server was down across 22:30 (or a tick was missed): it still notices
+		assert.equal(t('2026-10-05T23:47', 'on').action, 'off');
+	});
+
+	test('a hold lasts until the next change, then the schedule takes over', () => {
+		const t = (iso, lastDesired, hold) => scheduleTick({ lastDesired, hold, schedule: mine, date: at(iso) });
+		// turned on by hand at 23:00 Monday
+		assert.deepEqual(t('2026-10-05T23:30', 'off', 'on'), { lastDesired: 'off', hold: 'on', action: null });
+		// Tuesday 06:30: the schedule wants on anyway; hold is cleared
+		assert.deepEqual(t('2026-10-06T06:30', 'off', 'on'), { lastDesired: 'on', hold: null, action: 'on' });
+	});
+});
+
+describe('the phone may wake it early', () => {
+	test('after phoneWakeAfter, before that morning\'s on time', () => {
+		assert.equal(isPhoneWakeWindow(at('2026-10-05T04:59'), mine), false);
+		assert.equal(isPhoneWakeWindow(at('2026-10-05T05:00'), mine), true);
+		assert.equal(isPhoneWakeWindow(at('2026-10-05T06:29'), mine), true);
+		assert.equal(isPhoneWakeWindow(at('2026-10-05T06:30'), mine), false, 'on anyway');
+		assert.equal(isPhoneWakeWindow(at('2026-10-10T07:00'), mine), true, 'Saturday, before 8');
+		assert.equal(isPhoneWakeWindow(at('2026-10-05T05:30'), { ...mine, wakeOnPhone: false }), false);
+		const offSunday = UTC([day('08:00', '22:00', 'off'), weekdays, weekdays, weekdays, weekdays, weekdays, weekdays]);
+		assert.equal(isPhoneWakeWindow(at('2026-10-11T09:00'), offSunday), true, 'a day off all day: until noon');
+		assert.equal(isPhoneWakeWindow(at('2026-10-11T13:00'), offSunday), false);
+	});
+});
+
+describe('saving changes', () => {
+	test('one day, a copy, the whole week', () => {
+		const base = normalizeSchedule({ week: mine.week, timeZone: 'UTC' });
+		let { next, changed } = applyDisplayPatch(base, { day: 'sat', mode: 'off' });
+		assert.equal(changed, true);
+		assert.equal(next.week[6].mode, 'off');
+		assert.deepEqual(next.week[5], weekendLate, 'others untouched');
+
+		({ next } = applyDisplayPatch(base, { day: 1, on: '05:45' }));
+		assert.deepEqual(next.week[1], day('05:45', '22:30'));
+
+		({ next } = applyDisplayPatch(base, { copyDay: 'sat', to: 'weekdays' }));
+		assert.deepEqual(next.week.slice(1, 6), Array(5).fill(weekendLate));
+		assert.deepEqual(next.week[0], day('08:00', '22:30'));
+		({ next } = applyDisplayPatch(base, { copyDay: 1, to: 'weekend' }));
+		assert.deepEqual([next.week[0], next.week[6]], [weekdays, weekdays]);
+		({ next } = applyDisplayPatch(base, { copyDay: 1, to: 'all' }));
+		assert.deepEqual(next.week, Array(7).fill(weekdays));
+
+		({ next } = applyDisplayPatch(base, { week: Array(7).fill(day('07:00', '23:00')) }));
+		assert.deepEqual(next.week[3], day('07:00', '23:00'));
+
+		assert.equal(applyDisplayPatch(base, {}).changed, false, 'nothing asked, nothing saved');
+		assert.equal(applyDisplayPatch(base, { hdmi: 'on' }).changed, false);
+	});
+
+	test('the old single window still works, and sets every day', () => {
+		const base = normalizeSchedule({ week: mine.week });
+		const { next } = applyDisplayPatch(base, { offAt: '21:00', onAt: '07:00' });
+		assert.deepEqual(normalizeWeek(next.week), Array(7).fill(day('07:00', '21:00')));
+	});
+
+	test('editing the times keeps a hand-made hold; Auto on/off is "follow it now"', () => {
+		const prev = normalizeSchedule({ week: mine.week, timeZone: 'UTC' });
+		const edited = { ...prev, week: Array(7).fill(day('07:00', '20:00')) };
+		const night = at('2026-10-05T21:00');
+		assert.deepEqual(schedulePatchAction(prev, edited, { hold: 'on', date: night }), { action: null, hold: 'on' });
+		assert.deepEqual(schedulePatchAction(prev, edited, { hold: null, date: night }), { action: 'off', hold: null });
+		assert.deepEqual(schedulePatchAction(prev, { ...prev, wakeOnProximity: true }, { hold: null, date: night }), { action: null, hold: null }, 'proximity tweaks leave the panel alone');
+		assert.deepEqual(schedulePatchAction(prev, { ...prev, enabled: false }, { hold: 'off', date: night }), { action: 'on', hold: null });
+		assert.deepEqual(schedulePatchAction({ ...prev, enabled: false }, prev, { hold: 'on', date: at('2026-10-05T23:00') }), { action: 'off', hold: null });
+	});
+
+	test('sums up the week', () => {
+		assert.equal(describeWeek(mine.week), 'Mon–Thu 6:30 AM–10:30 PM · Fri, Sat 8 AM–1 AM · Sun 8 AM–10:30 PM');
+		assert.equal(describeWeek(normalizeWeek()), 'Every day 6 AM–10:30 PM');
+	});
+});
+
+describe('from the old single window', () => {
+	test('nights in `days` go off that evening and on the next morning; the rest stay on', () => {
+		const week = weekFromLegacy({ offAt: '21:15', onAt: '06:00', days: ['fri', 'sat'] });
+		assert.deepEqual(week[5], day('00:00', '21:15'), 'Friday: Thursday night stayed on, off Friday night');
+		assert.deepEqual(week[6], day('06:00', '21:15'));
+		assert.deepEqual(week[0], day('06:00', '00:00'), 'Sunday: on at 6, Sunday night stays on');
+		assert.deepEqual(week[2], day('00:00', '00:00', 'on'));
+		const legacy = { enabled: true, timeZone: 'UTC', offAt: '21:15', onAt: '06:00', days: [5, 6] };
+		assert.equal(desiredHdmi(at('2026-10-09T21:15'), legacy), 'off', 'Friday 21:15');
+		assert.equal(desiredHdmi(at('2026-10-10T05:59'), legacy), 'off');
+		assert.equal(desiredHdmi(at('2026-10-10T06:00'), legacy), 'on');
+		assert.equal(desiredHdmi(at('2026-10-08T03:00'), legacy), 'on', 'a Thursday night that was never scheduled');
+	});
+
+	test('an old file, and old env variables, become a week', () => {
 		const file = path.join(tmpDir(), 'display-schedule.json');
-		const saved = saveSchedule(file, { enabled: false, offAt: '9:05', onAt: '07:00' });
-		assert.equal(saved.offAt, '09:05');
-		assert.equal(JSON.parse(readFileSync(file, 'utf8')).enabled, false);
-		assert.deepEqual(loadSchedule(file, {}), saved);
-		const withDays = saveSchedule(file, { ...saved, days: ['fri', 'sat'] });
-		assert.deepEqual(withDays.days, [5, 6]);
-		assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).days, [5, 6]);
+		writeFileSync(file, JSON.stringify({ enabled: true, offAt: '22:00', onAt: '07:00', days: [0, 1, 2, 3, 4, 5, 6], timeZone: 'UTC' }));
+		const loaded = loadSchedule(file, {});
+		assert.deepEqual(loaded.week, Array(7).fill(day('07:00', '22:00')));
+		assert.equal('offAt' in loaded, false, 'only the week is kept');
+
+		const env = envDefaults({ DISPLAY_SCHEDULE: '0', DISPLAY_OFF_AT: '21:15', DISPLAY_ON_AT: '7:05', TZ: 'America/New_York' });
+		assert.equal(env.enabled, false);
+		assert.equal(env.timeZone, 'America/New_York');
+		assert.deepEqual(env.week, Array(7).fill(day('07:05', '21:15')));
+		const json = envDefaults({ DISPLAY_WEEK: JSON.stringify(Array(7).fill(day('09:00', '18:00'))) });
+		assert.deepEqual(json.week[2], day('09:00', '18:00'));
+		assert.deepEqual(envDefaults({}).week, normalizeWeek(), 'nothing set: the default week');
 	});
 
-	test('falls back when the file is junk', () => {
-		const file = path.join(tmpDir(), 'bad.json');
+	test('round-trips JSON, falls back when the file is junk', () => {
+		const file = path.join(tmpDir(), 'display-schedule.json');
+		const saved = saveSchedule(file, { enabled: false, week: mine.week });
+		assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).week, mine.week);
+		assert.deepEqual(loadSchedule(file, {}), saved);
 		writeFileSync(file, '{not json');
 		assert.deepEqual(loadSchedule(file, {}), envDefaults({}));
 	});
+});
 
-	test('keeps previous times when a patch is invalid', () => {
-		const next = normalizeSchedule({ offAt: 'nope' }, { offAt: '22:30', onAt: '06:00', enabled: true });
-		assert.equal(next.offAt, '22:30');
+describe('days and proximity', () => {
+	test('parses names, numbers, and env lists', () => {
+		assert.deepEqual(normalizeDays('fri,sat'), [5, 6]);
+		assert.deepEqual(normalizeDays(['Mon', 3, '0']), [0, 1, 3]);
+		assert.deepEqual(normalizeDays([]), []);
 	});
 
 	test('normalizeSchedule validates the proximity fields', () => {
-		const withMac = normalizeSchedule({
-			wakeOnProximity: true,
-			proximityDevice: 'aa:bb:cc:dd:ee:ff',
-			proximityMeters: 3.25
-		});
-		assert.equal(withMac.wakeOnProximity, true);
+		const withMac = normalizeSchedule({ wakeOnProximity: true, proximityDevice: 'aa:bb:cc:dd:ee:ff', proximityMeters: 3.25 });
 		assert.equal(withMac.proximityDevice, 'AA:BB:CC:DD:EE:FF');
 		assert.equal(withMac.proximityMeters, 3.3);
-
-		const badMac = normalizeSchedule({ proximityDevice: 'not-a-mac' });
-		assert.equal(badMac.proximityDevice, '');
-
-		const badMeters = normalizeSchedule({ proximityMeters: -5 }, { proximityMeters: 7 });
-		assert.equal(badMeters.proximityMeters, 7);
-
-		const clamped = normalizeSchedule({ proximityMeters: 500 });
-		assert.equal(clamped.proximityMeters, 30);
-
-		const defaults = normalizeSchedule({});
-		assert.equal(defaults.wakeOnProximity, false);
-		assert.equal(defaults.proximityDevice, '');
-		assert.equal(defaults.proximityMeters, 5);
+		assert.equal(normalizeSchedule({ proximityDevice: 'not-a-mac' }).proximityDevice, '');
+		assert.equal(normalizeSchedule({ proximityMeters: -5 }, { proximityMeters: 7 }).proximityMeters, 7);
+		assert.equal(normalizeSchedule({ proximityMeters: 500 }).proximityMeters, 30);
 	});
 
 	test('debounceSignal ignores a single flickered reading', () => {
 		const state = {};
 		assert.equal(debounceSignal(state, false), false);
-		assert.equal(debounceSignal(state, true), false); // one-off blip, not confirmed yet
-		assert.equal(debounceSignal(state, false), false); // back to false before confirming
 		assert.equal(debounceSignal(state, true), false);
-		assert.equal(debounceSignal(state, true), true); // two in a row: confirmed
-		assert.equal(debounceSignal(state, false), true); // one-off blip back down
+		assert.equal(debounceSignal(state, false), false);
+		assert.equal(debounceSignal(state, true), false);
 		assert.equal(debounceSignal(state, true), true);
 		assert.equal(debounceSignal(state, false), true);
-		assert.equal(debounceSignal(state, false), false); // two in a row: confirmed off
-	});
-});
-
-describe('scheduled days', () => {
-	const fridayNight = {
-		enabled: true,
-		offAt: '22:30',
-		onAt: '06:00',
-		timeZone: 'UTC',
-		days: [5]
-	};
-
-	test('parses names, numbers, and env lists', () => {
-		assert.deepEqual(normalizeDays('fri,sat'), [5, 6]);
-		assert.deepEqual(normalizeDays(['Monday', 3, '3', 'nope']), [1, 3]);
-		assert.deepEqual(normalizeDays([]), []);
-		assert.equal(formatDaysLabel([5, 6]), 'Fri Sat');
-		assert.equal(formatDaysLabel(ALL_DAYS), '');
-		assert.equal(formatDaysLabel([]), 'no days');
-		assert.deepEqual(
-			envDefaults({ DISPLAY_SCHEDULE_DAYS: 'sun,mon,tue,wed,thu' }).days,
-			[0, 1, 2, 3, 4]
-		);
-	});
-
-	test('overnight mornings belong to the night that started yesterday', () => {
-		assert.equal(weekdayInZone(new Date('2026-09-11T22:30:00Z'), 'UTC'), 5);
-		assert.equal(weekdayInZone(new Date('2026-09-12T02:00:00Z'), 'UTC'), 6);
-		assert.equal(nightOwnerWeekday(new Date('2026-09-11T22:30:00Z'), fridayNight), 5);
-		assert.equal(nightOwnerWeekday(new Date('2026-09-12T02:00:00Z'), fridayNight), 5);
-		assert.equal(nightOwnerWeekday(new Date('2026-09-12T06:00:00Z'), fridayNight), 5);
-		assert.equal(nightOwnerWeekday(new Date('2026-09-12T22:30:00Z'), fridayNight), 6);
-	});
-
-	test('quiet hours only run on selected nights', () => {
-		assert.equal(isQuietHours(new Date('2026-09-11T22:30:00Z'), fridayNight), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T02:00:00Z'), fridayNight), true);
-		assert.equal(isQuietHours(new Date('2026-09-12T06:00:00Z'), fridayNight), false);
-		assert.equal(isQuietHours(new Date('2026-09-12T22:30:00Z'), fridayNight), false);
-		assert.equal(desiredHdmi(new Date('2026-09-12T22:30:00Z'), fridayNight), 'on');
-		assert.equal(
-			isQuietHours(new Date('2026-09-11T23:00:00Z'), { ...fridayNight, days: [] }),
-			false
-		);
-	});
-
-	test('ticks skip off and on when that night is not selected', () => {
-		assert.equal(
-			scheduledAction(22 * 60 + 29, 22 * 60 + 30, fridayNight, new Date('2026-09-11T22:30:00Z')),
-			'off'
-		);
-		assert.equal(
-			scheduledAction(5 * 60 + 59, 6 * 60, fridayNight, new Date('2026-09-12T06:00:00Z')),
-			'on'
-		);
-		assert.equal(
-			scheduledAction(22 * 60 + 29, 22 * 60 + 30, fridayNight, new Date('2026-09-12T22:30:00Z')),
-			null
-		);
-		assert.equal(
-			scheduledAction(5 * 60 + 59, 6 * 60, fridayNight, new Date('2026-09-13T06:00:00Z')),
-			null
-		);
-	});
-});
-
-describe('formatHHMM', () => {
-	test('pads hours', () => {
-		assert.equal(formatHHMM(6 * 60 + 5), '06:05');
-	});
-});
-
-describe('manual hold vs schedule', () => {
-	const overnight = {
-		enabled: true,
-		offAt: '22:30',
-		onAt: '06:00',
-		timeZone: 'UTC',
-		days: ALL_DAYS
-	};
-	const night = new Date('2026-09-12T23:00:00Z');
-	const day = new Date('2026-09-12T15:00:00Z');
-
-	test('boot follows the window when nobody held the power button', () => {
-		assert.equal(scheduleTick({ lastMinutes: null, hold: null, schedule: overnight, date: night }).action, 'off');
-		assert.equal(scheduleTick({ lastMinutes: null, hold: null, schedule: overnight, date: day }).action, 'on');
-		assert.equal(
-			scheduleTick({ lastMinutes: null, hold: null, schedule: { ...overnight, enabled: false }, date: night })
-				.action,
-			null
-		);
-	});
-
-	test('boot does not undo a manual or wake hold', () => {
-		const heldOn = scheduleTick({ lastMinutes: null, hold: 'on', schedule: overnight, date: night });
-		assert.equal(heldOn.action, null);
-		assert.equal(heldOn.hold, 'on');
-		const heldOff = scheduleTick({ lastMinutes: null, hold: 'off', schedule: overnight, date: day });
-		assert.equal(heldOff.action, null);
-		assert.equal(heldOff.hold, 'off');
-	});
-
-	test('the next off/on alarm resumes the schedule and clears the hold', () => {
-		const offAlarm = scheduleTick({
-			lastMinutes: 22 * 60 + 29,
-			hold: 'on',
-			schedule: overnight,
-			date: new Date('2026-09-12T22:30:00Z')
-		});
-		assert.equal(offAlarm.action, 'off');
-		assert.equal(offAlarm.hold, null);
-
-		const onAlarm = scheduleTick({
-			lastMinutes: 5 * 60 + 59,
-			hold: 'off',
-			schedule: overnight,
-			date: new Date('2026-09-12T06:00:00Z')
-		});
-		assert.equal(onAlarm.action, 'on');
-		assert.equal(onAlarm.hold, null);
-	});
-
-	test('saving proximity or phone-wake does not force the panel back onto the window', () => {
-		const prev = { ...overnight, wakeOnPhone: true, wakeOnProximity: false };
-		const next = { ...overnight, wakeOnPhone: false, wakeOnProximity: true, proximityDevice: 'AA:BB:CC:DD:EE:FF' };
-		assert.deepEqual(schedulePatchAction(prev, next, { hold: 'on', date: night }), {
-			action: null,
-			hold: 'on'
-		});
-	});
-
-	test('changing days or times honors a hold instead of snapping HDMI', () => {
-		const next = { ...overnight, days: [1, 2, 3], offAt: '21:00' };
-		assert.deepEqual(schedulePatchAction(overnight, next, { hold: 'on', date: night }), {
-			action: null,
-			hold: 'on'
-		});
-		assert.equal(
-			schedulePatchAction(overnight, { ...overnight, offAt: '21:00' }, { hold: null, date: night }).action,
-			'off'
-		);
-		assert.equal(schedulePatchAction(overnight, next, { hold: null, date: night }).action, 'on');
-		assert.equal(schedulePatchAction(overnight, next, { hold: null, date: day }).action, 'on');
-	});
-
-	test('the Auto rocker is a follow-this-now gesture', () => {
-		assert.deepEqual(
-			schedulePatchAction(overnight, { ...overnight, enabled: false }, { hold: 'off', date: night }),
-			{ action: 'on', hold: null }
-		);
-		assert.deepEqual(
-			schedulePatchAction({ ...overnight, enabled: false }, overnight, { hold: 'on', date: night }),
-			{ action: 'off', hold: null }
-		);
-		assert.equal(
-			schedulePatchAction({ ...overnight, enabled: false }, overnight, { hold: null, date: day }).action,
-			'on'
-		);
+		assert.equal(debounceSignal(state, false), false);
 	});
 });
