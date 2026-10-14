@@ -31,3 +31,7 @@ data/sounds-usage.json
 # paired phones (token hashes) and the pairing switch
 data/devices.json
 data/pairing.json
+
+# the webcam's senses: settings, and notes taken when asked (text only)
+data/senses.json
+data/transcripts/

@@ -1,0 +1,30 @@
+[Unit]
+Description=Smart Display: the webcam's microphone and camera (words and numbers only, local)
+After=smart-display-server.service sound.target
+Wants=smart-display-server.service
+
+[Service]
+Type=simple
+User=das
+SupplementaryGroups=video audio
+WorkingDirectory=/home/das/projects/smart-display/senses
+Environment="WALL_URL=http://127.0.0.1:3000"
+Environment="PYTHONUNBUFFERED=1"
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+# models were fetched by scripts/senses/install.sh; never download at run time
+Environment="HF_HUB_OFFLINE=1"
+ExecStart=/home/das/venvs/senses/bin/python -m wall_senses
+Restart=on-failure
+RestartSec=5
+Nice=5
+# Pictures and sound must never leave this machine: the process may talk to
+# the wall's server on localhost and nothing else.
+IPAddressDeny=any
+IPAddressAllow=localhost
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/das/.cache/wall-senses /home/das/.cache/huggingface /run/user/1000
+
+[Install]
+WantedBy=multi-user.target

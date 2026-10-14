@@ -107,6 +107,7 @@
 		<span class="desk-links">
 			<a class="desk-link" href="{base}/remote/pair">Phones</a>
 			<a class="desk-link" href="{base}/remote/sounds">Sounds &amp; voice</a>
+			<a class="desk-link" href="{base}/remote/senses">Senses</a>
 			<a class="desk-link" href="{base}/remote/lyrics">Lyrics source</a>
 		</span>
 	</header>

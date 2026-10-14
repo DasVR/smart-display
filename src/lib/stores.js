@@ -38,6 +38,8 @@ export const tasks = writable([]);
 export const approvals = writable([]);
 /** What's calling for attention right now (src/lib/attention.js), from the server. */
 export const attention = writable([]);
+// who is at the wall, from the webcam (src/lib/senses.js): numbers only
+export const presence = writable({ camera: false, count: 0, distance: null, x: null, motion: 0, near: false });
 
 export const islandQueue = writable([]);
 export const islandActivities = writable([]);
