@@ -30,6 +30,9 @@ jobs:
         run: npm test
         env:
           TZ: America/New_York
+      - name: Tests (webcam senses, Python, no camera or mic needed)
+        working-directory: senses
+        run: python3 -m unittest discover -s tests -v
       - name: svelte-check
         run: npx --yes svelte-check@4 --threshold error
       - name: Build (kiosk)

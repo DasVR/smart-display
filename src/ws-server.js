@@ -29,6 +29,7 @@ import { createSoundHub } from './lib/server/soundHub.js';
 import { createAttentionHub } from './lib/server/attentionHub.js';
 import { ringForWarnings } from './lib/server/nwsWatch.js';
 import { createPairing, isLocalAddress } from './lib/server/pairing.js';
+import { createSensesHub } from './lib/server/sensesHub.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
 import { listAddresses } from './lib/addresses.js';
@@ -107,7 +108,11 @@ const dayLog = createDayLogHub({ dataDir: path.join(PROJECT_ROOT, 'data') });
 // the wall's voice (ElevenLabs, cached; captions only without a key)
 const voiceHub = createVoiceHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
-	broadcast: (msg) => broadcast(msg)
+	broadcast: (msg) => {
+		// the webcam's ears close while the wall talks, so it never answers itself
+		if (msg?.type === 'speak' && msg.url) sensesHub.noteSpeaking(msg.text);
+		broadcast(msg);
+	}
 });
 // sounds made from the phone (ElevenLabs sound effects, kept in data/sounds/)
 const soundHub = createSoundHub({
@@ -213,6 +218,23 @@ const actionHub = createActionHub({
 	loadEvents: async () => (await getCalendar(1))?.events || [],
 	announce: (text) => voiceHub.say(text, { source: 'iPhone' })
 });
+// the webcam's microphone and camera (senses/, a local Python process): "hey
+// wall …" from across the room, notes when asked, and how far away you are.
+// Only words and numbers reach here (src/lib/server/sensesHub.js, docs/senses.md).
+const sensesHub = createSensesHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	broadcast: (msg) => broadcast(msg),
+	command: async (text) => (await taskHub.sayAdd({ text, source: 'Wall mic' })).data,
+	say: (text) => voiceHub.say(text, { source: 'Wall' }),
+	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
+	timeZone: process.env.TZ || undefined,
+	// walking up to the wall turns the panel on, but not at night
+	onNear: () => {
+		if (!sensesHub.snapshot().settings.wakePanel || hdmiState === 'on' || voiceHub.snapshot().quietNow) return;
+		handleTrigger('normal', { data: { from: 'camera' } }).catch(() => {});
+	}
+});
+setInterval(() => sensesHub.tick(), 5000);
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 /** What the schedule wanted at the last check ('on' | 'off'), to notice when it changes its mind. */
 let lastDesired = null;
@@ -682,6 +704,7 @@ const server = createServer(async (req, res) => {
 	if (await dayLog.handleHttp(req, res)) return;
 	if (await voiceHub.handleHttp(req, res)) return;
 	if (await soundHub.handleHttp(req, res)) return;
+	if (await sensesHub.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
@@ -1085,6 +1108,13 @@ wss.on('connection', (ws, req) => {
 						.catch(() => reply({ said: { ok: false } }));
 				} else reply({ settings: voiceHub.snapshot() });
 			}
+			if (msg.type === 'senses') {
+				// the phone's Senses page: { op: 'get' | 'set' | 'calibrate' | 'notes-start' | 'notes-stop' | 'transcripts' | 'transcript' }
+				// turning a microphone or camera on is for the wall, a paired phone, or anyone before the first is paired
+				const mayChange = ws.local || Boolean(ws.device) || pairing.status().devices.length === 0;
+				const out = sensesHub.handleWs(msg, { mayChange });
+				if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'senses-reply', ...out }));
+			}
 			if (msg.type === 'attention') {
 				// { op: 'ack', id? } from the wall or the phone (severe weather is raised
 				// here on the server, from nwsWatch)
@@ -1140,6 +1170,7 @@ wss.on('connection', (ws, req) => {
 				approvals: approvalHub.snapshot(),
 				attention: attentionHub.snapshot(),
 				weatherAlerts: nwsWatch.status(),
+				senses: sensesHub.snapshot(),
 				pairing: { required: pairing.required(), device: ws.device, local: ws.local }
 			})
 		);

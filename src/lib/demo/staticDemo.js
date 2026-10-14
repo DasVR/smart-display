@@ -21,6 +21,7 @@ import { parseQuick, speakAdded } from '../quickSay.js';
 import { calendarToItems } from '../calendarItems.js';
 import { buildReceipt, logEvent } from '../dayLog.js';
 import { normalizeApproval } from '../approvals.js';
+import { normalizeSensesSettings } from '../senses.js';
 
 // Chicago: a public, well-covered radar location, not the kiosk's home.
 const DEMO_LAT = 41.8781;
@@ -325,6 +326,33 @@ const demoVoice = {
 	quietNow: false
 };
 
+/* the phone's Senses page: a pretend webcam process with someone standing a
+   little left of the wall, so every part of the page has something to show */
+let demoSenses = {
+	settings: normalizeSensesSettings({ mic: true, camera: true }),
+	online: true,
+	camera: { ok: true, detector: 'yunet' },
+	mic: { ok: true, device: 'alsa_input.usb-Webcam_C920.analog-stereo', level: 0.004, state: 'idle' },
+	presence: { camera: true, count: 1, distance: 1.4, x: -0.35, motion: 0.01, near: true, calibrated: false },
+	calibrating: false,
+	calibrated: null,
+	notes: { on: false, startedAt: null, count: 0, lines: [] }
+};
+const DEMO_TRANSCRIPT = 'demo-2026-10-14T09-30-00.txt';
+
+function demoSensesOp(msg) {
+	const op = msg.op || 'get';
+	const s = demoSenses;
+	if (op === 'set' && msg.patch) s.settings = normalizeSensesSettings(msg.patch, s.settings);
+	if (op === 'notes-start') s.notes = { on: true, startedAt: new Date().toISOString(), count: 1, lines: [{ id: 1, at: new Date().toISOString(), text: 'Paint the hall a lighter blue.' }] };
+	if (op === 'notes-stop') s.notes = { ...s.notes, on: false };
+	if (op === 'transcripts') return { transcripts: [DEMO_TRANSCRIPT] };
+	if (op === 'transcript') return { transcript: { name: DEMO_TRANSCRIPT, text: 'Notes from the wall\n\n[9:30 AM] Paint the hall a lighter blue.\n[9:31 AM] Ask about the gutters before Friday.\n' } };
+	if (op === 'calibrate') return { senses: { ...s }, result: { ok: false, error: 'camera-off', op } };
+	s.mic = { ...s.mic, level: 0.002 + Math.random() * 0.01 };
+	return { senses: { ...s }, ...(op === 'notes-stop' ? { result: { ok: true, op, saved: DEMO_TRANSCRIPT } } : {}) };
+}
+
 class DemoSocket extends EventTarget {
 	static CONNECTING = 0;
 	static OPEN = 1;
@@ -397,6 +425,11 @@ class DemoSocket extends EventTarget {
 		if (msg.type === 'tasks') {
 			const r = applyTaskOp(msg);
 			setTimeout(() => this.#push(r.error ? { type: 'tasks-error', error: r.error } : { type: 'tasks', tasks: taskSnapshot() }), 30);
+			return;
+		}
+		if (msg.type === 'senses') {
+			const out = demoSensesOp(msg);
+			setTimeout(() => this.#push({ type: 'senses-reply', ...out }), 30);
 			return;
 		}
 		if (msg.type === 'voice') {

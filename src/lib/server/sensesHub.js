@@ -1,0 +1,353 @@
+/**
+ * The wall's senses, server side: what the webcam process (senses/, Python)
+ * reports, and what the wall does with it.
+ *
+ *   POST /api/senses/state       the process's heartbeat: { camera, mic }. Answers
+ *                                with its settings, how long to keep its ears shut
+ *                                (the wall is talking), notes on or off, and a
+ *                                calibration to run
+ *   POST /api/senses/heard       { kind: 'command' | 'note' | 'wake', text }
+ *   POST /api/senses/calibrated  { id, focalPx, focalWidth } or { id, error }
+ *   GET  /api/senses             the same snapshot the phone gets
+ *
+ * The three POSTs are taken only from this machine (the process runs here);
+ * GET needs the /api bearer token like the rest, unless it is local too.
+ *
+ * Only numbers and words arrive: how many people, how far, where across the
+ * room, whether anything moved, and what was said to the wall. Pictures and
+ * sound never leave the process. Notes are the exception that's kept on
+ * purpose: when you ask the wall to take notes, what it hears is written to
+ * data/transcripts/ as text when the notes stop.
+ */
+import { mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import { hushMsFor, normalizeSensesSettings, notesCommand, presenceChanged, presenceFrom, transcriptText } from '../senses.js';
+import { authorized, loadApiToken } from './taskService.js';
+
+const OFFLINE_MS = 5000;
+const CALIBRATE_TTL_MS = 20000;
+const MAX_BODY = 8 * 1024;
+const MAX_LINES = 400;
+
+function readBody(req) {
+	return new Promise((resolve, reject) => {
+		let raw = '';
+		req.on('data', (c) => {
+			raw += c;
+			if (raw.length > MAX_BODY) {
+				reject(Object.assign(new Error('body too large'), { status: 413 }));
+				req.destroy();
+			}
+		});
+		req.on('end', () => {
+			try {
+				const v = raw.trim() ? JSON.parse(raw) : {};
+				resolve(v && typeof v === 'object' ? v : {});
+			} catch {
+				reject(Object.assign(new Error('invalid JSON'), { status: 400 }));
+			}
+		});
+		req.on('error', reject);
+	});
+}
+
+function readJson(file, fallback) {
+	try {
+		return JSON.parse(readFileSync(file, 'utf8'));
+	} catch {
+		return fallback;
+	}
+}
+
+function writeJsonAtomic(file, data) {
+	mkdirSync(path.dirname(file), { recursive: true });
+	const tmp = `${file}.tmp`;
+	writeFileSync(tmp, JSON.stringify(data, null, 2));
+	renameSync(tmp, file);
+}
+
+/**
+ * @param {object} o
+ * @param {string} o.dataDir
+ * @param {(msg: object) => void} o.broadcast
+ * @param {(text: string) => Promise<object|null>} o.command  "tell the wall": answers { say }
+ * @param {(text: string) => Promise<unknown>} o.say          speak on the wall
+ * @param {(req: import('http').IncomingMessage) => boolean} o.isLocal
+ * @param {(presence: object) => void} [o.onNear]             someone just came up to the wall
+ */
+export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onNear = () => {}, now = () => Date.now(), env = process.env, timeZone, log = console.log }) {
+	const settingsFile = path.join(dataDir, 'senses.json');
+	const transcriptDir = path.join(dataDir, 'transcripts');
+	const tokenFile = path.join(dataDir, 'api-token');
+	let settings = normalizeSensesSettings(readJson(settingsFile, {}));
+	let lastSeen = 0;
+	let camera = {};
+	let mic = {};
+	let presence = presenceFrom(null, settings, false);
+	let hushUntil = 0;
+	let calibration = null; // { id, meters, at }
+	let calibrated = null; // the last result, for the phone
+	let notes = { on: false, startedAt: null, lastAt: null, lines: [] };
+	let seq = 0;
+	let lastMicState = 'idle';
+
+	const online = () => now() - lastSeen < OFFLINE_MS;
+
+	function snapshot() {
+		return {
+			settings,
+			online: online(),
+			camera: online() ? camera : { ok: false },
+			mic: online() ? mic : { ok: false },
+			presence,
+			calibrating: Boolean(calibration),
+			calibrated,
+			notes: { on: notes.on, startedAt: notes.startedAt, count: notes.lines.length, lines: notes.lines.slice(-30) }
+		};
+	}
+
+	const tell = () => broadcast({ type: 'senses', ...snapshot() });
+
+	function setSettings(patch) {
+		settings = normalizeSensesSettings(patch, settings);
+		writeJsonAtomic(settingsFile, settings);
+		if (!settings.mic && notes.on) stopNotes();
+		tell();
+		return snapshot();
+	}
+
+	/* ---------- presence ---------- */
+
+	function updatePresence() {
+		const next = presenceFrom(camera, settings, online() && settings.camera);
+		if (!presenceChanged(presence, next)) return;
+		const wasNear = presence.near;
+		presence = next;
+		broadcast({ type: 'presence', ...presence });
+		if (presence.near && !wasNear) onNear(presence);
+	}
+
+	/* ---------- notes ---------- */
+
+	function startNotes() {
+		if (!notes.on) notes = { on: true, startedAt: new Date(now()).toISOString(), lastAt: now(), lines: [] };
+		broadcast({ type: 'transcript', on: true, startedAt: notes.startedAt });
+		tell();
+		return snapshot().notes;
+	}
+
+	function stopNotes() {
+		if (!notes.on) return { saved: null };
+		let saved = null;
+		if (notes.lines.length) {
+			const stamp = notes.startedAt.replace(/[:]/g, '-').replace(/\..*$/, '');
+			saved = `${stamp}.txt`;
+			try {
+				mkdirSync(transcriptDir, { recursive: true });
+				writeFileSync(path.join(transcriptDir, saved), transcriptText(notes.lines, { timeZone }), { mode: 0o600 });
+			} catch (e) {
+				log(`senses: couldn't save notes: ${e.message}`);
+				saved = null;
+			}
+		}
+		notes = { ...notes, on: false };
+		broadcast({ type: 'transcript', on: false, saved });
+		tell();
+		return { saved };
+	}
+
+	function addNote(text) {
+		const line = { id: ++seq, at: new Date(now()).toISOString(), text: String(text).slice(0, 2000) };
+		notes.lines = [...notes.lines, line].slice(-MAX_LINES);
+		notes.lastAt = now();
+		broadcast({ type: 'transcript', on: true, line });
+	}
+
+	function savedTranscripts() {
+		try {
+			return readdirSync(transcriptDir)
+				.filter((f) => /^[\w-]+\.txt$/.test(f))
+				.sort()
+				.reverse()
+				.slice(0, 20);
+		} catch {
+			return [];
+		}
+	}
+
+	function readTranscript(name) {
+		if (!/^[\w-]+\.txt$/.test(String(name))) return null;
+		try {
+			return readFileSync(path.join(transcriptDir, name), 'utf8');
+		} catch {
+			return null;
+		}
+	}
+
+	/* ---------- what was heard ---------- */
+
+	async function heard(kind, text) {
+		const words = String(text || '').trim().slice(0, 500);
+		if (kind === 'wake') {
+			broadcast({ type: 'heard', listening: true });
+			return { ok: true };
+		}
+		if (kind === 'note') {
+			if (notes.on && words) addNote(words);
+			return { ok: notes.on };
+		}
+		if (kind !== 'command' || !words) return { ok: false, error: 'empty' };
+		// what you said goes on the island; the answer is spoken (and captioned) by the voice
+		if (settings.captions) broadcast({ type: 'heard', text: words });
+		const notesOp = notesCommand(words);
+		let reply;
+		if (notesOp === 'start') {
+			startNotes();
+			reply = "Taking notes. Say 'hey wall, stop taking notes' when you're done.";
+		} else if (notesOp === 'stop') {
+			const was = notes.lines.length;
+			stopNotes();
+			reply = was ? `Stopped. ${was} ${was === 1 ? 'line' : 'lines'} saved; they're on your phone.` : 'Stopped. Nothing was said, so nothing was saved.';
+		} else {
+			let result = null;
+			try {
+				result = await command(words);
+			} catch (e) {
+				log(`senses: command failed: ${e.message}`);
+			}
+			reply = result?.say || result?.error || "Sorry, I didn't catch that.";
+		}
+		await Promise.resolve(say(reply)).catch(() => {});
+		return { ok: true, say: reply };
+	}
+
+	/* ---------- calibrating distance ---------- */
+
+	function calibrate(meters) {
+		const m = Number(meters);
+		if (!Number.isFinite(m) || m < 0.3 || m > 5) return { ok: false, error: 'bad-distance' };
+		if (!online() || !settings.camera) return { ok: false, error: 'camera-off' };
+		calibration = { id: `cal-${++seq}`, meters: m, at: now() };
+		calibrated = null;
+		tell();
+		return { ok: true, id: calibration.id };
+	}
+
+	function calibrationDone(body) {
+		if (!calibration || body.id !== calibration.id) return;
+		const meters = calibration.meters;
+		calibration = null;
+		const focal = Number(body.focalPx);
+		if (body.error || !Number.isFinite(focal) || focal <= 0) {
+			calibrated = { ok: false, error: body.error === 'no-face' ? 'no-face' : 'failed', at: now() };
+			tell();
+			return;
+		}
+		calibrated = { ok: true, meters, samples: Number(body.samples) || 0, at: now() };
+		setSettings({ focalPx: focal, focalWidth: Number(body.focalWidth) || null });
+	}
+
+	/** Ears shut while the wall talks, so it never answers itself. */
+	function noteSpeaking(text) {
+		hushUntil = Math.max(hushUntil, now() + hushMsFor(text));
+	}
+
+	/** Every so often: notes left on with nothing said, a calibration that never came back, the process gone. */
+	function tick() {
+		if (notes.on && now() - notes.lastAt > settings.notesMinutes * 60000) stopNotes();
+		if (calibration && now() - calibration.at > CALIBRATE_TTL_MS) {
+			calibration = null;
+			calibrated = { ok: false, error: 'timeout', at: now() };
+			tell();
+		}
+		if (presence.camera && !online()) updatePresence();
+	}
+
+	/* ---------- HTTP ---------- */
+
+	function json(res, data, status = 200) {
+		res.writeHead(status, { 'Content-Type': 'application/json' });
+		res.end(JSON.stringify(data));
+	}
+
+	async function handleHttp(req, res) {
+		const p = new URL(req.url || '/', 'http://local').pathname;
+		if (p !== '/api/senses' && !p.startsWith('/api/senses/')) return false;
+		const local = isLocal(req);
+		try {
+			if (req.method === 'GET' && p === '/api/senses') {
+				if (!local && !authorized(req.headers, loadApiToken(tokenFile, env))) return json(res, { error: 'unauthorized' }, 401), true;
+				return json(res, snapshot()), true;
+			}
+			if (req.method !== 'POST') return json(res, { error: 'method not allowed' }, 405), true;
+			// the webcam process runs on this machine; nobody else reports senses
+			if (!local) return json(res, { error: 'local only' }, 403), true;
+			const body = await readBody(req);
+			if (p === '/api/senses/state') {
+				const wasOnline = online();
+				lastSeen = now();
+				camera = body.camera && typeof body.camera === 'object' ? body.camera : {};
+				mic = body.mic && typeof body.mic === 'object' ? body.mic : {};
+				updatePresence();
+				if (!wasOnline) {
+					log('senses: the webcam process is here');
+					tell();
+				}
+				const micState = mic.state || 'idle';
+				if (micState !== lastMicState) {
+					lastMicState = micState;
+					broadcast({ type: 'listening', state: micState });
+				}
+				return (
+					json(res, {
+						settings,
+						hushMs: Math.max(0, hushUntil - now()),
+						notes: notes.on,
+						calibrate: calibration ? { id: calibration.id, meters: calibration.meters } : null
+					}),
+					true
+				);
+			}
+			if (p === '/api/senses/heard') return json(res, await heard(String(body.kind || ''), body.text)), true;
+			if (p === '/api/senses/calibrated') {
+				calibrationDone(body);
+				return json(res, { ok: true }), true;
+			}
+			return json(res, { error: 'not found' }, 404), true;
+		} catch (e) {
+			return json(res, { error: e.message }, e.status || 500), true;
+		}
+	}
+
+	/* ---------- the phone ---------- */
+
+	/** { op: 'get' | 'set' | 'calibrate' | 'notes-start' | 'notes-stop' | 'transcripts' | 'transcript' } */
+	function handleWs(msg, { mayChange = true } = {}) {
+		const op = msg?.op || 'get';
+		if (op === 'get') return { senses: snapshot() };
+		if (op === 'transcripts') return { transcripts: savedTranscripts() };
+		if (!mayChange) return { senses: snapshot(), result: { ok: false, error: 'not-paired', op } };
+		if (op === 'set' && msg.patch && typeof msg.patch === 'object') {
+			// calibration is measured, not typed; the phone may only clear it
+			const patch = { ...msg.patch };
+			delete patch.focalPx;
+			delete patch.focalWidth;
+			if (msg.patch.focalPx === null) Object.assign(patch, { focalPx: null, focalWidth: null });
+			return { senses: setSettings(patch) };
+		}
+		if (op === 'calibrate') return { senses: snapshot(), result: { ...calibrate(msg.meters), op } };
+		if (op === 'notes-start') {
+			if (!settings.mic) return { senses: snapshot(), result: { ok: false, error: 'mic-off', op } };
+			startNotes();
+			return { senses: snapshot(), result: { ok: true, op } };
+		}
+		if (op === 'notes-stop') return { senses: snapshot(), result: { ok: true, op, ...stopNotes() } };
+		if (op === 'transcript') {
+			const textOut = readTranscript(msg.name);
+			return textOut == null ? { result: { ok: false, error: 'not-found', op } } : { transcript: { name: msg.name, text: textOut } };
+		}
+		return { senses: snapshot() };
+	}
+
+	return { snapshot, setSettings, heard, calibrate, noteSpeaking, tick, handleHttp, handleWs, startNotes, stopNotes, presence: () => presence };
+}

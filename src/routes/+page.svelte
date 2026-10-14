@@ -10,7 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { tasks, approvals, attention, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { tasks, approvals, attention, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime, reloadCustomSounds } from '$lib/services/chime.js';
@@ -47,6 +47,7 @@
 	import LiquidMetalCanvas from '$lib/shaders/LiquidMetalCanvas.svelte';
 	import EdgeGlow from '$lib/components/EdgeGlow.svelte';
 	import PairCode from '$lib/components/PairCode.svelte';
+	import NotesMark from '$lib/components/NotesMark.svelte';
 	import { liquidGlass } from '$lib/glass/liquidGlass.js';
 	import { glassTier, startGlassGovernor } from '$lib/glass/glassTier.js';
 	import { effectiveGlassTier } from '$lib/glass/frameGovernor.js';
@@ -77,6 +78,8 @@
 	let mode = $state('normal');
 	// a phone asked to pair: { code, expiresAt } while the code is up
 	let pairCode = $state(null);
+	// notes being taken through the webcam's microphone: { on, startedAt, count }
+	let notes = $state({ on: false, startedAt: null, count: 0 });
 	let hdmiOff = $state(false);
 	let navEl = $state(null);
 	let tabRefs = $state([]);
@@ -382,6 +385,21 @@
 						else speakClip(url, volume);
 					} else if (msg.caption !== false) glowFor(2600);
 				}
+				// the webcam's microphone and camera (src/lib/server/sensesHub.js)
+				if (msg.type === 'presence') presence.set(msg);
+				if (msg.type === 'listening' && (msg.state === 'listening' || msg.state === 'thinking')) glowFor(8000);
+				if (msg.type === 'heard') {
+					if (msg.text) pushIslandEvent({ title: `“${msg.text}”`, source: 'You said', kind: 'heard', ttl: 5000 });
+					glowFor(msg.text ? 4000 : 8000);
+				}
+				if (msg.type === 'senses' && msg.notes) notes = msg.notes;
+				if (msg.type === 'transcript') {
+					if (msg.on) notes = { ...notes, on: true, startedAt: msg.startedAt ?? notes.startedAt, count: (notes.count || 0) + (msg.line ? 1 : 0) };
+					else {
+						notes = { ...notes, on: false };
+						if (msg.saved) pushIslandEvent({ title: 'Notes saved', body: 'Open them on your phone: Stats → Senses', severity: 'ok', source: 'Wall', ttl: 6000 });
+					}
+				}
 				if (msg.type === 'pair-code' && /^\d{6}$/.test(msg.code)) pairCode = { code: msg.code, expiresAt: msg.expiresAt };
 				if (msg.type === 'pair-code-clear') {
 					pairCode = null;
@@ -428,6 +446,10 @@
 					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
 					if (Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 					if (Array.isArray(msg.attention)) attention.set(msg.attention);
+					if (msg.senses) {
+						presence.set(msg.senses.presence);
+						notes = msg.senses.notes;
+					}
 					if (Array.isArray(msg.weatherAlerts?.alerts)) applyWeatherAlerts(msg.weatherAlerts.alerts);
 					if (msg.power) {
 						window.dispatchEvent(new CustomEvent('power-state', { detail: msg.power }));
@@ -1052,6 +1074,10 @@
 				aria-hidden="true"
 			></div>
 		{/key}
+	{/if}
+
+	{#if notes?.on && !hdmiOff}
+		<NotesMark lines={notes.count || 0} since={notes.startedAt} />
 	{/if}
 
 	{#if pairCode}
