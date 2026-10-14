@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { inQuietHours, speechText, speechForDue, normalizeVoiceSettings, voiceVolumeAt, DEFAULT_VOICE } from '../src/lib/wallVoice.js';
+import { inQuietHours, speechText, speechForDue, normalizeVoiceSettings, voiceVolumeAt, roomVolume, welcomeBackText, DEFAULT_VOICE } from '../src/lib/wallVoice.js';
 import { createVoiceHub, clipKey, loadElevenLabsKey } from '../src/lib/server/voiceHub.js';
 import { parseCommand } from '../src/lib/wallActions.js';
 import { chimeKindForEvent, islandOwnsChime } from '../src/lib/chimeKind.js';
@@ -28,7 +28,7 @@ function fakeEleven({ status = 200, bytes = 'ID3fake-mp3' } = {}) {
 	return { calls, fetchImpl };
 }
 
-function hub({ key = 'sk_test', at = NOON, fetchImpl, settings } = {}) {
+function hub({ key = 'sk_test', at = NOON, fetchImpl, settings, room } = {}) {
 	const dataDir = mkdtempSync(path.join(tmpdir(), 'voice-'));
 	if (settings) writeFileSync(path.join(dataDir, 'voice.json'), JSON.stringify(settings));
 	const sent = [];
@@ -39,7 +39,8 @@ function hub({ key = 'sk_test', at = NOON, fetchImpl, settings } = {}) {
 		fetchImpl,
 		now: () => clock.now,
 		env: key ? { ELEVENLABS_API_KEY: key } : {},
-		log: { warn() {} }
+		log: { warn() {} },
+		...(room ? { room } : {})
 	});
 	return { h, sent, dataDir, clock };
 }
@@ -292,4 +293,43 @@ test('a key from the environment wins and is reported as such', () => {
 	const { h } = hub({ key: 'sk_env_key_abcdefghijklmn1234', fetchImpl: fakeEleven().fetchImpl });
 	assert.equal(h.snapshot().keySource, 'env');
 	assert.equal(h.snapshot().keyHint, '…1234');
+});
+
+/* ---------- the voice and the room ---------- */
+
+test('room volume: louder across the room, softer up close and lying down at night', () => {
+	const seen = (distance, posture = 'upright') => ({ camera: true, count: 1, distance, posture });
+	assert.equal(roomVolume(0.5, null), 0.5);
+	assert.equal(roomVolume(0.5, { camera: true, count: 0 }), 0.5);
+	assert.equal(roomVolume(0.5, seen(null)), 0.5);
+	assert.equal(roomVolume(0.5, seen(0.8)), 0.38);
+	assert.equal(roomVolume(0.5, seen(4)), 0.63);
+	assert.equal(roomVolume(0.22, seen(null, 'lying'), { quiet: true }), 0.13);
+	assert.equal(roomVolume(0.5, seen(null, 'lying')), 0.5);
+	assert.equal(roomVolume(0.9, seen(6)), 1);
+});
+
+test('said to an empty room: shown, held, and said in one go on return', async () => {
+	let room = { camera: true, count: 0 };
+	const { h, sent } = hub({ fetchImpl: fakeEleven().fetchImpl, room: () => room });
+	const r = await h.say('Pasta timer is done');
+	assert.equal(r.silent, 'away');
+	assert.equal(sent.at(-1).url, null);
+	assert.equal(h.snapshot().heldCount, 1);
+	// urgent things speak anyway
+	assert.equal((await h.say('Smoke alarm', { urgent: true })).silent, undefined);
+	await h.say('Laundry is done');
+	room = { camera: true, count: 1, distance: 2 };
+	const back = await h.welcomeBack();
+	assert.equal(back.text, 'While you were out: Pasta timer is done. Laundry is done.');
+	assert.equal(back.silent, undefined);
+	assert.equal(h.snapshot().heldCount, 0);
+	assert.equal(await h.welcomeBack(), null);
+});
+
+test('holding and following the room can be turned off', async () => {
+	const room = () => ({ camera: true, count: 0 });
+	const { h } = hub({ fetchImpl: fakeEleven().fetchImpl, room, settings: { holdWhenAway: false } });
+	assert.equal((await h.say('Hello')).silent, undefined);
+	assert.equal(welcomeBackText([{ text: 'a' }, { text: 'b' }, { text: 'c' }, { text: 'd' }]), 'While you were out: B. C. D. And 1 more on the wall.');
 });

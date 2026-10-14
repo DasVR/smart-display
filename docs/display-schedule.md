@@ -50,9 +50,18 @@ hold. Switching **Auto schedule** off turns the panel on and leaves it to you;
 switching it back on follows the schedule straight away.
 
 The wall can also turn itself on for something that needs you (a timer, a
-warning; see [attention.md](attention.md)) and back off afterwards. Your phone
-waking (with **Phone wake**) turns it on early: in the off time, after 5 AM, and
-before that day's on time (or before noon on a day that's off all day).
+warning; see [attention.md](attention.md)) and back off afterwards. **Morning
+wake** turns it on early, with the morning briefing, when you get up: the
+webcam sees you go from lying down to upright ([senses.md](senses.md)), or
+Home Assistant sends the `phone_wake` webhook. Only in the off time, after
+5 AM, and before that day's on time (or before noon on a day that's off all
+day). The schedule field is still called `wakeOnPhone`, so old files keep it.
+
+Bluetooth proximity wake is gone: the webcam sees who's in the room (walking
+in turns the panel on, never at night), so the wall no longer asks a phone
+for its signal strength every 8 seconds. An old schedule file's
+`wakeOnProximity`, `proximityDevice` and `proximityMeters` drop off the next
+time it's saved.
 
 ## API
 

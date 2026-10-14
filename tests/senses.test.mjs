@@ -7,7 +7,9 @@ import {
 	DEFAULT_SENSES,
 	describeDistance,
 	hushMsFor,
+	newPlaceState,
 	normalizeSensesSettings,
+	placeStep,
 	notesCommand,
 	presenceChanged,
 	presenceFrom,
@@ -368,4 +370,136 @@ test('microphone settings for across the room', () => {
 	assert.deepEqual([d.hearFrom, d.noiseSuppress, d.voiceBoost], ['room', 'light', true]);
 	const t = normalizeSensesSettings({ hearFrom: 'near', noiseSuppress: 'loud', voiceBoost: false });
 	assert.deepEqual([t.hearFrom, t.noiseSuppress, t.voiceBoost], ['near', 'light', false]);
+});
+
+test('presence changes reach onPresence with what came before (getting up is the morning wake)', async () => {
+	const seen = [];
+	const { h } = hub({ onPresence: (now, before) => seen.push([before.posture, now.posture]) });
+	h.handleWs({ op: 'set', patch: { camera: true } });
+	await post(h, '/api/senses/state', { camera: { ok: true, count: 1, posture: 'lying' } });
+	await post(h, '/api/senses/state', { camera: { ok: true, count: 1, posture: 'upright' } });
+	assert.deepEqual(seen.at(-1), ['lying', 'upright']);
+});
+
+/* ---------- places ---------- */
+
+const SIG = [0.5, 0.5, 0.2, 0.4];
+const roomWith = (places, extra = {}) =>
+	normalizeSensesSettings({ camera: true, look: 'body', zones: [{ name: 'bed', sig: SIG }, { name: 'Desk', sig: SIG }], places, ...extra });
+const at = (zone, posture = 'upright') => ({ camera: true, count: 1, zone, posture });
+
+test('places: only known spots and pages are kept; empty rules drop off', () => {
+	const s = roomWith({ desk: { view: 'agents' }, bed: { view: 'nope', lieOff: true }, attic: { view: 'music' }, Desk2: {} });
+	assert.deepEqual(s.places, { Desk: { view: 'agents', lieOff: false }, bed: { view: '', lieOff: true } });
+	assert.equal(normalizeSensesSettings({ awayMinutes: 7 }).awayMinutes, 0);
+	assert.equal(normalizeSensesSettings({ awayMinutes: 30 }).awayMinutes, 30);
+});
+
+test('places: settling in a spot shows its page once, after a dwell', () => {
+	const settings = roomWith({ desk: { view: 'agents' } });
+	const st = newPlaceState();
+	assert.deepEqual(placeStep(st, { presence: at('Desk'), settings, now: 0 }), []);
+	assert.deepEqual(placeStep(st, { presence: at('Desk'), settings, now: 5000 }), []);
+	assert.deepEqual(placeStep(st, { presence: at('Desk'), settings, now: 9000 }), [{ navigate: 'agents', zone: 'Desk' }]);
+	assert.deepEqual(placeStep(st, { presence: at('Desk'), settings, now: 60000 }), []);
+	// passing through another spot and back counts as arriving again
+	placeStep(st, { presence: at('bed'), settings, now: 61000 });
+	placeStep(st, { presence: at('Desk'), settings, now: 62000 });
+	assert.deepEqual(placeStep(st, { presence: at('Desk'), settings, now: 71000 }), [{ navigate: 'agents', zone: 'Desk' }]);
+});
+
+test('places: a page picked by hand holds off the spots for a while', () => {
+	const settings = roomWith({ desk: { view: 'agents' } });
+	const st = newPlaceState();
+	st.manualAt = 0;
+	placeStep(st, { presence: at('Desk'), settings, now: 1000 });
+	assert.deepEqual(placeStep(st, { presence: at('Desk'), settings, now: 20000 }), []);
+});
+
+test('places: lying in a screen-off spot turns the panel off only at night, once', () => {
+	const settings = roomWith({ bed: { lieOff: true } });
+	const day = newPlaceState();
+	placeStep(day, { presence: at('bed', 'lying'), settings, now: 0 });
+	assert.deepEqual(placeStep(day, { presence: at('bed', 'lying'), settings, now: 120000 }), []);
+	const night = newPlaceState();
+	placeStep(night, { presence: at('bed', 'lying'), settings, now: 0, quiet: true });
+	assert.deepEqual(placeStep(night, { presence: at('bed', 'lying'), settings, now: 30000, quiet: true }), []);
+	assert.deepEqual(placeStep(night, { presence: at('bed', 'lying'), settings, now: 61000, quiet: true }), [{ panel: 'off', reason: 'asleep' }]);
+	assert.deepEqual(placeStep(night, { presence: at('bed', 'lying'), settings, now: 200000, quiet: true }), []);
+});
+
+test('places: nobody home turns the panel off once per absence, and never without a camera', () => {
+	const settings = roomWith({}, { awayMinutes: 10 });
+	const st = newPlaceState();
+	const empty = { camera: true, count: 0 };
+	placeStep(st, { presence: empty, settings, now: 0 });
+	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 9 * 60000 }), []);
+	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 10 * 60000 }), [{ panel: 'off', reason: 'away' }]);
+	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 20 * 60000 }), []);
+	placeStep(st, { presence: at(null), settings, now: 21 * 60000 });
+	placeStep(st, { presence: empty, settings, now: 22 * 60000 });
+	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 32 * 60000 }), [{ panel: 'off', reason: 'away' }]);
+	assert.deepEqual(placeStep(newPlaceState(), { presence: { camera: false, count: 0 }, settings, now: 1e9 }), []);
+});
+
+test('hub: a spot asks for its page; picking one by hand holds it off', async () => {
+	const acts = [];
+	const { h, advance } = hub({ onPlace: (a) => acts.push(a) });
+	h.setSettings({ camera: true, look: 'body', zones: [{ name: 'desk', sig: SIG }], places: { desk: { view: 'music' } } });
+	await post(h, '/api/senses/state', { camera: { ok: true, count: 1, zone: 'desk', posture: 'upright' } });
+	advance(4000);
+	h.tick();
+	assert.deepEqual(acts, []);
+	advance(4500);
+	await post(h, '/api/senses/state', { camera: { ok: true, count: 1, zone: 'desk', posture: 'upright' } });
+	h.tick();
+	assert.deepEqual(acts, [{ navigate: 'music', zone: 'desk' }]);
+	h.noteManual();
+	// forgetting the spot forgets its rule
+	h.handleWs({ op: 'forget-zone', name: 'desk' });
+	assert.deepEqual(h.snapshot().settings.places, {});
+});
+
+/* ---------- "that was wrong" ---------- */
+
+test('report: the phone asks, the process sends its last 30 s, the wall keeps both sides', async () => {
+	const { h, dataDir, advance } = hub();
+	h.handleWs({ op: 'set', patch: { camera: true } });
+	await post(h, '/api/senses/state', { camera: { ok: true, count: 1, zone: 'bed', posture: 'lying' } });
+	advance(1000);
+	const r = h.handleWs({ op: 'report', note: 'it lost me in bed' }).result;
+	assert.equal(r.ok, true);
+	assert.equal(h.handleWs({ op: 'report' }).result.error, 'busy');
+	const reply = JSON.parse((await post(h, '/api/senses/state', { camera: { ok: true, count: 0 } })).body);
+	assert.equal(reply.report, r.id);
+	// a wrong id is ignored
+	await post(h, '/api/senses/report', { id: 'nope', rows: [] });
+	assert.equal(h.snapshot().reporting, true);
+	await post(h, '/api/senses/report', { id: r.id, rows: [{ t: 1, kind: 'camera', count: 0 }] });
+	const snap = h.snapshot();
+	assert.equal(snap.reporting, false);
+	assert.equal(snap.reported.ok, true);
+	const files = readdirSync(path.join(dataDir, 'senses-reports'));
+	assert.deepEqual(h.handleWs({ op: 'reports' }).reports, files);
+	const doc = JSON.parse(h.handleWs({ op: 'report-read', name: files[0] }).report.text);
+	assert.equal(doc.note, 'it lost me in bed');
+	assert.deepEqual(doc.process, [{ t: 1, kind: 'camera', count: 0 }]);
+	assert.equal(doc.presence[0].zone, 'bed');
+	assert.equal(doc.presence[0].secondsBefore, 1);
+	assert.equal(h.handleWs({ op: 'report-read', name: '../senses.json' }).result.error, 'not-found');
+});
+
+test('report: without the process, or when it never answers, the wall saves its own side', async () => {
+	const { h, dataDir, advance } = hub();
+	assert.equal(h.handleWs({ op: 'report' }).result.ok, true);
+	assert.equal(h.snapshot().reported.error, 'senses-offline');
+	await post(h, '/api/senses/state', { camera: { ok: false } });
+	advance(1000);
+	h.handleWs({ op: 'report' });
+	advance(11000);
+	h.tick();
+	assert.equal(h.snapshot().reported.error, 'no-answer');
+	assert.equal(readdirSync(path.join(dataDir, 'senses-reports')).length >= 1, true);
+	// only a paired phone may ask
+	assert.equal(h.handleWs({ op: 'report' }, { mayChange: false }).result.error, 'not-paired');
 });

@@ -220,16 +220,6 @@ export function mergeBluetoothDeviceRows(...lists) {
 	return out;
 }
 
-export function proximityNear(distanceMeters, threshold) {
-	if (distanceMeters == null || distanceMeters === '' || threshold == null || threshold === '') {
-		return false;
-	}
-	const distance = Number(distanceMeters);
-	const limit = Number(threshold);
-	if (!Number.isFinite(distance) || !Number.isFinite(limit)) return false;
-	return distance <= limit;
-}
-
 // Log-distance path loss model. measuredPower is the RSSI expected at 1 meter
 // (BLE beacons commonly calibrate to about -59 dBm); n=2 approximates
 // open-air/line-of-sight attenuation, higher values suit walls/clutter.
@@ -377,19 +367,6 @@ export async function probeOneBluetoothDevice(address, env, run = runFile) {
 		rssi,
 		distanceMeters: estimateDistanceMeters(rssi)
 	};
-}
-
-/** Connected-device RSSI/distance only, without the rest of getKioskStatus's
- *  probes (AirPlay, speakers, telemetry, git...) - cheap enough to poll on
- *  its own cadence for proximity wake. Pass a MAC to probe that device even
- *  when it is not in the current Connected list. */
-export async function getBluetoothProximity(watchAddress) {
-	const env = userSessionEnv();
-	if (watchAddress) {
-		const one = await probeOneBluetoothDevice(watchAddress, env);
-		return one.address ? [one] : [];
-	}
-	return (await probeBluetooth(env)).connected;
 }
 
 async function probeBluetooth(env) {

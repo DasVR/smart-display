@@ -19,7 +19,6 @@ import {
 	parseSystemctlActive,
 	pickRssi,
 	probeOneBluetoothDevice,
-	proximityNear,
 	userSessionEnv
 } from '../src/lib/server/kioskStatus.js';
 
@@ -128,9 +127,6 @@ test('bluetooth addresses and RSSI fallbacks', () => {
 	assert.equal(parseHciToolRssi('RSSI return value: -8\n'), -8);
 	assert.equal(parseBusctlRssi('i -62\n'), -62);
 	assert.equal(pickRssi(null, undefined, -54), -54);
-	assert.equal(proximityNear(3.2, 5), true);
-	assert.equal(proximityNear(9, 5), false);
-	assert.equal(proximityNear(null, 5), false);
 	assert.deepEqual(
 		mergeBluetoothDeviceRows(
 			[{ address: 'aa:bb:cc:dd:ee:ff', name: 'iPhone' }],

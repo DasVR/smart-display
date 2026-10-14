@@ -18,6 +18,11 @@ export const DEFAULT_VOICE = {
 	nightVolume: 0.22,
 	// the old behaviour: say nothing at night (urgent things still speak)
 	nightSilent: false,
+	// with the webcam on (docs/senses.md): louder across the room, softer up
+	// close and when you're lying down at night
+	followRoom: true,
+	// with the webcam on: nothing said to an empty room; it's said when someone comes back
+	holdWhenAway: true,
 	// Characters sent to ElevenLabs per day. Cached phrases are free, so
 	// this is only new sentences. Creator is 100k credits a month.
 	dailyChars: 3000
@@ -94,7 +99,39 @@ export function normalizeVoiceSettings(raw = {}) {
 		if (Number.isFinite(v) && v >= 0 && v <= 100) out[key] = Math.round((v > 1 ? v / 100 : v) * 100) / 100;
 	}
 	if (typeof raw.nightSilent === 'boolean') out.nightSilent = raw.nightSilent;
+	if (typeof raw.followRoom === 'boolean') out.followRoom = raw.followRoom;
+	if (typeof raw.holdWhenAway === 'boolean') out.holdWhenAway = raw.holdWhenAway;
 	const chars = Number(raw.dailyChars);
 	if (Number.isFinite(chars) && chars >= 0 && chars <= 100000) out.dailyChars = Math.round(chars);
 	return out;
+}
+
+/**
+ * The voice's volume for where you are (the camera's numbers, src/lib/senses.js
+ * presenceFrom): about three quarters at arm's length, a quarter louder from
+ * across the room (3.5 m and more), and softer again when you're lying down
+ * at night. Without a camera, or with nobody seen, it's the plain volume.
+ */
+export function roomVolume(base, room, { quiet = false } = {}) {
+	let v = Number(base) || 0;
+	if (room?.camera && room.count) {
+		const d = Number(room.distance);
+		if (room.distance != null && Number.isFinite(d)) v *= 0.75 + 0.5 * Math.max(0, Math.min(1, (d - 1) / 2.5));
+		if (quiet && room.posture === 'lying') v *= 0.6;
+	}
+	return Math.round(Math.max(0, Math.min(1, v)) * 100) / 100;
+}
+
+/** Nobody in the room, as far as a working camera can tell. */
+export function roomEmpty(room) {
+	return Boolean(room?.camera && !room.count);
+}
+
+/** What was held while you were out, said in one go when you're back. */
+export function welcomeBackText(held) {
+	const items = held.map((h) => speechText(h.text)).filter(Boolean);
+	if (!items.length) return '';
+	const shown = items.slice(-3);
+	const more = items.length - shown.length;
+	return `While you were out: ${shown.join(' ')}${more ? ` And ${more} more on the wall.` : ''}`;
 }

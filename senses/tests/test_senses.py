@@ -3,6 +3,7 @@
     cd senses && python3 -m unittest discover -s tests
 """
 
+import json
 import math
 import struct
 import unittest
@@ -11,6 +12,7 @@ from wall_senses.distance import Smoother, Tracker, calibrate_focal, distance_m,
 from wall_senses.hearing import choose_source, route
 from wall_senses.vad import FRAME_MS, FRAME_SAMPLES, SpeechGate, apply_gain, rms
 from wall_senses import room
+from wall_senses.diary import Diary
 from wall_senses.wake import is_noise, match_wake
 
 
@@ -267,6 +269,22 @@ class Routing(unittest.TestCase):
         cleaned = lines + ["9\twall_mic\tPipeWire\tfloat32le 1ch 48000Hz\tRUNNING"]
         self.assertEqual(choose_source(cleaned), "wall_mic")
         self.assertEqual(choose_source(cleaned, "pci-0000"), "alsa_input.pci-0000_00_1f.3.analog-stereo")
+
+
+
+class DiaryKeeps30Seconds(unittest.TestCase):
+    def test_old_rows_fall_off_and_rows_fit(self):
+        t = [1000.0]
+        d = Diary(seconds=30, clock=lambda: t[0])
+        d.add("camera", count=1, zone="bed")
+        t[0] += 20
+        d.add("heard", text="hey wall what time is it", routed="command")
+        t[0] += 15
+        rows = d.rows()
+        self.assertEqual([r["kind"] for r in rows], ["heard"])
+        for i in range(500):
+            d.add("log", text="x" * 200)
+        self.assertLessEqual(len(json.dumps(d.rows(max_bytes=5000))), 5000)
 
 
 if __name__ == "__main__":

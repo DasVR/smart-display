@@ -35,3 +35,5 @@ data/pairing.json
 # the webcam's senses: settings, and notes taken when asked (text only)
 data/senses.json
 data/transcripts/
+# "that was wrong" reports from the phone: the senses' last 30 s, numbers and words
+data/senses-reports/

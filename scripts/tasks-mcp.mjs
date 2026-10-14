@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 /**
- * MCP bridge for the display's chores / jobs / alerts.
+ * MCP bridge for the display's chores / jobs / alerts, its voice and senses.
  *
  * Lets any MCP-capable assistant (Claude, an agent runtime, Tomo, Instinct…)
- * read and change the display's task list and post to its Dynamic Island.
+ * read and change the display's task list and post to its Dynamic Island,
+ * say something out loud on the wall, see whether anyone is in the room (and
+ * where: numbers only, from the webcam process, never pictures), and read
+ * the notes the wall took when asked.
  * It is a thin stdio JSON-RPC server over the HTTP API in
  * src/lib/server/taskHub.js, with no dependencies, so it runs anywhere Node
  * 18+ can reach the display.
@@ -108,6 +111,35 @@ const TOOLS = [
 		inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
 	},
 	{
+		name: 'room_presence',
+		description:
+			"Who is in the room, from the wall's webcam (numbers only, never pictures): how many people, which named spot (bed, desk…), lying or upright, distance in metres, and whether the webcam is running. Also whether the wall is taking notes.",
+		inputSchema: { type: 'object', properties: {} }
+	},
+	{
+		name: 'say_on_wall',
+		description:
+			"Say something out loud on the wall (and show it). It follows the wall's rules: softer at night, held until someone is back if the room is empty. urgent speaks even then; keep it for things that can't wait.",
+		inputSchema: {
+			type: 'object',
+			properties: {
+				text: { type: 'string', description: 'One or two short sentences' },
+				urgent: { type: 'boolean', default: false }
+			},
+			required: ['text']
+		}
+	},
+	{
+		name: 'list_wall_notes',
+		description: 'Notes the wall wrote down when asked ("hey wall, take notes"), newest first, as file names.',
+		inputSchema: { type: 'object', properties: {} }
+	},
+	{
+		name: 'read_wall_note',
+		description: 'One saved note from list_wall_notes, as text with the time of each line.',
+		inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
+	},
+	{
 		name: 'notify_display',
 		description: "Show a one-off message in the display's Dynamic Island right now (no task is stored).",
 		inputSchema: {
@@ -122,7 +154,7 @@ const TOOLS = [
 	}
 ];
 
-async function api(method, path, body) {
+async function api(method, path, body, { text = false } = {}) {
 	const headers = { 'Content-Type': 'application/json' };
 	if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
 	const res = await fetch(BASE + path, {
@@ -131,12 +163,27 @@ async function api(method, path, body) {
 		body: body === undefined ? undefined : JSON.stringify(body),
 		signal: AbortSignal.timeout(8000)
 	});
+	if (text && res.ok) return { text: await res.text() };
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error(data.error || `display answered ${res.status}`);
 	return data;
 }
 
 const enc = encodeURIComponent;
+
+/** The room, in a few numbers: no settings, no outlines. */
+function roomSummary(s = {}) {
+	const p = s.presence || {};
+	return {
+		webcam: Boolean(s.online && p.camera),
+		people: p.count ?? 0,
+		spot: p.zone ?? null,
+		posture: p.posture ?? null,
+		metres: p.distance ?? null,
+		nearTheWall: Boolean(p.near),
+		takingNotes: Boolean(s.notes?.on)
+	};
+}
 
 async function callTool(name, args = {}) {
 	switch (name) {
@@ -158,6 +205,14 @@ async function callTool(name, args = {}) {
 			return api('POST', `/api/tasks/${enc(args.id)}/snooze`, { minutes: args.minutes ?? 15 });
 		case 'delete_task':
 			return api('DELETE', `/api/tasks/${enc(args.id)}`);
+		case 'room_presence':
+			return roomSummary(await api('GET', '/api/senses'));
+		case 'say_on_wall':
+			return api('POST', '/api/voice/say', { text: args.text, urgent: args.urgent === true, source: SOURCE });
+		case 'list_wall_notes':
+			return api('GET', '/api/senses/notes');
+		case 'read_wall_note':
+			return api('GET', `/api/senses/notes/${enc(args.name)}`, undefined, { text: true });
 		case 'notify_display':
 			return api('POST', '/api/notify', { source: SOURCE, ...args });
 		default:
@@ -182,7 +237,7 @@ async function handle(msg) {
 					capabilities: { tools: {} },
 					serverInfo: { name: 'smart-display-tasks', version: '1.0.0' },
 					instructions:
-						'Chores, little jobs and alerts on a wall display. Chores stay until marked done; alerts pop up at their time. Use ISO times in the display owner\'s local time zone.'
+						"Chores, little jobs and alerts on a wall display, plus its voice and senses. Chores stay until marked done; alerts pop up at their time. Use ISO times in the display owner's local time zone. room_presence says whether anyone is home; say_on_wall is for short spoken lines."
 				}
 			});
 		}

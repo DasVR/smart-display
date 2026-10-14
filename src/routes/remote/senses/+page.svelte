@@ -15,7 +15,8 @@
 	import { wallSocketUrl, followPairing } from '$lib/remoteAuth.js';
 	import { onMount } from 'svelte';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
-	import { WHISPER_MODELS, WAKE_MODELS, describeDistance } from '$lib/senses.js';
+	import { WHISPER_MODELS, WAKE_MODELS, AWAY_CHOICES, describeDistance } from '$lib/senses.js';
+	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
 
 	let ws;
 	let retry = 0;
@@ -29,6 +30,9 @@
 	let meters = $state(1);
 	let wakeText = $state('');
 	let transcripts = $state([]);
+	let reports = $state([]);
+	let openReport = $state(null); // { name, text }
+	let wrongNote = $state('');
 	let open = $state(null); // { name, text }
 	let liveLines = $state([]);
 	let spotName = $state('');
@@ -77,6 +81,7 @@
 		if (!r.ok) message = RESULTS[r.error] || 'Something went wrong.';
 		else if (r.op === 'calibrate') message = `Stand ${describeDistance(meters)} from the wall, facing it, for three seconds…`;
 		else if (r.op === 'remember') message = 'Stay just as you are for three seconds…';
+		else if (r.op === 'report') message = 'Collecting the last 30 seconds…';
 		else if (r.op === 'find-paper') message = 'Looking for the paper. Keep out of its way for three seconds…';
 		else if (r.op === 'notes-stop') {
 			message = r.saved ? 'Saved.' : 'Stopped. Nothing was said.';
@@ -92,6 +97,7 @@
 			ws.send(JSON.stringify({ type: 'hello', role: 'remote' }));
 			send({ op: 'get' });
 			send({ op: 'transcripts' });
+			send({ op: 'reports' });
 		};
 		ws.onclose = () => {
 			status = 'offline';
@@ -106,10 +112,23 @@
 					result(msg.result);
 					if (msg.transcripts) transcripts = msg.transcripts;
 					if (msg.transcript) open = msg.transcript;
+					if (msg.reports) reports = msg.reports;
+					if (msg.report) openReport = msg.report;
 				}
 				if (msg.type === 'senses') {
 					const wasCalibrating = s?.calibrating;
+					const wasReporting = s?.reporting;
 					take(msg);
+					if (wasReporting && !msg.reporting && msg.reported) {
+						failed = !msg.reported.ok;
+						message = !msg.reported.ok
+							? "Couldn't save the report."
+							: msg.reported.error
+								? "Saved, but the webcam process didn't answer: only the wall's side is in it."
+								: 'Saved: the last 30 seconds of what it saw and heard, in numbers and words.';
+						wrongNote = '';
+						send({ op: 'reports' });
+					}
 					if (wasCalibrating && !msg.calibrating && msg.calibrated) {
 						failed = !msg.calibrated.ok;
 						const c = msg.calibrated;
@@ -133,6 +152,13 @@
 				/* ignore */
 			}
 		};
+	}
+
+	/** One spot's rule: the page it shows when you settle there, and whether lying there at night turns the screen off. */
+	function setPlace(name, change) {
+		const places = { ...(s.settings.places || {}) };
+		places[name] = { view: '', lieOff: false, ...places[name], ...change };
+		patch({ places });
 	}
 
 	function patch(p) {
@@ -167,6 +193,16 @@
 		send({ op: on ? 'notes-start' : 'notes-stop' });
 	}
 
+	function reportWrong(e) {
+		e?.preventDefault();
+		send({ op: 'report', note: wrongNote });
+	}
+
+	function readReport(name) {
+		if (openReport?.name === name) return (openReport = null);
+		send({ op: 'report-read', name });
+	}
+
 	function readTranscript(name) {
 		if (open?.name === name) return (open = null);
 		send({ op: 'transcript', name });
@@ -198,7 +234,7 @@
 	let side = $derived(presence?.x == null ? '' : presence.x < -0.25 ? 'on the left' : presence.x > 0.25 ? 'on the right' : 'in the middle');
 	let level = $derived(Math.min(100, Math.round(Math.sqrt(s?.mic?.level || 0) * 260)));
 	let hearing = $derived(s?.mic?.state && s.mic.state !== 'idle' ? s.mic.state : listening);
-	let fileName = (n) => n.replace(/\.txt$/, '').replace(/T(\d\d)-(\d\d).*/, ' $1:$2');
+	let fileName = (n) => n.replace(/^report-/, '').replace(/\.(txt|json)$/, '').replace(/T(\d\d)-(\d\d).*/, ' $1:$2');
 </script>
 
 <svelte:head>
@@ -389,12 +425,33 @@
 				{#if s.settings.zones.length}
 					<ul class="files">
 						{#each s.settings.zones as z (z.name)}
-							<li class="row">
-								<span>{z.name}{presence?.zone === z.name ? ' · you are here' : ''}</span>
-								<button type="button" class="ghost small" onclick={() => send({ op: 'forget-zone', name: z.name })}>Forget</button>
+							<li class="spot">
+								<div class="row">
+									<span>{z.name}{presence?.zone === z.name ? ' · you are here' : ''}</span>
+									<button type="button" class="ghost small" onclick={() => send({ op: 'forget-zone', name: z.name })}>Forget</button>
+								</div>
+								<label class="row">
+									<span>Settle here to show</span>
+									<select value={s.settings.places?.[z.name]?.view || ''} onchange={(e) => setPlace(z.name, { view: e.currentTarget.value })}>
+										<option value="">Nothing (stay put)</option>
+										{#each KIOSK_VIEWS as v (v)}
+											<option value={v}>{kioskViewLabel(v)}</option>
+										{/each}
+									</select>
+								</label>
+								<label class="row">
+									<span>Lying here at night turns the screen off</span>
+									<input type="checkbox" checked={s.settings.places?.[z.name]?.lieOff || false} onchange={(e) => setPlace(z.name, { lieOff: e.currentTarget.checked })} />
+								</label>
 							</li>
 						{/each}
 					</ul>
+				{/if}
+				{#if s.settings.zones.length}
+					<p class="note">
+						A spot's page comes up after you've been there about ten seconds, and not for two minutes after you pick a page yourself. Lying
+						down in a "screen off" spot during quiet hours turns the screen off after a minute; getting up is the morning wake.
+					</p>
 				{/if}
 				<form class="say" onsubmit={remember}>
 					<input bind:value={spotName} placeholder="bed, desk, door…" aria-label="Name of this spot" maxlength="24" />
@@ -440,6 +497,14 @@
 				<span>{body && !s.settings.floorMap ? 'Turn the screen on when someone comes in' : 'Turn the screen on when someone comes near'}</span>
 				<input type="checkbox" checked={s.settings.wakePanel} onchange={(e) => patch({ wakePanel: e.currentTarget.checked })} />
 			</label>
+			<label class="row">
+				<span>Nobody in the room: screen off after</span>
+				<select value={String(s.settings.awayMinutes || 0)} onchange={(e) => patch({ awayMinutes: Number(e.currentTarget.value) })}>
+					{#each AWAY_CHOICES as m (m)}
+						<option value={String(m)}>{m ? `${m} min` : 'Never'}</option>
+					{/each}
+				</select>
+			</label>
 
 			{#if !body}
 				<h3>Distance</h3>
@@ -464,6 +529,32 @@
 		</section>
 
 		{#if message}<p class="note" class:warn={failed} role="status">{message}</p>{/if}
+
+		<section class="card" aria-labelledby="wrong-h">
+			<h2 id="wrong-h">That was wrong</h2>
+			<p class="note">
+				Did it miss you, see you in the wrong spot, mishear you, or turn the screen off at the wrong time? Tap this right away. It keeps the last 30
+				seconds of what it decided (counts, spots, distances, the words it heard; never a picture or a sound) so the cause can be found.
+			</p>
+			<form class="say" onsubmit={reportWrong}>
+				<input bind:value={wrongNote} placeholder="what went wrong (optional)" aria-label="What went wrong" maxlength="300" />
+				<button type="submit" disabled={status !== 'live' || s.reporting}>{s.reporting ? 'Saving…' : 'That was wrong'}</button>
+			</form>
+			{#if reports.length}
+				<h3>Reports</h3>
+				<ul class="files">
+					{#each reports as name (name)}
+						<li>
+							<button type="button" class="ghost file" onclick={() => readReport(name)} aria-expanded={openReport?.name === name}>{fileName(name)}</button>
+							{#if openReport?.name === name}
+								<pre class="transcript">{openReport.text}</pre>
+								<button type="button" class="ghost small" onclick={() => copy(openReport.text)}>Copy</button>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</section>
 
 		<section class="card" aria-labelledby="wake-h">
 			<h2 id="wake-h">Waking it</h2>
@@ -573,6 +664,12 @@
 		justify-content: space-between;
 		gap: var(--space-3);
 		min-height: 2.75rem;
+	}
+	.spot {
+		display: flex;
+		flex-direction: column;
+		padding-bottom: var(--space-2);
+		border-bottom: 1px solid var(--hairline);
 	}
 	.row input[type='checkbox'] {
 		flex: none;

@@ -1,3 +1,5 @@
+import { KIOSK_VIEWS } from './kioskViews.js';
+
 // The wall's senses: the webcam's microphone and camera, seen from the wall's
 // side. Pure helpers shared by the server (src/lib/server/sensesHub.js), the
 // phone's Senses page and the tests. The listening and looking happen in a
@@ -52,7 +54,11 @@ export const DEFAULT_SENSES = {
 	focalPx: null,
 	focalWidth: null,
 	// notes stop by themselves after this many minutes with nothing said
-	notesMinutes: 30
+	notesMinutes: 30,
+	// what each spot does: { [spot]: { view: 'calendar' | … | '', lieOff: bool } }
+	places: {},
+	// turn the screen off when nobody has been seen for this many minutes (0: never)
+	awayMinutes: 0
 };
 
 export const LOOKS = ['body', 'face'];
@@ -73,6 +79,22 @@ function cleanZones(list) {
 		out.push({ name, sig: sig.map((v) => Math.round(v * 1e4) / 1e4) });
 	}
 	return out.slice(0, MAX_ZONES);
+}
+
+export const AWAY_CHOICES = [0, 10, 30, 60];
+
+function cleanPlaces(places, zones) {
+	const names = new Map(zones.map((z) => [z.name.toLowerCase(), z.name]));
+	const out = {};
+	if (!places || typeof places !== 'object') return out;
+	for (const [key, rule] of Object.entries(places)) {
+		const name = names.get(String(key).toLowerCase());
+		if (!name || !rule || typeof rule !== 'object') continue;
+		const view = KIOSK_VIEWS.includes(rule.view) ? rule.view : '';
+		const lieOff = rule.lieOff === true;
+		if (view || lieOff) out[name] = { view, lieOff };
+	}
+	return out;
 }
 
 export const WHISPER_MODELS = ['tiny.en', 'base.en', 'small.en', 'tiny', 'base', 'small'];
@@ -129,8 +151,69 @@ export function normalizeSensesSettings(patch = {}, base = DEFAULT_SENSES) {
 		faceWidth: num(pick('faceWidth'), 0.1, 0.25, DEFAULT_SENSES.faceWidth),
 		focalPx: focalPx == null || focalPx === '' ? null : num(focalPx, 20, 20000, null),
 		focalWidth: pick('focalWidth') == null ? null : num(pick('focalWidth'), 80, 4000, null),
-		notesMinutes: num(pick('notesMinutes'), 1, 240, DEFAULT_SENSES.notesMinutes)
+		notesMinutes: num(pick('notesMinutes'), 1, 240, DEFAULT_SENSES.notesMinutes),
+		places: cleanPlaces(pick('places'), cleanZones(pick('zones'))),
+		awayMinutes: AWAY_CHOICES.includes(Number(pick('awayMinutes'))) ? Number(pick('awayMinutes')) : 0
 	};
+}
+
+/* ---------- places: where you are chooses what the wall does ---------- */
+
+// how long you're in a spot before the wall follows (walking past the desk doesn't count)
+export const PLACE_DWELL_MS = 8000;
+// how long you lie still at night before the screen goes off
+export const LIE_OFF_MS = 60000;
+// after you change the view yourself, the wall leaves it alone this long
+export const MANUAL_GRACE_MS = 120000;
+
+export function newPlaceState() {
+	return { zone: null, zoneSince: 0, actedZone: null, lyingSince: null, lieActed: false, emptySince: null, awayActed: false, manualAt: -Infinity };
+}
+
+/**
+ * One step of the place rules. `state` (from newPlaceState) is kept by the
+ * caller; returns what to do now: [{ navigate: view, zone }] or
+ * [{ panel: 'off', reason: 'asleep' | 'away' }]. Each happens once per
+ * arrival, per lying down, per absence.
+ */
+export function placeStep(state, { presence, settings, now, quiet = false }) {
+	const out = [];
+	if (!presence?.camera) return out;
+	const places = settings.places || {};
+	const zone = presence.count ? presence.zone || null : null;
+	if (zone !== state.zone) {
+		state.zone = zone;
+		state.zoneSince = now;
+		state.actedZone = null;
+	}
+	if (zone && state.actedZone !== zone && now - state.zoneSince >= PLACE_DWELL_MS) {
+		state.actedZone = zone;
+		const view = places[zone]?.view;
+		if (view && now - state.manualAt >= MANUAL_GRACE_MS) out.push({ navigate: view, zone });
+	}
+	// lying down in a spot that turns the screen off, at night
+	if (zone && presence.posture === 'lying' && places[zone]?.lieOff && quiet) {
+		if (state.lyingSince == null) state.lyingSince = now;
+		if (!state.lieActed && now - state.lyingSince >= LIE_OFF_MS) {
+			state.lieActed = true;
+			out.push({ panel: 'off', reason: 'asleep' });
+		}
+	} else {
+		state.lyingSince = null;
+		state.lieActed = false;
+	}
+	// nobody home
+	if (!presence.count) {
+		if (state.emptySince == null) state.emptySince = now;
+		if (settings.awayMinutes && !state.awayActed && now - state.emptySince >= settings.awayMinutes * 60000) {
+			state.awayActed = true;
+			out.push({ panel: 'off', reason: 'away' });
+		}
+	} else {
+		state.emptySince = null;
+		state.awayActed = false;
+	}
+	return out;
 }
 
 /** "start taking notes" / "stop transcribing" said to the wall, or null. */
