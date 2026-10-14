@@ -130,7 +130,7 @@
 		if (!auto) markInput();
 		autoSetView = auto ? next : '';
 		currentView.set(next);
-		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: next }));
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'navigate', view: next, ...(auto ? { auto: true } : {}) }));
 	}
 
 	// Tap a chore's circle on the Clock view: same op the phone remote sends.

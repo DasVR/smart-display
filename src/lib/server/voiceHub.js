@@ -4,7 +4,7 @@
  *   GET  /api/voice                 settings, whether a key is set, today's usage
  *   POST /api/voice                 change settings { enabled, voiceId, quietStart, quietEnd,
  *                                   dayVolume, nightVolume, nightSilent, dailyChars }
- *   POST /api/voice/say             { text, urgent? } (or a text/plain body): say it on the wall
+ *   POST /api/voice/say             { text, urgent?, source? } (or a text/plain body): say it on the wall
  *   GET  /api/voice/clip/<id>.mp3   a cached clip (the kiosk's <audio> fetches these)
  *
  * Same Bearer token as /api/tasks, except clips: their names are hashes of
@@ -22,7 +22,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import { wallDayKey } from '../calendarItems.js';
-import { CLIP_NAME, inQuietHours, normalizeVoiceSettings, speechText, voiceVolumeAt } from '../wallVoice.js';
+import { CLIP_NAME, inQuietHours, normalizeVoiceSettings, roomEmpty, roomVolume, speechText, voiceVolumeAt, welcomeBackText } from '../wallVoice.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const API = 'https://api.elevenlabs.io/v1/text-to-speech';
@@ -87,7 +87,9 @@ export function createVoiceHub({
 	fetchImpl = globalThis.fetch,
 	now = () => Date.now(),
 	env = process.env,
-	log = console
+	log = console,
+	// where you are, from the webcam (sensesHub presence), or null without one
+	room = () => null
 }) {
 	const settingsFile = path.join(dataDir, 'voice.json');
 	const usageFile = path.join(dataDir, 'voice-usage.json');
@@ -97,6 +99,8 @@ export function createVoiceHub({
 	let settings = normalizeVoiceSettings(readJson(settingsFile, {}));
 	let usage = readJson(usageFile, { day: '', chars: 0 });
 	let seq = 0;
+	// said to an empty room, kept to say when someone is back: [{ text, at }]
+	let held = [];
 
 	const key = () => loadElevenLabsKey(keyFile, env);
 
@@ -127,7 +131,8 @@ export function createVoiceHub({
 			keyHint: k ? `…${k.slice(-4)}` : '',
 			charsToday: usedToday(),
 			quietNow: inQuietHours(now(), settings),
-			volumeNow: voiceVolumeAt(now(), settings)
+			volumeNow: voiceVolumeAt(now(), settings),
+			heldCount: held.length
 		};
 	}
 
@@ -243,9 +248,16 @@ export function createVoiceHub({
 		const id = `speak-${++seq}`;
 		let reason = '';
 		let clipId = null;
+		const here = settings.followRoom || settings.holdWhenAway ? room() : null;
+		const quiet = inQuietHours(now(), settings);
+		const volume = settings.followRoom ? roomVolume(voiceVolumeAt(now(), settings), here, { quiet }) : voiceVolumeAt(now(), settings);
 		if (!settings.enabled) reason = 'off';
-		else if (!urgent && settings.nightSilent && inQuietHours(now(), settings)) reason = 'quiet-hours';
-		else {
+		else if (!urgent && settings.nightSilent && quiet) reason = 'quiet-hours';
+		else if (!urgent && settings.holdWhenAway && roomEmpty(here)) {
+			// nobody to hear it: show it, and say it when someone comes back
+			reason = 'away';
+			held = [...held, { text: words, at: now() }].slice(-10);
+		} else {
 			const c = await clip(words);
 			if (c.id) clipId = c.id;
 			else reason = c.error;
@@ -257,11 +269,20 @@ export function createVoiceHub({
 			source,
 			url: clipId ? `/api/voice/clip/${clipId}.mp3` : null,
 			caption,
-			// how loud this clip plays (0 to 1): the day or night voice volume
-			volume: voiceVolumeAt(now(), settings),
+			// how loud this clip plays (0 to 1): the day or night voice, for where you are
+			volume,
 			silent: reason || undefined
 		});
-		return { ok: true, text: words, spoken: Boolean(clipId), volume: voiceVolumeAt(now(), settings), ...(reason ? { silent: reason } : {}) };
+		return { ok: true, text: words, spoken: Boolean(clipId), volume, ...(reason ? { silent: reason } : {}) };
+	}
+
+	/** Someone came back into the room: say what was held for them (the last 12 hours of it). */
+	async function welcomeBack() {
+		const fresh = held.filter((h) => now() - h.at < 12 * 3600000);
+		held = [];
+		const text = welcomeBackText(fresh);
+		if (!text) return null;
+		return say(text, { source: 'Wall' });
 	}
 
 	function json(res, data, status = 200) {
@@ -302,7 +323,9 @@ export function createVoiceHub({
 			}
 			if (req.method === 'POST' && p === '/api/voice/say') {
 				const body = await readBody(req);
-				const out = await say(body.text, { urgent: body.urgent === true, source: 'iPhone' });
+				// who is talking, shown with the words: an assistant names itself, a Shortcut is the iPhone
+				const named = typeof body.source === 'string' ? body.source.replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24) : '';
+				const out = await say(body.text, { urgent: body.urgent === true, source: named || 'iPhone' });
 				const textMode = url.searchParams.get('format') === 'text' || /text\/plain/i.test(req.headers?.accept ?? '');
 				if (textMode) {
 					res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
@@ -321,5 +344,5 @@ export function createVoiceHub({
 	}
 
 	// `key` is for the sound hub on the same kiosk; it is never sent to a phone
-	return { say, snapshot, setSettings, setKey, forgetKey, handleHttp, clip, key };
+	return { say, welcomeBack, snapshot, setSettings, setKey, forgetKey, handleHttp, clip, key };
 }

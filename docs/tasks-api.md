@@ -192,6 +192,14 @@ above, so any MCP-capable assistant can use the list directly. Its tools:
 - `snooze_task`
 - `delete_task`
 - `notify_display` (a one-off island message; nothing is stored)
+- `room_presence`: whether the webcam sees anyone, which spot, lying or
+  upright, how far (numbers only; see [senses.md](senses.md))
+- `say_on_wall`: speak a short line on the wall, under the wall's rules
+  (softer at night, held for an empty room unless `urgent`)
+- `list_wall_notes`, `read_wall_note`: notes the wall took when asked
+
+None of these is tied to one assistant; whatever runs the agent only needs
+the stdio config below.
 
 ```json
 {

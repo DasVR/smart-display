@@ -359,6 +359,18 @@
 				<span>Silent at night</span>
 				<input type="checkbox" checked={settings.nightSilent} onchange={(e) => patch({ nightSilent: e.currentTarget.checked })} />
 			</label>
+			<label class="row">
+				<span>Follow where you are</span>
+				<input type="checkbox" checked={settings.followRoom} onchange={(e) => patch({ followRoom: e.currentTarget.checked })} />
+			</label>
+			<label class="row">
+				<span>Hold speech while nobody's home</span>
+				<input type="checkbox" checked={settings.holdWhenAway} onchange={(e) => patch({ holdWhenAway: e.currentTarget.checked })} />
+			</label>
+			<p class="note">
+				With the webcam on (Senses): the voice is a bit louder when you're across the room, softer up close and when you're lying down at
+				night. Said to an empty room, it's only shown, then said when you come back{settings.heldCount ? ` (${settings.heldCount} waiting)` : ''}. Urgent things always speak.
+			</p>
 			<p class="note">
 				{settings.quietNow ? (settings.nightSilent ? 'Night now: the wall shows things but stays silent.' : `Night now: the voice speaks at ${Math.round(settings.nightVolume * 100)}%.`) : `Day: the voice speaks at ${Math.round(settings.dayVolume * 100)}%.`}
 				Only the voice changes; music and sounds keep the speaker's volume.

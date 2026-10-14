@@ -177,7 +177,7 @@ Open `/remote` on a phone and use **Add to Home Screen** to run it as an app.
 A floating tab bar at the bottom switches between:
 
 - **Remote** (`/remote`): panel power, channel picker, volume
-- **Night** (`/remote#night`): when the panel is on, per day, and proximity wake (see [`docs/display-schedule.md`](docs/display-schedule.md))
+- **Night** (`/remote#night`): when the panel is on, per day, and the morning wake (see [`docs/display-schedule.md`](docs/display-schedule.md))
 - **Tasks** (`/remote/tasks`): add, complete and snooze chores and alerts.
   **Siri & Shortcuts** (`/remote/shortcuts`) has the Siri recipes and a box
   to try phrases. Any page shows an Allow / Deny card while an agent waits.
@@ -235,7 +235,7 @@ restarts both services.
 | `DISPLAY_WEEK` | The panel's week as JSON, seven `{ mode, on, off }` days from Sunday (see [`docs/display-schedule.md`](docs/display-schedule.md)) |
 | `DISPLAY_HDMI_STAMP` | File holding the panel power state (`on`/`off`) |
 | `GOOGLE_TOKEN_PATH` | OAuth token for the Calendar view's calendar |
-| `HA_TOKEN_PATH` | Home Assistant token for phone wake |
+| `HA_TOKEN_PATH` | Home Assistant token (views, states) |
 | `LYRICS_DB_PATH` | SQLite lyrics cache |
 | `DISPLAY_API_TOKEN` | Bearer token for `/api/tasks` (or use `npm run api-token`) |
 | `AIRPLAY_NOWPLAYING_PATH`, `AIRPLAY_ART_PATH` | shairport-sync metadata handoff |

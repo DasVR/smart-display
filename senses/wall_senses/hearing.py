@@ -91,9 +91,11 @@ def route(text, wake_words, notes, awaiting):
 
 
 class Ears:
-    def __init__(self, on_heard, log=print):
+    def __init__(self, on_heard, log=print, on_decision=None):
         self.on_heard = on_heard
         self.log = log
+        # what it made of each piece of sound, in words (diary.py), or None
+        self.on_decision = on_decision
         self.source = ""
         self.wake_mode = "phrase"
         self.wake_words = None
@@ -338,6 +340,13 @@ class Ears:
             self.error = ""
         return self._whisper
 
+    def decided(self, kind, **data):
+        if self.on_decision:
+            try:
+                self.on_decision(kind, **data)
+            except Exception:  # noqa: BLE001  the diary must never stop the ears
+                pass
+
     def _prompt(self):
         """Two examples of talking to the wall, so Whisper expects "hey wall" and
         hears it even faint and across the room (tested: without them it heard
@@ -385,17 +394,18 @@ class Ears:
                     # phrase mode: is it even for the wall? check the start first
                     head = self._words(audio[:head_bytes], self._prompt())
                     if match_wake(head, self.wake_words) is None:
+                        self.decided("ignored", seconds=round(len(audio) / 2 / SAMPLE_RATE, 2), head=head)
                         continue
                     awaiting = False
                     self.state = "thinking"
                 if awaiting:
                     self.state = "thinking"
                 # the wake phrase is in this piece unless it came before it (awaiting) or it's notes
+                seconds = round(len(audio) / 2 / SAMPLE_RATE, 2)
                 text = self._words(audio, None if awaiting or self.notes else self._prompt())
                 del audio
-                if not text:
-                    continue
-                what = route(text, self.wake_words, self.notes, awaiting)
+                what = route(text, self.wake_words, self.notes, awaiting) if text else None
+                self.decided("heard", seconds=seconds, text=text, awaiting=bool(awaiting), notes=bool(self.notes), routed=what[0] if what else None)
                 if not what:
                     continue
                 kind, words = what

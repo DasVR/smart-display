@@ -7,7 +7,6 @@ import assert from 'node:assert/strict';
 import {
 	ALL_DAYS,
 	applyDisplayPatch,
-	debounceSignal,
 	describeWeek,
 	desiredHdmi,
 	envDefaults,
@@ -210,7 +209,7 @@ describe('saving changes', () => {
 		const night = at('2026-10-05T21:00');
 		assert.deepEqual(schedulePatchAction(prev, edited, { hold: 'on', date: night }), { action: null, hold: 'on' });
 		assert.deepEqual(schedulePatchAction(prev, edited, { hold: null, date: night }), { action: 'off', hold: null });
-		assert.deepEqual(schedulePatchAction(prev, { ...prev, wakeOnProximity: true }, { hold: null, date: night }), { action: null, hold: null }, 'proximity tweaks leave the panel alone');
+		assert.deepEqual(schedulePatchAction(prev, { ...prev, phoneWakeAfter: '06:00' }, { hold: null, date: night }), { action: null, hold: null }, 'morning-wake tweaks leave the panel alone');
 		assert.deepEqual(schedulePatchAction(prev, { ...prev, enabled: false }, { hold: 'off', date: night }), { action: 'on', hold: null });
 		assert.deepEqual(schedulePatchAction({ ...prev, enabled: false }, prev, { hold: 'on', date: at('2026-10-05T23:00') }), { action: 'off', hold: null });
 	});
@@ -261,30 +260,17 @@ describe('from the old single window', () => {
 	});
 });
 
-describe('days and proximity', () => {
+describe('days, and what old files carry', () => {
 	test('parses names, numbers, and env lists', () => {
 		assert.deepEqual(normalizeDays('fri,sat'), [5, 6]);
 		assert.deepEqual(normalizeDays(['Mon', 3, '0']), [0, 1, 3]);
 		assert.deepEqual(normalizeDays([]), []);
 	});
 
-	test('normalizeSchedule validates the proximity fields', () => {
-		const withMac = normalizeSchedule({ wakeOnProximity: true, proximityDevice: 'aa:bb:cc:dd:ee:ff', proximityMeters: 3.25 });
-		assert.equal(withMac.proximityDevice, 'AA:BB:CC:DD:EE:FF');
-		assert.equal(withMac.proximityMeters, 3.3);
-		assert.equal(normalizeSchedule({ proximityDevice: 'not-a-mac' }).proximityDevice, '');
-		assert.equal(normalizeSchedule({ proximityMeters: -5 }, { proximityMeters: 7 }).proximityMeters, 7);
-		assert.equal(normalizeSchedule({ proximityMeters: 500 }).proximityMeters, 30);
-	});
-
-	test('debounceSignal ignores a single flickered reading', () => {
-		const state = {};
-		assert.equal(debounceSignal(state, false), false);
-		assert.equal(debounceSignal(state, true), false);
-		assert.equal(debounceSignal(state, false), false);
-		assert.equal(debounceSignal(state, true), false);
-		assert.equal(debounceSignal(state, true), true);
-		assert.equal(debounceSignal(state, false), true);
-		assert.equal(debounceSignal(state, false), false);
+	test('an old file\'s Bluetooth proximity fields drop off', () => {
+		const old = normalizeSchedule({ wakeOnProximity: true, proximityDevice: 'aa:bb:cc:dd:ee:ff', proximityMeters: 3.25 });
+		assert.equal('wakeOnProximity' in old, false);
+		assert.equal('proximityDevice' in old, false);
+		assert.equal('proximityMeters' in old, false);
 	});
 });

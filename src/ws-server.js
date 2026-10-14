@@ -16,8 +16,7 @@ import {
 	getWeather,
 	nwsWatch,
 	getGoogleTasks,
-	saveStationData,
-	fetchHAStates
+	saveStationData
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, readHdmiStamp, setPanelPower } from './lib/server/displayPower.js';
 import { createTaskHub } from './lib/server/taskHub.js';
@@ -42,12 +41,7 @@ import {
 	maybeStartHostUpgrade,
 	setInstallProgressListener
 } from './lib/server/hostUpgrade.js';
-import {
-	btAddressesEqual,
-	getBluetoothProximity,
-	getKioskStatus,
-	proximityNear
-} from './lib/server/kioskStatus.js';
+import { getKioskStatus } from './lib/server/kioskStatus.js';
 import { createAudioCapture } from './lib/server/audioCapture.js';
 import {
 	agentFinishedNotify,
@@ -68,7 +62,6 @@ import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, setMute, setVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
 import {
-	debounceSignal,
 	isPhoneWakeWindow,
 	isQuietHours,
 	loadSchedule,
@@ -81,7 +74,6 @@ import {
 	desiredHdmi,
 	nextChange
 } from './lib/server/displaySchedule.js';
-import { becameOn, describePhoneSensor, pickPhoneWakeSensor } from './lib/server/haPhone.js';
 import { probeAlignEngine } from './lib/server/forcedAlign.js';
 import { lyricsDbStats } from './lib/server/lyricsStore.js';
 import { getHostLoad } from './lib/server/hostLoad.js';
@@ -112,7 +104,9 @@ const voiceHub = createVoiceHub({
 		// the webcam's ears close while the wall talks, so it never answers itself
 		if (msg?.type === 'speak' && msg.url) sensesHub.noteSpeaking(msg.text);
 		broadcast(msg);
-	}
+	},
+	// louder across the room, softer lying down at night, held for an empty room
+	room: () => sensesHub.presence()
 });
 // sounds made from the phone (ElevenLabs sound effects, kept in data/sounds/)
 const soundHub = createSoundHub({
@@ -229,6 +223,25 @@ const sensesHub = createSensesHub({
 	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
 	timeZone: process.env.TZ || undefined,
 	// walking up to the wall turns the panel on, but not at night
+	// getting up in the morning (lying down, then upright) is the morning wake
+	onPresence: (now, before) => {
+		if (before.posture === 'lying' && now.posture === 'upright') handlePhoneWake('camera').catch(() => {});
+		// back in the room: what was said while nobody was here
+		if (before.camera && now.camera && !before.count && now.count) voiceHub.welcomeBack().catch(() => {});
+	},
+	// places: settling in a spot shows its page; lying down there at night,
+	// or nobody home for a while, turns the panel off (src/lib/senses.js placeStep)
+	isQuiet: () => Boolean(voiceHub.snapshot().quietNow),
+	onPlace: (action) => {
+		if (action.navigate) {
+			const view = canonicalizeKioskView(action.navigate);
+			if (view === currentView) return;
+			currentView = view;
+			broadcast({ type: 'navigate', view, from: 'place' });
+		} else if (action.panel === 'off' && hdmiState === 'on') {
+			applyHdmi('off', { reason: action.reason }).catch(() => {});
+		}
+	},
 	onNear: () => {
 		if (!sensesHub.snapshot().settings.wakePanel || hdmiState === 'on' || voiceHub.snapshot().quietNow) return;
 		handleTrigger('normal', { data: { from: 'camera' } }).catch(() => {});
@@ -241,10 +254,6 @@ let lastDesired = null;
 let hdmiHold = null;
 let applyingHdmi = false;
 let pendingHdmi = null;
-let phoneWatch = { entity: '', label: '', on: false, status: 'idle' };
-let lastPhoneSensor = null;
-let proximityWatch = { address: '', label: '', distanceMeters: null, near: false };
-const proximityDebounce = {};
 
 function json(res, data, status = 200) {
 	res.writeHead(status, { 'Content-Type': 'application/json' });
@@ -481,11 +490,13 @@ function displaySnapshot() {
 		quiet: isQuietHours(new Date(), schedule),
 		next: nextChange(new Date(), schedule),
 		hold: hdmiHold,
+		// the morning wake: getting up (seen by the webcam) after phoneWakeAfter,
+		// or Home Assistant's phone_wake webhook
 		phone: {
-			...phoneWatch,
+			source: 'camera',
+			after: schedule.phoneWakeAfter,
 			wakeWindow: isPhoneWakeWindow(new Date(), schedule)
-		},
-		proximity: proximityWatch
+		}
 	};
 }
 
@@ -563,99 +574,16 @@ async function handleTrigger(event, extra = {}) {
 	broadcast({ type: 'trigger', event, view: extra.view, data: extra.data || {} });
 }
 
+/** The morning wake (schedule.wakeOnPhone, kept by that name for old files):
+ *  in the off time after phoneWakeAfter, getting up wakes the panel with the
+ *  morning briefing. The webcam sees it (lying down, then upright: senses), or
+ *  Home Assistant sends the phone_wake webhook. */
 async function handlePhoneWake(source = 'ha') {
 	if (!schedule.wakeOnPhone) return { ok: false, reason: 'disabled' };
 	if (hdmiState === 'on') return { ok: true, reason: 'already-on' };
 	if (!isPhoneWakeWindow(new Date(), schedule)) return { ok: false, reason: 'outside-window' };
 	await handleTrigger('morning', { view: 'calendar', data: { from: source } });
 	return { ok: true, reason: 'woke' };
-}
-
-async function pollPhone() {
-	const { states, status, error } = await fetchHAStates();
-	if (status !== 'ok') {
-		phoneWatch = { ...phoneWatch, status, error: error || status };
-		return;
-	}
-	const sensor = pickPhoneWakeSensor(states);
-	const prev = lastPhoneSensor;
-	lastPhoneSensor = sensor;
-	phoneWatch = sensor
-		? { ...describePhoneSensor(sensor), status: 'ok' }
-		: { entity: '', label: '', on: false, status: 'missing' };
-	if (becameOn(prev, sensor)) await handlePhoneWake('poll');
-}
-
-function phoneLoop() {
-	pollPhone().finally(() => {
-		const wait = phoneWatch.status === 'no-auth' || phoneWatch.status === 'error' ? 60_000 : 8_000;
-		setTimeout(phoneLoop, wait);
-	});
-}
-
-/** Wakes the display when a configured Bluetooth device (calibrated from
- *  /remote/stats, which shows live RSSI-estimated distance for every
- *  connected device) reads inside the configured range. Unlike phone-wake,
- *  this isn't limited to the early-morning window - it's meant to work
- *  anytime the panel is off, like walking into the room. */
-async function handleProximityWake(source = 'ble') {
-	if (!schedule.wakeOnProximity) return { ok: false, reason: 'disabled' };
-	if (hdmiState === 'on') return { ok: true, reason: 'already-on' };
-	await handleTrigger('normal', { data: { from: source } });
-	return { ok: true, reason: 'woke' };
-}
-
-async function pollProximity() {
-	const address = schedule.proximityDevice;
-	if (!address) {
-		const empty = { address: '', label: '', distanceMeters: null, near: false, connected: false };
-		const changed =
-			proximityWatch.address ||
-			proximityWatch.near ||
-			proximityWatch.distanceMeters != null;
-		proximityWatch = empty;
-		if (changed) broadcast({ type: 'proximity', ...proximityWatch });
-		return;
-	}
-	try {
-		if (proximityDebounce.address !== address) {
-			proximityDebounce.address = address;
-			proximityDebounce.raw = undefined;
-			proximityDebounce.streak = 0;
-			proximityDebounce.confirmed = undefined;
-		}
-		const devices = await getBluetoothProximity(address);
-		const match = devices.find((d) => btAddressesEqual(d.address, address));
-		const distanceMeters = match?.distanceMeters ?? null;
-		const rawNear = proximityNear(distanceMeters, schedule.proximityMeters);
-		// The same flicker-guard used for the update banner: a single noisy
-		// RSSI reading shouldn't be enough to wake the panel.
-		const near = debounceSignal(proximityDebounce, rawNear);
-		const next = {
-			address,
-			label: match?.name || '',
-			distanceMeters,
-			near,
-			connected: Boolean(match?.connected)
-		};
-		const changed =
-			next.address !== proximityWatch.address ||
-			next.label !== proximityWatch.label ||
-			next.distanceMeters !== proximityWatch.distanceMeters ||
-			next.near !== proximityWatch.near ||
-			next.connected !== proximityWatch.connected;
-		proximityWatch = next;
-		if (changed) broadcast({ type: 'proximity', ...proximityWatch });
-		if (schedule.wakeOnProximity && near) await handleProximityWake('poll');
-	} catch {
-		/* bluetoothctl probe failed; try again next tick */
-	}
-}
-
-function proximityLoop() {
-	pollProximity().finally(() => {
-		setTimeout(proximityLoop, 8_000);
-	});
 }
 
 async function tickSchedule() {
@@ -1061,10 +989,13 @@ wss.on('connection', (ws, req) => {
 			if (msg.type === 'hello' && msg.role === 'remote') ws.isRemote = true;
 			if (msg.type === 'navigate') {
 				currentView = canonicalizeKioskView(msg.view);
+				// a hand-picked page: the spots leave it alone for a while (Smart Stack's own turns don't count)
+				if (!msg.auto) sensesHub.noteManual();
 				broadcast({ type: 'navigate', view: currentView, from: ws.isRemote ? 'remote' : 'local' });
 			}
 			if (msg.type === 'swipe') {
 				currentView = swipeKioskView(currentView, msg.dir);
+				sensesHub.noteManual();
 				broadcast({ type: 'navigate', view: currentView, from: 'remote' });
 			}
 			if (msg.type === 'trigger') {
@@ -1191,10 +1122,8 @@ server.listen(port, '0.0.0.0', () => {
 	);
 	setTimeout(tickSchedule, 2500);
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
-	setTimeout(phoneLoop, 4000);
 	taskHub.start();
 	calendarFeed.start();
-	setTimeout(proximityLoop, 4000);
 	const lyricsDb = lyricsDbStats();
 	console.log(
 		lyricsDb.available

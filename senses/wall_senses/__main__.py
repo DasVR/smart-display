@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 
+from .diary import Diary
 from .distance import calibrate_focal, scale_focal
 from .hearing import Ears, list_sources
 from .bodies import YOLOX_NAME
@@ -52,14 +53,22 @@ def moved(a, b):
 class Senses:
     def __init__(self, wall):
         self.wall = wall
-        self.eyes = Eyes(log=log)
-        self.ears = Ears(on_heard=self.heard, log=log)
+        # the last 30 s of decisions, numbers and words, for "that was wrong" reports
+        self.diary = Diary()
+        self.eyes = Eyes(log=self.note)
+        self.ears = Ears(on_heard=self.heard, log=self.note, on_decision=self.diary.add)
         self.settings = {}
         self.calibrating = None
         self.last_sent = {}
         self.last_post = 0.0
+        self.reported = None
+
+    def note(self, *parts):
+        log(*parts)
+        self.diary.add("log", text=" ".join(str(p) for p in parts)[:300])
 
     def heard(self, kind, text):
+        self.diary.add("said", what=kind, text=text)
         self.wall.post("/api/senses/heard", {"kind": kind, "text": text})
 
     def apply(self, s):
@@ -150,6 +159,9 @@ class Senses:
         reply = self.wall.post("/api/senses/state", {"version": VERSION, "camera": cam, "mic": mic})
         self.last_post = now
         self.last_sent = cam
+        self.diary.add("camera", **{k: v for k, v in cam.items() if k != "device"})
+        if mic.get("state") not in (None, "idle", "listening") or mic.get("error"):
+            self.diary.add("mic", state=mic.get("state"), error=mic.get("error"), level=mic.get("level"))
         if not reply:
             return
         if reply.get("settings") != self.settings:
@@ -159,6 +171,16 @@ class Senses:
         self.ears.notes = bool(reply.get("notes"))
         if reply.get("calibrate"):
             self.calibrate(reply["calibrate"])
+        if reply.get("report"):
+            self.report(reply["report"])
+
+    def report(self, report_id):
+        """The phone said "that was wrong": send the last 30 s of decisions."""
+        if report_id == self.reported:
+            return
+        self.reported = report_id
+        rows = self.diary.rows()
+        threading.Thread(target=lambda: self.wall.post("/api/senses/report", {"id": report_id, "rows": rows}), daemon=True).start()
 
     def close(self):
         self.eyes.stop()

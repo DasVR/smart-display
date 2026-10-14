@@ -15,6 +15,13 @@ One USB webcam, with its built-in microphone, lets the wall:
   back turned and lying down, from a camera up high that sees the room. It
   turns the screen on when someone comes in (never at night), and art mode
   will lean its light toward you.
+- **act on where you are**: settling at the desk can bring up Agents, lying
+  down in bed at night turns the screen off, and an empty room can turn it
+  off after a while (see Places). Getting up in the morning is the morning
+  wake.
+- **talk to you where you are**: the voice is a bit louder when you're
+  across the room and softer lying down at night, and things said to an
+  empty room are kept and said when you come back.
 
 Settings are on the phone: **Stats → Senses**. Both the microphone and the
 camera start **off**.
@@ -135,6 +142,51 @@ It keeps the outline the camera saw you in (where in the picture, how big),
 and from then on reports the remembered spot nearest the outline it sees.
 Remember a spot again under the same name to improve it; up to 8 spots.
 
+### Places
+
+Each spot can do something (Phone → Senses → Spots in the room, under each
+spot):
+
+- **Settle here to show**: a page (Clock, Calendar, Agents, Music, Weather)
+  that comes up after you've been in the spot about ten seconds. Once per
+  arrival, and not within two minutes of picking a page yourself (on the
+  wall or the phone; Smart Stack's own turns don't count).
+- **Lying here at night turns the screen off**: during the voice's quiet
+  hours, a minute of lying down in this spot turns the panel off. Getting
+  up again (lying to upright) after the morning-wake time is the morning
+  wake (Display schedule).
+
+And for the whole room: **Nobody in the room: screen off after** 10, 30 or
+60 minutes (or never). Coming back turns it on again when **Turn the screen
+on when someone comes in** is on (never at night). The rules are
+`placeStep` in `src/lib/senses.js`.
+
+### The voice and the room
+
+With the camera on (Phone → Sounds → Voice; both on by default):
+
+- **Follow where you are**: the voice plays at about three quarters of its
+  volume within a metre, rising to a quarter more from 3.5 m away, and at
+  60% when you're lying down during quiet hours. Without metres (no paper
+  map yet), only the lying-down part applies.
+- **Hold speech while nobody's home**: said to an empty room, it's only
+  shown; when someone comes back the wall says "While you were out: …" (the
+  last three, from the past 12 hours). Urgent things always speak.
+
+### "That was wrong"
+
+When it gets something wrong (misses you, puts you in the wrong spot,
+mishears you, turns the screen off at a bad time), tap **That was wrong** on
+the phone's Senses page right away, with a few words if you like. The
+webcam process keeps the last 30 seconds of what it decided in memory:
+what the camera counted (people, spot, posture, distance, outlines as
+numbers), what the microphone made of each piece of sound (how long it was,
+the words Whisper heard, whether they were for the wall), and its log
+lines. The tap saves that, with the presence the wall was told and its
+settings, to `data/senses-reports/report-<time>.json` (gitignored, the last
+50). Open and copy them on the phone. Numbers and words only, like
+everything else here.
+
 ### Distance, from a sheet of paper
 
 For metres from the wall:
@@ -220,7 +272,7 @@ PipeWire 1.0.5: the cleaned input appears, and `--undo` removes it.
 
 | Piece | Where |
 | --- | --- |
-| the webcam process | `senses/wall_senses/` (`hearing.py`, `denoise.py`, `seeing.py`, `bodies.py`, `room.py`, `vad.py`, `wake.py`, `distance.py`) |
+| the webcam process | `senses/wall_senses/` (`hearing.py`, `denoise.py`, `diary.py`, `seeing.py`, `bodies.py`, `room.py`, `vad.py`, `wake.py`, `distance.py`) |
 | its tests (no camera or mic) | `senses/tests/`, run in CI: `cd senses && python3 -m unittest discover -s tests` |
 | the server side | `src/lib/server/sensesHub.js`, `src/lib/senses.js`, `tests/senses.test.mjs` |
 | the phone page | `src/routes/remote/senses/+page.svelte` |
@@ -235,8 +287,15 @@ HTTP, for the process (from this machine only):
 - `POST /api/senses/heard` with `{ kind: 'command' | 'note' | 'wake', text }`.
 - `POST /api/senses/calibrated` with `{ id, focalPx, focalWidth }` or
   `{ id, error }`.
-- `GET /api/senses` returns the snapshot. It needs the `/api` bearer token
-  from anywhere but this machine.
+- `POST /api/senses/report` with `{ id, rows }`: the last 30 s of decisions,
+  when the state answer asked for `report`.
+- `GET /api/senses` returns the snapshot; `GET /api/senses/notes` lists the
+  saved notes and `GET /api/senses/notes/<name>` returns one as text. They
+  need the `/api` bearer token from anywhere but this machine.
+
+For assistants, `scripts/tasks-mcp.mjs` has `room_presence`, `say_on_wall`,
+`list_wall_notes` and `read_wall_note` (see [tasks-api.md](tasks-api.md#mcp-bridge)),
+so any MCP-capable agent can ask whether anyone is home before speaking.
 
 Commands go through the same code as Siri and the phone's **Try a phrase**
 box (`taskHub.sayAdd`, source "Wall mic"), so [voice-commands.md](voice-commands.md)

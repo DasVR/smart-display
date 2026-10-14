@@ -8,7 +8,11 @@
  *                                calibration to run
  *   POST /api/senses/heard       { kind: 'command' | 'note' | 'wake', text }
  *   POST /api/senses/calibrated  { id, focalPx, focalWidth } or { id, error }
+ *   POST /api/senses/report      { id, rows }: the process's last 30 s of decisions,
+ *                                sent when the phone says "that was wrong"
  *   GET  /api/senses             the same snapshot the phone gets
+ *   GET  /api/senses/notes       saved notes (file names, newest first)
+ *   GET  /api/senses/notes/<f>   one saved note, as text
  *
  * The three POSTs are taken only from this machine (the process runs here);
  * GET needs the /api bearer token like the rest, unless it is local too.
@@ -17,24 +21,32 @@
  * room, whether anything moved, and what was said to the wall. Pictures and
  * sound never leave the process. Notes are the exception that's kept on
  * purpose: when you ask the wall to take notes, what it hears is written to
- * data/transcripts/ as text when the notes stop.
+ * data/transcripts/ as text when the notes stop. "That was wrong" reports
+ * are kept too (data/senses-reports/, numbers and words): what the camera
+ * counted and the microphone made of things in the 30 seconds before the
+ * phone's tap, to find out why it got something wrong.
  */
-import { mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { MAX_ZONES, hushMsFor, normalizeSensesSettings, notesCommand, presenceChanged, presenceFrom, transcriptText } from '../senses.js';
+import { MAX_ZONES, hushMsFor, newPlaceState, normalizeSensesSettings, notesCommand, placeStep, presenceChanged, presenceFrom, transcriptText } from '../senses.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const OFFLINE_MS = 5000;
 const CALIBRATE_TTL_MS = 20000;
 const MAX_BODY = 8 * 1024;
+const MAX_REPORT_BODY = 128 * 1024;
 const MAX_LINES = 400;
+const REPORT_WAIT_MS = 10000;
+const KEEP_REPORTS = 50;
+const HISTORY_MS = 30000;
+const REPORT_NAME = /^report-[\w-]+\.json$/;
 
-function readBody(req) {
+function readBody(req, max = MAX_BODY) {
 	return new Promise((resolve, reject) => {
 		let raw = '';
 		req.on('data', (c) => {
 			raw += c;
-			if (raw.length > MAX_BODY) {
+			if (raw.length > max) {
 				reject(Object.assign(new Error('body too large'), { status: 413 }));
 				req.destroy();
 			}
@@ -74,10 +86,14 @@ function writeJsonAtomic(file, data) {
  * @param {(text: string) => Promise<unknown>} o.say          speak on the wall
  * @param {(req: import('http').IncomingMessage) => boolean} o.isLocal
  * @param {(presence: object) => void} [o.onNear]             someone just came up to the wall
+ * @param {(presence: object, before: object) => void} [o.onPresence]  any change worth telling
+ * @param {(action: object) => void} [o.onPlace]   a spot asks for a view, or the panel off (placeStep)
+ * @param {() => boolean} [o.isQuiet]              night (quiet hours) right now
  */
-export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onNear = () => {}, now = () => Date.now(), env = process.env, timeZone, log = console.log }) {
+export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onNear = () => {}, onPresence = () => {}, onPlace = () => {}, isQuiet = () => false, now = () => Date.now(), env = process.env, timeZone, log = console.log }) {
 	const settingsFile = path.join(dataDir, 'senses.json');
 	const transcriptDir = path.join(dataDir, 'transcripts');
+	const reportDir = path.join(dataDir, 'senses-reports');
 	const tokenFile = path.join(dataDir, 'api-token');
 	let settings = normalizeSensesSettings(readJson(settingsFile, {}));
 	let lastSeen = 0;
@@ -90,6 +106,11 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 	let notes = { on: false, startedAt: null, lastAt: null, lines: [] };
 	let seq = 0;
 	let lastMicState = 'idle';
+	const placeState = newPlaceState();
+	// the wall's side of a report: what presence it was told, the last 30 s
+	let history = [];
+	let reportJob = null; // { id, note, at, history }
+	let reported = null; // { ok, name } for the phone
 
 	const online = () => now() - lastSeen < OFFLINE_MS;
 
@@ -102,6 +123,8 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 			presence,
 			calibrating: Boolean(calibration),
 			calibrated,
+			reporting: Boolean(reportJob),
+			reported,
 			notes: { on: notes.on, startedAt: notes.startedAt, count: notes.lines.length, lines: notes.lines.slice(-30) }
 		};
 	}
@@ -121,10 +144,35 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 	function updatePresence() {
 		const next = presenceFrom(camera, settings, online() && settings.camera, presence.near);
 		if (!presenceChanged(presence, next)) return;
-		const wasNear = presence.near;
+		const before = presence;
 		presence = next;
+		history = [...history.filter((h) => now() - h.t < HISTORY_MS), { t: now(), ...presence }];
 		broadcast({ type: 'presence', ...presence });
-		if (presence.near && !wasNear) onNear(presence);
+		if (presence.near && !before.near) onNear(presence);
+		onPresence(presence, before);
+		runPlaces();
+	}
+
+	/** What the spots ask for: a view where you settle, the screen off when you sleep or leave. */
+	function runPlaces() {
+		let actions = [];
+		try {
+			actions = placeStep(placeState, { presence, settings, now: now(), quiet: isQuiet() });
+		} catch (e) {
+			log(`senses: places: ${e.message}`);
+		}
+		for (const a of actions) {
+			try {
+				onPlace(a);
+			} catch (e) {
+				log(`senses: places: ${e.message}`);
+			}
+		}
+	}
+
+	/** Someone changed the page by hand: the spots leave it alone for a while. */
+	function noteManual() {
+		placeState.manualAt = now();
 	}
 
 	/* ---------- notes ---------- */
@@ -285,6 +333,72 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 		setSettings({ focalPx: focal, focalWidth: Number(body.focalWidth) || null });
 	}
 
+	/* ---------- "that was wrong" ---------- */
+
+	/** The phone's tap: ask the webcam process for its last 30 s (or save the wall's side alone). */
+	function startReport(note) {
+		if (reportJob) return { ok: false, error: 'busy' };
+		reportJob = {
+			id: `rep-${++seq}`,
+			note: String(note || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 300),
+			at: now(),
+			history: history.filter((h) => now() - h.t < HISTORY_MS)
+		};
+		const id = reportJob.id;
+		reported = null;
+		if (!online()) finishReport(null, 'senses-offline');
+		else tell();
+		return { ok: true, id };
+	}
+
+	function finishReport(rows, error) {
+		const job = reportJob;
+		if (!job) return;
+		reportJob = null;
+		const stamp = new Date(job.at).toISOString().replace(/[:]/g, '-').replace(/\..*$/, '');
+		const name = `report-${stamp}-${job.id.replace(/\D/g, '')}.json`;
+		const doc = {
+			at: new Date(job.at).toISOString(),
+			note: job.note,
+			// numbers and words only, like everything else here
+			settings: (({ floorQuad, ...rest }) => rest)(settings),
+			presence: job.history.map(({ t, ...p }) => ({ secondsBefore: Math.round((job.at - t) / 100) / 10, ...p })),
+			process: Array.isArray(rows) ? rows.slice(-2000).filter((r) => r && typeof r === 'object') : null,
+			...(error ? { error } : {})
+		};
+		try {
+			mkdirSync(reportDir, { recursive: true });
+			writeFileSync(path.join(reportDir, name), JSON.stringify(doc, null, 2), { mode: 0o600 });
+			for (const old of savedReports(1000).slice(KEEP_REPORTS)) unlinkSync(path.join(reportDir, old));
+			reported = { ok: true, name, error: error || null, at: now() };
+		} catch (e) {
+			log(`senses: couldn't save a report: ${e.message}`);
+			reported = { ok: false, error: 'unwritable', at: now() };
+		}
+		tell();
+	}
+
+	function savedReports(limit = 20) {
+		try {
+			return readdirSync(reportDir)
+				.filter((f) => REPORT_NAME.test(f))
+				.sort()
+				.reverse()
+				.slice(0, limit);
+		} catch {
+			return [];
+		}
+	}
+
+	function readReport(name) {
+		if (!REPORT_NAME.test(String(name))) return null;
+		try {
+			return readFileSync(path.join(reportDir, name), 'utf8');
+		} catch {
+			return null;
+		}
+	}
+
 	/** Ears shut while the wall talks, so it never answers itself. */
 	function noteSpeaking(text) {
 		hushUntil = Math.max(hushUntil, now() + hushMsFor(text));
@@ -298,7 +412,10 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 			calibrated = { ok: false, error: 'timeout', at: now() };
 			tell();
 		}
+		if (reportJob && now() - reportJob.at > REPORT_WAIT_MS) finishReport(null, 'no-answer');
 		if (presence.camera && !online()) updatePresence();
+		// dwell and away are about time passing, not only about changes
+		runPlaces();
 	}
 
 	/* ---------- HTTP ---------- */
@@ -313,14 +430,24 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 		if (p !== '/api/senses' && !p.startsWith('/api/senses/')) return false;
 		const local = isLocal(req);
 		try {
-			if (req.method === 'GET' && p === '/api/senses') {
+			if (req.method === 'GET') {
 				if (!local && !authorized(req.headers, loadApiToken(tokenFile, env))) return json(res, { error: 'unauthorized' }, 401), true;
-				return json(res, snapshot()), true;
+				if (p === '/api/senses') return json(res, snapshot()), true;
+				// saved notes, for an assistant (scripts/tasks-mcp.mjs) as much as the phone
+				if (p === '/api/senses/notes') return json(res, { notes: savedTranscripts() }), true;
+				if (p.startsWith('/api/senses/notes/')) {
+					const textOut = readTranscript(decodeURIComponent(p.slice('/api/senses/notes/'.length)));
+					if (textOut == null) return json(res, { error: 'not found' }, 404), true;
+					res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+					res.end(textOut);
+					return true;
+				}
+				return json(res, { error: 'not found' }, 404), true;
 			}
 			if (req.method !== 'POST') return json(res, { error: 'method not allowed' }, 405), true;
 			// the webcam process runs on this machine; nobody else reports senses
 			if (!local) return json(res, { error: 'local only' }, 403), true;
-			const body = await readBody(req);
+			const body = await readBody(req, p === '/api/senses/report' ? MAX_REPORT_BODY : MAX_BODY);
 			if (p === '/api/senses/state') {
 				const wasOnline = online();
 				lastSeen = now();
@@ -341,12 +468,17 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 						settings,
 						hushMs: Math.max(0, hushUntil - now()),
 						notes: notes.on,
-						calibrate: calibration ? (({ at, ...job }) => job)(calibration) : null
+						calibrate: calibration ? (({ at, ...job }) => job)(calibration) : null,
+						report: reportJob ? reportJob.id : null
 					}),
 					true
 				);
 			}
 			if (p === '/api/senses/heard') return json(res, await heard(String(body.kind || ''), body.text)), true;
+			if (p === '/api/senses/report') {
+				if (reportJob && body.id === reportJob.id) finishReport(body.rows);
+				return json(res, { ok: true }), true;
+			}
 			if (p === '/api/senses/calibrated') {
 				calibrationDone(body);
 				return json(res, { ok: true }), true;
@@ -364,6 +496,11 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 		const op = msg?.op || 'get';
 		if (op === 'get') return { senses: snapshot() };
 		if (op === 'transcripts') return { transcripts: savedTranscripts() };
+		if (op === 'reports') return { reports: savedReports() };
+		if (op === 'report-read') {
+			const textOut = readReport(msg.name);
+			return textOut == null ? { result: { ok: false, error: 'not-found', op } } : { report: { name: msg.name, text: textOut } };
+		}
 		if (!mayChange) return { senses: snapshot(), result: { ok: false, error: 'not-paired', op } };
 		if (op === 'set' && msg.patch && typeof msg.patch === 'object') {
 			// calibration is measured, not typed; the phone may only clear it
@@ -387,6 +524,8 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 			startNotes();
 			return { senses: snapshot(), result: { ok: true, op } };
 		}
+		// "that was wrong": keep the last 30 s of what the senses decided
+		if (op === 'report') return { senses: snapshot(), result: { ...startReport(msg.note), op } };
 		if (op === 'notes-stop') return { senses: snapshot(), result: { ok: true, op, ...stopNotes() } };
 		if (op === 'transcript') {
 			const textOut = readTranscript(msg.name);
@@ -395,5 +534,5 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 		return { senses: snapshot() };
 	}
 
-	return { snapshot, setSettings, heard, calibrate, noteSpeaking, tick, handleHttp, handleWs, startNotes, stopNotes, presence: () => presence };
+	return { snapshot, setSettings, heard, calibrate, noteSpeaking, tick, handleHttp, handleWs, startNotes, stopNotes, noteManual, startReport, presence: () => presence };
 }
