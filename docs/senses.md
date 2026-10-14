@@ -48,10 +48,16 @@ wall's usual task list, if they add something to it.
 
 ## Install (on the display)
 
+As `das` (not with `sudo`: the script asks for it only to install the
+service):
+
 ```sh
-cd /home/das/projects/smart-display
-scripts/senses/install.sh --apply-systemd
+/home/das/projects/smart-display/scripts/senses/install.sh --apply-systemd
 ```
+
+The service file is filled in with the user, home and user id that ran the
+script, so it also works for a user other than `das`. After that,
+`scripts/deploy.sh` restarts it with each deploy.
 
 That makes a venv at `~/venvs/senses` on the newest Python that
 faster-whisper supports (3.12 on das-server), installs OpenCV 4,
@@ -62,7 +68,8 @@ starts the service. Options:
 - `--models tiny.en,small.en` also fetches other Whisper sizes, so the phone
   can switch to them. `tiny.en` is quickest, `small.en` most accurate.
 - `--wake-word` also installs openWakeWord, for the lighter wake-word mode
-  below. Its pre-trained wake words are CC BY-NC-SA: fine for a wall at
+  below. It is installed without its `tflite-runtime` dependency, which has
+  no Python 3.12 build; the wall only uses its ONNX models. Its pre-trained wake words are CC BY-NC-SA: fine for a wall at
   home.
 
 `python -m wall_senses --list` (from `senses/`, with the venv's python)

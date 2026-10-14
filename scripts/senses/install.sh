@@ -41,6 +41,14 @@ run() {
 	[[ "$DRY" == 1 ]] || "$@"
 }
 
+# run it as the wall's own user (das), not with sudo: the venv, the models and
+# the service all live under that user's home, and it asks for sudo itself
+if [[ "$(id -u)" == 0 && "${SENSES_ALLOW_ROOT:-0}" != 1 ]]; then
+	echo "run this as the wall's user, not root:  $0 $*" >&2
+	echo "(it uses sudo by itself for --apply-systemd)" >&2
+	exit 1
+fi
+
 # faster-whisper's CTranslate2 and onnxruntime lag new Pythons: take the
 # newest one they support (the display's own python3 is newer than that)
 PY=""
@@ -58,7 +66,10 @@ fi
 run "$VENV/bin/pip" install --upgrade pip
 run "$VENV/bin/pip" install "numpy>=1.24" "opencv-python-headless>=4.8,<5" "faster-whisper>=1.0,<2"
 if [[ "$WAKE" == 1 ]]; then
-	run "$VENV/bin/pip" install "openwakeword>=0.6,<0.7"
+	# without its tflite-runtime dependency, which has no wheel for Python 3.12;
+	# the wall only uses openWakeWord's ONNX models
+	run "$VENV/bin/pip" install --no-deps "openwakeword>=0.6,<0.7"
+	run "$VENV/bin/pip" install "scipy>=1.3,<2" "scikit-learn>=1,<2" "requests>=2,<3" tqdm
 	# its pre-trained wake words are CC BY-NC-SA: fine for a home wall, not for selling one
 	run "$VENV/bin/python" -c "import openwakeword.utils as u; u.download_models()"
 fi
@@ -84,8 +95,17 @@ echo "check:"
 [[ "$DRY" == 1 ]] || (cd "$ROOT/senses" && "$VENV/bin/python" -m wall_senses --check && "$VENV/bin/python" -m wall_senses --list) || true
 
 if [[ "$APPLY" == 1 ]]; then
-	UNIT="$ROOT/smart-display-senses.service"
+	# the unit in the repo is written for das; fill in this user, home and paths
+	UNIT="$(mktemp)"
+	sed -e "s#/home/das/venvs/senses#$VENV#g" \
+		-e "s#/home/das/projects/smart-display#$ROOT#g" \
+		-e "s#/home/das/.cache/wall-senses#$CACHE#g" \
+		-e "s#/home/das/.cache#$HOME/.cache#g" \
+		-e "s#^User=das#User=$(id -un)#" \
+		-e "s#/run/user/1000#/run/user/$(id -u)#g" \
+		"$ROOT/smart-display-senses.service" >"$UNIT"
 	run sudo install -m 0644 "$UNIT" /etc/systemd/system/smart-display-senses.service
+	rm -f "$UNIT"
 	run sudo systemctl daemon-reload
 	run sudo systemctl enable --now smart-display-senses
 	run sudo systemctl restart smart-display-senses
