@@ -273,6 +273,29 @@
 				phrase is also levelled before it's read, so a quiet voice comes through as clearly as a close one.
 			</p>
 			<label class="row">
+				<span>Hear me from</span>
+				<select value={s.settings.hearFrom} onchange={(e) => patch({ hearFrom: e.currentTarget.value })}>
+					<option value="room">Across the room</option>
+					<option value="near">Close by</option>
+				</select>
+			</label>
+			<label class="row">
+				<span>Noise suppression</span>
+				<select value={s.settings.noiseSuppress} onchange={(e) => patch({ noiseSuppress: e.currentTarget.value })}>
+					<option value="off">Off</option>
+					<option value="light">Light</option>
+					<option value="strong">Strong</option>
+				</select>
+			</label>
+			<label class="row">
+				<span>Voice boost</span>
+				<input type="checkbox" checked={s.settings.voiceBoost} onchange={(e) => patch({ voiceBoost: e.currentTarget.checked })} />
+			</label>
+			<p class="note">
+				Noise suppression learns the room's steady sounds (a fan, a hum, hiss) while nobody talks and takes them out of what it hears. Voice
+				boost cuts low rumble and brings the speech band forward. For talking from across the room, also pick Whisper small.en below.
+			</p>
+			<label class="row">
 				<span>Show what it heard</span>
 				<input type="checkbox" checked={s.settings.captions} onchange={(e) => patch({ captions: e.currentTarget.checked })} />
 			</label>

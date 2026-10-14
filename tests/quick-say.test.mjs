@@ -177,3 +177,13 @@ test('a question back is answered by the next sentence', async () => {
 	assert.match((await say('take out the bins at 6pm')).say, /^Added a chore: Take out the bins/);
 	assert.match((await say('in two minutes')).say, /what to add/, 'the old question was dropped');
 });
+
+test('timer: "it\'s a timer" (how dictation from across the room hears "set a timer") still sets one', () => {
+	const now = Date.parse('2026-10-14T15:00:00Z');
+	for (const t of ["it's a timer for 10 minutes", 'its a timer for 10 minutes']) {
+		const p = parseQuick(t, now);
+		assert.equal(p.timer?.ms, 600000, t);
+		assert.equal(p.timer?.label, '', t);
+	}
+	assert.equal(parseQuick("it's raining, take the bins in", now).task?.kind, 'chore');
+});

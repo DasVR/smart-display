@@ -92,7 +92,8 @@ const TIMER_UNIT = '(hours?|hrs?|minutes?|mins?|seconds?|secs?)';
 export function parseTimer(text, now = Date.now()) {
 	const s = spelledNumbers(cleanSpeech(text));
 	if (/^(?:remind|alert|ping|add|chore|to-?do|i need|i have|i've|i gotta|cancel|stop|clear|how long|how much)/i.test(s)) return null;
-	if (!/^(?:(?:set|start|begin|make|run)\s+)?(?:(?:a|an|the|my)\s+)?(?:[\w.-]+\s+){0,4}timer\b/i.test(s)) return null;
+	// "it's"/"its": how dictation from across the room often hears "set"
+	if (!/^(?:(?:set|start|begin|make|run|it's|its)\s+)?(?:(?:a|an|the|my)\s+)?(?:[\w.'-]+\s+){0,4}timer\b/i.test(s)) return null;
 	// "1 hour and 5 minutes" adds up
 	const parts = [...s.matchAll(new RegExp(`(\\d+(?:\\.\\d+)?|an?|half an)[ -]?${TIMER_UNIT}\\b`, 'gi'))];
 	if (!parts.length) return { error: 'How long should the timer be?', code: 'no-duration' };
@@ -109,6 +110,7 @@ export function parseTimer(text, now = Date.now()) {
 
 	// what's left over is the label: "pasta", "laundry"
 	const label = rest
+		.replace(/(?:^|\s)(?:it's|its)(?=\s)/gi, ' ')
 		.replace(/\b(?:set|start|begin|make|run|a|an|the|my|timer|for|of|called|named|to|and)\b/gi, ' ')
 		.replace(/\s+/g, ' ')
 		.trim();
