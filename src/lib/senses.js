@@ -17,6 +17,12 @@ export const DEFAULT_SENSES = {
 	look: 'body',
 	// how much the microphone is turned up in software (1 to 10), for a webcam across the room
 	micGain: 3,
+	// 'room': a voice barely above the room's noise counts as talking; 'near': it must be clearly louder
+	hearFrom: 'room',
+	// take the room's steady noise (fan, hum, hiss) out of each phrase: 'off' | 'light' | 'strong'
+	noiseSuppress: 'light',
+	// cut rumble under 90 Hz and lift the 1 to 4 kHz speech band
+	voiceBoost: true,
 	// remembered spots: { name, sig: [cx, cy, w, h] in 0..1 picture coords }
 	zones: [],
 	// a sheet of paper on the floor: its corners (0..1), the map to metres it gives,
@@ -103,6 +109,9 @@ export function normalizeSensesSettings(patch = {}, base = DEFAULT_SENSES) {
 		cameraDevice: text(pick('cameraDevice'), 200),
 		look: LOOKS.includes(pick('look')) ? pick('look') : DEFAULT_SENSES.look,
 		micGain: num(pick('micGain'), 1, 10, DEFAULT_SENSES.micGain),
+		hearFrom: pick('hearFrom') === 'near' ? 'near' : 'room',
+		noiseSuppress: ['off', 'light', 'strong'].includes(pick('noiseSuppress')) ? pick('noiseSuppress') : DEFAULT_SENSES.noiseSuppress,
+		voiceBoost: pick('voiceBoost') !== false,
 		zones: cleanZones(pick('zones')),
 		floorQuad: okMap && okQuad ? floorQuad : null,
 		floorMap: okMap && okQuad ? floorMap : null,

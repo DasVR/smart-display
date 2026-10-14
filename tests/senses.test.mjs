@@ -362,3 +362,10 @@ test('presence: spot and posture come through; with no metres, being in the room
 	assert.equal(normalizeSensesSettings({ micGain: 50 }).micGain, 10);
 	assert.equal(normalizeSensesSettings({}).look, 'body');
 });
+
+test('microphone settings for across the room', () => {
+	const d = normalizeSensesSettings({});
+	assert.deepEqual([d.hearFrom, d.noiseSuppress, d.voiceBoost], ['room', 'light', true]);
+	const t = normalizeSensesSettings({ hearFrom: 'near', noiseSuppress: 'loud', voiceBoost: false });
+	assert.deepEqual([t.hearFrom, t.noiseSuppress, t.voiceBoost], ['near', 'light', false]);
+});

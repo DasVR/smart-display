@@ -165,31 +165,67 @@ facing the wall, tap **Measure**. Expect about ±10% after that.
 
 ## The microphone from across the room
 
+In the order a sound goes through them:
+
 - **Turn up** (1× to 10×, default 3×) raises the webcam microphone in
-  software before anything else hears it, with a soft limiter so a door
-  slam doesn't crackle. Turn it up until the meter moves well when you
-  talk at normal volume from where you usually are.
-- When it starts, it sets the webcam microphone's own volume to 100% in
-  PipeWire (webcams often come up at half).
-- Every phrase is **levelled** before Whisper reads it, so a faint voice
-  comes through as clearly as a close one.
-- Whisper is told what talking to the wall sounds like ("Hey wall, what
+  software, with a soft limiter so a door slam doesn't crackle. Turn it up
+  until the meter moves well when you talk at normal volume from where you
+  usually are. When listening starts, the webcam microphone's own volume
+  is also set to 100% in PipeWire (webcams often come up at half).
+- **Hear me from: across the room** (default) counts a voice as talking
+  once it rises 1.6× above the room's noise; **close by** wants 3×. From
+  across a room with a fan going, a voice is often only about twice the
+  noise: at 3× it was never heard at all in testing.
+- **Noise suppression** (Off, Light (default), Strong). While nobody talks,
+  it learns the room's steady sounds at each pitch (a fan, a hum, hiss,
+  even music that keeps playing) and takes them out of each phrase before
+  Whisper reads it, with the Wiener filter phones and hearing aids use, so
+  it doesn't warble. It follows the room as it changes.
+- **Voice boost** (on) cuts rumble under 90 Hz and lifts the 1 to 4 kHz
+  band, where consonants live and which distance dulls first.
+- **Levelling:** every phrase is brought to full level before Whisper, so
+  a faint voice comes through as clearly as a close one.
+- **Whisper is told what talking to the wall sounds like** ("Hey wall, what
   time is it? Hey wall, pause the music."), so it expects "hey wall" and
-  hears it when faint. In testing, a sentence played at a twentieth of its
-  volume with room hiss went from "Wow, that's a fiber for 10 minutes" to
-  "Hey wall, set a timer for 10 minutes." Silero's voice filter keeps it
-  from inventing those examples out of silence or hiss.
+  hears it when faint. Silero's voice filter keeps it from inventing those
+  examples out of silence or hiss.
+- **Whisper small.en** understands noisy, distant speech much better than
+  base.en. The install script fetches both; pick small.en on the phone.
+
+In testing, "Hey wall, set a timer for ten minutes" at a twentieth of its
+volume under fan noise, hum and hiss louder than the voice: base.en alone
+heard "Hey wall, ten times or ten baby"; small.en with noise suppression,
+"Hey wall, it's a timer for 10 minutes", which the wall reads as a timer.
+Pure noise, cleaned, gives nothing.
+
+### Cleaner still: PipeWire's WebRTC processing (optional)
+
+```sh
+/home/das/projects/smart-display/scripts/senses/clean-mic.sh          # as das
+/home/das/projects/smart-display/scripts/senses/clean-mic.sh --undo   # to take it away
+```
+
+This adds a new input, **Wall mic (cleaned)** (`wall_mic`), made by
+PipeWire's echo-cancel module with WebRTC's processing, the same as video
+calls: noise suppression, automatic gain, a high-pass filter and, on
+PipeWire 1.0 or later, **echo cancellation of whatever the speakers play**,
+so the wall can hear "hey wall" over its own music and voice. The senses
+service listens to it by itself when it's there. The speakers and other
+apps are left alone; PipeWire restarts, so music stops for a second. The
+config (`~/.config/pipewire/pipewire.conf.d/60-wall-mic.conf`) is marked
+`nofail`, so a problem with it can't take PipeWire's sound down. Tested on
+PipeWire 1.0.5: the cleaned input appears, and `--undo` removes it.
 
 ## Under the hood
 
 | Piece | Where |
 | --- | --- |
-| the webcam process | `senses/wall_senses/` (`hearing.py`, `seeing.py`, `bodies.py`, `room.py`, `vad.py`, `wake.py`, `distance.py`) |
+| the webcam process | `senses/wall_senses/` (`hearing.py`, `denoise.py`, `seeing.py`, `bodies.py`, `room.py`, `vad.py`, `wake.py`, `distance.py`) |
 | its tests (no camera or mic) | `senses/tests/`, run in CI: `cd senses && python3 -m unittest discover -s tests` |
 | the server side | `src/lib/server/sensesHub.js`, `src/lib/senses.js`, `tests/senses.test.mjs` |
 | the phone page | `src/routes/remote/senses/+page.svelte` |
 | the wall | `{type:'presence'}`, `{type:'heard'}`, `{type:'listening'}` and `{type:'transcript'}` over `/ws`; `NotesMark.svelte` |
-| install and service | `scripts/senses/install.sh`, `smart-display-senses.service` |
+| install and service | `scripts/senses/install.sh`, `scripts/senses/clean-mic.sh`, `smart-display-senses.service` |
 
 HTTP, for the process (from this machine only):
 

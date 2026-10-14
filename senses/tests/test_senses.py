@@ -263,6 +263,10 @@ class Routing(unittest.TestCase):
         self.assertEqual(choose_source(lines, "pci-0000"), "alsa_input.pci-0000_00_1f.3.analog-stereo")
         self.assertEqual(choose_source(lines[:2]), "@DEFAULT_SOURCE@")
         self.assertEqual(choose_source([]), "@DEFAULT_SOURCE@")
+        # the cleaned microphone wins, unless one is named in settings
+        cleaned = lines + ["9\twall_mic\tPipeWire\tfloat32le 1ch 48000Hz\tRUNNING"]
+        self.assertEqual(choose_source(cleaned), "wall_mic")
+        self.assertEqual(choose_source(cleaned, "pci-0000"), "alsa_input.pci-0000_00_1f.3.analog-stereo")
 
 
 if __name__ == "__main__":

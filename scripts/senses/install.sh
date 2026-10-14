@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The wall's senses: install the webcam process on the display (das-server).
 #
-#   scripts/senses/install.sh                      venv, OpenCV, faster-whisper, YOLOX, YuNet, base.en
+#   scripts/senses/install.sh                      venv, OpenCV, faster-whisper, YOLOX, YuNet, base.en + small.en
 #   scripts/senses/install.sh --models tiny.en,small.en   also fetch these Whisper models
 #   scripts/senses/install.sh --wake-word          also openWakeWord and its models
 #   scripts/senses/install.sh --apply-systemd      install and start smart-display-senses.service
@@ -14,7 +14,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VENV="${SENSES_VENV:-$HOME/venvs/senses}"
 CACHE="${WALL_SENSES_MODELS:-$HOME/.cache/wall-senses}"
-MODELS="base.en"
+MODELS="base.en,small.en"
 WAKE=0
 APPLY=0
 DRY=0
@@ -23,8 +23,8 @@ YOLOX_URL="https://media.githubusercontent.com/media/opencv/opencv_zoo/main/mode
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--models) MODELS="base.en,$2"; shift ;;
-		--models=*) MODELS="base.en,${1#*=}" ;;
+		--models) MODELS="base.en,small.en,$2"; shift ;;
+		--models=*) MODELS="base.en,small.en,${1#*=}" ;;
 		--wake-word) WAKE=1 ;;
 		--apply-systemd) APPLY=1 ;;
 		--dry-run) DRY=1 ;;

@@ -53,6 +53,9 @@ def choose_source(pactl_lines, wanted=""):
         for n in names:
             if wanted.lower() in n.lower():
                 return n
+    # the cleaned webcam microphone (scripts/senses/clean-mic.sh), when it's there
+    if "wall_mic" in names:
+        return "wall_mic"
     for n in names:
         if WEBCAM_HINT.search(n):
             return n
@@ -98,6 +101,12 @@ class Ears:
         self.model_name = "base.en"
         self.language = "en"
         self.gain = 3.0
+        self.noise = "light"  # noise suppression: off | light | strong
+        self.boost = True  # voice boost: cut rumble, lift the speech band
+        # how far above the room's noise a voice must rise to count as talking:
+        # across the room a voice is barely above a fan (tested: about 2x)
+        self.ratio = 1.6
+        self.profile = None  # the room's noise (denoise.NoiseProfile), learned while nobody talks
         self.notes = False
         self.hush_until = 0.0
         self.await_until = 0.0
@@ -128,6 +137,9 @@ class Ears:
             self.gain = max(1.0, min(10.0, float(s.get("micGain") or 3)))
         except (TypeError, ValueError):
             self.gain = 3.0
+        self.noise = s.get("noiseSuppress") if s.get("noiseSuppress") in ("off", "light", "strong") else "light"
+        self.boost = s.get("voiceBoost", True) is not False
+        self.ratio = 3.0 if s.get("hearFrom") == "near" else 1.6
         return restart
 
     def hush(self, seconds):
@@ -214,6 +226,7 @@ class Ears:
         gate = SpeechGate()
         pre = deque(maxlen=gate.pre_roll or 1)
         piece = []
+        quiet = []
         oww_buf = b""
         while not self._stop.is_set():
             self._proc = self._open()
@@ -240,6 +253,7 @@ class Ears:
                     if len(oww_buf) >= 2560:  # 80 ms, what openWakeWord wants
                         self._feed_wake(oww_buf)
                         oww_buf = b""
+                gate.ratio = self.ratio
                 event = gate.push(level)
                 if event == "start":
                     piece = list(pre) + [frame]
@@ -252,6 +266,11 @@ class Ears:
                     piece = []
                 else:
                     pre.append(frame)
+                    # nobody talking: this is what the room sounds like, so learn it
+                    quiet.append(frame)
+                    if len(quiet) >= 33:
+                        self._learn_room(b"".join(quiet))
+                        quiet = []
             if self._proc:
                 self._proc.terminate()
                 self._proc = None
@@ -276,6 +295,18 @@ class Ears:
                 self.log(f"ears: openWakeWord unavailable ({e}); falling back to the phrase")
             self.error = "no-openwakeword"
             self.wake_mode = "phrase"
+
+    def _learn_room(self, quiet_bytes):
+        try:
+            import numpy as np  # noqa: PLC0415
+
+            from .denoise import NoiseProfile  # noqa: PLC0415
+
+            if self.profile is None:
+                self.profile = NoiseProfile()
+            self.profile.learn(np.frombuffer(quiet_bytes, dtype=np.int16).astype(np.float32) / 32768.0)
+        except Exception:  # noqa: BLE001  the room's noise is a nicety, never a reason to stop listening
+            pass
 
     def _offer(self, audio):
         # openWakeWord mode: only transcribe what follows the wake word (or notes)
@@ -319,6 +350,10 @@ class Ears:
         import numpy as np  # noqa: PLC0415
 
         audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        # take the room's noise out and bring the voice forward (denoise.py)
+        from .denoise import clean  # noqa: PLC0415
+
+        audio = clean(audio, self.profile, self.noise, self.boost)
         # level each piece before Whisper: a quiet voice from across the room
         # comes out as loud as one up close (at most 20x more, so hiss stays hiss)
         peak = float(np.abs(audio).max()) if audio.size else 0.0
