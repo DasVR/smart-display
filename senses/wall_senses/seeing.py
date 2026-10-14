@@ -13,7 +13,7 @@ import os
 import threading
 import time
 
-from .distance import FACE_WIDTH_M, Smoother, focal_from_fov, summarize
+from .distance import FACE_WIDTH_M, Tracker, focal_from_fov
 
 DETECT_WIDTH = 320
 DETECT_HEIGHT = 240
@@ -34,7 +34,7 @@ class Eyes:
         self.face_width_m = FACE_WIDTH_M
         self.state = {"ok": False, "count": 0, "distance": None, "x": None, "motion": 0.0, "detector": None}
         self.recent_widths = []
-        self._smooth = Smoother()
+        self._track = Tracker()
         self._stop = threading.Event()
         self._thread = None
         self._lock = threading.Lock()
@@ -86,7 +86,7 @@ class Eyes:
     def _detector(self, cv2):
         path = os.path.join(model_dir(), YUNET_NAME)
         if os.path.exists(path) and hasattr(cv2, "FaceDetectorYN"):
-            yunet = cv2.FaceDetectorYN.create(path, "", (DETECT_WIDTH, DETECT_HEIGHT), 0.7, 0.3, 20)
+            yunet = cv2.FaceDetectorYN.create(path, "", (DETECT_WIDTH, DETECT_HEIGHT), 0.6, 0.3, 20)
 
             def find(small, gray):
                 _, faces = yunet.detect(small)
@@ -152,18 +152,17 @@ class Eyes:
 
     def _update(self, name, faces, motion):
         focal = self.focal_px or focal_from_fov(DETECT_WIDTH, self.hfov)
-        seen = summarize(faces, DETECT_WIDTH, focal, self.face_width_m)
-        dist = self._smooth.push(seen["distance"]) if seen["count"] else None
-        if not seen["count"]:
-            self._smooth.reset()
+        seen = self._track.update(faces, DETECT_WIDTH, focal, time.monotonic(), self.face_width_m)
         with self._lock:
-            if seen["faceWidth"]:
-                self.recent_widths = (self.recent_widths + [seen["faceWidth"]])[-60:]
+            # every face seen counts for calibrating, steady or not
+            for f in faces:
+                if f and f[2] >= 14:
+                    self.recent_widths = (self.recent_widths + [f[2]])[-60:]
             self.state = {
                 "ok": True,
                 "detector": name,
                 "count": seen["count"],
-                "distance": round(dist, 2) if dist else None,
+                "distance": seen["distance"],
                 "x": seen["x"],
                 "motion": round(motion, 3),
                 "calibrated": bool(self.focal_px),

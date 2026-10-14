@@ -119,7 +119,7 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 	/* ---------- presence ---------- */
 
 	function updatePresence() {
-		const next = presenceFrom(camera, settings, online() && settings.camera);
+		const next = presenceFrom(camera, settings, online() && settings.camera, presence.near);
 		if (!presenceChanged(presence, next)) return;
 		const wasNear = presence.near;
 		presence = next;

@@ -103,3 +103,67 @@ def summarize(faces, frame_width_px, focal_px, face_width_m=FACE_WIDTH_M):
         "x": round(max(-1.0, min(1.0, 1.0 - 2.0 * centre)), 3),
         "faceWidth": w,
     }
+
+
+class Tracker:
+    """Keeps hold of one person from frame to frame, so the wall doesn't flicker.
+
+    A face detector misses now and then (a turned head, a blink of bad light),
+    and with two people it may find either first. So:
+      - someone counts as there only after `appear` frames in a row with a face,
+        and as gone only after `hold` seconds without one (the last numbers are
+        kept meanwhile);
+      - the face followed is the one nearest where the last one was;
+      - distance and side are both smoothed.
+    """
+
+    def __init__(self, appear=2, hold=1.5, ease_x=0.3):
+        self.appear = appear
+        self.hold = hold
+        self.ease_x = ease_x
+        self.dist = Smoother(window=7, ease=0.3)
+        self.reset()
+
+    def reset(self):
+        self.seen_run = 0
+        self.present = False
+        self.last_seen = None
+        self.centre = None
+        self.x = None
+        self.count = 0
+        self.dist.reset()
+
+    def _pick(self, boxes):
+        if self.centre is None or len(boxes) == 1:
+            return max(boxes, key=lambda b: b[2])
+        cx, cy = self.centre
+        return min(boxes, key=lambda b: (b[0] + b[2] / 2 - cx) ** 2 + (b[1] + b[3] / 2 - cy) ** 2)
+
+    def update(self, faces, frame_width_px, focal_px, now, face_width_m=FACE_WIDTH_M, min_width_px=14):
+        boxes = [f for f in faces if f and f[2] >= min_width_px]
+        if boxes:
+            self.seen_run += 1
+            self.last_seen = now
+            box = self._pick(boxes)
+            x, y, w, h = box[:4]
+            self.centre = (x + w / 2.0, y + h / 2.0)
+            side = max(-1.0, min(1.0, 1.0 - 2.0 * (x + w / 2.0) / frame_width_px))
+            self.x = side if self.x is None else self.x + (side - self.x) * self.ease_x
+            self.dist.push(distance_m(w, focal_px, face_width_m))
+            if self.seen_run >= self.appear:
+                self.present = True
+            if self.present:
+                self.count = len(boxes)
+        else:
+            self.seen_run = 0
+            if not self.present:
+                self.reset()  # a one-frame blip that never became someone
+            elif self.last_seen is not None and now - self.last_seen > self.hold:
+                self.reset()
+        if not self.present:
+            return {"count": 0, "distance": None, "x": None}
+        return {
+            "count": max(1, self.count),
+            "distance": round(self.dist.value, 2) if self.dist.value else None,
+            "x": round(self.x, 3) if self.x is not None else None,
+        }

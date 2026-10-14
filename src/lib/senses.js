@@ -92,8 +92,15 @@ export function notesCommand(said) {
 	return null;
 }
 
-/** The wall's view of the room from one camera report: numbers only. */
-export function presenceFrom(camera, settings = DEFAULT_SENSES, online = true) {
+/** How far past the "at the wall" distance you must step back before you count as gone. */
+export const NEAR_MARGIN_M = 0.3;
+
+/**
+ * The wall's view of the room from one camera report: numbers only. `wasNear`
+ * gives the line a margin, so standing right on it doesn't flick the screen
+ * on and off.
+ */
+export function presenceFrom(camera, settings = DEFAULT_SENSES, online = true, wasNear = false) {
 	const c = camera && typeof camera === 'object' ? camera : {};
 	const ok = Boolean(online && c.ok);
 	const count = ok ? Math.max(0, Math.min(20, Math.round(Number(c.count) || 0))) : 0;
@@ -106,7 +113,7 @@ export function presenceFrom(camera, settings = DEFAULT_SENSES, online = true) {
 		distance,
 		x,
 		motion,
-		near: distance != null && distance <= settings.nearMeters,
+		near: distance != null && (distance <= settings.nearMeters || (wasNear && distance <= settings.nearMeters + NEAR_MARGIN_M)),
 		calibrated: Boolean(c.calibrated)
 	};
 }

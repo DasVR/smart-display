@@ -299,3 +299,11 @@ test('the process going away clears presence', async () => {
 	assert.equal(h.presence().count, 0);
 	assert.equal(h.snapshot().online, false);
 });
+
+test('presence: a margin past the line, so standing on it does not flicker', () => {
+	const at = (d, wasNear) => presenceFrom({ ok: true, count: 1, distance: d }, DEFAULT_SENSES, true, wasNear).near;
+	assert.equal(at(1.6, false), false, 'not yet near');
+	assert.equal(at(1.4, false), true);
+	assert.equal(at(1.6, true), true, 'still near just past the line');
+	assert.equal(at(1.9, true), false, 'gone once well past it');
+});

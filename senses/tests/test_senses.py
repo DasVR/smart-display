@@ -7,7 +7,7 @@ import math
 import struct
 import unittest
 
-from wall_senses.distance import Smoother, calibrate_focal, distance_m, focal_from_fov, scale_focal, summarize
+from wall_senses.distance import Smoother, Tracker, calibrate_focal, distance_m, focal_from_fov, scale_focal, summarize
 from wall_senses.hearing import choose_source, route
 from wall_senses.vad import FRAME_MS, FRAME_SAMPLES, SpeechGate, rms
 from wall_senses.wake import is_noise, match_wake
@@ -60,6 +60,46 @@ class Distance(unittest.TestCase):
         for v in (2.0, 2.0, 2.0, 9.0, 2.0):
             out = s.push(v)
         self.assertEqual(out, 2.0)
+
+
+class Tracking(unittest.TestCase):
+    F = 274.0  # focal px at 320 wide
+
+    def test_one_missed_frame_does_not_drop_you(self):
+        t = Tracker()
+        face = [(140, 80, 40, 40)]
+        out = [t.update(face, 320, self.F, i * 0.2) for i in range(5)]
+        self.assertEqual(out[-1]["count"], 1)
+        gap = t.update([], 320, self.F, 1.2)
+        self.assertEqual(gap["count"], 1)
+        self.assertAlmostEqual(gap["distance"], out[-1]["distance"])
+
+    def test_gone_after_the_hold(self):
+        t = Tracker(hold=1.5)
+        for i in range(5):
+            t.update([(140, 80, 40, 40)], 320, self.F, i * 0.2)
+        self.assertEqual(t.update([], 320, self.F, 3.0)["count"], 0)
+
+    def test_a_single_blip_is_not_someone(self):
+        t = Tracker()
+        self.assertEqual(t.update([(140, 80, 40, 40)], 320, self.F, 0)["count"], 0)
+        self.assertEqual(t.update([], 320, self.F, 0.2)["count"], 0)
+        self.assertEqual(t.update([(140, 80, 40, 40)], 320, self.F, 0.4)["count"], 0)
+
+    def test_follows_the_same_person(self):
+        t = Tracker()
+        for i in range(4):
+            t.update([(40, 80, 40, 40)], 320, self.F, i * 0.2)
+        # someone bigger appears on the other side; we stay with the first
+        out = t.update([(40, 80, 40, 40), (230, 70, 60, 60)], 320, self.F, 1.0)
+        self.assertEqual(out["count"], 2)
+        self.assertGreater(out["x"], 0.3)
+
+    def test_tiny_faces_are_ignored(self):
+        t = Tracker()
+        for i in range(4):
+            out = t.update([(10, 10, 8, 8)], 320, self.F, i * 0.2)
+        self.assertEqual(out["count"], 0)
 
 
 def frame(level):
