@@ -329,11 +329,18 @@ const demoVoice = {
 /* the phone's Senses page: a pretend webcam process with someone standing a
    little left of the wall, so every part of the page has something to show */
 let demoSenses = {
-	settings: normalizeSensesSettings({ mic: true, camera: true }),
+	settings: normalizeSensesSettings({
+		mic: true,
+		camera: true,
+		zones: [
+			{ name: 'desk', sig: [0.66, 0.5, 0.18, 0.42] },
+			{ name: 'bed', sig: [0.24, 0.66, 0.38, 0.2] }
+		]
+	}),
 	online: true,
-	camera: { ok: true, detector: 'yunet' },
+	camera: { ok: true, look: 'body', detector: 'yolox', boxes: [[0.57, 0.29, 0.18, 0.42]] },
 	mic: { ok: true, device: 'alsa_input.usb-Webcam_C920.analog-stereo', level: 0.004, state: 'idle' },
-	presence: { camera: true, count: 1, distance: 1.4, x: -0.35, motion: 0.01, near: true, calibrated: false },
+	presence: { camera: true, count: 1, distance: null, x: -0.32, zone: 'desk', posture: 'upright', motion: 0.01, near: true, calibrated: false },
 	calibrating: false,
 	calibrated: null,
 	notes: { on: false, startedAt: null, count: 0, lines: [] }
@@ -348,7 +355,12 @@ function demoSensesOp(msg) {
 	if (op === 'notes-stop') s.notes = { ...s.notes, on: false };
 	if (op === 'transcripts') return { transcripts: [DEMO_TRANSCRIPT] };
 	if (op === 'transcript') return { transcript: { name: DEMO_TRANSCRIPT, text: 'Notes from the wall\n\n[9:30 AM] Paint the hall a lighter blue.\n[9:31 AM] Ask about the gutters before Friday.\n' } };
-	if (op === 'calibrate') return { senses: { ...s }, result: { ok: false, error: 'camera-off', op } };
+	if (op === 'calibrate' || op === 'find-paper') return { senses: { ...s }, result: { ok: false, error: 'camera-off', op } };
+	if (op === 'remember' && String(msg.name || '').trim()) {
+		s.settings = normalizeSensesSettings({ zones: [...s.settings.zones, { name: String(msg.name).trim(), sig: [0.57, 0.5, 0.18, 0.42] }] }, s.settings);
+		s.presence = { ...s.presence, zone: String(msg.name).trim() };
+	}
+	if (op === 'forget-zone') s.settings = normalizeSensesSettings({ zones: s.settings.zones.filter((z) => z.name !== msg.name) }, s.settings);
 	s.mic = { ...s.mic, level: 0.002 + Math.random() * 0.01 };
 	return { senses: { ...s }, ...(op === 'notes-stop' ? { result: { ok: true, op, saved: DEMO_TRANSCRIPT } } : {}) };
 }

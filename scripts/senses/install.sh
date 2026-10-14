@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The wall's senses: install the webcam process on the display (das-server).
 #
-#   scripts/senses/install.sh                      venv, OpenCV, faster-whisper, YuNet, base.en
+#   scripts/senses/install.sh                      venv, OpenCV, faster-whisper, YOLOX, YuNet, base.en
 #   scripts/senses/install.sh --models tiny.en,small.en   also fetch these Whisper models
 #   scripts/senses/install.sh --wake-word          also openWakeWord and its models
 #   scripts/senses/install.sh --apply-systemd      install and start smart-display-senses.service
@@ -19,6 +19,7 @@ WAKE=0
 APPLY=0
 DRY=0
 YUNET_URL="https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+YOLOX_URL="https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/object_detection_yolox/object_detection_yolox_2022nov.onnx"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -78,6 +79,10 @@ run mkdir -p "$CACHE" "$HOME/.cache/huggingface"
 if [[ ! -s "$CACHE/face_detection_yunet_2023mar.onnx" ]]; then
 	# OpenCV Zoo, MIT licence: finds faces, knows nobody
 	run curl -fsSL "$YUNET_URL" -o "$CACHE/face_detection_yunet_2023mar.onnx"
+fi
+if [[ ! -s "$CACHE/object_detection_yolox_2022nov.onnx" ]]; then
+	# OpenCV Zoo's YOLOX-S, Apache 2.0: whole people in any pose (36 MB)
+	run curl -fsSL "$YOLOX_URL" -o "$CACHE/object_detection_yolox_2022nov.onnx"
 fi
 
 IFS=',' read -r -a WANT <<<"$MODELS"

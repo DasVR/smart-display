@@ -31,6 +31,29 @@ def rms(frame_bytes):
     return math.sqrt(total / len(samples)) / 32768.0
 
 
+def apply_gain(frame_bytes, gain, knee=24000):
+    """Turn one frame of 16-bit samples up by `gain`, softly limited.
+
+    A webcam microphone across the room hears a voice faintly; turning it up
+    a lot would clip anything loud (a door, a laugh) into harsh noise. Above
+    the knee the extra is squeezed to a quarter, and nothing passes 32767.
+    """
+    if gain == 1:
+        return frame_bytes
+    samples = array("h")
+    samples.frombytes(frame_bytes[: len(frame_bytes) - len(frame_bytes) % 2])
+    for i, s in enumerate(samples):
+        v = s * gain
+        a = -v if v < 0 else v
+        if a > knee:
+            a = knee + (a - knee) * 0.25
+            if a > 32767:
+                a = 32767
+            v = -a if v < 0 else a
+        samples[i] = int(v)
+    return samples.tobytes()
+
+
 class SpeechGate:
     """Feed it one frame's loudness at a time; it says when speech starts and ends.
 
@@ -47,7 +70,7 @@ class SpeechGate:
         hangover_ms=700,
         min_speech_ms=300,
         max_seconds=15.0,
-        pre_roll_ms=300,
+        pre_roll_ms=600,
     ):
         self.ratio = ratio
         self.min_level = min_level

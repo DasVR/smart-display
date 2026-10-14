@@ -21,7 +21,7 @@
  */
 import { mkdirSync, readFileSync, writeFileSync, renameSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { hushMsFor, normalizeSensesSettings, notesCommand, presenceChanged, presenceFrom, transcriptText } from '../senses.js';
+import { MAX_ZONES, hushMsFor, normalizeSensesSettings, notesCommand, presenceChanged, presenceFrom, transcriptText } from '../senses.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const OFFLINE_MS = 5000;
@@ -223,27 +223,65 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 
 	/* ---------- calibrating distance ---------- */
 
-	function calibrate(meters) {
-		const m = Number(meters);
-		if (!Number.isFinite(m) || m < 0.3 || m > 5) return { ok: false, error: 'bad-distance' };
+	/**
+	 * A measurement the webcam process makes for the phone:
+	 *   { kind: 'face', meters }            stand this far away, facing it
+	 *   { kind: 'zone', name }              remember where you are now as a spot
+	 *   { kind: 'paper', paper, wallMeters } find the sheet on the floor and map it
+	 */
+	function calibrate(job = {}) {
+		const kind = ['face', 'zone', 'paper'].includes(job.kind) ? job.kind : 'face';
 		if (!online() || !settings.camera) return { ok: false, error: 'camera-off' };
-		calibration = { id: `cal-${++seq}`, meters: m, at: now() };
+		let detail;
+		if (kind === 'face') {
+			const m = Number(job.meters);
+			if (!Number.isFinite(m) || m < 0.3 || m > 5) return { ok: false, error: 'bad-distance' };
+			detail = { meters: m };
+		} else if (kind === 'zone') {
+			const name = String(job.name || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 24);
+			if (!name) return { ok: false, error: 'no-name' };
+			const known = settings.zones.some((z) => z.name.toLowerCase() === name.toLowerCase());
+			if (!known && settings.zones.length >= MAX_ZONES) return { ok: false, error: 'too-many-zones' };
+			detail = { name };
+		} else {
+			const wall = job.wallMeters === '' || job.wallMeters == null ? null : Number(job.wallMeters);
+			if (wall != null && (!Number.isFinite(wall) || wall < 0 || wall > 10)) return { ok: false, error: 'bad-distance' };
+			detail = { paper: job.paper === 'a4' ? 'a4' : 'letter', wallMeters: wall };
+		}
+		calibration = { id: `cal-${++seq}`, kind, ...detail, at: now() };
 		calibrated = null;
 		tell();
-		return { ok: true, id: calibration.id };
+		return { ok: true, id: calibration.id, kind };
 	}
 
 	function calibrationDone(body) {
 		if (!calibration || body.id !== calibration.id) return;
-		const meters = calibration.meters;
+		const job = calibration;
 		calibration = null;
-		const focal = Number(body.focalPx);
-		if (body.error || !Number.isFinite(focal) || focal <= 0) {
-			calibrated = { ok: false, error: body.error === 'no-face' ? 'no-face' : 'failed', at: now() };
+		const fail = (error) => {
+			calibrated = { ok: false, kind: job.kind, error, at: now() };
 			tell();
+		};
+		if (body.error) return fail(['no-face', 'no-person', 'no-paper'].includes(body.error) ? body.error : 'failed');
+		if (job.kind === 'zone') {
+			const sig = Array.isArray(body.sig) ? body.sig.map(Number) : null;
+			if (!sig || sig.length !== 4 || !sig.every(Number.isFinite)) return fail('no-person');
+			const zones = settings.zones.filter((z) => z.name.toLowerCase() !== job.name.toLowerCase());
+			calibrated = { ok: true, kind: 'zone', name: job.name, at: now() };
+			setSettings({ zones: [...zones, { name: job.name, sig }] });
 			return;
 		}
-		calibrated = { ok: true, meters, samples: Number(body.samples) || 0, at: now() };
+		if (job.kind === 'paper') {
+			// check it first: a bad answer must not wipe a floor that was mapped before
+			const next = normalizeSensesSettings({ floorMap: body.floorMap, floorQuad: body.quad }, settings);
+			if (!next.floorMap) return fail('no-paper');
+			calibrated = { ok: true, kind: 'paper', at: now() };
+			setSettings({ floorMap: next.floorMap, floorQuad: next.floorQuad, paper: job.paper, paperWall: job.wallMeters });
+			return;
+		}
+		const focal = Number(body.focalPx);
+		if (!Number.isFinite(focal) || focal <= 0) return fail('failed');
+		calibrated = { ok: true, kind: 'face', meters: job.meters, samples: Number(body.samples) || 0, at: now() };
 		setSettings({ focalPx: focal, focalWidth: Number(body.focalWidth) || null });
 	}
 
@@ -303,7 +341,7 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 						settings,
 						hushMs: Math.max(0, hushUntil - now()),
 						notes: notes.on,
-						calibrate: calibration ? { id: calibration.id, meters: calibration.meters } : null
+						calibrate: calibration ? (({ at, ...job }) => job)(calibration) : null
 					}),
 					true
 				);
@@ -330,12 +368,20 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 		if (op === 'set' && msg.patch && typeof msg.patch === 'object') {
 			// calibration is measured, not typed; the phone may only clear it
 			const patch = { ...msg.patch };
-			delete patch.focalPx;
-			delete patch.focalWidth;
+			for (const k of ['focalPx', 'focalWidth', 'zones', 'floorMap', 'floorQuad']) delete patch[k];
 			if (msg.patch.focalPx === null) Object.assign(patch, { focalPx: null, focalWidth: null });
+			if (msg.patch.floorMap === null) Object.assign(patch, { floorMap: null, floorQuad: null });
 			return { senses: setSettings(patch) };
 		}
-		if (op === 'calibrate') return { senses: snapshot(), result: { ...calibrate(msg.meters), op } };
+		if (op === 'calibrate') return { senses: snapshot(), result: { ...calibrate({ kind: 'face', meters: msg.meters }), op } };
+		// remember where you are now as a spot ("bed", "desk"), or forget one
+		if (op === 'remember') return { senses: snapshot(), result: { ...calibrate({ kind: 'zone', name: msg.name }), op } };
+		if (op === 'forget-zone') {
+			const name = String(msg.name || '').toLowerCase();
+			return { senses: setSettings({ zones: settings.zones.filter((z) => z.name.toLowerCase() !== name) }), result: { ok: true, op } };
+		}
+		// map the floor from a sheet of paper lying on it
+		if (op === 'find-paper') return { senses: snapshot(), result: { ...calibrate({ kind: 'paper', paper: msg.paper, wallMeters: msg.wallMeters }), op } };
 		if (op === 'notes-start') {
 			if (!settings.mic) return { senses: snapshot(), result: { ok: false, error: 'mic-off', op } };
 			startNotes();

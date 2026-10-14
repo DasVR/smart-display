@@ -129,6 +129,7 @@ class Tracker:
         self.present = False
         self.last_seen = None
         self.centre = None
+        self.box = None
         self.x = None
         self.count = 0
         self.dist.reset()
@@ -139,7 +140,9 @@ class Tracker:
         cx, cy = self.centre
         return min(boxes, key=lambda b: (b[0] + b[2] / 2 - cx) ** 2 + (b[1] + b[3] / 2 - cy) ** 2)
 
-    def update(self, faces, frame_width_px, focal_px, now, face_width_m=FACE_WIDTH_M, min_width_px=14):
+    def update(self, faces, frame_width_px, focal_px, now, face_width_m=FACE_WIDTH_M, min_width_px=14, measure=None):
+        """`measure(box)` gives metres for a box (whole bodies, from the floor map);
+        without it, a box is a face and its width gives the distance."""
         boxes = [f for f in faces if f and f[2] >= min_width_px]
         if boxes:
             self.seen_run += 1
@@ -147,9 +150,10 @@ class Tracker:
             box = self._pick(boxes)
             x, y, w, h = box[:4]
             self.centre = (x + w / 2.0, y + h / 2.0)
+            self.box = tuple(box[:4])
             side = max(-1.0, min(1.0, 1.0 - 2.0 * (x + w / 2.0) / frame_width_px))
             self.x = side if self.x is None else self.x + (side - self.x) * self.ease_x
-            self.dist.push(distance_m(w, focal_px, face_width_m))
+            self.dist.push(measure(box) if measure else distance_m(w, focal_px, face_width_m))
             if self.seen_run >= self.appear:
                 self.present = True
             if self.present:
@@ -161,9 +165,10 @@ class Tracker:
             elif self.last_seen is not None and now - self.last_seen > self.hold:
                 self.reset()
         if not self.present:
-            return {"count": 0, "distance": None, "x": None}
+            return {"count": 0, "distance": None, "x": None, "box": None}
         return {
             "count": max(1, self.count),
             "distance": round(self.dist.value, 2) if self.dist.value else None,
             "x": round(self.x, 3) if self.x is not None else None,
+            "box": self.box,
         }
