@@ -7,9 +7,10 @@ import math
 import struct
 import unittest
 
-from wall_senses.distance import Smoother, calibrate_focal, distance_m, focal_from_fov, scale_focal, summarize
+from wall_senses.distance import Smoother, Tracker, calibrate_focal, distance_m, focal_from_fov, scale_focal, summarize
 from wall_senses.hearing import choose_source, route
-from wall_senses.vad import FRAME_MS, FRAME_SAMPLES, SpeechGate, rms
+from wall_senses.vad import FRAME_MS, FRAME_SAMPLES, SpeechGate, apply_gain, rms
+from wall_senses import room
 from wall_senses.wake import is_noise, match_wake
 
 
@@ -62,6 +63,46 @@ class Distance(unittest.TestCase):
         self.assertEqual(out, 2.0)
 
 
+class Tracking(unittest.TestCase):
+    F = 274.0  # focal px at 320 wide
+
+    def test_one_missed_frame_does_not_drop_you(self):
+        t = Tracker()
+        face = [(140, 80, 40, 40)]
+        out = [t.update(face, 320, self.F, i * 0.2) for i in range(5)]
+        self.assertEqual(out[-1]["count"], 1)
+        gap = t.update([], 320, self.F, 1.2)
+        self.assertEqual(gap["count"], 1)
+        self.assertAlmostEqual(gap["distance"], out[-1]["distance"])
+
+    def test_gone_after_the_hold(self):
+        t = Tracker(hold=1.5)
+        for i in range(5):
+            t.update([(140, 80, 40, 40)], 320, self.F, i * 0.2)
+        self.assertEqual(t.update([], 320, self.F, 3.0)["count"], 0)
+
+    def test_a_single_blip_is_not_someone(self):
+        t = Tracker()
+        self.assertEqual(t.update([(140, 80, 40, 40)], 320, self.F, 0)["count"], 0)
+        self.assertEqual(t.update([], 320, self.F, 0.2)["count"], 0)
+        self.assertEqual(t.update([(140, 80, 40, 40)], 320, self.F, 0.4)["count"], 0)
+
+    def test_follows_the_same_person(self):
+        t = Tracker()
+        for i in range(4):
+            t.update([(40, 80, 40, 40)], 320, self.F, i * 0.2)
+        # someone bigger appears on the other side; we stay with the first
+        out = t.update([(40, 80, 40, 40), (230, 70, 60, 60)], 320, self.F, 1.0)
+        self.assertEqual(out["count"], 2)
+        self.assertGreater(out["x"], 0.3)
+
+    def test_tiny_faces_are_ignored(self):
+        t = Tracker()
+        for i in range(4):
+            out = t.update([(10, 10, 8, 8)], 320, self.F, i * 0.2)
+        self.assertEqual(out["count"], 0)
+
+
 def frame(level):
     """One 30 ms frame of a square wave at roughly this RMS level (0 to 1)."""
     a = int(level * 32767)
@@ -104,6 +145,70 @@ class Gate(unittest.TestCase):
         g = SpeechGate(max_seconds=1.0)
         events = self.run_levels(g, [0.002] * 20 + [0.1] * int(3000 / FRAME_MS))
         self.assertIn("end", events)
+
+
+class Gain(unittest.TestCase):
+    def test_quiet_voice_is_turned_up(self):
+        self.assertAlmostEqual(rms(apply_gain(frame(0.01), 4)), 0.04, places=3)
+
+    def test_loud_sounds_are_limited_not_wrapped(self):
+        out = rms(apply_gain(frame(0.5), 8))
+        self.assertLess(out, 1.0)
+        self.assertGreater(out, 0.73)
+
+    def test_unity_is_untouched(self):
+        f = frame(0.2)
+        self.assertEqual(apply_gain(f, 1), f)
+
+
+class Room(unittest.TestCase):
+    def test_homography_maps_the_paper_corners(self):
+        # a letter sheet seen from above at an angle: the far edge looks shorter
+        quad = [(0.45, 0.60), (0.57, 0.60), (0.60, 0.68), (0.42, 0.68)]
+        h = room.floor_map(quad, "letter")
+        near_mid = room.apply_h(h, 0.51, 0.68)
+        self.assertAlmostEqual(near_mid[0], 0.0, places=6)
+        self.assertAlmostEqual(near_mid[1], 0.0, places=6)
+        far_right = room.apply_h(h, 0.57, 0.60)
+        self.assertAlmostEqual(far_right[0], 0.2794 / 2, places=6)
+        self.assertAlmostEqual(far_right[1], 0.2159, places=6)
+
+    def test_corner_order_does_not_matter(self):
+        quad = [(0.45, 0.60), (0.57, 0.60), (0.60, 0.68), (0.42, 0.68)]
+        a = room.floor_map(quad)
+        b = room.floor_map(list(reversed(quad)))
+        self.assertTrue(all(abs(p - q) < 1e-9 for p, q in zip(a, b)))
+
+    def test_farther_up_the_picture_is_farther_away(self):
+        quad = [(0.45, 0.60), (0.57, 0.60), (0.60, 0.68), (0.42, 0.68)]
+        h = room.floor_map(quad)
+        near = room.floor_position(h, (0.45, 0.5, 0.1, 0.25))   # feet at y 0.75
+        far = room.floor_position(h, (0.45, 0.3, 0.1, 0.25))    # feet at y 0.55
+        self.assertLess(near[1], 0)
+        self.assertGreater(far[1], 0)
+        self.assertGreater(room.distance_from_wall(far, 2.0), room.distance_from_wall(near, 2.0))
+
+    def test_no_wall_distance_no_metres(self):
+        self.assertIsNone(room.distance_from_wall((0, 1), None))
+
+    def test_spots(self):
+        zones = [{"name": "bed", "sig": [0.25, 0.7, 0.4, 0.2]}, {"name": "desk", "sig": [0.75, 0.5, 0.15, 0.4]}]
+        self.assertEqual(room.match_zone([0.27, 0.68, 0.38, 0.22], zones), "bed")
+        self.assertEqual(room.match_zone([0.74, 0.52, 0.16, 0.38], zones), "desk")
+        self.assertIsNone(room.match_zone([0.5, 0.1, 0.1, 0.1], zones))
+        self.assertIsNone(room.match_zone([0.5, 0.5, 0.1, 0.1], []))
+
+    def test_average_signature_ignores_a_stray(self):
+        sigs = [[0.25, 0.7, 0.4, 0.2]] * 6 + [[0.9, 0.1, 0.05, 0.05]]
+        self.assertEqual(room.average_signature(sigs), [0.25, 0.7, 0.4, 0.2])
+        self.assertIsNone(room.average_signature([]))
+
+    def test_posture(self):
+        self.assertEqual(room.posture((0, 0, 0.4, 0.2)), "lying")
+        self.assertEqual(room.posture((0, 0, 0.1, 0.4)), "upright")
+        # square in 0..1 coords is wide in a 4:3 picture
+        self.assertEqual(room.posture((0, 0, 0.42, 0.42), 640 / 480), "lying")
+        self.assertEqual(room.posture((0, 0, 0.42, 0.42), 1.0), "upright")
 
 
 class Wake(unittest.TestCase):

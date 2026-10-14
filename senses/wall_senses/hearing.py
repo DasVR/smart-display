@@ -26,7 +26,7 @@ import threading
 import time
 from collections import deque
 
-from .vad import FRAME_BYTES, FRAME_MS, SAMPLE_RATE, SpeechGate, rms
+from .vad import FRAME_BYTES, FRAME_MS, SAMPLE_RATE, SpeechGate, apply_gain, rms
 from .wake import is_noise, match_wake
 
 HEAD_SECONDS = 3.0
@@ -97,6 +97,7 @@ class Ears:
         self.oww_model_name = "hey_jarvis"
         self.model_name = "base.en"
         self.language = "en"
+        self.gain = 3.0
         self.notes = False
         self.hush_until = 0.0
         self.await_until = 0.0
@@ -123,6 +124,10 @@ class Ears:
         self.oww_model_name = s.get("wakeModel") or "hey_jarvis"
         self.model_name = s.get("model") or "base.en"
         self.language = s.get("language") or "en"
+        try:
+            self.gain = max(1.0, min(10.0, float(s.get("micGain") or 3)))
+        except (TypeError, ValueError):
+            self.gain = 3.0
         return restart
 
     def hush(self, seconds):
@@ -182,7 +187,13 @@ class Ears:
             self.log("ears: parec not found (install pulseaudio-utils)")
             return None
         self.device = choose_source(list_sources(), self.source)
-        self.log(f"ears: listening to {self.device}")
+        self.log(f"ears: listening to {self.device}, turned up {self.gain:g}x")
+        # webcams often come up with their microphone at half volume: start from full
+        if shutil.which("pactl"):
+            try:
+                subprocess.run(["pactl", "set-source-volume", self.device, "100%"], capture_output=True, timeout=5, check=False)
+            except (OSError, subprocess.SubprocessError):
+                pass
         return subprocess.Popen(
             [
                 "parec",
@@ -214,6 +225,7 @@ class Ears:
                 frame = out.read(FRAME_BYTES)
                 if not frame or len(frame) < FRAME_BYTES:
                     break
+                frame = apply_gain(frame, self.gain)
                 level = rms(frame)
                 self.level += (level - self.level) * 0.2
                 if time.monotonic() < self.hush_until:
@@ -295,10 +307,23 @@ class Ears:
             self.error = ""
         return self._whisper
 
-    def _words(self, audio_bytes):
+    def _prompt(self):
+        """Two examples of talking to the wall, so Whisper expects "hey wall" and
+        hears it even faint and across the room (tested: without them it heard
+        "Wow, that's a fiber for 10 minutes"; with them, the whole sentence).
+        Silero's voice filter keeps it from inventing them out of silence."""
+        wake = ((self.wake_words or ["hey wall"])[0] or "hey wall").strip().capitalize()
+        return f"{wake}, what time is it? {wake}, pause the music."
+
+    def _words(self, audio_bytes, prompt=None):
         import numpy as np  # noqa: PLC0415
 
         audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        # level each piece before Whisper: a quiet voice from across the room
+        # comes out as loud as one up close (at most 20x more, so hiss stays hiss)
+        peak = float(np.abs(audio).max()) if audio.size else 0.0
+        if peak > 1e-4:
+            audio = audio * min(20.0, 0.9 / peak)
         lang = None if self.language in ("", "auto") or self.model_name.endswith(".en") else self.language
         segments, _ = self._model().transcribe(
             audio,
@@ -307,6 +332,7 @@ class Ears:
             vad_filter=True,
             condition_on_previous_text=False,
             without_timestamps=True,
+            initial_prompt=prompt,
         )
         kept = [s.text for s in segments if not (s.no_speech_prob > 0.6 and s.avg_logprob < -1.0)]
         return " ".join(t.strip() for t in kept).strip()
@@ -322,14 +348,15 @@ class Ears:
                 awaiting = was_listening or self.listening()
                 if not awaiting and not self.notes and len(audio) > head_bytes:
                     # phrase mode: is it even for the wall? check the start first
-                    head = self._words(audio[:head_bytes])
+                    head = self._words(audio[:head_bytes], self._prompt())
                     if match_wake(head, self.wake_words) is None:
                         continue
                     awaiting = False
                     self.state = "thinking"
                 if awaiting:
                     self.state = "thinking"
-                text = self._words(audio)
+                # the wake phrase is in this piece unless it came before it (awaiting) or it's notes
+                text = self._words(audio, None if awaiting or self.notes else self._prompt())
                 del audio
                 if not text:
                     continue

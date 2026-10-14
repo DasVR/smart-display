@@ -92,6 +92,12 @@ for _ in 1 2 3 4 5 6 7 8; do
 	sleep 1
 done
 
+# the webcam process (scripts/senses/install.sh), only where it was installed
+if systemctl is-enabled --quiet smart-display-senses 2>/dev/null; then
+	echo "restarting the webcam senses"
+	sudo systemctl restart smart-display-senses || echo "WARN: smart-display-senses did not restart"
+fi
+
 echo "[5/5] restarting kiosk (cage + chromium)"
 kiosk_ok=0
 for attempt in 1 2 3 4 5; do

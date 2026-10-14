@@ -114,7 +114,7 @@ test('notes commands', () => {
 
 test('presence: numbers only, near by distance, nothing when offline', () => {
 	const p = presenceFrom({ ok: true, count: 2, distance: 1.234, x: 0.4, motion: 0.1, frame: 'nope' }, DEFAULT_SENSES);
-	assert.deepEqual(p, { camera: true, count: 2, distance: 1.23, x: 0.4, motion: 0.1, near: true, calibrated: false });
+	assert.deepEqual(p, { camera: true, count: 2, distance: 1.23, x: 0.4, zone: null, posture: null, motion: 0.1, near: true, calibrated: false });
 	assert.equal(presenceFrom({ ok: true, count: 1, distance: 3 }, DEFAULT_SENSES).near, false);
 	assert.equal(presenceFrom({ ok: true, count: 1, distance: 1 }, DEFAULT_SENSES, false).count, 0);
 	assert.equal(presenceFrom({ ok: true, count: 0, distance: 1 }, DEFAULT_SENSES).distance, null);
@@ -265,7 +265,7 @@ test('calibrating: the phone asks, the process measures, the focal length is sav
 	const { result } = h.handleWs({ op: 'calibrate', meters: 1 });
 	assert.equal(result.ok, true);
 	const job = (await post(h, '/api/senses/state', { camera: { ok: true } })).json().calibrate;
-	assert.deepEqual(job, { id: result.id, meters: 1 });
+	assert.deepEqual(job, { id: result.id, kind: 'face', meters: 1 });
 	await post(h, '/api/senses/calibrated', { id: 'someone-else', focalPx: 1 });
 	assert.equal(h.snapshot().settings.focalPx, null);
 	await post(h, '/api/senses/calibrated', { id: result.id, focalPx: 400, focalWidth: 320, samples: 12 });
@@ -298,4 +298,67 @@ test('the process going away clears presence', async () => {
 	h.tick();
 	assert.equal(h.presence().count, 0);
 	assert.equal(h.snapshot().online, false);
+});
+
+test('presence: a margin past the line, so standing on it does not flicker', () => {
+	const at = (d, wasNear) => presenceFrom({ ok: true, count: 1, distance: d }, DEFAULT_SENSES, true, wasNear).near;
+	assert.equal(at(1.6, false), false, 'not yet near');
+	assert.equal(at(1.4, false), true);
+	assert.equal(at(1.6, true), true, 'still near just past the line');
+	assert.equal(at(1.9, true), false, 'gone once well past it');
+});
+
+test('spots: remember where you are, by name; the same name replaces, forget removes', async () => {
+	const { h } = hub();
+	h.handleWs({ op: 'set', patch: { camera: true } });
+	await post(h, '/api/senses/state', { camera: { ok: true } });
+	let { result } = h.handleWs({ op: 'remember', name: 'Bed' });
+	assert.equal(result.ok, true);
+	const job = (await post(h, '/api/senses/state', { camera: { ok: true } })).json().calibrate;
+	assert.deepEqual(job, { id: result.id, kind: 'zone', name: 'Bed' });
+	await post(h, '/api/senses/calibrated', { id: result.id, kind: 'zone', name: 'Bed', sig: [0.25, 0.7, 0.4, 0.2] });
+	assert.deepEqual(h.snapshot().settings.zones, [{ name: 'Bed', sig: [0.25, 0.7, 0.4, 0.2] }]);
+	({ result } = h.handleWs({ op: 'remember', name: 'bed' }));
+	await post(h, '/api/senses/calibrated', { id: result.id, kind: 'zone', sig: [0.3, 0.7, 0.4, 0.2] });
+	assert.equal(h.snapshot().settings.zones.length, 1, 'same name, case aside, replaces');
+	({ result } = h.handleWs({ op: 'remember', name: 'Desk' }));
+	await post(h, '/api/senses/calibrated', { id: result.id, error: 'no-person' });
+	assert.equal(h.snapshot().calibrated.error, 'no-person');
+	h.handleWs({ op: 'forget-zone', name: 'BED' });
+	assert.deepEqual(h.snapshot().settings.zones, []);
+	assert.equal(h.handleWs({ op: 'remember', name: '  ' }).result.error, 'no-name');
+	// spots are measured, never typed in
+	h.handleWs({ op: 'set', patch: { zones: [{ name: 'x', sig: [0, 0, 0, 0] }] } });
+	assert.deepEqual(h.snapshot().settings.zones, []);
+});
+
+test('paper: maps the floor; a failed try keeps the old map', async () => {
+	const { h } = hub();
+	h.handleWs({ op: 'set', patch: { camera: true } });
+	await post(h, '/api/senses/state', { camera: { ok: true } });
+	const quad = [[0.45, 0.6], [0.57, 0.6], [0.6, 0.68], [0.42, 0.68]];
+	const fmap = [1, 2, 3, 4, 5, 6, 7, 8, 1];
+	let { result } = h.handleWs({ op: 'find-paper', paper: 'a4', wallMeters: 2.5 });
+	assert.equal(result.ok, true);
+	assert.deepEqual((await post(h, '/api/senses/state', {})).json().calibrate, { id: result.id, kind: 'paper', paper: 'a4', wallMeters: 2.5 });
+	await post(h, '/api/senses/calibrated', { id: result.id, quad, floorMap: fmap });
+	let s = h.snapshot().settings;
+	assert.deepEqual([s.floorMap, s.paper, s.paperWall], [fmap, 'a4', 2.5]);
+	({ result } = h.handleWs({ op: 'find-paper' }));
+	await post(h, '/api/senses/calibrated', { id: result.id, floorMap: [1, 2] });
+	assert.equal(h.snapshot().calibrated.error, 'no-paper');
+	assert.deepEqual(h.snapshot().settings.floorMap, fmap);
+	h.handleWs({ op: 'set', patch: { floorMap: null } });
+	assert.equal(h.snapshot().settings.floorMap, null);
+	assert.equal(h.handleWs({ op: 'find-paper', wallMeters: 99 }).result.error, 'bad-distance');
+});
+
+test('presence: spot and posture come through; with no metres, being in the room counts as near', () => {
+	const p = presenceFrom({ ok: true, count: 1, distance: null, zone: 'desk', posture: 'upright' }, DEFAULT_SENSES);
+	assert.deepEqual([p.zone, p.posture, p.near], ['desk', 'upright', true]);
+	assert.equal(presenceFrom({ ok: true, count: 1 }, { ...DEFAULT_SENSES, look: 'face' }).near, false);
+	const a = presenceFrom({ ok: true, count: 1, zone: 'desk' }, DEFAULT_SENSES);
+	assert.equal(presenceChanged(a, presenceFrom({ ok: true, count: 1, zone: 'bed' }, DEFAULT_SENSES)), true);
+	assert.equal(normalizeSensesSettings({ micGain: 50 }).micGain, 10);
+	assert.equal(normalizeSensesSettings({}).look, 'body');
 });

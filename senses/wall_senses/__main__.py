@@ -20,6 +20,8 @@ import time
 
 from .distance import calibrate_focal, scale_focal
 from .hearing import Ears, list_sources
+from .bodies import YOLOX_NAME
+from .room import average_signature, floor_map, order_quad
 from .seeing import DETECT_WIDTH, YUNET_NAME, Eyes, model_dir
 from .wall import Wall
 
@@ -35,6 +37,8 @@ def log(*parts):
 def moved(a, b):
     """Worth telling the wall about straight away?"""
     if a.get("count") != b.get("count") or a.get("ok") != b.get("ok"):
+        return True
+    if a.get("zone") != b.get("zone") or a.get("posture") != b.get("posture"):
         return True
     da, db = a.get("distance"), b.get("distance")
     if (da is None) != (db is None) or (da is not None and abs(da - db) > 0.1):
@@ -70,6 +74,10 @@ class Senses:
             self.eyes.hfov = float(s.get("hfov") or 70)
             self.eyes.face_width_m = float(s.get("faceWidth") or 0.15)
             self.eyes.focal_px = scale_focal(s.get("focalPx"), s.get("focalWidth"), DETECT_WIDTH) if s.get("focalPx") else None
+            self.eyes.zones = s.get("zones") or []
+            self.eyes.floor = s.get("floorMap") or None
+            self.eyes.wall_m = s.get("paperWall")
+            self.eyes.set_look(s.get("look") or "body")
             if not self.eyes.running():
                 self.eyes.start()
         elif self.eyes.running():
@@ -87,24 +95,48 @@ class Senses:
             log("ears: microphone off")
 
     def calibrate(self, job):
-        """Stand `meters` away; measure the face for two seconds."""
+        """A job from the phone: 'face' (stand `meters` away), 'zone' (remember
+        where you are as `name`) or 'paper' (find the sheet on the floor)."""
         if self.calibrating:
             return
         self.calibrating = job.get("id")
+        kind = job.get("kind") or "face"
 
         def run():
+            body = {"id": job.get("id"), "kind": kind}
             try:
-                self.eyes.take_widths()
-                time.sleep(2.5)
-                widths = self.eyes.take_widths()
-                focal = calibrate_focal(widths, float(job.get("meters") or 1), self.eyes.face_width_m)
-                body = {"id": job.get("id"), "samples": len(widths)}
-                if focal:
-                    body.update({"focalPx": round(focal, 2), "focalWidth": DETECT_WIDTH})
+                if kind == "zone":
+                    self.eyes.take_sigs()
+                    time.sleep(3.0)
+                    sig = average_signature(self.eyes.take_sigs())
+                    body.update({"name": job.get("name"), "sig": sig} if sig else {"error": "no-person"})
+                elif kind == "paper":
+                    self.eyes.take_quads()
+                    self.eyes.want_paper = True
+                    time.sleep(3.0)
+                    self.eyes.want_paper = False
+                    quads = self.eyes.take_quads()
+                    if len(quads) < 3:
+                        body["error"] = "no-paper"
+                    else:
+                        # the middle reading of each corner, after putting them in the same order
+                        ordered = [order_quad(q) for q in quads]
+                        quad = [[sorted(q[i][k] for q in ordered)[len(ordered) // 2] for k in (0, 1)] for i in range(4)]
+                        fmap = floor_map(quad, job.get("paper") or "letter")
+                        body.update({"quad": quad, "floorMap": fmap} if fmap else {"error": "no-paper"})
                 else:
-                    body["error"] = "no-face"
+                    self.eyes.take_widths()
+                    time.sleep(2.5)
+                    widths = self.eyes.take_widths()
+                    focal = calibrate_focal(widths, float(job.get("meters") or 1), self.eyes.face_width_m)
+                    body["samples"] = len(widths)
+                    if focal:
+                        body.update({"focalPx": round(focal, 2), "focalWidth": DETECT_WIDTH})
+                    else:
+                        body["error"] = "no-face"
                 self.wall.post("/api/senses/calibrated", body)
             finally:
+                self.eyes.want_paper = False
                 self.calibrating = None
 
         threading.Thread(target=run, daemon=True).start()
@@ -146,6 +178,8 @@ def check():
 
     yunet = os.path.join(model_dir(), YUNET_NAME)
     print(f"  {'ok ' if os.path.exists(yunet) else '-- '} YuNet face model ({yunet})")
+    yolox = os.path.join(model_dir(), YOLOX_NAME)
+    print(f"  {'ok ' if os.path.exists(yolox) else '-- '} YOLOX whole-body model ({yolox})")
     return 0
 
 

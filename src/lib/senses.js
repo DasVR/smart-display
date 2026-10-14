@@ -12,6 +12,19 @@ export const DEFAULT_SENSES = {
 	micSource: '',
 	// /dev/videoN or an index; '' is the first camera
 	cameraDevice: '',
+	// 'body': whole people, any pose, for a camera up high that sees the room;
+	// 'face': faces, for a camera at face height
+	look: 'body',
+	// how much the microphone is turned up in software (1 to 10), for a webcam across the room
+	micGain: 3,
+	// remembered spots: { name, sig: [cx, cy, w, h] in 0..1 picture coords }
+	zones: [],
+	// a sheet of paper on the floor: its corners (0..1), the map to metres it gives,
+	// its size, and how far its near edge is from the camera's wall (metres, optional)
+	floorQuad: null,
+	floorMap: null,
+	paper: 'letter',
+	paperWall: null,
 	// 'phrase': "hey wall …" spotted by Whisper itself; 'openwakeword': a small
 	// always-on model (its own wake word) wakes Whisper
 	wakeMode: 'phrase',
@@ -36,6 +49,26 @@ export const DEFAULT_SENSES = {
 	notesMinutes: 30
 };
 
+export const LOOKS = ['body', 'face'];
+export const PAPERS = ['letter', 'a4'];
+export const MAX_ZONES = 8;
+
+const finite = (v) => typeof v === 'number' && Number.isFinite(v);
+
+function cleanZones(list) {
+	if (!Array.isArray(list)) return [];
+	const seen = new Set();
+	const out = [];
+	for (const z of list) {
+		const name = text(z?.name, 24);
+		const sig = Array.isArray(z?.sig) && z.sig.length === 4 && z.sig.every((v) => finite(v) && v >= -0.5 && v <= 1.5) ? z.sig : null;
+		if (!name || !sig || seen.has(name.toLowerCase())) continue;
+		seen.add(name.toLowerCase());
+		out.push({ name, sig: sig.map((v) => Math.round(v * 1e4) / 1e4) });
+	}
+	return out.slice(0, MAX_ZONES);
+}
+
 export const WHISPER_MODELS = ['tiny.en', 'base.en', 'small.en', 'tiny', 'base', 'small'];
 export const WAKE_MODES = ['phrase', 'openwakeword'];
 export const WAKE_MODELS = ['hey_jarvis', 'alexa', 'hey_mycroft', 'hey_rhasspy'];
@@ -58,11 +91,23 @@ export function normalizeSensesSettings(patch = {}, base = DEFAULT_SENSES) {
 		.filter(Boolean)
 		.slice(0, 6);
 	const focalPx = pick('focalPx');
+	const floorMap = pick('floorMap');
+	const floorQuad = pick('floorQuad');
+	const okMap = Array.isArray(floorMap) && floorMap.length === 9 && floorMap.every(finite);
+	const okQuad = Array.isArray(floorQuad) && floorQuad.length === 4 && floorQuad.every((p) => Array.isArray(p) && p.length === 2 && p.every(finite));
+	const wall = pick('paperWall');
 	return {
 		mic: Boolean(pick('mic')),
 		camera: Boolean(pick('camera')),
 		micSource: text(pick('micSource')),
 		cameraDevice: text(pick('cameraDevice'), 200),
+		look: LOOKS.includes(pick('look')) ? pick('look') : DEFAULT_SENSES.look,
+		micGain: num(pick('micGain'), 1, 10, DEFAULT_SENSES.micGain),
+		zones: cleanZones(pick('zones')),
+		floorQuad: okMap && okQuad ? floorQuad : null,
+		floorMap: okMap && okQuad ? floorMap : null,
+		paper: PAPERS.includes(pick('paper')) ? pick('paper') : 'letter',
+		paperWall: wall == null || wall === '' ? null : num(wall, 0, 10, null),
 		wakeMode: WAKE_MODES.includes(pick('wakeMode')) ? pick('wakeMode') : b.wakeMode,
 		wakeWords: wakeWords.length ? wakeWords : [...DEFAULT_SENSES.wakeWords],
 		wakeModel: WAKE_MODELS.includes(pick('wakeModel')) ? pick('wakeModel') : DEFAULT_SENSES.wakeModel,
@@ -92,29 +137,36 @@ export function notesCommand(said) {
 	return null;
 }
 
-/** The wall's view of the room from one camera report: numbers only. */
-export function presenceFrom(camera, settings = DEFAULT_SENSES, online = true) {
+/** How far past the "at the wall" distance you must step back before you count as gone. */
+export const NEAR_MARGIN_M = 0.3;
+
+/**
+ * The wall's view of the room from one camera report: numbers only. `wasNear`
+ * gives the line a margin, so standing right on it doesn't flick the screen
+ * on and off.
+ */
+export function presenceFrom(camera, settings = DEFAULT_SENSES, online = true, wasNear = false) {
 	const c = camera && typeof camera === 'object' ? camera : {};
 	const ok = Boolean(online && c.ok);
 	const count = ok ? Math.max(0, Math.min(20, Math.round(Number(c.count) || 0))) : 0;
 	const distance = ok && count && Number.isFinite(Number(c.distance)) && c.distance != null ? Math.round(Number(c.distance) * 100) / 100 : null;
 	const x = ok && count && Number.isFinite(Number(c.x)) && c.x != null ? Math.max(-1, Math.min(1, Number(c.x))) : null;
 	const motion = ok ? Math.max(0, Math.min(1, Number(c.motion) || 0)) : 0;
-	return {
-		camera: ok,
-		count,
-		distance,
-		x,
-		motion,
-		near: distance != null && distance <= settings.nearMeters,
-		calibrated: Boolean(c.calibrated)
-	};
+	const zone = ok && count && typeof c.zone === 'string' ? c.zone.slice(0, 24) : null;
+	const posture = ok && count && (c.posture === 'lying' || c.posture === 'upright') ? c.posture : null;
+	// no metres (a whole-room camera before the floor is mapped): being in the room counts
+	const near =
+		distance != null
+			? distance <= settings.nearMeters || (wasNear && distance <= settings.nearMeters + NEAR_MARGIN_M)
+			: settings.look === 'body' && count > 0;
+	return { camera: ok, count, distance, x, zone, posture, motion, near, calibrated: Boolean(c.calibrated) };
 }
 
 /** Worth telling every screen about? (Small wobbles aren't.) */
 export function presenceChanged(a, b) {
 	if (!a || !b) return true;
 	if (a.camera !== b.camera || a.count !== b.count || a.near !== b.near) return true;
+	if (a.zone !== b.zone || a.posture !== b.posture) return true;
 	if ((a.distance == null) !== (b.distance == null)) return true;
 	if (a.distance != null && Math.abs(a.distance - b.distance) >= 0.1) return true;
 	if ((a.x == null) !== (b.x == null)) return true;

@@ -1,7 +1,9 @@
 <!--
 	Phone page for the wall's senses: the webcam's microphone and camera.
-	Turn each on or off, see what the wall sees right now (how many people,
-	how far, which side), teach it distances by standing a metre away, choose
+	Turn each on or off, see what the wall sees right now (a diagram of the
+	outlines it finds, which spot you're in, lying or upright, how far), teach
+	it the room (remember spots like "bed" and "desk"; map the floor from a
+	sheet of printer paper), turn the microphone up for distance, choose
 	how it wakes ("hey wall"), and take notes: start and stop them here or by
 	voice, watch the lines arrive, and read the saved ones.
 
@@ -29,6 +31,9 @@
 	let transcripts = $state([]);
 	let open = $state(null); // { name, text }
 	let liveLines = $state([]);
+	let spotName = $state('');
+	let paperSize = $state('letter');
+	let wallMeters = $state('');
 
 	const RESULTS = {
 		'not-paired': 'Only a paired phone can change this. Pair this phone under Stats → Phones.',
@@ -36,6 +41,10 @@
 		'bad-distance': 'Stand somewhere between 30 cm and 5 m away.',
 		'mic-off': 'Turn the microphone on first.',
 		'no-face': "It couldn't see a face. Face the wall, in good light, and try again.",
+		'no-person': "It couldn't see you. Make sure you're in the picture (check the diagram) and try again.",
+		'no-paper': "It couldn't find the paper. Lay it flat in the open, away from other white things, with the lights on, and try again.",
+		'no-name': 'Give the spot a name first, like "bed" or "desk".',
+		'too-many-zones': 'That is the most spots it keeps. Forget one first.',
 		timeout: "The webcam process didn't answer. Is it running?",
 		failed: 'That didn\'t work. Try again.',
 		'not-found': 'That file has gone.'
@@ -67,6 +76,8 @@
 		failed = !r.ok;
 		if (!r.ok) message = RESULTS[r.error] || 'Something went wrong.';
 		else if (r.op === 'calibrate') message = `Stand ${describeDistance(meters)} from the wall, facing it, for three seconds…`;
+		else if (r.op === 'remember') message = 'Stay just as you are for three seconds…';
+		else if (r.op === 'find-paper') message = 'Looking for the paper. Keep out of its way for three seconds…';
 		else if (r.op === 'notes-stop') {
 			message = r.saved ? 'Saved.' : 'Stopped. Nothing was said.';
 			send({ op: 'transcripts' });
@@ -101,7 +112,17 @@
 					take(msg);
 					if (wasCalibrating && !msg.calibrating && msg.calibrated) {
 						failed = !msg.calibrated.ok;
-						message = msg.calibrated.ok ? 'Calibrated. Distances should now be right for you.' : RESULTS[msg.calibrated.error] || 'That didn\'t work.';
+						const c = msg.calibrated;
+						message = !c.ok
+							? RESULTS[c.error] || "That didn't work."
+							: c.kind === 'zone'
+								? `Remembered "${c.name}".`
+								: c.kind === 'paper'
+									? msg.settings.paperWall != null
+										? 'Floor mapped. Distances are now in metres from the wall.'
+										: 'Floor mapped. Add how far the paper was from the wall to get metres from the wall.'
+									: 'Calibrated. Distances should now be right for you.';
+						if (c.ok && c.kind === 'zone') spotName = '';
 					}
 				}
 				if (msg.type === 'presence') presence = msg;
@@ -126,6 +147,17 @@
 	function calibrate() {
 		failed = false;
 		send({ op: 'calibrate', meters: Number(meters) });
+	}
+
+	function remember(e) {
+		e?.preventDefault();
+		failed = false;
+		send({ op: 'remember', name: spotName.trim() });
+	}
+
+	function findPaper() {
+		failed = false;
+		send({ op: 'find-paper', paper: paperSize, wallMeters: wallMeters === '' ? null : Number(wallMeters) });
 	}
 
 	function notes(on) {
@@ -160,6 +192,9 @@
 		};
 	});
 
+	let body = $derived(s?.settings?.look !== 'face');
+	let boxes = $derived(s?.camera?.boxes || []);
+	let quad = $derived(s?.settings?.floorQuad ? s.settings.floorQuad.map(([x, y]) => `${x * 160},${y * 90}`).join(' ') : '');
 	let side = $derived(presence?.x == null ? '' : presence.x < -0.25 ? 'on the left' : presence.x > 0.25 ? 'on the right' : 'in the middle');
 	let level = $derived(Math.min(100, Math.round(Math.sqrt(s?.mic?.level || 0) * 260)));
 	let hearing = $derived(s?.mic?.state && s.mic.state !== 'idle' ? s.mic.state : listening);
@@ -220,6 +255,23 @@
 				Say "{s.settings.wakeWords[0]}" and then anything you'd tell the wall by Siri: "{s.settings.wakeWords[0]}, set a timer for ten
 				minutes", "… what's the weather", "… pause the music". The answer is spoken. Nothing is recorded; only the words reach the wall.
 			</p>
+			<label class="level">
+				<span>Turn up</span>
+				<input
+					type="range"
+					min="1"
+					max="10"
+					step="0.5"
+					value={s.settings.micGain}
+					onchange={(e) => patch({ micGain: Number(e.currentTarget.value) })}
+					aria-label="How much the microphone is turned up"
+				/>
+				<span class="pct">{s.settings.micGain}×</span>
+			</label>
+			<p class="note">
+				For a webcam across the room, turn it up until the meter moves well when you talk at normal volume from where you usually are. Every
+				phrase is also levelled before it's read, so a quiet voice comes through as clearly as a close one.
+			</p>
 			<label class="row">
 				<span>Show what it heard</span>
 				<input type="checkbox" checked={s.settings.captions} onchange={(e) => patch({ captions: e.currentTarget.checked })} />
@@ -265,9 +317,22 @@
 		<section class="card" aria-labelledby="cam-h">
 			<h2 id="cam-h">Camera</h2>
 			<label class="row">
-				<span>See who's at the wall</span>
+				<span>See who's in the room</span>
 				<input type="checkbox" checked={s.settings.camera} onchange={(e) => patch({ camera: e.currentTarget.checked })} />
 			</label>
+			<label class="row">
+				<span>Look for</span>
+				<select value={s.settings.look} onchange={(e) => patch({ look: e.currentTarget.value })}>
+					<option value="body">Whole people</option>
+					<option value="face">Faces</option>
+				</select>
+			</label>
+			<p class="note">
+				{body
+					? 'For a camera up high that sees the room: finds people in any pose, lying down or with their back turned.'
+					: 'For a camera at face height that you look at.'}
+				It never knows who anyone is, and keeps no pictures: the wall only gets numbers.
+			</p>
 			{#if s.settings.camera && s.online}
 				<p class="readout" aria-live="polite">
 					{#if !presence?.camera}
@@ -275,15 +340,68 @@
 					{:else if !presence.count}
 						Nobody in view{presence.motion > 0.02 ? ' (something moved)' : ''}
 					{:else}
-						{presence.count === 1 ? 'One person' : `${presence.count} people`}, {describeDistance(presence.distance)} away, {side}
+						{presence.count === 1 ? 'One person' : `${presence.count} people`}{presence.zone ? `, at the ${presence.zone}` : ''}{presence.posture === 'lying'
+							? ', lying down'
+							: ''}{presence.distance != null ? `, ${describeDistance(presence.distance)} away` : ''}{!body || !presence.zone ? `, ${side}` : ''}
 					{/if}
 				</p>
+				<figure class="diagram">
+					<svg viewBox="0 0 160 90" role="img" aria-label="What the camera finds: an outline for each person{quad ? ' and the paper' : ''}">
+						<rect x="0.5" y="0.5" width="159" height="89" rx="3" class="frame"></rect>
+						{#if quad}<polygon points={quad} class="paper"></polygon>{/if}
+						{#each boxes as b, i (i)}
+							<rect x={b[0] * 160} y={b[1] * 90} width={b[2] * 160} height={b[3] * 90} rx="1.5" class="person"></rect>
+						{/each}
+					</svg>
+					<figcaption class="note">What the camera finds, drawn as outlines. Not a picture: no picture ever leaves the display.</figcaption>
+				</figure>
 			{/if}
-			<p class="note">
-				It finds faces, not who they are, a few times a second, and keeps no pictures: the wall only gets how many, how far, and which side.
-			</p>
+
+			{#if body}
+				<h3>Spots in the room</h3>
+				<p class="note">
+					Go to a spot the way you usually are there (lying in bed, sitting at the desk), name it, and tap Remember. It learns where you are in the
+					picture there, so it can say "at the desk" even with your back turned.
+				</p>
+				{#if s.settings.zones.length}
+					<ul class="files">
+						{#each s.settings.zones as z (z.name)}
+							<li class="row">
+								<span>{z.name}{presence?.zone === z.name ? ' · you are here' : ''}</span>
+								<button type="button" class="ghost small" onclick={() => send({ op: 'forget-zone', name: z.name })}>Forget</button>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				<form class="say" onsubmit={remember}>
+					<input bind:value={spotName} placeholder="bed, desk, door…" aria-label="Name of this spot" maxlength="24" />
+					<button type="submit" disabled={!spotName.trim() || !s.settings.camera || !s.online || s.calibrating}>{s.calibrating ? 'Hold still…' : 'Remember'}</button>
+				</form>
+
+				<h3>Distance, from a sheet of paper</h3>
+				<p class="note">
+					Lay one sheet of printer paper flat on the floor where the camera can see it, in the open, long edge toward the camera. Measure how far
+					its near edge is from the wall under the camera, then tap Find the paper and keep out of the way for three seconds. You can pick it up
+					afterwards.
+				</p>
+				<div class="say">
+					<select bind:value={paperSize} aria-label="Paper size">
+						<option value="letter">Letter</option>
+						<option value="a4">A4</option>
+					</select>
+					<input type="number" min="0" max="10" step="0.05" bind:value={wallMeters} placeholder="metres from wall" aria-label="How far the paper's near edge is from the wall, in metres" />
+				</div>
+				<button type="button" onclick={findPaper} disabled={!s.settings.camera || !s.online || s.calibrating}>{s.calibrating ? 'Looking…' : 'Find the paper'}</button>
+				{#if s.settings.floorMap}
+					<p class="note">
+						Floor mapped{s.settings.paperWall != null ? `, ${describeDistance(s.settings.paperWall)} from the wall` : ' (no wall distance yet: positions only)'}.
+					</p>
+					<button type="button" class="ghost small" onclick={() => patch({ floorMap: null })}>Forget the floor</button>
+				{/if}
+			{/if}
+
 			<label class="level">
-				<span>At the wall</span>
+				<span>Near</span>
 				<input
 					type="range"
 					min="0.5"
@@ -291,32 +409,34 @@
 					step="0.1"
 					value={s.settings.nearMeters}
 					onchange={(e) => patch({ nearMeters: Number(e.currentTarget.value) })}
-					aria-label="Closer than this counts as at the wall"
+					aria-label="Closer than this counts as near the wall"
 				/>
 				<span class="pct">{describeDistance(s.settings.nearMeters)}</span>
 			</label>
 			<label class="row">
-				<span>Turn the screen on when someone walks up</span>
+				<span>{body && !s.settings.floorMap ? 'Turn the screen on when someone comes in' : 'Turn the screen on when someone comes near'}</span>
 				<input type="checkbox" checked={s.settings.wakePanel} onchange={(e) => patch({ wakePanel: e.currentTarget.checked })} />
 			</label>
 
-			<h3>Distance</h3>
-			<p class="note">
-				{s.settings.focalPx
-					? 'Calibrated to your face.'
-					: 'Guessed from a typical webcam. For true distances, stand a measured distance away, face the wall, and tap Measure.'}
-			</p>
-			<div class="say">
-				<select bind:value={meters} aria-label="How far away you are standing">
-					<option value={0.5}>50 cm away</option>
-					<option value={1}>1 m away</option>
-					<option value={1.5}>1.5 m away</option>
-					<option value={2}>2 m away</option>
-				</select>
-				<button type="button" onclick={calibrate} disabled={!s.settings.camera || !s.online || s.calibrating}>{s.calibrating ? 'Measuring…' : 'Measure'}</button>
-			</div>
-			{#if s.settings.focalPx}
-				<button type="button" class="ghost small" onclick={() => patch({ focalPx: null })}>Forget calibration</button>
+			{#if !body}
+				<h3>Distance</h3>
+				<p class="note">
+					{s.settings.focalPx
+						? 'Calibrated to your face.'
+						: 'Guessed from a typical webcam. For true distances, stand a measured distance away, face the wall, and tap Measure.'}
+				</p>
+				<div class="say">
+					<select bind:value={meters} aria-label="How far away you are standing">
+						<option value={0.5}>50 cm away</option>
+						<option value={1}>1 m away</option>
+						<option value={1.5}>1.5 m away</option>
+						<option value={2}>2 m away</option>
+					</select>
+					<button type="button" onclick={calibrate} disabled={!s.settings.camera || !s.online || s.calibrating}>{s.calibrating ? 'Measuring…' : 'Measure'}</button>
+				</div>
+				{#if s.settings.focalPx}
+					<button type="button" class="ghost small" onclick={() => patch({ focalPx: null })}>Forget calibration</button>
+				{/if}
 			{/if}
 		</section>
 
@@ -520,6 +640,40 @@
 		font-size: var(--text-lg);
 		font-weight: 600;
 		font-variant-numeric: tabular-nums;
+	}
+	.diagram {
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.diagram svg {
+		width: 100%;
+		height: auto;
+		display: block;
+	}
+	.diagram .frame {
+		fill: var(--abyss-1);
+		stroke: var(--hairline);
+		stroke-width: 1;
+	}
+	.diagram .person {
+		fill: none;
+		stroke: var(--brand);
+		stroke-width: 1.2;
+	}
+	.diagram .paper {
+		fill: var(--foreground);
+		opacity: 0.5;
+	}
+	.say input[type='number'] {
+		min-height: 2.75rem;
+		padding: 0 var(--space-2);
+		border: 1px solid var(--hairline);
+		border-radius: var(--radius-sm);
+		background: var(--abyss-1);
+		color: var(--foreground);
+		font: inherit;
 	}
 	.meter {
 		height: 0.4rem;
