@@ -10,7 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { tasks, approvals, attention, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime, reloadCustomSounds } from '$lib/services/chime.js';
@@ -407,6 +407,7 @@
 				}
 				if (msg.type === 'approvals' && Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 				if (msg.type === 'attention' && Array.isArray(msg.items)) attention.set(msg.items);
+				if (msg.type === 'ledger' && msg.ledger) ledger.set(msg.ledger);
 				// NWS alerts arrive the moment they change (every 15 to 30 s), not with the 5-minute forecast
 				if (msg.type === 'weather-alerts' && Array.isArray(msg.alerts)) applyWeatherAlerts(msg.alerts);
 				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
@@ -446,6 +447,7 @@
 					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
 					if (Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 					if (Array.isArray(msg.attention)) attention.set(msg.attention);
+					if (msg.ledger) ledger.set(msg.ledger);
 					if (msg.senses) {
 						presence.set(msg.senses.presence);
 						notes = msg.senses.notes;

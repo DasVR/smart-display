@@ -29,6 +29,8 @@ import { createAttentionHub } from './lib/server/attentionHub.js';
 import { ringForWarnings } from './lib/server/nwsWatch.js';
 import { createPairing, isLocalAddress } from './lib/server/pairing.js';
 import { createSensesHub } from './lib/server/sensesHub.js';
+import { createLedgerHub } from './lib/server/ledgerHub.js';
+import { dayKey } from './lib/dayLog.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
 import { listAddresses } from './lib/addresses.js';
@@ -92,6 +94,10 @@ const SCHEDULE_PATH =
 const SCHEDULE_TICK_MS = 15_000;
 
 let schedule = loadSchedule(SCHEDULE_PATH);
+
+/** The ledger hub (set up once the hubs it reads exist) and the hub messages that can move it. */
+let ledgerHub = null;
+const LEDGER_INPUTS = new Set(['tasks', 'approvals', 'attention', 'weather-alerts', 'agents']);
 
 // Chores, little jobs and alerts: /api/tasks for other platforms, /ws for the
 // kiosk and remote, a scheduler that raises due items on the island.
@@ -248,6 +254,17 @@ const sensesHub = createSensesHub({
 	}
 });
 setInterval(() => sensesHub.tick(), 5000);
+// the day as one timeline (src/lib/ledger.js): built from the hubs, never stored
+ledgerHub = createLedgerHub({
+	sources: () => ({
+		tasks: taskHub.snapshot(),
+		approvals: approvalHub.snapshot(),
+		attention: attentionHub.snapshot(),
+		alerts: nwsWatch.alerts(),
+		day: dayLog.state().days?.[dayKey(Date.now())] ?? null
+	}),
+	broadcast: (msg) => broadcast(msg)
+});
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 /** What the schedule wanted at the last check ('on' | 'off'), to notice when it changes its mind. */
 let lastDesired = null;
@@ -630,6 +647,7 @@ const server = createServer(async (req, res) => {
 	if (await approvalHub.handleHttp(req, res)) return;
 	if (await actionHub.handleHttp(req, res)) return;
 	if (await dayLog.handleHttp(req, res)) return;
+	if (await ledgerHub.handleHttp(req, res)) return;
 	if (await voiceHub.handleHttp(req, res)) return;
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
@@ -947,6 +965,7 @@ function handlePair(ws, msg) {
 let currentView = 'clock';
 
 function broadcast(data) {
+	if (LEDGER_INPUTS.has(data?.type)) ledgerHub?.changed();
 	const msg = JSON.stringify(data);
 	clients.forEach((ws) => {
 		if (ws.readyState === 1) ws.send(msg);
@@ -1100,6 +1119,7 @@ wss.on('connection', (ws, req) => {
 				tasks: taskHub.snapshot(),
 				approvals: approvalHub.snapshot(),
 				attention: attentionHub.snapshot(),
+				ledger: ledgerHub.snapshot(),
 				weatherAlerts: nwsWatch.status(),
 				senses: sensesHub.snapshot(),
 				pairing: { required: pairing.required(), device: ws.device, local: ws.local }
@@ -1124,6 +1144,7 @@ server.listen(port, '0.0.0.0', () => {
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
 	taskHub.start();
 	calendarFeed.start();
+	ledgerHub.start();
 	const lyricsDb = lyricsDbStats();
 	console.log(
 		lyricsDb.available
