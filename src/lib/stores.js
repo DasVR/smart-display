@@ -36,6 +36,8 @@ export const tasks = writable([]);
 
 // Agents waiting on an Allow / Deny from the wall (see src/lib/approvals.js).
 export const approvals = writable([]);
+/** Guest mode (src/lib/sensesSign.js): calendar titles, agent commands and captions stay private. Only set by hand. */
+export const guestMode = writable(false);
 /** The day as one timeline (src/lib/ledger.js): { now, soon, past, counts }, from the server. */
 export const ledger = writable({ now: [], soon: [], past: [], counts: { now: 0, calling: 0, soon: 0, past: 0 } });
 /** What's calling for attention right now (src/lib/attention.js), from the server. */

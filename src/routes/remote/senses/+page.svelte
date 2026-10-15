@@ -40,7 +40,7 @@
 	let wallMeters = $state('');
 
 	const RESULTS = {
-		'not-paired': 'Only a paired phone can change this. Pair this phone under Stats → Phones.',
+		'not-paired': 'Only a paired phone can change this. Pair this phone under Home → Phones.',
 		'camera-off': "The camera isn't on, or the webcam process isn't running on the display.",
 		'bad-distance': 'Stand somewhere between 30 cm and 5 m away.',
 		'mic-off': 'Turn the microphone on first.',
@@ -259,6 +259,23 @@
 				</p>
 			</section>
 		{/if}
+
+		<section class="card" aria-labelledby="privacy-h">
+			<h2 id="privacy-h">Privacy</h2>
+			<label class="row">
+				<span>Guest mode</span>
+				<input type="checkbox" checked={s.settings.guest} onchange={(e) => patch({ guest: e.currentTarget.checked })} />
+			</label>
+			<p class="note">
+				For when you have company. Calendar titles on the wall read "Busy", agents are hidden, approval cards don't show the
+				command, and what the microphone heard isn't captioned. It stays on until you turn it off here; nothing turns it on by
+				itself.
+			</p>
+			<p class="note">
+				Whenever the camera or microphone is on, the wall shows a small sign in its top-right corner so anyone in the room can see.
+				It never moves, and it turns amber if either one has stopped answering.
+			</p>
+		</section>
 
 		<section class="card" aria-labelledby="mic-h">
 			<h2 id="mic-h">Microphone</h2>

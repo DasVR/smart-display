@@ -11,7 +11,7 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { surfaceProfile } from '$lib/surface.js';
-	import { tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { guestMode, tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime, reloadCustomSounds } from '$lib/services/chime.js';
@@ -49,6 +49,7 @@
 	import EdgeGlow from '$lib/components/EdgeGlow.svelte';
 	import PairCode from '$lib/components/PairCode.svelte';
 	import NotesMark from '$lib/components/NotesMark.svelte';
+	import SensesSign from '$lib/components/SensesSign.svelte';
 	import { liquidGlass } from '$lib/glass/liquidGlass.js';
 	import { glassTier, startGlassGovernor } from '$lib/glass/glassTier.js';
 	import { effectiveGlassTier } from '$lib/glass/frameGovernor.js';
@@ -81,6 +82,9 @@
 	let pairCode = $state(null);
 	// notes being taken through the webcam's microphone: { on, startedAt, count }
 	let notes = $state({ on: false, startedAt: null, count: 0 });
+	// the senses snapshot, for the camera / mic sign and Guest mode
+	let sensesNow = $state(null);
+	$effect(() => guestMode.set(Boolean(sensesNow?.settings?.guest)));
 	let hdmiOff = $state(false);
 	let navEl = $state(null);
 	let tabRefs = $state([]);
@@ -391,15 +395,17 @@
 				if (msg.type === 'presence') presence.set(msg);
 				if (msg.type === 'listening' && (msg.state === 'listening' || msg.state === 'thinking')) glowFor(8000);
 				if (msg.type === 'heard') {
-					if (msg.text) pushIslandEvent({ title: `“${msg.text}”`, source: 'You said', kind: 'heard', ttl: 5000 });
+					// Guest mode: the wall doesn't caption what it heard
+					if (msg.text && !$guestMode) pushIslandEvent({ title: `“${msg.text}”`, source: 'You said', kind: 'heard', ttl: 5000 });
 					glowFor(msg.text ? 4000 : 8000);
 				}
 				if (msg.type === 'senses' && msg.notes) notes = msg.notes;
+				if (msg.type === 'senses') sensesNow = msg;
 				if (msg.type === 'transcript') {
 					if (msg.on) notes = { ...notes, on: true, startedAt: msg.startedAt ?? notes.startedAt, count: (notes.count || 0) + (msg.line ? 1 : 0) };
 					else {
 						notes = { ...notes, on: false };
-						if (msg.saved) pushIslandEvent({ title: 'Notes saved', body: 'Open them on your phone: Stats → Senses', severity: 'ok', source: 'Wall', ttl: 6000 });
+						if (msg.saved) pushIslandEvent({ title: 'Notes saved', body: 'Open them on your phone: Home → Senses', severity: 'ok', source: 'Wall', ttl: 6000 });
 					}
 				}
 				if (msg.type === 'pair-code' && /^\d{6}$/.test(msg.code)) pairCode = { code: msg.code, expiresAt: msg.expiresAt };
@@ -451,6 +457,7 @@
 					if (Array.isArray(msg.attention)) attention.set(msg.attention);
 					if (msg.ledger) ledger.set(msg.ledger);
 					if (msg.senses) {
+						sensesNow = msg.senses;
 						presence.set(msg.senses.presence);
 						notes = msg.senses.notes;
 					}
@@ -1103,6 +1110,9 @@
 	{#if notes?.on && !hdmiOff}
 		<NotesMark lines={notes.count || 0} since={notes.startedAt} />
 	{/if}
+	{#if !hdmiOff}
+		<SensesSign senses={sensesNow} />
+	{/if}
 
 	{#if pairCode}
 		<PairCode code={pairCode.code} expiresAt={pairCode.expiresAt} />
@@ -1209,7 +1219,11 @@
 				</section>
 			{:else if $currentView === 'agents'}
 				<section class="view-pane agents-pane">
-					<AgentsHub />
+					{#if $guestMode}
+						<p class="guest-hidden">Agents are hidden while Guest mode is on.</p>
+					{:else}
+						<AgentsHub />
+					{/if}
 				</section>
 			{:else if $currentView === 'music'}
 				<section class="view-pane music-pane">
@@ -1256,7 +1270,7 @@
 	{/if}
 	{#if $approvals.length}
 		<div class="approval-layer">
-			<ApprovalCard approvals={$approvals} now={time.getTime()} ondecide={decideApproval} />
+			<ApprovalCard approvals={$approvals} now={time.getTime()} ondecide={decideApproval} guest={$guestMode} />
 		</div>
 	{/if}
 
@@ -2011,5 +2025,10 @@
 			min-height: 0;
 			padding-bottom: calc(var(--space-6) + max(var(--floor-clearance) * 0.5, env(safe-area-inset-bottom)));
 		}
+	}
+	.guest-hidden {
+		margin: auto;
+		font-size: var(--text-2xl);
+		color: var(--text-tertiary);
 	}
 </style>

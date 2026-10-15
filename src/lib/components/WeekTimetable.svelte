@@ -1,4 +1,6 @@
 <script>
+	import { guestMode } from '$lib/stores.js';
+	import { guestTitle } from '$lib/sensesSign.js';
 	import { onMount } from 'svelte';
 	import { eventDayKey, isAllDay, wallClock } from '$lib/calendarItems.js';
 
@@ -94,7 +96,7 @@
 						{#each day.items as event, i (event.id ?? `${day.key}-${i}`)}
 							<div class="evt" class:hw={event.homework}>
 								<time class="when num">{timeLabel(event.start)}{#if event.homework}<span class="due-tag">Due</span>{/if}</time>
-								<p class="title">{event.title}</p>
+								<p class="title">{guestTitle(event.title, $guestMode)}</p>
 								{#if event.location}
 									<p class="sub">{event.location}</p>
 								{/if}
