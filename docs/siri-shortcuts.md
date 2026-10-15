@@ -3,7 +3,7 @@
 Talk to the wall without opening anything. Each recipe below is a short
 shortcut in Apple's **Shortcuts** app pointed at the display. The phone
 remote has the same recipes with your display's address already filled in:
-**Tasks → Siri & Shortcuts** (`/remote/shortcuts`). That page also has a
+**Day → Siri & Shortcuts** (`/remote/shortcuts`). That page also has a
 **Try a phrase** box, so you can check how the wall understands a sentence
 before you set up Siri.
 

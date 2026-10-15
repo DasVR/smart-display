@@ -1,8 +1,10 @@
 # Agent approvals: Allow / Deny from the wall
 
-When a coding agent stops to ask "may I run this?", the wall raises a big
-card with the command and two buttons, and the phone remote shows the same
-card above its tab bar. The first tap answers. If nobody answers before it
+When a coding agent stops to ask "may I run this?", its pixel character on
+the wall's bottom edge shuts its laptop, stands and waves, and a speech bubble
+beside it shows the command and two buttons (see
+[`agent-characters.md`](agent-characters.md)). The phone remote shows the
+same question as a card above its tab bar. The first tap answers. If nobody answers before it
 expires, the agent asks in its own terminal as usual. The wall can save you
 a trip, but it can never leave a run stuck.
 

@@ -11,6 +11,10 @@
 	import { onMount } from 'svelte';
 	import { base } from '$app/paths';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
+	import { groupedIntents } from '$lib/intents.js';
+
+	// every command, straight from the registry the wall itself runs (src/lib/intents.js)
+	const SAYABLE = groupedIntents();
 
 	let origin = $state(''); // what this page was opened on
 	let addresses = $state([]); // [{ label, host }] the display answers on
@@ -286,6 +290,26 @@
 		{/each}
 	</ul>
 
+	<section class="sayable" aria-labelledby="sayable-title">
+		<h2 id="sayable-title" class="kicker">Everything you can say</h2>
+		<p class="note small">Tap a phrase to put it in the try box below. Anything that isn't one of these gets added as a chore or alert.</p>
+		{#each SAYABLE as g (g.group)}
+			<h3 class="group">{g.group}</h3>
+			<ul>
+				{#each g.intents as i (i.id)}
+					<li>
+						<span class="what">{i.label}{#if i.ringing}<span class="when"> while the wall is ringing</span>{/if}</span>
+						<span class="phrases">
+							{#each i.examples as ex (ex)}
+								<button type="button" onclick={() => ((phrase = ex), (reply = null))}>“{ex}”</button>
+							{/each}
+						</span>
+					</li>
+				{/each}
+			</ul>
+		{/each}
+	</section>
+
 	<p class="note small">
 		Locked the API with <code>npm run api-token</code>? In each <b>Get Contents of URL</b>, add a header
 		<code>Authorization</code> = <code>Bearer</code> plus your token. Your phone needs to be on the same Wi-Fi as
@@ -529,6 +553,62 @@
 	.chips button:active,
 	.send:active {
 		transform: scale(0.96);
+	}
+	.sayable {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+	.sayable h2 {
+		margin: 0;
+	}
+	.sayable .group {
+		margin: var(--space-3) 0 0;
+		font-size: var(--text-sm);
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--text-tertiary);
+	}
+	.sayable ul {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+	}
+	.sayable li {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		min-width: 0;
+	}
+	.sayable .what {
+		color: var(--foreground);
+		font-weight: 500;
+	}
+	.sayable .when {
+		color: var(--text-tertiary);
+		font-weight: 400;
+	}
+	.sayable .phrases {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-1) var(--space-3);
+	}
+	.sayable .phrases button {
+		padding: var(--space-1) 0;
+		border: 0;
+		background: none;
+		color: var(--text-secondary);
+		font: inherit;
+		text-align: left;
+		cursor: pointer;
+		touch-action: manipulation;
+	}
+	.sayable .phrases button:active {
+		color: var(--foreground);
 	}
 	.try {
 		display: flex;

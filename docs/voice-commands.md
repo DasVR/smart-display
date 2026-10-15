@@ -5,7 +5,7 @@ check it before you rely on it.
 
 You say these through **"Hey Siri, tell the wall"** (see
 [siri-shortcuts.md](siri-shortcuts.md) for the shortcut), through the **Try a
-phrase** box on the phone (**Tasks → Siri & Shortcuts**), or by sending text to
+phrase** box on the phone (**Day → Siri & Shortcuts**), or by sending text to
 `POST /api/tasks/say`. They all go through the same code, so a phrase that
 works in the box works from Siri.
 
@@ -168,5 +168,10 @@ To add one:
 3. Add phrasings to `tests/voice-commands.test.mjs`, including a sentence that
    must **not** match.
 4. Add a row to the table above.
+5. Add it to `INTENTS` in [`src/lib/intents.js`](../src/lib/intents.js) with two
+   or three example phrasings. That puts it in `GET /api/action/intents`, the
+   MCP bridge's `run_wall_intent` and the phone's "Everything you can say",
+   and `tests/intents.test.mjs` checks the examples parse to it. See
+   [`ledger-and-log.md`](ledger-and-log.md#intents-every-command-declared-once).
 
 `npm test` runs them.

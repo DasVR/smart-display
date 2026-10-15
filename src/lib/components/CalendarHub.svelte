@@ -1,4 +1,6 @@
 <script>
+	import { guestMode } from '$lib/stores.js';
+	import { guestTitle } from '$lib/sensesSign.js';
 	import { onMount } from 'svelte';
 	import { upcomingEvents } from '$lib/stores.js';
 	import WeekTimetable from '$lib/components/WeekTimetable.svelte';
@@ -91,7 +93,7 @@
 		{:else if nextUp}
 			<p class="next" data-urgency={urgency(nextUp)}>
 				<span class="next-k">Next up</span>
-				<span class="next-title">{nextUp.title}</span>
+				<span class="next-title">{guestTitle(nextUp.title, $guestMode)}</span>
 				<span class="next-when num">{nextWhen}</span>
 			</p>
 			<p class="head-meta">

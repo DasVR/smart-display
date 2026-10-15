@@ -1,5 +1,63 @@
 # Smart Display Progress Log
 
+## 2026-10-15: Agents as pixel characters
+
+### Done
+- **Clawd and friends:**
+  - Every working agent now has a pixel character on the bottom bar's top
+    edge.
+  - Claude is Clawd, decoded from the "Clawd opens a laptop" GIF. Cursor is
+    a cube with a caret eye, and Gemini is a pair of twins.
+  - They type at a laptop while their agent works.
+  - When an approval waits, the character shuts the laptop, stands and asks
+    in a speech bubble with Allow and Deny. This replaces the wall's
+    Allow / Deny card.
+  - It hops on yes and slumps on no.
+- **Room for them:** while anyone is on stage, the footer makes a strip and
+  the view gives up the room.
+- **Pixel-art skill:** `.claude/skills/pixel-art` (omer-metin, Apache-2.0)
+  is now in the repo. The characters follow its rules:
+  - whole-pixel scaling
+  - half-tone subpixel blinks, breaths and keystrokes
+  - smear frames
+  - anticipation and follow-through
+- 2 new test files (`agent-sprites`, `agent-stage`).
+
+## 2026-10-15: The redesign's first pieces
+
+### Done
+- **Plan:** `docs/redesign-plan.md`, with the owner's decisions.
+- **Ledger** (`src/lib/ledger.js`, `ledgerHub.js`):
+  - Tasks, homework, approvals, NWS alerts, what's ringing and the day log
+    become one now / soon / past timeline.
+  - A ringing chore is one entry, marked `calling`.
+  - `GET /api/ledger`, plus `{type:'ledger'}` over the socket.
+- **Intents** (`src/lib/intents.js`):
+  - Every command is declared once.
+  - `GET /api/action/intents`, `POST /api/action/intent` and the MCP
+    `run_wall_intent` tool all come from that list, and so does "Everything
+    you can say" on the phone.
+  - A test keeps the examples and the parser in step.
+- **Event log** (`src/lib/eventLog.js`):
+  - Every broadcast goes to `data/log/<day>.ndjson`, redacted, with hourly
+    keyframes, kept 14 days.
+  - `npm run replay -- <day>` plays a day back on a real build.
+- **Phone:**
+  - The Now pane mirrors what the wall shows, with that view's buttons.
+    Results show on the button you tapped.
+  - The tabs are now Now, Night, Day and Home.
+  - Day shows what already happened today.
+- **Surfaces** (`src/lib/surface.js`):
+  - Each screen sends its profile in `hello`, and `GET /api/surfaces` lists
+    them.
+  - The wall sets `<html data-motion>` from its profile.
+- **Honest senses:**
+  - A fixed corner sign on the wall shows whether the camera and mic are on.
+  - Guest mode (hand-only, off by default) hides calendar titles, agents,
+    approval details and captions.
+- 6 new test files.
+- Agent characters: design variants drafted for review.
+
 ## 2026-10-10: Making Siri reliable and hands-off
 
 ### Done

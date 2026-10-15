@@ -168,6 +168,14 @@
 	box-sizing: border-box;
 }
 
+/* The wall's motion level (src/lib/surface.js): lite when the glass is flat
+   or the frame governor has throttled. Long travel gets shorter; components
+   that loop check html[data-motion='lite'] and hold still. */
+html[data-motion='lite'] {
+	--dur-pane: 320ms;
+	--dur-slow: 220ms;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,

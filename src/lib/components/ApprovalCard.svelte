@@ -5,7 +5,7 @@
 	the deadline. After that the agent asks in its own terminal instead.
 -->
 <script>
-	let { approvals = [], now = Date.now(), ondecide = null, compact = false } = $props();
+	let { approvals = [], now = Date.now(), ondecide = null, compact = false, guest = false } = $props();
 
 	let current = $derived(approvals[0] ?? null);
 	let more = $derived(Math.max(0, approvals.length - 1));
@@ -40,10 +40,14 @@
 			<span class="left num" aria-label="{secs} seconds left">{countdown(secs)}</span>
 		</div>
 		<p class="title" id="approval-title">{current.title}</p>
-		{#if current.detail}
-			<pre class="detail" id="approval-detail">{current.detail}</pre>
+		{#if guest}
+			<p class="where" id="approval-detail">Details are hidden in Guest mode. Answer from your phone to see them.</p>
+		{:else}
+			{#if current.detail}
+				<pre class="detail" id="approval-detail">{current.detail}</pre>
+			{/if}
+			{#if current.cwd}<p class="where">in {current.cwd}</p>{/if}
 		{/if}
-		{#if current.cwd}<p class="where">in {current.cwd}</p>{/if}
 		<div class="actions">
 			<button type="button" class="deny" onclick={() => decide('deny')} disabled={!!pending}>
 				{pending === 'deny' ? 'Denying…' : 'Deny'}

@@ -10,7 +10,8 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { tasks, approvals, attention, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { surfaceProfile } from '$lib/surface.js';
+	import { guestMode, tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime, reloadCustomSounds } from '$lib/services/chime.js';
@@ -48,6 +49,7 @@
 	import EdgeGlow from '$lib/components/EdgeGlow.svelte';
 	import PairCode from '$lib/components/PairCode.svelte';
 	import NotesMark from '$lib/components/NotesMark.svelte';
+	import SensesSign from '$lib/components/SensesSign.svelte';
 	import { liquidGlass } from '$lib/glass/liquidGlass.js';
 	import { glassTier, startGlassGovernor } from '$lib/glass/glassTier.js';
 	import { effectiveGlassTier } from '$lib/glass/frameGovernor.js';
@@ -64,7 +66,7 @@
 	import TodayTasks from '$lib/components/TodayTasks.svelte';
 	import { tarnishLevel } from '$lib/tarnish.js';
 	import DepartureBoard from '$lib/components/DepartureBoard.svelte';
-	import ApprovalCard from '$lib/components/ApprovalCard.svelte';
+	import AgentStage from '$lib/components/AgentStage.svelte';
 	import DayReceipt from '$lib/components/DayReceipt.svelte';
 	import { dayKey } from '$lib/dayLog.js';
 	import { currentDeparture, departureBoard } from '$lib/departures.js';
@@ -80,6 +82,11 @@
 	let pairCode = $state(null);
 	// notes being taken through the webcam's microphone: { on, startedAt, count }
 	let notes = $state({ on: false, startedAt: null, count: 0 });
+	// agents standing on the bar (AgentStage): the footer makes room for them
+	let agentsOnStage = $state(false);
+	// the senses snapshot, for the camera / mic sign and Guest mode
+	let sensesNow = $state(null);
+	$effect(() => guestMode.set(Boolean(sensesNow?.settings?.guest)));
 	let hdmiOff = $state(false);
 	let navEl = $state(null);
 	let tabRefs = $state([]);
@@ -323,6 +330,7 @@
 			}
 			hadDroppedConnection = false;
 			wsStatus.set('connected');
+			sendSurface();
 		};
 		ws.onclose = () => {
 			setIslandActivity('network', {
@@ -389,15 +397,17 @@
 				if (msg.type === 'presence') presence.set(msg);
 				if (msg.type === 'listening' && (msg.state === 'listening' || msg.state === 'thinking')) glowFor(8000);
 				if (msg.type === 'heard') {
-					if (msg.text) pushIslandEvent({ title: `“${msg.text}”`, source: 'You said', kind: 'heard', ttl: 5000 });
+					// Guest mode: the wall doesn't caption what it heard
+					if (msg.text && !$guestMode) pushIslandEvent({ title: `“${msg.text}”`, source: 'You said', kind: 'heard', ttl: 5000 });
 					glowFor(msg.text ? 4000 : 8000);
 				}
 				if (msg.type === 'senses' && msg.notes) notes = msg.notes;
+				if (msg.type === 'senses') sensesNow = msg;
 				if (msg.type === 'transcript') {
 					if (msg.on) notes = { ...notes, on: true, startedAt: msg.startedAt ?? notes.startedAt, count: (notes.count || 0) + (msg.line ? 1 : 0) };
 					else {
 						notes = { ...notes, on: false };
-						if (msg.saved) pushIslandEvent({ title: 'Notes saved', body: 'Open them on your phone: Stats → Senses', severity: 'ok', source: 'Wall', ttl: 6000 });
+						if (msg.saved) pushIslandEvent({ title: 'Notes saved', body: 'Open them on your phone: Home → Senses', severity: 'ok', source: 'Wall', ttl: 6000 });
 					}
 				}
 				if (msg.type === 'pair-code' && /^\d{6}$/.test(msg.code)) pairCode = { code: msg.code, expiresAt: msg.expiresAt };
@@ -407,6 +417,7 @@
 				}
 				if (msg.type === 'approvals' && Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 				if (msg.type === 'attention' && Array.isArray(msg.items)) attention.set(msg.items);
+				if (msg.type === 'ledger' && msg.ledger) ledger.set(msg.ledger);
 				// NWS alerts arrive the moment they change (every 15 to 30 s), not with the 5-minute forecast
 				if (msg.type === 'weather-alerts' && Array.isArray(msg.alerts)) applyWeatherAlerts(msg.alerts);
 				if (msg.type === 'tasks' && Array.isArray(msg.tasks)) {
@@ -446,7 +457,9 @@
 					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
 					if (Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 					if (Array.isArray(msg.attention)) attention.set(msg.attention);
+					if (msg.ledger) ledger.set(msg.ledger);
 					if (msg.senses) {
+						sensesNow = msg.senses;
 						presence.set(msg.senses.presence);
 						notes = msg.senses.notes;
 					}
@@ -969,6 +982,26 @@
 	// Glass: the frame-time governor's tier, capped by the load arbiter.
 	let glass = $derived(effectiveGlassTier($glassTier, mode === 'sleep' ? 'frozen' : $displayQuality));
 
+	// What this screen is (src/lib/surface.js): sent to the server, and one
+	// motion level for the CSS, lite when the glass is flat or motion is reduced.
+	let surface = $derived(
+		surfaceProfile({
+			role: 'wall',
+			width: typeof window === 'undefined' ? 0 : window.innerWidth,
+			height: typeof window === 'undefined' ? 0 : window.innerHeight,
+			touch: typeof window !== 'undefined' && matchMedia('(pointer: coarse)').matches,
+			reducedMotion: typeof window !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches,
+			glass
+		})
+	);
+	function sendSurface() {
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'hello', role: 'wall', surface }));
+	}
+	$effect(() => {
+		document.documentElement.dataset.motion = surface.motion;
+		sendSurface();
+	});
+
 	// Edge glow while the wall hears from the phone, or (later) speaks.
 	// 'wall-speaking' events carry { detail: true | false }.
 	let voiceGlow = $state(false);
@@ -1079,6 +1112,9 @@
 	{#if notes?.on && !hdmiOff}
 		<NotesMark lines={notes.count || 0} since={notes.startedAt} />
 	{/if}
+	{#if !hdmiOff}
+		<SensesSign senses={sensesNow} />
+	{/if}
 
 	{#if pairCode}
 		<PairCode code={pairCode.code} expiresAt={pairCode.expiresAt} />
@@ -1185,7 +1221,11 @@
 				</section>
 			{:else if $currentView === 'agents'}
 				<section class="view-pane agents-pane">
-					<AgentsHub />
+					{#if $guestMode}
+						<p class="guest-hidden">Agents are hidden while Guest mode is on.</p>
+					{:else}
+						<AgentsHub />
+					{/if}
 				</section>
 			{:else if $currentView === 'music'}
 				<section class="view-pane music-pane">
@@ -1203,13 +1243,23 @@
 			{/if}
 		</main>
 
-		<footer class="zone bottom">
+		<footer class="zone bottom" class:has-agents={agentsOnStage}>
 			<div class="equator" aria-hidden="true">
 				{#each Array(16) as _, i (i)}
 					<span>+</span>
 				{/each}
 			</div>
 			<div class="trough glass-field" data-glass use:liquidGlass={{ enabled: glass === 'refract', blur: 10 }}>
+				<!-- the agents, standing on the bar's top edge: typing while they work, asking when they need you -->
+				<AgentStage
+					roster={$agentRoster}
+					approvals={$approvals}
+					now={time.getTime()}
+					ondecide={decideApproval}
+					guest={$guestMode}
+					paused={mode === 'sleep' || hdmiOff}
+					onpresence={(on) => (agentsOnStage = on)}
+				/>
 				<AmbientDeck
 					{atm}
 					prediction={wxForIsland?.prediction || weatherData?.prediction}
@@ -1228,11 +1278,6 @@
 	{#if $attention.some((i) => i.kind !== 'approval')}
 		<div class="attention-layer">
 			<AttentionCard items={$attention} now={time.getTime()} onack={ackAttention} ondone={attentionDone} onsnooze={attentionLater} />
-		</div>
-	{/if}
-	{#if $approvals.length}
-		<div class="approval-layer">
-			<ApprovalCard approvals={$approvals} now={time.getTime()} ondecide={decideApproval} />
 		</div>
 	{/if}
 
@@ -1255,16 +1300,6 @@
 		display: grid;
 		place-items: center;
 		background: radial-gradient(70% 60% at 50% 50%, color-mix(in srgb, #000 55%, transparent), transparent 75%);
-		pointer-events: none;
-	}
-	.approval-layer {
-		position: fixed;
-		inset: 0;
-		z-index: 60;
-		display: grid;
-		place-items: end center;
-		padding-bottom: 7.5rem;
-		background: radial-gradient(70% 60% at 50% 85%, color-mix(in srgb, #000 55%, transparent), transparent 75%);
 		pointer-events: none;
 	}
 	.skip {
@@ -1755,7 +1790,13 @@
 			color-mix(in srgb, var(--abyss) 46%, transparent) 72%
 		);
 	}
+	/* a strip above the bar for the agents to stand in (AgentStage); the view
+	   above gives up the room. Rare, so a short eased resize is fine. */
+	.bottom.has-agents {
+		padding-top: 6rem;
+	}
 	.bottom {
+		transition: padding-top 280ms cubic-bezier(0.22, 1, 0.36, 1);
 		height: auto;
 		display: flex;
 		flex-direction: column;
@@ -1987,5 +2028,10 @@
 			min-height: 0;
 			padding-bottom: calc(var(--space-6) + max(var(--floor-clearance) * 0.5, env(safe-area-inset-bottom)));
 		}
+	}
+	.guest-hidden {
+		margin: auto;
+		font-size: var(--text-2xl);
+		color: var(--text-tertiary);
 	}
 </style>

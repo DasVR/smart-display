@@ -5,11 +5,11 @@ shows a six-digit code, and you type it on the phone. The phone keeps a
 device token after that, so the wall knows which phone is which. Later,
 "remind me" can mean you.
 
-Phone: **Stats → Phones** (`/remote/pair`).
+Phone: **Home → Phones** (`/remote/pair`).
 
 ## Pair a phone
 
-1. On the phone, open **Stats → Phones**, give the phone a name, and tap
+1. On the phone, open **Home → Phones**, give the phone a name, and tap
    **Show a code on the wall**.
 2. The wall shows the code for two minutes.
 3. Type it on the phone. The wall says "<name> is paired".

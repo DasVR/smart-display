@@ -10,6 +10,8 @@ export const DEFAULT_SENSES = {
 	// both off until turned on from the phone
 	mic: false,
 	camera: false,
+	// Guest mode (src/lib/sensesSign.js): only ever turned on by hand
+	guest: false,
 	// a PipeWire source name (or part of one); '' picks the webcam's own mic
 	micSource: '',
 	// /dev/videoN or an index; '' is the first camera
@@ -153,7 +155,8 @@ export function normalizeSensesSettings(patch = {}, base = DEFAULT_SENSES) {
 		focalWidth: pick('focalWidth') == null ? null : num(pick('focalWidth'), 80, 4000, null),
 		notesMinutes: num(pick('notesMinutes'), 1, 240, DEFAULT_SENSES.notesMinutes),
 		places: cleanPlaces(pick('places'), cleanZones(pick('zones'))),
-		awayMinutes: AWAY_CHOICES.includes(Number(pick('awayMinutes'))) ? Number(pick('awayMinutes')) : 0
+		awayMinutes: AWAY_CHOICES.includes(Number(pick('awayMinutes'))) ? Number(pick('awayMinutes')) : 0,
+		guest: pick('guest') === true
 	};
 }
 

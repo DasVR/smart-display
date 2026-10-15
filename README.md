@@ -17,6 +17,11 @@ Ollama, the package updater).
 | **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips, and a **Today** list of chores and alerts. In the hour before a "Leave …" item it becomes a **departure board** | `/api/weather`, `/api/tasks`, `/api/calendar` |
 | **Calendar** | A rolling seven-day week starting today: every event, with homework (`#hw`) tagged Due | `/api/calendar` (Google Calendar) |
 | **Agents** | The active coding agent, the rest of the roster, host load and services | `/api/agents`, `/api/telemetry`, `/api/ollama/ps` |
+
+On every view, each working agent has a **pixel character** on the bottom
+bar's top edge: Clawd for Claude Code, a cube for Cursor, twins for Gemini.
+It types at a laptop while its agent works, and stands up to ask when the
+agent needs an answer. See [`docs/agent-characters.md`](docs/agent-characters.md).
 | **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
 | **Weather** | Live radar with a nowcast, current conditions, NWS alerts (checked every 15 to 30 s; act-now warnings ring the wall) | `/api/weather`, `/api/weather/station`, NWS |
 
@@ -38,7 +43,7 @@ their time). It also pulls in homework and reminders from your Google
 Calendar and Google Tasks; those are read-only, and ticking one off hides
 it on the wall. Either kind can be one-off or repeat hourly, daily, on chosen
 weekdays, weekly or monthly. It shows on the Clock view and the island, and
-you manage it from the phone's **Tasks** tab.
+you manage it from the phone's **Day** tab.
 
 Other platforms, such as assistants like Tomo or Instinct, can use it in
 three ways:
@@ -60,7 +65,7 @@ See [`docs/tasks-api.md`](docs/tasks-api.md).
   now: Tell the wall, Allow / Deny a waiting agent, Done: Feed the cat,
   Pause music, Screen off.
 
-The phone's **Tasks → Siri & Shortcuts** page has every recipe with your
+The phone's **Day → Siri & Shortcuts** page has every recipe with your
 display's address filled in. See [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md).
 
 ### The wall reads the room
@@ -176,16 +181,22 @@ These query parameters show a state without needing real hardware or data:
 Open `/remote` on a phone and use **Add to Home Screen** to run it as an app.
 A floating tab bar at the bottom switches between:
 
-- **Remote** (`/remote`): panel power, channel picker, volume
+- **Now** (`/remote`): the back of the wall. It opens with what the wall is
+  showing and that view's buttons: what needs you with Done / Later / Allow on
+  the clock, the transport on music, waiting agents on Agents, what's coming
+  on Calendar, conditions and alerts on Weather. Below: panel power, channel
+  picker, volume.
 - **Night** (`/remote#night`): when the panel is on, per day, and the morning wake (see [`docs/display-schedule.md`](docs/display-schedule.md))
-- **Tasks** (`/remote/tasks`): add, complete and snooze chores and alerts.
-  **Siri & Shortcuts** (`/remote/shortcuts`) has the Siri recipes and a box
-  to try phrases. Any page shows an Allow / Deny card while an agent waits.
-- **Stats** (`/remote/stats`): AirPlay, speakers, Bluetooth, host load, services,
+- **Day** (`/remote/tasks`): add, complete and snooze chores and alerts, and
+  what already happened today. **Siri & Shortcuts** (`/remote/shortcuts`) has
+  the Siri recipes, everything you can say, and a box to try phrases. Any
+  page shows an Allow / Deny card while an agent waits.
+- **Home** (`/remote/stats`): AirPlay, speakers, Bluetooth, host load, services,
   updates, git. Links at the top lead to **Phones** (`/remote/pair`, pairing),
-  **Sounds & voice** (`/remote/sounds`) and **Lyrics source** (`/remote/lyrics`)
+  **Sounds & voice** (`/remote/sounds`), **Senses** (`/remote/senses`, with
+  Guest mode) and **Lyrics source** (`/remote/lyrics`)
 
-Pair each phone once (Stats → Phones). After that you can switch on "Only
+Pair each phone once (Home → Phones). After that you can switch on "Only
 paired phones" so nobody else on the network can drive the wall. See
 [`docs/pairing.md`](docs/pairing.md).
 
@@ -263,11 +274,14 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/tasks-api.md`](docs/tasks-api.md): chores and alerts, webhooks, MCP bridge
 - [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md): Siri, the Action button and Shortcuts
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
+- [`docs/agent-characters.md`](docs/agent-characters.md): the agents as pixel characters on the bottom bar, and how they're animated
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
 - [`docs/display-schedule.md`](docs/display-schedule.md): when the panel turns on and off, per day of the week
 - [`docs/weather-alerts.md`](docs/weather-alerts.md): NWS watches and warnings, checked every 15 to 30 seconds, and what each one does on the wall
 - [`docs/attention.md`](docs/attention.md): how the wall gets your attention for timers, reminders, agents and severe weather, and how to answer it
+- [`docs/ledger-and-log.md`](docs/ledger-and-log.md): the day as one timeline, every command declared once, the event log and replays, surface profiles
+- [`docs/redesign-plan.md`](docs/redesign-plan.md): where the system is going, and why
 - [`docs/pairing.md`](docs/pairing.md): pair phones with a code on the wall; optionally only paired phones get in
 - [`docs/bluetooth-setup.md`](docs/bluetooth-setup.md): Bluetooth, AirPlay and speaker setup
 - [`scripts/forced_align/README.md`](scripts/forced_align/README.md): lyrics lookup, cache and alignment

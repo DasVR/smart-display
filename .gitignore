@@ -37,3 +37,5 @@ data/senses.json
 data/transcripts/
 # "that was wrong" reports from the phone: the senses' last 30 s, numbers and words
 data/senses-reports/
+# the event log (src/lib/server/eventLog.js)
+data/log/
