@@ -14,6 +14,7 @@
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
 	import WallMirror from '$lib/components/WallMirror.svelte';
+	import { surfaceProfile } from '$lib/surface.js';
 
 	// Two panes on one page, picked by the bottom tab bar: the everyday
 	// controls, and the night schedule (#night).
@@ -239,7 +240,19 @@
 			linkDown = false;
 			status = 'connected';
 			lastMessageAt = Date.now();
-			ws.send(JSON.stringify({ type: 'hello', role: 'remote' }));
+			ws.send(
+				JSON.stringify({
+					type: 'hello',
+					role: 'remote',
+					surface: surfaceProfile({
+						role: 'remote',
+						width: window.innerWidth,
+						height: window.innerHeight,
+						touch: matchMedia('(pointer: coarse)').matches,
+						reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches
+					})
+				})
+			);
 			ws.send(JSON.stringify({ type: 'ping' }));
 		};
 		ws.onclose = () => {

@@ -10,6 +10,7 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
+	import { surfaceProfile } from '$lib/surface.js';
 	import { tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
@@ -323,6 +324,7 @@
 			}
 			hadDroppedConnection = false;
 			wsStatus.set('connected');
+			sendSurface();
 		};
 		ws.onclose = () => {
 			setIslandActivity('network', {
@@ -970,6 +972,26 @@
 
 	// Glass: the frame-time governor's tier, capped by the load arbiter.
 	let glass = $derived(effectiveGlassTier($glassTier, mode === 'sleep' ? 'frozen' : $displayQuality));
+
+	// What this screen is (src/lib/surface.js): sent to the server, and one
+	// motion level for the CSS, lite when the glass is flat or motion is reduced.
+	let surface = $derived(
+		surfaceProfile({
+			role: 'wall',
+			width: typeof window === 'undefined' ? 0 : window.innerWidth,
+			height: typeof window === 'undefined' ? 0 : window.innerHeight,
+			touch: typeof window !== 'undefined' && matchMedia('(pointer: coarse)').matches,
+			reducedMotion: typeof window !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches,
+			glass
+		})
+	);
+	function sendSurface() {
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'hello', role: 'wall', surface }));
+	}
+	$effect(() => {
+		document.documentElement.dataset.motion = surface.motion;
+		sendSurface();
+	});
 
 	// Edge glow while the wall hears from the phone, or (later) speaks.
 	// 'wall-speaking' events carry { detail: true | false }.

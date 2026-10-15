@@ -31,6 +31,7 @@ import { createPairing, isLocalAddress } from './lib/server/pairing.js';
 import { createSensesHub } from './lib/server/sensesHub.js';
 import { createLedgerHub } from './lib/server/ledgerHub.js';
 import { createEventLog } from './lib/server/eventLog.js';
+import { normalizeSurface } from './lib/surface.js';
 import { dayKey } from './lib/dayLog.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
@@ -656,6 +657,11 @@ const server = createServer(async (req, res) => {
 	if (await dayLog.handleHttp(req, res)) return;
 	if (await ledgerHub.handleHttp(req, res)) return;
 	if (await eventLog.handleHttp(req, res)) return;
+	// who's looking at the wall's state right now (src/lib/surface.js)
+	if (req.method === 'GET' && req.url?.split('?')[0] === '/api/surfaces') {
+		const list = [...clients].filter((c) => c.surface).map((c) => ({ ...c.surface, since: new Date(c.surfaceSince).toISOString(), device: c.device || null }));
+		return json(res, { surfaces: list });
+	}
 	if (await voiceHub.handleHttp(req, res)) return;
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
@@ -1015,6 +1021,13 @@ wss.on('connection', (ws, req) => {
 			// not paired while pairing is required: nothing but pairing
 			if (!trusted(ws) || !clients.has(ws)) return ws.send(JSON.stringify({ type: 'pair-required' }));
 			if (msg.type === 'hello' && msg.role === 'remote') ws.isRemote = true;
+			if (msg.type === 'hello' && msg.surface) {
+				const surface = normalizeSurface(msg.surface);
+				if (surface) {
+					if (!ws.surface) ws.surfaceSince = Date.now();
+					ws.surface = surface;
+				}
+			}
 			if (msg.type === 'navigate') {
 				currentView = canonicalizeKioskView(msg.view);
 				// a hand-picked page: the spots leave it alone for a while (Smart Stack's own turns don't count)
