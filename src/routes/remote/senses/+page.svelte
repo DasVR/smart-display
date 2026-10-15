@@ -15,7 +15,7 @@
 	import { wallSocketUrl, followPairing } from '$lib/remoteAuth.js';
 	import { onMount } from 'svelte';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
-	import { WHISPER_MODELS, WAKE_MODELS, AWAY_CHOICES, describeDistance } from '$lib/senses.js';
+	import { WHISPER_MODELS, WAKE_MODELS, AWAY_CHOICES, EXIT_SIDES, EXIT_SECONDS, describeDistance } from '$lib/senses.js';
 	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
 
 	let ws;
@@ -521,6 +521,29 @@
 						<option value={String(m)}>{m ? `${m} min` : 'Never'}</option>
 					{/each}
 				</select>
+			</label>
+			<label class="row">
+				<span>Walk out of the picture on the</span>
+				<select value={s.settings.exitSide || 'off'} onchange={(e) => patch({ exitSide: e.currentTarget.value })}>
+					{#each EXIT_SIDES as side (side)}
+						<option value={side}>{{ off: 'Off', left: 'Left side', right: 'Right side', either: 'Either side' }[side]}</option>
+					{/each}
+				</select>
+			</label>
+			{#if s.settings.exitSide && s.settings.exitSide !== 'off'}
+				<label class="row">
+					<span>…and the screen goes off after</span>
+					<select value={String(s.settings.exitSeconds || 20)} onchange={(e) => patch({ exitSeconds: Number(e.currentTarget.value) })}>
+						{#each EXIT_SECONDS as sec (sec)}
+							<option value={String(sec)}>{sec < 60 ? `${sec} s` : `${sec / 60} min`}</option>
+						{/each}
+					</select>
+				</label>
+				<p class="note">Left and right as you face the wall. Pick the side the door is on. If the camera just loses you in the middle of the room, it waits for the timer above instead.</p>
+			{/if}
+			<label class="row">
+				<span>Screen back on when you come back</span>
+				<input type="checkbox" checked={s.settings.wakeOnReturn !== false} onchange={(e) => patch({ wakeOnReturn: e.currentTarget.checked })} />
 			</label>
 
 			{#if !body}

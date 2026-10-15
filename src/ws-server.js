@@ -200,6 +200,9 @@ const approvalHub = createApprovalHub({
 	onDecide: (a) => dayLog.record('approval', { decision: a.status })
 });
 // the Action button and spoken commands (see src/lib/wallActions.js)
+// the camera turned the panel off because the room emptied: coming back turns it on (src/lib/senses.js placeStep)
+const CAMERA_OFF_REASONS = new Set(['away', 'left-room']);
+let cameraTurnedOff = false;
 const PLAYER_ARGS = { pause: ['pause'], play: ['play'], next: ['next'], previous: ['previous'] };
 const actionHub = createActionHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
@@ -255,6 +258,13 @@ const sensesHub = createSensesHub({
 			broadcast({ type: 'navigate', view, from: 'place' });
 		} else if (action.panel === 'off' && hdmiState === 'on') {
 			applyHdmi('off', { reason: action.reason }).catch(() => {});
+			cameraTurnedOff = CAMERA_OFF_REASONS.has(action.reason);
+		} else if (action.panel === 'on' && cameraTurnedOff) {
+			// back in the room: on again, unless something else has turned it off since, or it's night
+			cameraTurnedOff = false;
+			if (hdmiState !== 'off' || voiceHub.snapshot().quietNow) return;
+			if (isQuietHours(new Date(), schedule) || desiredHdmi(new Date(), schedule) === 'off') return;
+			handleTrigger('normal', { data: { from: 'camera' } }).catch(() => {});
 		}
 	},
 	onNear: () => {
@@ -546,6 +556,8 @@ async function commitHdmi(state, reason) {
 
 async function applyHdmi(state, { reason } = {}) {
 	if (state !== 'on' && state !== 'off') return hdmiState;
+	// anyone else touching the panel: coming back no longer turns it on
+	if (!CAMERA_OFF_REASONS.has(reason)) cameraTurnedOff = false;
 	// a change anyone else makes is theirs: attention won't turn it back off
 	if (reason !== 'attention') attentionHub.panelChanged();
 	if (reason !== 'schedule') {
