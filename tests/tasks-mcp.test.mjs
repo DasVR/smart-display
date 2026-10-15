@@ -61,7 +61,7 @@ test('the MCP bridge lists tools and drives the task API end to end', async () =
 		child.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');
 
 		const tools = (await rpc('tools/list')).result.tools.map((t) => t.name);
-		assert.deepEqual(tools, ['list_tasks', 'add_task', 'update_task', 'complete_task', 'snooze_task', 'delete_task', 'room_presence', 'say_on_wall', 'list_wall_notes', 'read_wall_note', 'notify_display']);
+		assert.deepEqual(tools, ['list_tasks', 'add_task', 'update_task', 'complete_task', 'snooze_task', 'delete_task', 'room_presence', 'say_on_wall', 'list_wall_notes', 'read_wall_note', 'notify_display', 'run_wall_intent']);
 
 		const added = await rpc('tools/call', { name: 'add_task', arguments: { title: 'Feed the cat', repeat: 'daily' } });
 		const task = JSON.parse(added.result.content[0].text).task;
