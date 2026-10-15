@@ -86,3 +86,30 @@ def _after_words(raw, count):
             return raw[tok.start():].strip().rstrip(".!?,").strip()
         count -= len(clean(tok.group(0)).split())
     return ""
+
+
+def echoes_prompt(text, prompt):
+    """True when what Whisper wrote is only (part of) the example it was primed
+    with. On noise (a fan, the TV, the wall's own music) Whisper sometimes
+    "hears" its prompt back: "Hey wall, pause the music." out of nothing."""
+    t, p = clean(text), clean(prompt)
+    return bool(t and p) and f" {t} " in f" {p} "
+
+
+def confirm_echo(text, prompt, recheck, wake_words=None):
+    """Keep a piece that echoes the prompt only if it says the same without it.
+
+    recheck() transcribes the same sound with no prompt. Someone really saying
+    "hey wall, pause the music" still comes out as "pause the music" (the wake
+    word may be misheard, so only the command must be there); noise doesn't.
+    Returns (keep, what the recheck heard).
+    """
+    if not prompt or not echoes_prompt(text, prompt):
+        return True, None
+    command = clean(match_wake(text, wake_words) or "")
+    if not command:
+        # a bare "hey wall" out of the prompt: only a real one says it twice
+        again = recheck()
+        return match_wake(again, wake_words) is not None, again
+    again = recheck()
+    return f" {command} " in f" {clean(again)} ", again

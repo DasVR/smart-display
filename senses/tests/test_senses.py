@@ -13,7 +13,7 @@ from wall_senses.hearing import choose_source, route
 from wall_senses.vad import FRAME_MS, FRAME_SAMPLES, SpeechGate, apply_gain, rms
 from wall_senses import room
 from wall_senses.diary import Diary
-from wall_senses.wake import is_noise, match_wake
+from wall_senses.wake import confirm_echo, echoes_prompt, is_noise, match_wake
 
 
 class Distance(unittest.TestCase):
@@ -289,3 +289,38 @@ class DiaryKeeps30Seconds(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromptEcho(unittest.TestCase):
+    PROMPT = "Hey wall, what time is it? Hey wall, pause the music."
+
+    def test_spots_the_prompt_coming_back(self):
+        self.assertTrue(echoes_prompt("Hey wall, pause the music.", self.PROMPT))
+        self.assertTrue(echoes_prompt("Hey wall, what time is it?", self.PROMPT))
+        self.assertTrue(echoes_prompt("Hey wall.", self.PROMPT))
+        self.assertFalse(echoes_prompt("Hey wall, pause the music in the kitchen", self.PROMPT))
+        self.assertFalse(echoes_prompt("Hey wall, what's the weather?", self.PROMPT))
+        self.assertFalse(echoes_prompt("the mus", self.PROMPT), "whole words only")
+        self.assertFalse(echoes_prompt("Hey wall, pause the music.", None))
+
+    def test_noise_that_echoes_is_dropped(self):
+        # without the prompt, a fan is a fan
+        keep, again = confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "")
+        self.assertFalse(keep)
+        self.assertEqual(again, "")
+        self.assertFalse(confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "Thank you.")[0])
+        self.assertFalse(confirm_echo("Hey wall.", self.PROMPT, lambda: "Wow.")[0])
+
+    def test_someone_really_saying_it_is_kept(self):
+        self.assertTrue(confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "Hey well, pause the music.")[0])
+        # the wake word misheard without the prompt still counts: the command is there
+        self.assertTrue(confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "A fall, pause the music")[0])
+        self.assertTrue(confirm_echo("Hey wall.", self.PROMPT, lambda: "Hey wall")[0])
+
+    def test_anything_else_is_not_checked_again(self):
+        def boom():
+            raise AssertionError("no recheck needed")
+
+        self.assertEqual(confirm_echo("Hey wall, what's the weather?", self.PROMPT, boom), (True, None))
+        self.assertEqual(confirm_echo("Hey wall, pause the music.", None, boom), (True, None))
+
