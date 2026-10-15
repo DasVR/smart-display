@@ -233,7 +233,8 @@ const sensesHub = createSensesHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => broadcast(msg),
 	command: async (text) => (await taskHub.sayAdd({ text, source: 'Wall mic' })).data,
-	say: (text) => voiceHub.say(text, { source: 'Wall' }),
+	// the answer to something just said to the wall: never held for "while you were out"
+	say: (text) => voiceHub.say(text, { source: 'Wall', reply: true }),
 	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
 	timeZone: process.env.TZ || undefined,
 	// walking up to the wall turns the panel on, but not at night

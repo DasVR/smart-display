@@ -240,9 +240,11 @@ export function createVoiceHub({
 	 * audio comes along when there's a key and the voice is on, at the day or
 	 * night volume (only the voice gets quieter; nothing else on the wall
 	 * changes). With nightSilent it says nothing at night unless urgent.
+	 * A `reply` answers someone who just spoke to the wall, so it is never
+	 * held for later: they're there, even if the camera can't see them.
 	 * Returns what happened.
 	 */
-	async function say(text, { urgent = false, source = 'Wall', caption = true } = {}) {
+	async function say(text, { urgent = false, reply = false, source = 'Wall', caption = true } = {}) {
 		const words = speechText(text);
 		if (!words) return { ok: false, error: 'empty' };
 		const id = `speak-${++seq}`;
@@ -253,7 +255,7 @@ export function createVoiceHub({
 		const volume = settings.followRoom ? roomVolume(voiceVolumeAt(now(), settings), here, { quiet }) : voiceVolumeAt(now(), settings);
 		if (!settings.enabled) reason = 'off';
 		else if (!urgent && settings.nightSilent && quiet) reason = 'quiet-hours';
-		else if (!urgent && settings.holdWhenAway && roomEmpty(here)) {
+		else if (!urgent && !reply && settings.holdWhenAway && roomEmpty(here)) {
 			// nobody to hear it: show it, and say it when someone comes back
 			reason = 'away';
 			held = [...held, { text: words, at: now() }].slice(-10);
