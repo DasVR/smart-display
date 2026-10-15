@@ -25,10 +25,12 @@ const ORDER = Object.keys(CHARACTERS);
 export function castFor({ roster = [], approvals = [], onlyAsking = false } = {}) {
 	const byChar = new Map();
 	for (const a of roster || []) {
-		if (a?.phase !== 'working') continue;
+		// waiting: a session asked a question to answer where it runs (no bubble here, just the "?")
+		if (a?.phase !== 'working' && a?.phase !== 'waiting') continue;
 		const character = characterFor(a.name || a.id);
 		if (!character) continue;
-		byChar.set(character, { character, name: a.name || CHARACTERS[character].label, target: 'work', task: a.task || '', approval: null, waiting: 0 });
+		const target = a.phase === 'waiting' ? 'ask' : 'work';
+		byChar.set(character, { character, name: a.name || CHARACTERS[character].label, target, task: a.task || '', approval: null, waiting: 0 });
 	}
 	for (const ap of approvals || []) {
 		if (ap?.status && ap.status !== 'pending') continue;

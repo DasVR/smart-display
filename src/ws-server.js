@@ -60,8 +60,10 @@ import {
 import {
 	getAgentRoster,
 	ingestAgentNotify,
-	ingestOllamaStatus
+	ingestOllamaStatus,
+	setAgentStatus
 } from './lib/server/agentRosterState.js';
+import { createAgentStatusHub } from './lib/server/agentStatusHub.js';
 import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, setMute, setVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -325,6 +327,30 @@ function publishNotify(notify) {
 	}
 	broadcast(notify);
 	broadcast({ type: 'agents', agents: roster });
+}
+
+// the agents' own hooks, local or in the cloud, and Cursor's cloud agents (src/lib/agentHooks.js)
+const AGENT_NAMES = { claude: 'Claude Code', cursor: 'Cursor' };
+const agentStatusHub = createAgentStatusHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
+	onStatus: (agent, st, before) => {
+		const name = AGENT_NAMES[agent];
+		const busy = (p) => p === 'working' || p === 'waiting';
+		// starting and finishing chime and show like /api/notify; everything in between just updates the card
+		if (st.phase === 'working' && !busy(before.phase)) {
+			publishNotify({ type: 'notify', title: `${name} working`, body: st.task, severity: 'info', source: name, kind: 'working', ttl: 9000 });
+		} else if (busy(before.phase) && (st.phase === 'done' || st.phase === 'error') && !st.stale) {
+			const failed = st.phase === 'error';
+			publishNotify({ type: 'notify', title: failed ? `${name} stopped` : `${name} finished`, body: st.task, severity: failed ? 'error' : 'ok', source: name, kind: 'done', ttl: 9000 });
+		}
+		broadcast({ type: 'agents', agents: setAgentStatus(agent, st) });
+	}
+});
+setInterval(() => agentStatusHub.tick(), 60000);
+if (process.env.CURSOR_API_KEY) {
+	agentStatusHub.pollCursor();
+	setInterval(() => agentStatusHub.pollCursor(), 60000);
 }
 
 function handleAudioConnected(req, res, parse, from) {
@@ -678,6 +704,7 @@ const server = createServer(async (req, res) => {
 	if (await voiceHub.handleHttp(req, res)) return;
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
+	if (await agentStatusHub.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';

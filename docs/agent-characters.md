@@ -5,10 +5,11 @@ the wall's bottom bar, so you can see who's working from across the room.
 
 | What the agent is doing | What its character does |
 | --- | --- |
-| working (`/api/notify` with `"event": "working"`) | sits turned to an open laptop and types, in bursts, with pauses to read and a blink |
+| working (its hooks, see [`agent-status.md`](agent-status.md), or `/api/notify` with `"event": "working"`) | sits turned to an open laptop and types, in bursts, with pauses to read and a blink |
 | asking (an approval is waiting, see [`approvals.md`](approvals.md)) | shuts the laptop, stretches, stands and waves, with a pixel "?" over its head; a speech bubble beside it asks the question, with Allow and Deny |
 | you said yes | crouches, springs with its arms over its head, hops, lands and winks, then back to work |
 | you said no | looks down, its arms drop, it sinks a pixel; then back to work |
+| needs you somewhere else (a session asking a question you answer where it runs, see [`agent-status.md`](agent-status.md)) | stands and waves with the "?", no bubble |
 | done | climbs back down behind the bar |
 
 On the **Agents** view, the lead agent's character is the hero, large, beside

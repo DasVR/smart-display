@@ -92,7 +92,7 @@
 	// the lead agent as its pixel character (src/lib/agentSprites.js): at its
 	// laptop while it works, standing otherwise; finishing a run is worth one hop
 	let leadChar = $derived(lead ? characterFor(lead.name || lead.id) : null);
-	let leadTarget = $derived(lead?.phase === 'working' ? 'work' : 'idle');
+	let leadTarget = $derived(targetOf(lead?.phase));
 	let finish = $state({ key: 0, id: '' });
 	let lastPhase = { id: '', phase: '' };
 	$effect(() => {
@@ -101,9 +101,20 @@
 		if (id && id === lastPhase.id && lastPhase.phase === 'working' && phase === 'done') finish = { key: finish.key + 1, id };
 		lastPhase = { id, phase };
 	});
-	const statusLine = (a) => (a.phase === 'working' ? (a.task && a.task !== 'working' ? a.task : 'Working') : a.phase === 'done' ? `Finished ${relativeAge(a.updatedAt, now)}` : 'Idle');
+	// waiting: a session asked you something (answer it where it runs); it stands with a "?"
+	const targetOf = (phase) => (phase === 'working' ? 'work' : phase === 'waiting' ? 'ask' : 'idle');
+	const statusLine = (a) =>
+		a.phase === 'working'
+			? a.task && a.task !== 'working' ? a.task : 'Working'
+			: a.phase === 'waiting'
+				? `Needs you: ${a.task || 'a question'}`
+				: a.phase === 'error'
+					? a.task || 'Stopped with an error'
+					: a.phase === 'done'
+						? `Finished ${relativeAge(a.updatedAt, now)}`
+						: 'Idle';
 	let kicker = $derived(
-		!lead ? 'Standby' : lead.phase === 'working' ? 'Thinking' : lead.phase === 'done' ? 'Finished' : lead.phase
+		!lead ? 'Standby' : lead.phase === 'working' ? 'Thinking' : lead.phase === 'waiting' ? 'Needs you' : lead.phase === 'error' ? 'Stopped' : lead.phase === 'done' ? 'Finished' : lead.phase
 	);
 	let title = $derived(lead?.name || 'Agents');
 	let body = $derived(lead?.task && lead.task !== 'standby' ? lead.task : thinking ? 'Working' : 'No run on the box');
@@ -139,6 +150,7 @@
 			<p class="kicker">{kicker}</p>
 			<h2 class="name">{title}</h2>
 			<p class="task">{body}</p>
+			{#if lead?.body}<p class="where">{lead.body}</p>{/if}
 			{#if lead?.updatedAt}
 				<time class="age" datetime={new Date(lead.updatedAt).toISOString()}>
 					{relativeAge(lead.updatedAt, now)}
@@ -153,7 +165,7 @@
 			<li data-phase={a.phase}>
 				<div class="mini" class:orbs={!ch}>
 					{#if ch}
-						<AgentCharacter character={ch} target={a.phase === 'working' ? 'work' : 'idle'} size={132} {paused} label={`${a.name}: ${statusLine(a)}`} />
+						<AgentCharacter character={ch} target={targetOf(a.phase)} size={132} {paused} label={`${a.name}: ${statusLine(a)}`} />
 					{:else}
 						<ThinkingOrbs phase={a.phase} />
 					{/if}
@@ -255,6 +267,9 @@
 	.agents-stage[data-phase='done'] .kicker {
 		color: var(--scan);
 	}
+	.agents-stage[data-phase='waiting'] .kicker {
+		color: var(--warn, #ffb547);
+	}
 	.name {
 		margin: 0;
 		font-family: var(--font-body);
@@ -270,6 +285,13 @@
 		font-size: clamp(1.15rem, 2.2vw, 1.75rem);
 		color: var(--text-secondary);
 		max-width: 28rem;
+		overflow-wrap: anywhere;
+	}
+	.where {
+		margin: 0;
+		font-size: var(--text-base);
+		color: var(--text-tertiary);
+		max-width: 32rem;
 		overflow-wrap: anywhere;
 	}
 	.age {

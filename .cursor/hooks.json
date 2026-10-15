@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [{ "command": "node hooks/wall-status.mjs cursor" }],
+    "afterShellExecution": [{ "command": "node hooks/wall-status.mjs cursor" }],
+    "afterFileEdit": [{ "command": "node hooks/wall-status.mjs cursor" }],
+    "afterAgentResponse": [{ "command": "node hooks/wall-status.mjs cursor" }],
+    "stop": [{ "command": "node hooks/wall-status.mjs cursor" }],
+    "sessionEnd": [{ "command": "node hooks/wall-status.mjs cursor" }]
+  }
+}

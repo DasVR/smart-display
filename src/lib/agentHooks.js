@@ -138,6 +138,7 @@ export function readHook(body = {}, { agent: named = '', remote = false } = {}) 
 		default:
 			return null;
 	}
+	if (!phase) return null;
 	const asked = event === 'UserPromptSubmit' || event === 'beforeSubmitPrompt' ? prompt : '';
 	return { agent, session, phase, task, prompt: asked, project, remote: Boolean(remote) };
 }
@@ -169,7 +170,7 @@ export function applyHook(sessions = {}, step, now = Date.now()) {
 		prompt,
 		project: step.project || was?.project || '',
 		remote: step.remote || Boolean(was?.remote),
-		since: fresh && (step.phase === 'working' || step.phase === 'waiting') ? now : was?.since || now,
+		since: fresh && (step.phase === 'working' || step.phase === 'waiting') ? now : (was?.since ?? now),
 		at: now
 	};
 	return next;
@@ -198,12 +199,44 @@ const RANK = { waiting: 4, working: 3, error: 2, done: 1 };
  */
 export function agentStatus(sessions = {}, agent) {
 	const mine = Object.values(sessions).filter((s) => s.agent === agent);
-	if (!mine.length) return { phase: 'idle', task: '', body: '', sessions: 0, busy: 0, remote: false, at: 0 };
+	if (!mine.length) return { phase: 'idle', task: '', body: '', sessions: 0, busy: 0, remote: false, stale: false, at: 0 };
 	const top = mine.reduce((a, b) => ((RANK[b.phase] || 0) > (RANK[a.phase] || 0) || ((RANK[b.phase] || 0) === (RANK[a.phase] || 0) && b.at > a.at) ? b : a));
 	const busy = mine.filter((s) => s.phase === 'working' || s.phase === 'waiting').length;
 	const where = [top.project, top.remote ? 'cloud' : ''].filter(Boolean).join(' · ');
 	const task = top.phase === 'waiting' ? top.task || 'Needs you' : top.phase === 'working' ? top.task || 'Working' : top.task || (top.phase === 'error' ? 'Stopped with an error' : 'finished');
 	const others = busy - (top.phase === 'working' || top.phase === 'waiting' ? 1 : 0);
 	const body = [where, top.prompt && top.prompt !== task ? `“${top.prompt}”` : '', others > 0 ? `+${others} more` : ''].filter(Boolean).join(' · ');
-	return { phase: top.phase, task, body, sessions: mine.length, busy, remote: mine.some((s) => s.remote), at: top.at };
+	return { phase: top.phase, task, body, sessions: mine.length, busy, remote: mine.some((s) => s.remote), stale: Boolean(top.stale), at: top.at };
+}
+
+/**
+ * Cursor's cloud agents (GET https://api.cursor.com/v1/agents, `items`) as
+ * sessions: ACTIVE is working, IDLE finished. Archived ones, and any not
+ * touched in FORGET_MS, are left out. Replaces every earlier cloud session.
+ */
+export function withCursorCloud(sessions = {}, items = [], now = Date.now()) {
+	const next = {};
+	for (const [key, s] of Object.entries(sessions)) if (!key.startsWith('cursor:cloud-')) next[key] = s;
+	for (const a of Array.isArray(items) ? items : []) {
+		const status = String(a?.status || '').toUpperCase();
+		if (!a?.id || (status !== 'ACTIVE' && status !== 'IDLE')) continue;
+		const at = Date.parse(a.updatedAt || a.createdAt || '') || now;
+		if (now - at >= FORGET_MS) continue;
+		const key = `cursor:cloud-${clip(a.id, 60)}`;
+		const was = sessions[key];
+		const phase = status === 'ACTIVE' ? 'working' : 'done';
+		next[key] = {
+			agent: 'cursor',
+			session: `cloud-${clip(a.id, 60)}`,
+			phase,
+			task: clip(a.name, 80) || (phase === 'working' ? 'Working' : 'finished'),
+			prompt: '',
+			project: '',
+			remote: true,
+			since: phase === 'working' && was?.phase !== 'working' ? now : (was?.since ?? at),
+			// a cloud agent's own clock, so an idle one keeps its finish time
+			at: phase === 'working' ? Math.max(at, was?.at || 0) : at
+		};
+	}
+	return next;
 }
