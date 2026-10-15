@@ -13,6 +13,7 @@
     "api-token": "node scripts/api-token.mjs",
     "tasks-mcp": "node scripts/tasks-mcp.mjs",
     "replay": "node scripts/replay-day.mjs",
+    "agent-status": "node scripts/setup-agent-status.mjs",
     "sounds:generate": "node scripts/generate-sounds.mjs"
   },
   "devDependencies": {

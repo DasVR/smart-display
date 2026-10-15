@@ -175,4 +175,8 @@ test('hub: Cursor cloud polling, with the key as Basic auth', async () => {
 	assert.deepEqual(calls, [['cursor', 'working', 'Refactor']]);
 	const off = createAgentStatusHub({ dataDir, env: {}, fetchImpl, log() {} });
 	assert.equal(await off.pollCursor(), null);
+	// or the key saved on the wall
+	writeFileSync(path.join(dataDir, 'cursor-api-key'), 'filekey\n');
+	assert.equal((await off.pollCursor()).ok, true);
+	assert.equal(seen.at(-1)[1], `Basic ${Buffer.from('filekey:').toString('base64')}`);
 });

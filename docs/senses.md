@@ -274,7 +274,13 @@ In the order a sound goes through them:
 - **Whisper is told what talking to the wall sounds like** ("Hey wall, what
   time is it? Hey wall, pause the music."), so it expects "hey wall" and
   hears it when faint. Silero's voice filter keeps it from inventing those
-  examples out of silence or hiss.
+  examples out of silence or hiss. Out of louder noise (a fan, the TV, the
+  wall's own music) Whisper could still write the examples back, word for
+  word, which is how "pause the music" got heard when nobody spoke. So a
+  phrase that comes back as just a piece of the examples is transcribed
+  again without them, and only counts if the command is still there
+  (`confirm_echo` in `senses/wall_senses/wake.py`). Real speech still says
+  it; noise doesn't. The diary shows those as ignored, `prompt-echo`.
 - **Whisper small.en** understands noisy, distant speech much better than
   base.en. The install script fetches both; pick small.en on the phone.
 
