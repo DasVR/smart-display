@@ -22,7 +22,7 @@ On every view, each working agent has a **pixel character** on the bottom
 bar's top edge: Clawd for Claude Code, a cube for Cursor, twins for Gemini.
 It types at a laptop while its agent works, and stands up to ask when the
 agent needs an answer. See [`docs/agent-characters.md`](docs/agent-characters.md);
-for live status from Claude Code and Cursor, local or cloud, see [`docs/agent-status.md`](docs/agent-status.md).
+for live status from Claude Code and Cursor, local or cloud, run `npm run agent-status` (or ask Claude Code to set up agent status) and see [`docs/agent-status.md`](docs/agent-status.md).
 | **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
 | **Weather** | Live radar with a nowcast, current conditions, NWS alerts (checked every 15 to 30 s; act-now warnings ring the wall) | `/api/weather`, `/api/weather/station`, NWS |
 

@@ -18,6 +18,27 @@ card per agent: whichever needs you, else the latest one working, with
 Answering a question still happens where the session runs. For Allow / Deny on
 the wall itself, add the approval hook too ([`approvals.md`](approvals.md)).
 
+## Quick setup
+
+Ask Claude Code in this repo to "set up agent status" (the
+[`agent-status-setup`](../.claude/skills/agent-status-setup/SKILL.md) skill
+walks through all of the below), or run it yourself:
+
+```bash
+npm run agent-status -- --url http://wall.local:3000 [--token …] [--no-prompts]
+npm run agent-status -- --check                  # is it reaching the wall?
+npm run agent-status -- --repo ../my-app         # hooks into another repo, for its cloud sessions
+npm run agent-status -- --cursor-key <key>       # on the wall: follow Cursor's cloud agents
+npm run agent-status -- --uninstall              # take it all out again
+```
+
+On your computer it copies the hook script to `~/.config/smart-display/`,
+saves the wall's address and token beside it in `wall-status.json` (readable
+only by you), and adds the hooks to `~/.claude/settings.json` and
+`~/.cursor/hooks.json`. It keeps everything already in those files, running
+it again changes nothing, and `--uninstall` takes out only what it added. The
+sections below are what it does, if you'd rather do it by hand.
+
 ## How it works
 
 Both tools run **hooks** at each step of a session and hand them the step as
@@ -33,6 +54,9 @@ or block the agent, and with no `WALL_URL` set it does nothing.
 | `WALL_TOKEN` | the wall's API token (`data/api-token`, or `DISPLAY_API_TOKEN`). Needed from anywhere but the wall itself |
 | `WALL_SEND_PROMPT=0` | keep what you typed off the wall; the card just says "Thinking" |
 | `WALL_REMOTE=1` | mark sessions as cloud ones. Claude Code on the web is spotted by itself (`CLAUDE_CODE_REMOTE`) |
+
+Without those variables, the script reads `~/.config/smart-display/wall-status.json`
+(`{ "url", "token", "sendPrompt" }`). Where both are set, the environment wins.
 
 The server reads the steps in [`src/lib/agentHooks.js`](../src/lib/agentHooks.js)
 and keeps the sessions in
@@ -118,8 +142,10 @@ the script always lets the prompt through at once.
 
 ## Cursor's cloud agents
 
-Set `CURSOR_API_KEY` on the wall (Cursor Dashboard → API Keys; a user or
-service-account key) and the wall asks Cursor's
+Give the wall a Cursor API key (Cursor Dashboard → API Keys; a user or
+service-account key): `npm run agent-status -- --cursor-key <key>` on the wall
+saves it to `data/cursor-api-key`, or set `CURSOR_API_KEY` in its environment.
+The wall then asks Cursor's
 [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints)
 (`GET /v1/agents`) every minute. An agent that's `ACTIVE` is working, `IDLE`
 has finished; archived ones are left out. Each shows its name on the card,

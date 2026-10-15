@@ -348,10 +348,9 @@ const agentStatusHub = createAgentStatusHub({
 	}
 });
 setInterval(() => agentStatusHub.tick(), 60000);
-if (process.env.CURSOR_API_KEY) {
-	agentStatusHub.pollCursor();
-	setInterval(() => agentStatusHub.pollCursor(), 60000);
-}
+// Cursor's cloud agents, once there's a key (a quiet no-op until then)
+agentStatusHub.pollCursor();
+setInterval(() => agentStatusHub.pollCursor(), 60000);
 
 function handleAudioConnected(req, res, parse, from) {
 	let raw = '';

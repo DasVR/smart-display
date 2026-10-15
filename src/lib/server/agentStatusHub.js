@@ -7,11 +7,14 @@
  *        From another machine it needs the wall's API token (Bearer).
  *   GET  /api/agents/sessions   every session the wall knows about
  *
- * With CURSOR_API_KEY set, Cursor's cloud agents are polled every minute.
+ * With a Cursor API key (CURSOR_API_KEY, or data/cursor-api-key, which
+ * `npm run agent-status -- --cursor-key …` writes), Cursor's cloud agents are
+ * polled every minute.
  * Every change calls onStatus(agent, status, before), and src/ws-server.js
  * puts it on the roster.
  */
 
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { agentStatus, applyHook, readHook, sweepSessions, withCursorCloud } from '../agentHooks.js';
 import { authorized, loadApiToken } from './taskService.js';
@@ -22,6 +25,16 @@ const MAX_BODY = 256 * 1024;
 
 export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus = () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), log = console.log }) {
 	const tokenFile = path.join(dataDir, 'api-token');
+	const cursorKeyFile = path.join(dataDir, 'cursor-api-key');
+	const cursorKey = () => {
+		const fromEnv = String(env.CURSOR_API_KEY || '').trim();
+		if (fromEnv) return fromEnv;
+		try {
+			return readFileSync(cursorKeyFile, 'utf8').trim();
+		} catch {
+			return '';
+		}
+	};
 	let sessions = {};
 	let cloud = { ok: null, at: 0, error: '' };
 
@@ -48,7 +61,7 @@ export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus 
 	}
 
 	async function pollCursor() {
-		const key = String(env.CURSOR_API_KEY || '').trim();
+		const key = cursorKey();
 		if (!key || !fetchImpl) return null;
 		try {
 			const r = await fetchImpl(CURSOR_API, {
@@ -70,7 +83,7 @@ export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus 
 		return {
 			sessions: Object.values(sessions).sort((a, b) => b.at - a.at),
 			agents: Object.fromEntries(AGENTS.map((a) => [a, agentStatus(sessions, a)])),
-			cursorCloud: env.CURSOR_API_KEY ? cloud : null
+			cursorCloud: cursorKey() ? cloud : null
 		};
 	}
 

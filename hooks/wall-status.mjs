@@ -16,10 +16,31 @@
 // WALL_REMOTE=1  mark the session as cloud (Claude Code on the web sets
 //                CLAUDE_CODE_REMOTE itself)
 //
+// Without those, it reads ~/.config/smart-display/wall-status.json
+// ({ "url", "token", "sendPrompt" }), which scripts/setup-agent-status.mjs
+// writes; the environment wins where both are set.
+//
 // docs/agent-status.md has the settings for each tool.
 
-const base = String(process.env.WALL_URL || process.env.DISPLAY_HOST || '').replace(/\/+$/, '');
-const token = String(process.env.WALL_TOKEN || process.env.DISPLAY_API_TOKEN || '').trim();
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
+
+/** The saved settings, or {} (none, unreadable, not JSON). */
+export function savedConfig(env = process.env) {
+	const dir = env.XDG_CONFIG_HOME || path.join(env.HOME || homedir(), '.config');
+	try {
+		const c = JSON.parse(readFileSync(path.join(dir, 'smart-display', 'wall-status.json'), 'utf8'));
+		return c && typeof c === 'object' ? c : {};
+	} catch {
+		return {};
+	}
+}
+
+const saved = savedConfig();
+const base = String(process.env.WALL_URL || process.env.DISPLAY_HOST || saved.url || '').replace(/\/+$/, '');
+const token = String(process.env.WALL_TOKEN || process.env.DISPLAY_API_TOKEN || saved.token || '').trim();
+const sendPrompt = process.env.WALL_SEND_PROMPT ? process.env.WALL_SEND_PROMPT !== '0' : saved.sendPrompt !== false;
 const agent = /^(claude|cursor)$/.test(process.argv[2] || '') ? process.argv[2] : '';
 const remote = process.env.CLAUDE_CODE_REMOTE === 'true' || /^(1|true)$/i.test(process.env.WALL_REMOTE || '');
 
@@ -68,7 +89,7 @@ async function main() {
 	await fetch(`${base}/api/agents/hook?${q}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-		body: JSON.stringify(slim(body, { sendPrompt: process.env.WALL_SEND_PROMPT !== '0' })),
+		body: JSON.stringify(slim(body, { sendPrompt })),
 		signal: AbortSignal.timeout(3000)
 	});
 }
