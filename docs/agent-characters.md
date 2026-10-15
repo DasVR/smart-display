@@ -11,6 +11,12 @@ the wall's bottom bar, so you can see who's working from across the room.
 | you said no | looks down, its arms drop, it sinks a pixel; then back to work |
 | done | climbs back down behind the bar |
 
+On the **Agents** view, the lead agent's character is the hero, large, beside
+its name: at its laptop while it works, standing when it's idle, and one hop
+when it finishes a run. The other agents get small portraits in the roster
+(Hermes and Ollama keep their orbs). On that view the bottom bar only shows
+characters that are asking, so nobody is drawn twice.
+
 Characters climb in and out a pixel at a time. While any are on stage, the
 footer makes a strip for them to stand in and the view above gives up the
 room.

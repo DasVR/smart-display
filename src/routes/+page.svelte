@@ -1259,6 +1259,7 @@
 					guest={$guestMode}
 					paused={mode === 'sleep' || hdmiOff}
 					onpresence={(on) => (agentsOnStage = on)}
+					onlyAsking={$currentView === 'agents'}
 				/>
 				<AmbientDeck
 					{atm}

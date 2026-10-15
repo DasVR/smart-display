@@ -3,6 +3,8 @@
 	import ThinkingOrbs from '$lib/components/ThinkingOrbs.svelte';
 	import DitherField from '$lib/components/DitherField.svelte';
 	import HostPeek from '$lib/components/HostPeek.svelte';
+	import AgentCharacter from '$lib/components/AgentCharacter.svelte';
+	import { characterFor } from '$lib/agentSprites.js';
 	import { agentRoster, telemetry, pushTelemetrySample } from '$lib/stores.js';
 	import { displayQuality } from '$lib/services/ollamaArbiter.js';
 	import { hostPeekNeeded } from '$lib/hostPeek.js';
@@ -86,6 +88,20 @@
 		})
 	);
 	let peekOpen = $derived(pinned || needed);
+
+	// the lead agent as its pixel character (src/lib/agentSprites.js): at its
+	// laptop while it works, standing otherwise; finishing a run is worth one hop
+	let leadChar = $derived(lead ? characterFor(lead.name || lead.id) : null);
+	let leadTarget = $derived(lead?.phase === 'working' ? 'work' : 'idle');
+	let finish = $state({ key: 0, id: '' });
+	let lastPhase = { id: '', phase: '' };
+	$effect(() => {
+		const id = lead?.id || '';
+		const phase = lead?.phase || '';
+		if (id && id === lastPhase.id && lastPhase.phase === 'working' && phase === 'done') finish = { key: finish.key + 1, id };
+		lastPhase = { id, phase };
+	});
+	const statusLine = (a) => (a.phase === 'working' ? (a.task && a.task !== 'working' ? a.task : 'Working') : a.phase === 'done' ? `Finished ${relativeAge(a.updatedAt, now)}` : 'Idle');
 	let kicker = $derived(
 		!lead ? 'Standby' : lead.phase === 'working' ? 'Thinking' : lead.phase === 'done' ? 'Finished' : lead.phase
 	);
@@ -96,28 +112,55 @@
 <div class="agents-stage" class:peeking={peekOpen} data-phase={lead?.phase || 'idle'}>
 	<DitherField active={thinking} {paused} />
 
-	<div class="think" aria-hidden="true">
-		<ThinkingOrbs phase={lead?.phase || 'idle'} size="lg" />
-	</div>
+	{#if !leadChar}
+		<div class="think" aria-hidden="true">
+			<ThinkingOrbs phase={lead?.phase || 'idle'} size="lg" />
+		</div>
+	{/if}
 
-	<div class="hero">
-		<p class="kicker">{kicker}</p>
-		<h2 class="name">{title}</h2>
-		<p class="task">{body}</p>
-		{#if lead?.updatedAt}
-			<time class="age" datetime={new Date(lead.updatedAt).toISOString()}>
-				{relativeAge(lead.updatedAt, now)}
-			</time>
+	<div class="hero" class:with-char={leadChar}>
+		{#if leadChar}
+			<!-- keyed, so a new lead arrives as itself rather than morphing from the last one -->
+			{#key leadChar}
+				<div class="portrait">
+					<AgentCharacter
+						character={leadChar}
+						target={leadTarget}
+						verdict={finish.id === lead?.id ? 'yes' : null}
+						verdictKey={finish.id === lead?.id ? finish.key : 0}
+						size={440}
+						{paused}
+						label={`${title}: ${kicker.toLowerCase()}`}
+					/>
+				</div>
+			{/key}
 		{/if}
+		<div class="words">
+			<p class="kicker">{kicker}</p>
+			<h2 class="name">{title}</h2>
+			<p class="task">{body}</p>
+			{#if lead?.updatedAt}
+				<time class="age" datetime={new Date(lead.updatedAt).toISOString()}>
+					{relativeAge(lead.updatedAt, now)}
+				</time>
+			{/if}
+		</div>
 	</div>
 
 	<ul class="strip" aria-label="Other agents">
 		{#each others as a (a.id)}
+			{@const ch = characterFor(a.name || a.id)}
 			<li data-phase={a.phase}>
-				<ThinkingOrbs phase={a.phase} />
+				<div class="mini" class:orbs={!ch}>
+					{#if ch}
+						<AgentCharacter character={ch} target={a.phase === 'working' ? 'work' : 'idle'} size={132} {paused} label={`${a.name}: ${statusLine(a)}`} />
+					{:else}
+						<ThinkingOrbs phase={a.phase} />
+					{/if}
+				</div>
 				<div class="meta">
 					<div class="strip-name">{a.name}</div>
-					<div class="strip-task">{a.phase} · {a.task}</div>
+					<div class="strip-task">{statusLine(a)}</div>
 				</div>
 			</li>
 		{/each}
@@ -170,14 +213,33 @@
 		max-width: min(46rem, 72%);
 		padding-bottom: var(--space-6);
 		display: flex;
+		align-items: flex-end;
+		gap: var(--space-6);
+		min-width: 0;
+		transition: max-width 520ms var(--spring-smooth);
+	}
+	.hero.with-char {
+		max-width: min(70rem, 92%);
+	}
+	.words {
+		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
 		min-width: 0;
-		transition: max-width 520ms var(--spring-smooth);
+		/* the last line sits on the same ground as the character's feet */
+		padding-bottom: 0;
+	}
+	.portrait {
+		flex: none;
+		/* the sprite's feet sit two art pixels (20px each) above its canvas's bottom edge */
+		margin-bottom: -40px;
 	}
 	.agents-stage.peeking .hero,
 	.agents-stage.peeking .strip {
 		max-width: min(42rem, 56%);
+	}
+	.agents-stage.peeking .hero.with-char {
+		max-width: min(62rem, 66%);
 	}
 	.kicker {
 		margin: 0;
@@ -185,6 +247,7 @@
 		font-weight: 500;
 		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
+		transition: color 200ms ease;
 	}
 	.agents-stage[data-phase='working'] .kicker {
 		color: var(--ok);
@@ -231,6 +294,16 @@
 		gap: var(--space-3);
 		min-width: 0;
 		opacity: 0.72;
+		transition: opacity 200ms ease;
+	}
+	/* a small portrait: idle agents stand, working ones type */
+	.mini {
+		flex: none;
+		width: 132px;
+		margin-block: calc(var(--space-2) * -1);
+	}
+	.mini.orbs {
+		width: auto;
 	}
 	.strip li[data-phase='working'] {
 		opacity: 1;
@@ -277,7 +350,9 @@
 	}
 	@media (prefers-reduced-motion: reduce) {
 		.hero,
-		.strip {
+		.strip,
+		.strip li,
+		.kicker {
 			transition: none;
 		}
 	}
