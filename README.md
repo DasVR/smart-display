@@ -17,6 +17,11 @@ Ollama, the package updater).
 | **Clock** | Poster clock, day-phase kicker, sun/wind/radar chips, and a **Today** list of chores and alerts. In the hour before a "Leave …" item it becomes a **departure board** | `/api/weather`, `/api/tasks`, `/api/calendar` |
 | **Calendar** | A rolling seven-day week starting today: every event, with homework (`#hw`) tagged Due | `/api/calendar` (Google Calendar) |
 | **Agents** | The active coding agent, the rest of the roster, host load and services | `/api/agents`, `/api/telemetry`, `/api/ollama/ps` |
+
+On every view, each working agent has a **pixel character** on the bottom
+bar's top edge: Clawd for Claude Code, a cube for Cursor, twins for Gemini.
+It types at a laptop while its agent works, and stands up to ask when the
+agent needs an answer. See [`docs/agent-characters.md`](docs/agent-characters.md).
 | **Music** | A record deck (the sleeve, with the record sliding out and spinning while it plays), word-synced lyrics, playback controls | `/api/nowplaying`, `/api/lyrics` |
 | **Weather** | Live radar with a nowcast, current conditions, NWS alerts (checked every 15 to 30 s; act-now warnings ring the wall) | `/api/weather`, `/api/weather/station`, NWS |
 
@@ -269,6 +274,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/tasks-api.md`](docs/tasks-api.md): chores and alerts, webhooks, MCP bridge
 - [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md): Siri, the Action button and Shortcuts
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
+- [`docs/agent-characters.md`](docs/agent-characters.md): the agents as pixel characters on the bottom bar, and how they're animated
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
 - [`docs/display-schedule.md`](docs/display-schedule.md): when the panel turns on and off, per day of the week

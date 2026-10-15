@@ -66,7 +66,7 @@
 	import TodayTasks from '$lib/components/TodayTasks.svelte';
 	import { tarnishLevel } from '$lib/tarnish.js';
 	import DepartureBoard from '$lib/components/DepartureBoard.svelte';
-	import ApprovalCard from '$lib/components/ApprovalCard.svelte';
+	import AgentStage from '$lib/components/AgentStage.svelte';
 	import DayReceipt from '$lib/components/DayReceipt.svelte';
 	import { dayKey } from '$lib/dayLog.js';
 	import { currentDeparture, departureBoard } from '$lib/departures.js';
@@ -82,6 +82,8 @@
 	let pairCode = $state(null);
 	// notes being taken through the webcam's microphone: { on, startedAt, count }
 	let notes = $state({ on: false, startedAt: null, count: 0 });
+	// agents standing on the bar (AgentStage): the footer makes room for them
+	let agentsOnStage = $state(false);
 	// the senses snapshot, for the camera / mic sign and Guest mode
 	let sensesNow = $state(null);
 	$effect(() => guestMode.set(Boolean(sensesNow?.settings?.guest)));
@@ -1241,13 +1243,23 @@
 			{/if}
 		</main>
 
-		<footer class="zone bottom">
+		<footer class="zone bottom" class:has-agents={agentsOnStage}>
 			<div class="equator" aria-hidden="true">
 				{#each Array(16) as _, i (i)}
 					<span>+</span>
 				{/each}
 			</div>
 			<div class="trough glass-field" data-glass use:liquidGlass={{ enabled: glass === 'refract', blur: 10 }}>
+				<!-- the agents, standing on the bar's top edge: typing while they work, asking when they need you -->
+				<AgentStage
+					roster={$agentRoster}
+					approvals={$approvals}
+					now={time.getTime()}
+					ondecide={decideApproval}
+					guest={$guestMode}
+					paused={mode === 'sleep' || hdmiOff}
+					onpresence={(on) => (agentsOnStage = on)}
+				/>
 				<AmbientDeck
 					{atm}
 					prediction={wxForIsland?.prediction || weatherData?.prediction}
@@ -1266,11 +1278,6 @@
 	{#if $attention.some((i) => i.kind !== 'approval')}
 		<div class="attention-layer">
 			<AttentionCard items={$attention} now={time.getTime()} onack={ackAttention} ondone={attentionDone} onsnooze={attentionLater} />
-		</div>
-	{/if}
-	{#if $approvals.length}
-		<div class="approval-layer">
-			<ApprovalCard approvals={$approvals} now={time.getTime()} ondecide={decideApproval} guest={$guestMode} />
 		</div>
 	{/if}
 
@@ -1293,16 +1300,6 @@
 		display: grid;
 		place-items: center;
 		background: radial-gradient(70% 60% at 50% 50%, color-mix(in srgb, #000 55%, transparent), transparent 75%);
-		pointer-events: none;
-	}
-	.approval-layer {
-		position: fixed;
-		inset: 0;
-		z-index: 60;
-		display: grid;
-		place-items: end center;
-		padding-bottom: 7.5rem;
-		background: radial-gradient(70% 60% at 50% 85%, color-mix(in srgb, #000 55%, transparent), transparent 75%);
 		pointer-events: none;
 	}
 	.skip {
@@ -1793,7 +1790,13 @@
 			color-mix(in srgb, var(--abyss) 46%, transparent) 72%
 		);
 	}
+	/* a strip above the bar for the agents to stand in (AgentStage); the view
+	   above gives up the room. Rare, so a short eased resize is fine. */
+	.bottom.has-agents {
+		padding-top: 6rem;
+	}
 	.bottom {
+		transition: padding-top 280ms cubic-bezier(0.22, 1, 0.36, 1);
 		height: auto;
 		display: flex;
 		flex-direction: column;

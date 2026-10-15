@@ -405,9 +405,10 @@ and no new WS `type` outside `src/protocol/`.
 - **Event log size and privacy.** Rotate daily, keep 14 days, and redact on
   export. Transcripts are opt-in.
 - **Decided (2026-10-15):**
-  1. Agents become little characters (Claude, Cursor, Gemini) that rise
-     from the bottom edge with their question, instead of a view you have to
-     be on. The design variants are being chosen; the Agents view stays
-     until then.
+  1. Agents become little pixel characters (Clawd for Claude Code, a cube
+     for Cursor, twins for Gemini) on the bottom bar: typing while they
+     work, standing up to ask. Built: see
+     [`agent-characters.md`](agent-characters.md). The Agents view stays for
+     host load and the full roster.
   2. Guest mode never turns on by itself. It's a switch on the phone.
   3. No second screen planned. Surface profiles stay a flag.
