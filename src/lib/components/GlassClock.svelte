@@ -7,28 +7,21 @@
 -->
 <script>
 	import RollingDigit from './RollingDigit.svelte';
-	import { DISPLAY_TZ, fmtSunTime } from '$lib/atmosphere.js';
+	import WeatherGlyph from './WeatherGlyph.svelte';
+	import { fmtSunTime } from '$lib/atmosphere.js';
+	import { dateLine, skyFor, timeParts } from '$lib/clockFace.js';
 	import { isLate, nextWhen, taskWhen, todayOpen } from '$lib/todayList.js';
 
 	let { time = new Date(), tasks = [], atm = null, temp = '--', desc = '', ondone = null } = $props();
 
 	const LIST_MAX = 4;
 
-	function parts(d) {
-		const p = Object.fromEntries(
-			new Intl.DateTimeFormat('en-US', { timeZone: DISPLAY_TZ, hour: 'numeric', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
-				.formatToParts(d)
-				.map((x) => [x.type, x.value])
-		);
-		return { h: Number(p.hour) % 24, m: Number(p.minute), s: Number(p.second) };
-	}
-
-	let t = $derived(parts(time));
-	let h12 = $derived(String(t.h % 12 || 12));
-	let mm = $derived(String(t.m).padStart(2, '0'));
-	let ss = $derived(String(t.s).padStart(2, '0'));
-	let ampm = $derived(t.h >= 12 ? 'PM' : 'AM');
-	let dateLine = $derived(time.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: DISPLAY_TZ }));
+	let t = $derived(timeParts(time));
+	let h12 = $derived(t.h12);
+	let mm = $derived(t.mm);
+	let ss = $derived(t.ss);
+	let ampm = $derived(t.ampm);
+	let date = $derived(dateLine(time));
 
 	let nowMs = $derived(time.getTime());
 	let open = $derived(todayOpen(tasks, nowMs));
@@ -36,23 +29,12 @@
 	let more = $derived(Math.max(0, open.length - shown.length));
 	let next = $derived(tasks.find((x) => x.status === 'upcoming') || null);
 
-	/** A weather glyph from the words: sun, moon, cloud, rain, snow, storm or fog. */
-	let sky = $derived.by(() => {
-		const d = String(desc || '').toLowerCase();
-		const night = t.h < 6 || t.h >= 19;
-		if (/thunder|storm/.test(d)) return 'storm';
-		if (/snow|sleet|flurr/.test(d)) return 'snow';
-		if (/rain|shower|drizzle/.test(d)) return 'rain';
-		if (/fog|mist|haze|smoke/.test(d)) return 'fog';
-		if (/partly|mostly sunny|few|scattered/.test(d)) return night ? 'moon-cloud' : 'sun-cloud';
-		if (/cloud|overcast/.test(d)) return 'cloud';
-		return night ? 'moon' : 'sun';
-	});
+	let sky = $derived(skyFor(desc, t.h));
 </script>
 
 <div class="glass-clock">
 	<section class="card time-card" aria-label="Time and date">
-		<p class="date">{dateLine}</p>
+		<p class="date">{date}</p>
 		<div class="clock" aria-label="{h12}:{mm} {ampm}">
 			<span class="stack" aria-hidden="true">
 				<!-- the printed shadow: the same digits in dots, offset down and right -->
@@ -102,28 +84,7 @@
 			<p class="k">Weather</p>
 			<div class="temp-row">
 				<span class="temp tnum">{temp}°</span>
-				<svg class="sky" viewBox="0 0 48 48" aria-hidden="true" data-sky={sky}>
-					{#if sky === 'sun' || sky === 'sun-cloud'}
-						<g class="ray">
-							<circle cx={sky === 'sun' ? 24 : 31} cy={sky === 'sun' ? 24 : 16} r="7" />
-							{#each Array(8) as _, i (i)}
-								<line x1={sky === 'sun' ? 24 : 31} y1={sky === 'sun' ? 11 : 4} x2={sky === 'sun' ? 24 : 31} y2={sky === 'sun' ? 14 : 6.5} transform="rotate({i * 45} {sky === 'sun' ? 24 : 31} {sky === 'sun' ? 24 : 16})" />
-							{/each}
-						</g>
-					{/if}
-					{#if sky === 'moon' || sky === 'moon-cloud'}
-						<path class="ray" d={sky === 'moon' ? 'M30 10a14 14 0 1 0 8 25 12 12 0 0 1-8-25Z' : 'M33 6a9 9 0 1 0 6 16 8 8 0 0 1-6-16Z'} />
-					{/if}
-					{#if sky !== 'sun' && sky !== 'moon'}
-						<path class="cloud" d="M14 38h22a8 8 0 0 0 0-16 11 11 0 0 0-21-2 8 8 0 0 0-1 18Z" />
-					{/if}
-					{#if sky === 'rain' || sky === 'storm'}
-						<g class="ray"><line x1="18" y1="41" x2="16" y2="46" /><line x1="26" y1="41" x2="24" y2="46" /><line x1="34" y1="41" x2="32" y2="46" /></g>
-					{/if}
-					{#if sky === 'snow'}
-						<g class="ray"><circle cx="17" cy="44" r="1.5" /><circle cx="25" cy="45" r="1.5" /><circle cx="33" cy="44" r="1.5" /></g>
-					{/if}
-				</svg>
+				<WeatherGlyph {sky} size="clamp(3rem, 4.6vw, 5rem)" />
 			</div>
 			<p class="desc">{desc && desc !== '--' ? desc : ''}</p>
 			{#if atm}
@@ -140,6 +101,8 @@
 	.glass-clock {
 		--paper: #f3eee4;
 		--late: #ffab52;
+		--glyph-ink: var(--paper);
+		--glyph-cloud: color-mix(in srgb, #2a2724 80%, transparent);
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		gap: clamp(1.5rem, 3vw, 3rem);
@@ -309,26 +272,6 @@
 		font-weight: 800;
 		line-height: 1;
 		letter-spacing: -0.04em;
-	}
-	.sky {
-		width: clamp(3rem, 4.6vw, 5rem);
-		height: auto;
-		fill: none;
-		stroke: var(--paper);
-		stroke-width: 2.4;
-		stroke-linecap: round;
-		stroke-linejoin: round;
-	}
-	.sky .ray circle,
-	.sky path.ray {
-		fill: var(--late);
-		stroke: none;
-	}
-	.sky .ray line {
-		stroke: var(--late);
-	}
-	.sky .cloud {
-		fill: color-mix(in srgb, #2a2724 80%, transparent);
 	}
 	.desc {
 		margin: 0.4rem 0 1.2rem;

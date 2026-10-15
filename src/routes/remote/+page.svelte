@@ -10,7 +10,7 @@
 	import { writable } from 'svelte/store';
 	import { primeAudio, playChime, playVolumeTick } from '$lib/services/chime.js';
 	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
-	import { ARTWORKS, LOOKS, normalizeLook } from '$lib/look/wallLook.js';
+	import { ARTWORKS, LOOK_LABELS, LOOKS, normalizeLook } from '$lib/look/wallLook.js';
 	import { page } from '$app/state';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
@@ -718,16 +718,16 @@
 			<section class="block night-block" aria-label="Look">
 				<header class="night-head">
 					<span>Look</span>
-					<span class="night-summary">{wallLook.look === 'halftone' ? 'Painting in dots, glass cards' : 'Liquid metal'}</span>
+					<span class="night-summary">{LOOK_LABELS[wallLook.look]}</span>
 				</header>
 				<div class="rockers">
 					{#each LOOKS as l (l)}
 						<button class="rocker" class:on={wallLook.look === l} aria-pressed={wallLook.look === l} onclick={() => setLook({ look: l })}>
-							{l === 'halftone' ? 'Halftone' : 'Classic'}
+							{LOOK_LABELS[l]}
 						</button>
 					{/each}
 				</div>
-				{#if wallLook.look === 'halftone'}
+				{#if wallLook.look !== 'classic' && wallLook.look !== 'console'}
 					<div class="rockers">
 						<button class="rocker" class:on={wallLook.art === 'auto'} aria-pressed={wallLook.art === 'auto'} onclick={() => setLook({ art: 'auto' })}>By the hour</button>
 						{#each Object.entries(ARTWORKS) as [key, a] (key)}

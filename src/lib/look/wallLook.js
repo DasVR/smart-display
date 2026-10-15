@@ -1,9 +1,25 @@
 // The wall's look: which skin the pages wear, and which painting is behind
 // them. Pure helpers shared by the server (data/look.json) and the kiosk.
 
-/** 'halftone': the painting printed in dots behind frosted glass cards, tabs in a pill at the bottom.
- *  'classic': the liquid-metal wall from before. */
-export const LOOKS = ['halftone', 'classic'];
+/** How each look dresses the Clock page (the rest share the halftone chrome):
+ *  halftone  the painting in dots behind two graphite glass cards, tabs in a pill at the bottom
+ *  paper     cream paper cards across the top with dotted shadows, the painting below
+ *  poster    the time huge across the painting, three small tiles underneath
+ *  depth     the poster, with the painting's shadows printed back over the numerals
+ *  riso      paper cards printed in two inks, teal and tangerine, slightly off-register
+ *  console   no painting: off-white hardware, dot-matrix time, signal orange, page tiles
+ *  classic   the liquid-metal wall from before */
+export const LOOKS = ['halftone', 'paper', 'poster', 'depth', 'riso', 'console', 'classic'];
+
+export const LOOK_LABELS = {
+	halftone: 'Glass',
+	paper: 'Paper',
+	poster: 'Poster',
+	depth: 'Depth',
+	riso: 'Riso',
+	console: 'Console',
+	classic: 'Classic'
+};
 
 /** Public-domain paintings in static/art/. 'auto' picks one by time of day. */
 export const ARTWORKS = {

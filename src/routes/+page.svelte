@@ -63,6 +63,9 @@
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import TodayTasks from '$lib/components/TodayTasks.svelte';
 	import GlassClock from '$lib/components/GlassClock.svelte';
+	import PaperClock from '$lib/components/PaperClock.svelte';
+	import PosterClock from '$lib/components/PosterClock.svelte';
+	import ConsoleClock from '$lib/components/ConsoleClock.svelte';
 	import HalftoneArt from '$lib/components/HalftoneArt.svelte';
 	import { ARTWORKS, artFor, normalizeLook } from '$lib/look/wallLook.js';
 	import { tarnishLevel } from '$lib/tarnish.js';
@@ -871,8 +874,11 @@
 	);
 	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
 	let look = $derived(normalizeLook({ look: lookParams.get('look') || wallLook.look, art: lookParams.get('art') || wallLook.art }, wallLook));
-	// the halftone look stands down for StandBy, which keeps its own night face
-	let halftone = $derived(look.look === 'halftone' && !standby);
+	// the new looks stand down for StandBy, which keeps its own night face
+	let skin = $derived(look.look === 'classic' || standby ? null : look.look);
+	let halftone = $derived(Boolean(skin));
+	// riso prints the painting in two inks; console has no painting at all
+	let inks = $derived(skin === 'riso' ? { paper: '#F3EDE2', ink: '#0B5F66', accent: '#FF6B3D' } : { paper: '#EAE3D5', ink: '#1C1A17', accent: '' });
 	let artKey = $derived(artFor(look.art, Number(time.toLocaleString('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: 'America/New_York' }))));
 
 	// End-of-day receipt: the first time StandBy comes on each night, print
@@ -1064,9 +1070,11 @@
 
 <a class="skip" href="#main-stage">Skip to view</a>
 
-<div class="display-shell" data-glass-tier={glass} class:look-halftone={halftone} class:standby class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
-	{#if halftone}
-		<HalftoneArt src="/art/{artKey}.jpg" alt="{ARTWORKS[artKey].title}, {ARTWORKS[artKey].artist}, printed in dots" />
+<div class="display-shell" data-glass-tier={glass} data-skin={skin} class:look-halftone={halftone} class:standby class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
+	{#if skin === 'console'}
+		<!-- console: the off-white of the shell is the whole background -->
+	{:else if halftone}
+		<HalftoneArt src="/art/{artKey}.jpg" paper={inks.paper} ink={inks.ink} accent={inks.accent} alt="{ARTWORKS[artKey].title}, {ARTWORKS[artKey].artist}, printed in dots" />
 	{:else}
 	<LiquidMetalCanvas
 		isLowPower={$gpuLowPowerMode || mode === 'sleep' || hdmiOff}
@@ -1185,6 +1193,12 @@
 				<section class="view-pane clock-pane" class:departing={board}>
 					{#if board}
 						<DepartureBoard {board} now={time} ondone={completeTask} />
+					{:else if skin === 'paper' || skin === 'riso'}
+						<PaperClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} mode={skin} />
+					{:else if skin === 'poster' || skin === 'depth'}
+						<PosterClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} depth={skin === 'depth'} />
+					{:else if skin === 'console'}
+						<ConsoleClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} />
 					{:else if halftone}
 						<GlassClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} />
 					{:else}
@@ -1235,6 +1249,13 @@
 			</div>
 		</footer>
 	</div>
+
+	{#if skin === 'depth' && $currentView === 'clock' && !board}
+		<!-- the painting's shadows printed back over the giant time (the tiles below stay clear) -->
+		<div class="depth-over" aria-hidden="true">
+			<HalftoneArt src="/art/{artKey}.jpg" over />
+		</div>
+	{/if}
 
 	{#if receipt}
 		<div class="receipt-layer">
@@ -1331,6 +1352,104 @@
 	.look-halftone .clock-pane {
 		align-items: center;
 		justify-content: center;
+	}
+	.depth-over {
+		position: fixed;
+		inset: 0;
+		z-index: 11;
+		pointer-events: none;
+		-webkit-mask-image: linear-gradient(transparent 0 7%, #000 11% 50%, transparent 58%);
+		mask-image: linear-gradient(transparent 0 7%, #000 11% 50%, transparent 58%);
+	}
+	/* paper and riso: the tab pill is paper too */
+	[data-skin='paper'] .view-strip,
+	[data-skin='riso'] .view-strip {
+		background: #f4efe6;
+		border: 2px solid #1c1a17;
+		box-shadow: 0.5rem 0.5rem 0 -0.1rem color-mix(in srgb, #1c1a17 80%, transparent);
+	}
+	[data-skin='riso'] .view-strip {
+		background: #f3ede2;
+		border-color: #0b5f66;
+		box-shadow: 0.5rem 0.5rem 0 -0.1rem #ff6b3d;
+	}
+	[data-skin='paper'] .view-tab,
+	[data-skin='paper'] .view-tab.active {
+		color: #1c1a17;
+	}
+	[data-skin='riso'] .view-tab,
+	[data-skin='riso'] .view-tab.active {
+		color: #0b5f66;
+	}
+	[data-skin='paper'] .tab-indicator {
+		background: color-mix(in srgb, #1c1a17 14%, transparent);
+	}
+	[data-skin='riso'] .tab-indicator {
+		background: color-mix(in srgb, #ff6b3d 30%, transparent);
+	}
+	[data-skin='riso'] .view-tab.active::after {
+		background: #ff6b3d;
+	}
+	/* console: no painting; the tabs are a row of square keys along the bottom */
+	.display-shell[data-skin='console'] {
+		background: #e9e9e6;
+	}
+	[data-skin='console'] .display-root {
+		grid-template-rows: auto minmax(0, 1fr) 10rem;
+	}
+	[data-skin='console'] .view-strip {
+		left: 2.5rem;
+		right: 2.5rem;
+		bottom: 2rem;
+		transform: none;
+		width: auto;
+		max-width: none;
+		display: grid;
+		grid-template-columns: repeat(5, 1fr);
+		gap: 1.1rem;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		box-shadow: none;
+		counter-reset: key;
+	}
+	[data-skin='console'] .tab-indicator {
+		display: none;
+	}
+	[data-skin='console'] .view-tab {
+		counter-increment: key;
+		height: 7rem;
+		align-items: flex-start;
+		padding: 1rem 1.2rem;
+		border: 3px solid #141414;
+		border-radius: 0.5rem;
+		background: #f4f4f1;
+		color: #141414;
+		font-family: var(--font-code);
+		text-transform: uppercase;
+	}
+	[data-skin='console'] .view-tab::before {
+		content: counter(key, decimal-leading-zero);
+		position: absolute;
+		right: 1rem;
+		bottom: 0.8rem;
+		font-size: 1.1rem;
+		opacity: 0.6;
+	}
+	[data-skin='console'] .view-tab.active {
+		background: #ff4f12;
+		border-color: #ff4f12;
+		color: #fff;
+	}
+	[data-skin='console'] .view-tab.active::after {
+		left: auto;
+		right: 1.1rem;
+		top: 1.1rem;
+		bottom: auto;
+		width: 0.7rem;
+		height: 0.7rem;
+		background: #fff;
 	}
 
 	/* the receipt prints up from the bottom edge, right of centre */

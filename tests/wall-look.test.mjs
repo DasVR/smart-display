@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ARTWORKS, DEFAULT_LOOK, artFor, normalizeLook } from '../src/lib/look/wallLook.js';
+import { ARTWORKS, DEFAULT_LOOK, LOOK_LABELS, LOOKS, artFor, normalizeLook } from '../src/lib/look/wallLook.js';
+import { dateLine, skyFor, timeParts } from '../src/lib/clockFace.js';
 import { lateBy, taskWhen, todayOpen } from '../src/lib/todayList.js';
 
 test('look: halftone by default; unknown values keep what was there', () => {
@@ -25,4 +26,20 @@ test('today list: late items say how late, others their time', () => {
 	assert.equal(taskWhen({ ...late, nextDue: '2026-10-15T11:00:00Z' }, now), '2 h late');
 	assert.equal(taskWhen(later, now), '7:59 pm');
 	assert.deepEqual(todayOpen([late, later, { status: 'upcoming' }], now), [late, later]);
+});
+
+test('look: every look has a label for the phone', () => {
+	for (const l of LOOKS) assert.ok(LOOK_LABELS[l], l);
+	assert.deepEqual(normalizeLook({ look: 'riso' }).look, 'riso');
+});
+
+test('clock face: the wall\'s time in parts, the date line, and the weather glyph', () => {
+	const t = timeParts(new Date('2026-10-15T12:04:35Z')); // 8:04:35 AM on the wall
+	assert.deepEqual([t.h12, t.mm, t.ss, t.ampm], ['8', '04', '35', 'AM']);
+	assert.equal(timeParts(new Date('2026-10-16T04:00:00Z')).h12, '12');
+	assert.equal(dateLine(new Date('2026-10-15T12:00:00Z')), 'Thursday, October 15');
+	assert.equal(skyFor('Partly cloudy', 10), 'sun-cloud');
+	assert.equal(skyFor('Partly cloudy', 22), 'moon-cloud');
+	assert.equal(skyFor('Light rain showers', 10), 'rain');
+	assert.equal(skyFor('Clear', 23), 'moon');
 });
