@@ -1,7 +1,12 @@
 [Unit]
 Description=Smart Display Kiosk (Cage + Chromium)
-After=network-online.target smart-display-server.service
-Wants=network-online.target
+# no waiting for the network: the browser opens its boot page from disk and
+# waits for the server itself (static/boot.html, docs/boot.md)
+After=smart-display-server.service systemd-user-sessions.service plymouth-start.service
+Wants=smart-display-server.service
+# the screen is the wall's, not a login prompt's (other consoles still work: Ctrl+Alt+F2)
+Conflicts=getty@tty1.service
+After=getty@tty1.service
 
 [Service]
 Type=simple
@@ -15,8 +20,9 @@ Environment="WAYLAND_DISPLAY=wayland-0"
 ExecStartPre=/usr/bin/mkdir -p /run/user/1000
 ExecStartPre=/usr/bin/chown das:das /run/user/1000
 ExecStartPre=/usr/bin/chmod 700 /run/user/1000
+# the boot splash leaves its last frame (the standby light) up until cage draws
+ExecStartPre=-+/usr/bin/plymouth quit --retain-splash
 ExecStart=/home/das/projects/smart-display/start-kiosk.sh
-ExecStartPost=/bin/sh -c 'sleep 5 && curl -s -o /dev/null http://localhost:3000 || true'
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

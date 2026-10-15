@@ -4,9 +4,91 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="color-scheme" content="dark" />
+		<script>
+			// The wall wakes up from the standby light (src/lib/wake.js); the phone's pages don't.
+			if (!/\/remote(\/|$)/.test(location.pathname)) document.documentElement.classList.add('wall-booting');
+		</script>
+		<style>
+			/* Painted with the first bytes, before any script: the same standby light as
+			   the boot splash and static/boot.html, in the same place. Keep the three in step. */
+			html.wall-booting,
+			html.wall-booting body {
+				background: #000;
+			}
+			#wall-boot {
+				display: none;
+			}
+			html.wall-booting #wall-boot {
+				display: block;
+				position: fixed;
+				inset: 0;
+				z-index: 2147483000;
+				pointer-events: none;
+				/* if the page never wakes (a script failed), never hide the wall for good */
+				animation: wall-boot-giveup 400ms ease-out 12s forwards;
+			}
+			.wall-boot-lid {
+				position: absolute;
+				left: 0;
+				right: 0;
+				height: 50.5%;
+				background: #000;
+			}
+			.wall-boot-lid.top {
+				top: 0;
+			}
+			.wall-boot-lid.bottom {
+				bottom: 0;
+			}
+			.wall-boot-light {
+				position: absolute;
+				left: 50%;
+				top: 50%;
+				width: 10px;
+				height: 10px;
+				margin: -5px 0 0 -5px;
+				border-radius: 50%;
+				background: #f4efe6;
+				box-shadow:
+					0 0 18px 4px rgb(244 239 230 / 0.35),
+					0 0 60px 12px rgb(244 239 230 / 0.12);
+				animation: wall-boot-breathe 3.2s ease-in-out infinite;
+			}
+			#wall-boot.waking .wall-boot-light {
+				animation: none;
+			}
+			@keyframes wall-boot-breathe {
+				0%,
+				100% {
+					opacity: 0.45;
+					transform: scale(0.92);
+				}
+				50% {
+					opacity: 1;
+					transform: scale(1);
+				}
+			}
+			@keyframes wall-boot-giveup {
+				to {
+					opacity: 0;
+					visibility: hidden;
+				}
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.wall-boot-light {
+					animation: none;
+					opacity: 0.8;
+				}
+			}
+		</style>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
+		<div id="wall-boot" aria-hidden="true">
+			<div class="wall-boot-lid top"></div>
+			<div class="wall-boot-lid bottom"></div>
+			<div class="wall-boot-light"></div>
+		</div>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>

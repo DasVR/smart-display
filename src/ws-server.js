@@ -64,6 +64,8 @@ import {
 	setAgentStatus
 } from './lib/server/agentRosterState.js';
 import { createAgentStatusHub } from './lib/server/agentStatusHub.js';
+import { createWeatherCache } from './lib/server/weatherCache.js';
+import { createBootLog } from './lib/server/bootLog.js';
 import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, setMute, setVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -328,6 +330,15 @@ function publishNotify(notify) {
 	broadcast(notify);
 	broadcast({ type: 'agents', agents: roster });
 }
+
+// how long each boot took, stage by stage (src/lib/bootTimeline.js, docs/boot.md)
+const bootLog = createBootLog({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses())
+});
+
+// the last good weather survives a restart, so the first frame after boot is complete (src/lib/server/weatherCache.js)
+const weatherCache = createWeatherCache({ dataDir: path.join(PROJECT_ROOT, 'data'), load: (hours) => getWeather(hours) });
 
 // the agents' own hooks, local or in the cloud, and Cursor's cloud agents (src/lib/agentHooks.js)
 const AGENT_NAMES = { claude: 'Claude Code', cursor: 'Cursor' };
@@ -704,6 +715,7 @@ const server = createServer(async (req, res) => {
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
 	if (await agentStatusHub.handleHttp(req, res)) return;
+	if (await bootLog.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
@@ -889,7 +901,7 @@ const server = createServer(async (req, res) => {
 	if (req.method === 'GET' && req.url === '/api/weather') {
 		const urlObj = new URL(req.url, `http://${req.headers.host}`);
 		const hours = urlObj.searchParams.get('hours') || '48';
-		json(res, await getWeather(parseInt(hours, 10)));
+		json(res, await weatherCache.get(parseInt(hours, 10)));
 		return;
 	}
 
@@ -1212,6 +1224,7 @@ function logKeyframe() {
 }
 
 server.listen(port, '0.0.0.0', () => {
+	bootLog.listening();
 	console.log(`smart-display running on :${port}`);
 	console.log(
 		`display schedule ${schedule.enabled ? 'on' : 'off'} ${describeWeek(schedule.week)} ${schedule.timeZone}` +

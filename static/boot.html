@@ -1,0 +1,112 @@
+<!doctype html>
+<!--
+	The first thing the kiosk browser shows (start-kiosk.sh opens it from disk,
+	so it needs no server): the standby light from the boot splash, in the same
+	place, breathing until the dashboard server answers. Then it hands over to
+	the wall's page, which draws the same light again (src/app.html) and opens
+	its eyes when ready (src/lib/wake.js). It passes along when it appeared and
+	when the server first answered (?boot=<kiosk>.<reached>), for the boot
+	timings (docs/boot.md).
+
+	?to= the wall's address (default http://localhost:3000).
+	Keep the light's look in step with src/app.html and scripts/boot/plymouth.
+-->
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="color-scheme" content="dark" />
+		<title>Starting</title>
+		<style>
+			html,
+			body {
+				margin: 0;
+				height: 100%;
+				background: #000;
+				overflow: hidden;
+				cursor: none;
+			}
+			.light {
+				position: absolute;
+				left: 50%;
+				top: 50%;
+				width: 10px;
+				height: 10px;
+				margin: -5px 0 0 -5px;
+				border-radius: 50%;
+				background: #f4efe6;
+				box-shadow:
+					0 0 18px 4px rgb(244 239 230 / 0.35),
+					0 0 60px 12px rgb(244 239 230 / 0.12);
+				animation: breathe 3.2s ease-in-out infinite;
+			}
+			@keyframes breathe {
+				0%,
+				100% {
+					opacity: 0.45;
+					transform: scale(0.92);
+				}
+				50% {
+					opacity: 1;
+					transform: scale(1);
+				}
+			}
+			/* only if it's taking unusually long: a quiet word, never a spinner */
+			.note {
+				position: absolute;
+				left: 0;
+				right: 0;
+				top: calc(50% + 48px);
+				margin: 0;
+				text-align: center;
+				font: 500 18px/1.4 system-ui, sans-serif;
+				letter-spacing: 0.02em;
+				color: rgb(244 239 230 / 0.5);
+				opacity: 0;
+				transition: opacity 600ms ease;
+			}
+			.note.shown {
+				opacity: 1;
+			}
+			@media (prefers-reduced-motion: reduce) {
+				.light {
+					animation: none;
+					opacity: 0.8;
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="light" aria-hidden="true"></div>
+		<p class="note" role="status"></p>
+		<script>
+			(() => {
+				const to = (new URLSearchParams(location.search).get('to') || 'http://localhost:3000').replace(/\/+$/, '');
+				const kiosk = Math.round(performance.timeOrigin);
+				const note = document.querySelector('.note');
+				const say = (text) => {
+					note.textContent = text;
+					note.classList.add('shown');
+				};
+				const notes = [
+					setTimeout(() => say('Starting the wall…'), 15000),
+					setTimeout(() => say('Still starting. The wall’s server hasn’t answered yet; it may be updating.'), 60000)
+				];
+				async function up() {
+					try {
+						// an opaque answer is still an answer: all this needs to know is that it's listening
+						await fetch(`${to}/api/display`, { mode: 'no-cors', cache: 'no-store', signal: AbortSignal.timeout(1500) });
+						return true;
+					} catch {
+						return false;
+					}
+				}
+				(async function wait() {
+					while (!(await up())) await new Promise((r) => setTimeout(r, 200));
+					notes.forEach(clearTimeout);
+					location.replace(`${to}/?boot=${kiosk}.${Date.now()}`);
+				})();
+			})();
+		</script>
+	</body>
+</html>

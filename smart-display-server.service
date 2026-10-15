@@ -1,6 +1,8 @@
 [Unit]
 Description=Smart Display Dashboard Server
-After=network-online.target
+# it answers on localhost straight away and fetches when the network comes up;
+# waiting for network-online held the whole wall up for up to half a minute
+After=network.target
 
 [Service]
 Type=simple

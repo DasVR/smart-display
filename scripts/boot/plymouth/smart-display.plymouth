@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=Smart Display
+Description=The wall's standby light, breathing on black until the kiosk takes over (docs/boot.md)
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/smart-display
+ScriptFile=/usr/share/plymouth/themes/smart-display/smart-display.script
