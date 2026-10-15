@@ -54,3 +54,9 @@ test('countdown', () => {
 	assert.equal(countdown('2026-10-15T13:59:00Z', now), '0s');
 	assert.equal(countdown('nope', now), '');
 });
+
+test('onlyAsking keeps just the characters with a question', () => {
+	const cast = castFor({ roster, approvals: [{ id: 'q', source: 'Cursor', title: 'Apply?', status: 'pending' }], onlyAsking: true });
+	assert.deepEqual(cast.map((c) => c.character), ['cursor']);
+	assert.deepEqual(castFor({ roster, onlyAsking: true }), []);
+});

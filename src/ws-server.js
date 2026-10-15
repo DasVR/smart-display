@@ -60,8 +60,10 @@ import {
 import {
 	getAgentRoster,
 	ingestAgentNotify,
-	ingestOllamaStatus
+	ingestOllamaStatus,
+	setAgentStatus
 } from './lib/server/agentRosterState.js';
+import { createAgentStatusHub } from './lib/server/agentStatusHub.js';
 import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, setMute, setVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -200,6 +202,9 @@ const approvalHub = createApprovalHub({
 	onDecide: (a) => dayLog.record('approval', { decision: a.status })
 });
 // the Action button and spoken commands (see src/lib/wallActions.js)
+// the camera turned the panel off because the room emptied: coming back turns it on (src/lib/senses.js placeStep)
+const CAMERA_OFF_REASONS = new Set(['away', 'left-room']);
+let cameraTurnedOff = false;
 const PLAYER_ARGS = { pause: ['pause'], play: ['play'], next: ['next'], previous: ['previous'] };
 const actionHub = createActionHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
@@ -233,7 +238,8 @@ const sensesHub = createSensesHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => broadcast(msg),
 	command: async (text) => (await taskHub.sayAdd({ text, source: 'Wall mic' })).data,
-	say: (text) => voiceHub.say(text, { source: 'Wall' }),
+	// the answer to something just said to the wall: never held for "while you were out"
+	say: (text) => voiceHub.say(text, { source: 'Wall', reply: true }),
 	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
 	timeZone: process.env.TZ || undefined,
 	// walking up to the wall turns the panel on, but not at night
@@ -254,6 +260,13 @@ const sensesHub = createSensesHub({
 			broadcast({ type: 'navigate', view, from: 'place' });
 		} else if (action.panel === 'off' && hdmiState === 'on') {
 			applyHdmi('off', { reason: action.reason }).catch(() => {});
+			cameraTurnedOff = CAMERA_OFF_REASONS.has(action.reason);
+		} else if (action.panel === 'on' && cameraTurnedOff) {
+			// back in the room: on again, unless something else has turned it off since, or it's night
+			cameraTurnedOff = false;
+			if (hdmiState !== 'off' || voiceHub.snapshot().quietNow) return;
+			if (isQuietHours(new Date(), schedule) || desiredHdmi(new Date(), schedule) === 'off') return;
+			handleTrigger('normal', { data: { from: 'camera' } }).catch(() => {});
 		}
 	},
 	onNear: () => {
@@ -314,6 +327,30 @@ function publishNotify(notify) {
 	}
 	broadcast(notify);
 	broadcast({ type: 'agents', agents: roster });
+}
+
+// the agents' own hooks, local or in the cloud, and Cursor's cloud agents (src/lib/agentHooks.js)
+const AGENT_NAMES = { claude: 'Claude Code', cursor: 'Cursor' };
+const agentStatusHub = createAgentStatusHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
+	onStatus: (agent, st, before) => {
+		const name = AGENT_NAMES[agent];
+		const busy = (p) => p === 'working' || p === 'waiting';
+		// starting and finishing chime and show like /api/notify; everything in between just updates the card
+		if (st.phase === 'working' && !busy(before.phase)) {
+			publishNotify({ type: 'notify', title: `${name} working`, body: st.task, severity: 'info', source: name, kind: 'working', ttl: 9000 });
+		} else if (busy(before.phase) && (st.phase === 'done' || st.phase === 'error') && !st.stale) {
+			const failed = st.phase === 'error';
+			publishNotify({ type: 'notify', title: failed ? `${name} stopped` : `${name} finished`, body: st.task, severity: failed ? 'error' : 'ok', source: name, kind: 'done', ttl: 9000 });
+		}
+		broadcast({ type: 'agents', agents: setAgentStatus(agent, st) });
+	}
+});
+setInterval(() => agentStatusHub.tick(), 60000);
+if (process.env.CURSOR_API_KEY) {
+	agentStatusHub.pollCursor();
+	setInterval(() => agentStatusHub.pollCursor(), 60000);
 }
 
 function handleAudioConnected(req, res, parse, from) {
@@ -545,6 +582,8 @@ async function commitHdmi(state, reason) {
 
 async function applyHdmi(state, { reason } = {}) {
 	if (state !== 'on' && state !== 'off') return hdmiState;
+	// anyone else touching the panel: coming back no longer turns it on
+	if (!CAMERA_OFF_REASONS.has(reason)) cameraTurnedOff = false;
 	// a change anyone else makes is theirs: attention won't turn it back off
 	if (reason !== 'attention') attentionHub.panelChanged();
 	if (reason !== 'schedule') {
@@ -665,6 +704,7 @@ const server = createServer(async (req, res) => {
 	if (await voiceHub.handleHttp(req, res)) return;
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
+	if (await agentStatusHub.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';

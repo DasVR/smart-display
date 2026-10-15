@@ -172,9 +172,28 @@ spot):
   wake (Display schedule).
 
 And for the whole room: **Nobody in the room: screen off after** 10, 30 or
-60 minutes (or never). Coming back turns it on again when **Turn the screen
-on when someone comes in** is on (never at night). The rules are
-`placeStep` in `src/lib/senses.js`.
+60 minutes (or never).
+
+**Walk out of the picture on the** left, right or either side turns the
+screen off much sooner, after 10 seconds to 2 minutes (20 s by default).
+Left and right are as you face the wall; pick the side your door is on. The
+wall goes by where you were last seen: halfway or more to that side
+(`x` at or past ±0.5) counts as leaving that way. If you disappear in the
+middle of the picture, it's usually the camera losing you (a dark corner,
+behind the couch), so nothing happens until the away timer above. The short
+wait means a missed frame or two doesn't turn the screen off while you're
+still there.
+
+**Screen back on when you come back** (on by default) turns the screen on
+again when someone is seen, but only if the camera is what turned it off.
+If you, the schedule or anything else turned it off since, it stays off, and
+it never comes on at night (quiet hours, or the schedule's off hours).
+**Turn the screen on when someone comes near** works as before. The rules
+are `placeStep` in `src/lib/senses.js`.
+
+The answer to something you say to the wall is always spoken, even when the
+camera can't see you at that moment. Only things the wall says on its own
+(reminders, announcements) wait for **While you were out**.
 
 ### The voice and the room
 

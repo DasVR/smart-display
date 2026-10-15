@@ -18,16 +18,19 @@ const ORDER = Object.keys(CHARACTERS);
 
 /**
  * roster: agentRoster ([{ id, name, phase, task }]); approvals: pending
- * approvals, oldest first. Returns [{ character, name, target, task,
+ * approvals, oldest first. onlyAsking: just the ones with a question (the
+ * Agents view already shows who's working). Returns [{ character, name, target, task,
  * approval, waiting }] where waiting counts that character's other approvals.
  */
-export function castFor({ roster = [], approvals = [] } = {}) {
+export function castFor({ roster = [], approvals = [], onlyAsking = false } = {}) {
 	const byChar = new Map();
 	for (const a of roster || []) {
-		if (a?.phase !== 'working') continue;
+		// waiting: a session asked a question to answer where it runs (no bubble here, just the "?")
+		if (a?.phase !== 'working' && a?.phase !== 'waiting') continue;
 		const character = characterFor(a.name || a.id);
 		if (!character) continue;
-		byChar.set(character, { character, name: a.name || CHARACTERS[character].label, target: 'work', task: a.task || '', approval: null, waiting: 0 });
+		const target = a.phase === 'waiting' ? 'ask' : 'work';
+		byChar.set(character, { character, name: a.name || CHARACTERS[character].label, target, task: a.task || '', approval: null, waiting: 0 });
 	}
 	for (const ap of approvals || []) {
 		if (ap?.status && ap.status !== 'pending') continue;
@@ -41,7 +44,7 @@ export function castFor({ roster = [], approvals = [] } = {}) {
 		entry.target = 'ask';
 		byChar.set(character, entry);
 	}
-	return ORDER.filter((c) => byChar.has(c)).map((c) => byChar.get(c));
+	return ORDER.filter((c) => byChar.has(c) && (!onlyAsking || byChar.get(c).approval)).map((c) => byChar.get(c));
 }
 
 /** The one whose question the bubble shows: the oldest waiting approval. */

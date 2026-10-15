@@ -42,6 +42,7 @@ import {
 	viewName
 } from '../wallActions.js';
 import { ACK_RE } from '../attention.js';
+import { classifyPlayerctlFailure } from '../mprisPlayers.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const MAX_BODY = 8 * 1024;
@@ -216,7 +217,7 @@ export function createActionHub({
 				return { say: `Showing ${viewName(action.view)}.` };
 			case 'music': {
 				const r = await player(action.action);
-				if (!r?.ok) return { say: 'The music player didn’t answer.' };
+				if (!r?.ok) return { say: musicFailure(action.action, r) };
 				const words = { pause: 'Paused.', play: 'Playing.', next: 'Next song.', previous: 'Previous song.' };
 				return { say: words[action.action] || 'Done.' };
 			}
@@ -431,4 +432,13 @@ export function createActionHub({
 	}
 
 	return { handleHttp, press, menu, choose, command, event, runIntent };
+}
+
+/** What to say when a music command didn't work, by why. */
+export function musicFailure(action, r) {
+	const why = r?.error ? classifyPlayerctlFailure(r.error) : 'failed';
+	if (why === 'idle') return action === 'pause' ? 'Nothing is playing.' : 'No music player is open on the wall.';
+	if (why === 'missing') return 'Music controls aren’t installed on the wall.';
+	if (why === 'timeout') return 'The music player took too long to answer.';
+	return 'The music player didn’t answer.';
 }

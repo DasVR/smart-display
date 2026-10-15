@@ -7,7 +7,7 @@ import path from 'node:path';
 import { buildMenu, findMenuItem, matchTask, parseCommand, pickPress, speakBoard } from '../src/lib/wallActions.js';
 import { createTaskHub } from '../src/lib/server/taskHub.js';
 import { createApprovalHub } from '../src/lib/server/approvalHub.js';
-import { createActionHub } from '../src/lib/server/actionHub.js';
+import { createActionHub, musicFailure } from '../src/lib/server/actionHub.js';
 
 const quiet = { log() {}, warn() {}, error() {} };
 
@@ -200,4 +200,13 @@ test('HTTP: press, menu, run, and commands through /api/tasks/say', async () => 
 		approvalHub.stop();
 		await new Promise((r) => server.close(r));
 	}
+});
+
+test('a music command that fails says why', () => {
+	const fail = (stderr, extra = {}) => ({ ok: false, error: Object.assign(new Error('playerctl failed'), { stderr, ...extra }) });
+	assert.equal(musicFailure('pause', fail('No players found')), 'Nothing is playing.');
+	assert.equal(musicFailure('next', fail('No players found')), 'No music player is open on the wall.');
+	assert.equal(musicFailure('play', fail('', { code: 'ENOENT' })), 'Music controls aren’t installed on the wall.');
+	assert.equal(musicFailure('play', fail('', { killed: true })), 'The music player took too long to answer.');
+	assert.equal(musicFailure('play', fail('dbus exploded')), 'The music player didn’t answer.');
 });

@@ -15,13 +15,13 @@
 	import { CHARACTERS } from '$lib/agentSprites.js';
 	import { castFor, countdown, speakerOf } from '$lib/agentStage.js';
 
-	let { roster = [], approvals = [], now = Date.now(), ondecide = null, guest = false, paused = false, onpresence = null } = $props();
+	let { roster = [], approvals = [], now = Date.now(), ondecide = null, guest = false, paused = false, onpresence = null, onlyAsking = false } = $props();
 
 	/** CSS pixels per sprite; 22 art pixels wide, so 12 device pixels each at 1x: readable across the room. */
 	const SIZE = 264;
 	const ART = SIZE / 22;
 
-	let cast = $derived(castFor({ roster, approvals }));
+	let cast = $derived(castFor({ roster, approvals, onlyAsking }));
 	let speaker = $derived(speakerOf(cast));
 
 	// who's on stage, including those climbing down: { character, entry, state: 'in'|'on'|'out', verdict, verdictKey }
@@ -288,7 +288,7 @@
 		transition: transform 120ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 	}
 	.acts button:active {
-		transform: scale(0.97);
+		transform: scale(0.96);
 		transition-duration: 0ms;
 	}
 	.deny {
