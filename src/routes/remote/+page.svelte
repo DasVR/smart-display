@@ -567,7 +567,7 @@
 
 	{#if pane === 'control'}
 		<div class="pane control-pane">
-			<WallMirror view={$current} ledger={ledgerNow} nowPlaying={nowPlayingNow} weather={weatherNow} now={mirrorNow} onaction={mirrorAction} />
+			<WallMirror view={$current} ledger={ledgerNow} nowPlaying={nowPlayingNow} weather={weatherNow} now={mirrorNow} skipCalling={calling.some((i) => i.kind !== 'approval')} onaction={mirrorAction} />
 			<section class="block power-block" aria-label="Power">
 				<button
 					class="power"

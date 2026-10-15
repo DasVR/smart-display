@@ -8,9 +8,9 @@
 	import { slide } from 'svelte/transition';
 	import { mirrorFor } from '$lib/wallMirror.js';
 
-	let { view = 'clock', ledger = null, nowPlaying = null, weather = null, now = Date.now(), onaction = () => {} } = $props();
+	let { view = 'clock', ledger = null, nowPlaying = null, weather = null, now = Date.now(), skipCalling = false, onaction = () => {} } = $props();
 
-	let mirror = $derived(mirrorFor({ view, ledger, nowPlaying, weather, now }));
+	let mirror = $derived(mirrorFor({ view, ledger, nowPlaying, weather, now, skipCalling }));
 	// what was just tapped: key -> result label, cleared after a moment
 	let sent = $state({});
 	const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;

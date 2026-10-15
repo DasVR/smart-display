@@ -39,6 +39,9 @@ test('clock: what needs you with its buttons, then the next thing', () => {
 		{ kind: 'task', op: 'snooze', id: 'bins', label: 'Later' }
 	], 'Done answers the ring too, so no separate Got it');
 	assert.deepEqual(m.rows[2].actions.map((a) => a.label), ['Allow', 'Deny']);
+	assert.deepEqual(m.rows[3].actions, [], 'the next thing is only named');
+	const card = mirrorFor({ view: 'clock', ledger, now: NOW, skipCalling: true });
+	assert.equal(card.rows[0].text, 'Severe Thunderstorm Warning', "the phone's own card already shows the ringing chore");
 	assert.equal(mirrorFor({ view: 'clock', ledger: null }).empty, 'Nothing needs you.');
 });
 

@@ -41,7 +41,12 @@ export function createLedgerHub({ sources, broadcast, now = () => Date.now(), ti
 		timer = setTimeout(refresh, debounceMs);
 	}
 
+	/** Current, even between a hub's change and the coalesced rebuild. */
 	function snapshot() {
+		if (timer) {
+			clearTimeout(timer);
+			refresh();
+		}
 		if (!current) current = build();
 		return current;
 	}

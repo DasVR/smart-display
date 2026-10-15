@@ -55,7 +55,11 @@ function row(e, now, sub) {
 	return { id: e.id, text: e.kind === 'approval' ? `${e.source}: ${e.title}` : e.title, sub: sub ?? (whenText(e.at, now, e.allDay) || e.detail || ''), calling: Boolean(e.calling), actions: entryActions(e) };
 }
 
-export function mirrorFor({ view = 'clock', ledger = null, nowPlaying = null, weather = null, now = Date.now() } = {}) {
+/**
+ * skipCalling: leave out what's ringing, when the phone already shows it
+ * in its own attention card above the mirror (one fact, one place).
+ */
+export function mirrorFor({ view = 'clock', ledger = null, nowPlaying = null, weather = null, now = Date.now(), skipCalling = false } = {}) {
 	const L = ledger ?? { now: [], soon: [], past: [] };
 	const base = { view, title: kioskViewLabel(view) || 'Clock', rows: [], controls: [], empty: '' };
 
@@ -100,9 +104,12 @@ export function mirrorFor({ view = 'clock', ledger = null, nowPlaying = null, we
 		return { ...base, rows, empty: rows.length ? '' : 'No weather alerts.' };
 	}
 
-	// clock: what needs you, then the next thing coming
-	const needs = L.now.slice(0, 4).map((e) => row(e, now));
+	// clock: what needs you, then the next thing coming (just named; it isn't due yet)
+	const needs = L.now
+		.filter((e) => !(skipCalling && e.calling && e.kind !== 'approval'))
+		.slice(0, 4)
+		.map((e) => row(e, now));
 	const next = L.soon.find((e) => e.kind !== 'weather');
-	const rows = next ? [...needs, { ...row(next, now), text: `Next: ${next.title}` }] : needs;
+	const rows = next ? [...needs, { ...row(next, now), text: `Next: ${next.title}`, actions: [] }] : needs;
 	return { ...base, rows, empty: rows.length ? '' : 'Nothing needs you.' };
 }
