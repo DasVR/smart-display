@@ -6,6 +6,13 @@ Every phase ships on its own and leaves the wall working.
 
 Written 2026-10-15 against `22930ab`.
 
+**Status.** Breakthroughs 2 to 7 have a first version in the code: the
+Ledger (as a read model over the hubs), intents (a registry over the
+existing parser), the event log and `npm run replay`, the phone's Now pane,
+surface profiles (a flag only) and the senses sign with a hand-only Guest
+mode. See [`ledger-and-log.md`](ledger-and-log.md). Breakthrough 1 (layout
+by distance) and the refactor phases are still to do.
+
 ---
 
 ## 1. Where it stands
@@ -95,8 +102,8 @@ done this anyway?"
 >
 > **7. Honest senses.** A camera and mic on a wall need a *visible* state:
 > a small, fixed, never-animated glyph shows camera/mic on, off or hearing,
-> and **Guest mode** hides calendar titles, agents and transcripts when the
-> room holds more people than paired phones (or on a phone toggle).
+> and **Guest mode** hides calendar titles, agents and transcripts. It is
+> turned on by hand from the phone, never automatically.
 > *Why it works:* it's the feature that's missing, and it's what makes
 > people trust the other features in a shared room.
 
@@ -397,9 +404,10 @@ and no new WS `type` outside `src/protocol/`.
   already support spots) before turning tiers on by default.
 - **Event log size and privacy.** Rotate daily, keep 14 days, and redact on
   export. Transcripts are opt-in.
-- **Decisions for the owner:**
-  1. Is Agents a primary scene, or only a contextual one?
-  2. Should Guest mode trigger automatically (head count > paired phones) or
-     only by hand?
-  3. Is a second surface (tablet or e-ink) planned? If not, move breakthrough
-     6 to "later" and keep only the profile flag.
+- **Decided (2026-10-15):**
+  1. Agents become little characters (Claude, Cursor, Gemini) that rise
+     from the bottom edge with their question, instead of a view you have to
+     be on. The design variants are being chosen; the Agents view stays
+     until then.
+  2. Guest mode never turns on by itself. It's a switch on the phone.
+  3. No second screen planned. Surface profiles stay a flag.

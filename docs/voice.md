@@ -6,12 +6,12 @@ generation. Both are optional: without a key the wall shows what it would
 have said on the island, and every sound falls back to the built-in tapping
 sounds.
 
-Phone: **Stats → Sounds & voice** (`/remote/sounds`). Everything you can *say*
+Phone: **Home → Sounds & voice** (`/remote/sounds`). Everything you can *say*
 to the wall is in [voice-commands.md](voice-commands.md).
 
 ## Set up the key
 
-On your phone: **Stats → Sounds & voice → ElevenLabs key**. Paste the key
+On your phone: **Home → Sounds & voice → ElevenLabs key**. Paste the key
 from elevenlabs.io → Developers → API Keys and tap **Save**.
 
 - The wall checks the key with ElevenLabs first and refuses one ElevenLabs
@@ -157,7 +157,7 @@ sound has a file, it falls back to a synthesized pencil tap or keycap.
 
 ## Making sounds from the phone
 
-You don't need a laptop to add or fill in sounds. On **Stats → Sounds & voice**
+You don't need a laptop to add or fill in sounds. On **Home → Sounds & voice**
 (needs the ElevenLabs key above) the wall can make them itself.
 
 **Make a sound.** Describe it ("a pencil being sharpened", "a notebook snapping shut") and tap

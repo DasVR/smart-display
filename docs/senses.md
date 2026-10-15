@@ -23,8 +23,23 @@ One USB webcam, with its built-in microphone, lets the wall:
   across the room and softer lying down at night, and things said to an
   empty room are kept and said when you come back.
 
-Settings are on the phone: **Stats → Senses**. Both the microphone and the
+Settings are on the phone: **Home → Senses**. Both the microphone and the
 camera start **off**.
+
+## The sign on the wall, and Guest mode
+
+Whenever the camera or the microphone is on, a small sign sits in the
+wall's top-right corner: a camera and a microphone, white when on, blue
+while it's working out what it heard, amber when it's turned on but the
+webcam program isn't answering, and "Taking notes" while notes are on. It
+never moves, so it can't be mistaken for decoration, and it's gone when both
+are off ([`src/lib/sensesSign.js`](../src/lib/sensesSign.js)).
+
+**Guest mode** (Home → Senses → Privacy) is for company: calendar titles
+read "Busy", the Agents view is hidden, approval cards don't show the
+command or the folder, and what the microphone heard isn't captioned. It's
+off by default and only ever turned on by hand; nothing turns it on by
+itself.
 
 ## What leaves the webcam
 
