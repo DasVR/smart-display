@@ -10,6 +10,8 @@
 <script>
 	import '../app.css';
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
+	import { bootMarksFrom, readyOrCap, wake } from '$lib/wake.js';
 	import { surfaceProfile } from '$lib/surface.js';
 	import { guestMode, tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
@@ -496,7 +498,8 @@
 				if (msg.type === 'trigger' && msg.event === 'normal') {
 					mode = 'normal';
 					displayMode.set('normal');
-					pushIslandEvent({
+					// just woken up: the wake itself said so (src/lib/wake.js)
+					if (performance.now() > 15000) pushIslandEvent({
 						title: 'Normal mode',
 						body: 'Resuming full display.',
 						severity: 'info',
@@ -594,6 +597,10 @@
 		try {
 			const r = await fetch('/api/weather?hours=48');
 			weatherData = await r.json();
+			// right after a restart this is the copy from before: fresh one shortly
+			if (weatherData?.stale) setTimeout(fetchWeather, 8000);
+			// no forecast at all yet (the network still coming up): try again soon, not in 5 minutes
+			else if (!weatherData?.fetchedAt) setTimeout(fetchWeather, 30000);
 			try {
 				const samples = await sampleRadarNowcast(weatherData?.rad);
 				if (samples.length) {
@@ -655,7 +662,24 @@
 			agentRoster.set(demoRoster());
 		}
 		connect();
-		fetchWeather();
+		const firstWeather = fetchWeather();
+		const graceTimer = setTimeout(() => (bootGraceOver = true), 30000);
+		// open the wall's eyes once there's something to see (src/lib/wake.js), then
+		// tell the server how long the boot took (src/lib/bootTimeline.js)
+		const marks = { ...bootMarksFrom(window.location.search), page: Math.round(performance.timeOrigin) };
+		readyOrCap(Promise.all([document.fonts?.ready, firstWeather]), 2500).then(() => {
+			marks.awake = Date.now();
+			wake({ root: displayRootEl, reduced: window.matchMedia('(prefers-reduced-motion: reduce)').matches });
+			// the router is up by now (calling this during mount throws)
+			if (marks.kiosk) {
+				const clean = new URL(window.location.href);
+				clean.searchParams.delete('boot');
+				replaceState(clean, {});
+			}
+			if (import.meta.env.VITE_STATIC_DEMO !== '1') {
+				fetch('/api/boot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(marks), keepalive: true }).catch(() => {});
+			}
+		});
 		const stopSystemWatch = startSystemWatch();
 		const stopGovernor = startOllamaArbiter();
 		const stopGlassGovernor = startGlassGovernor();
@@ -754,6 +778,7 @@
 			}, 700);
 		}
 		return () => {
+			clearTimeout(graceTimer);
 			clearInterval(clock);
 			stopMusicPoll();
 			clearInterval(wx);
@@ -783,8 +808,12 @@
 	);
 	let atm = $derived(atmosphereFromWeather(time.getTime(), weatherData));
 
+	let displayRootEl = $state(null);
 	let lastMusicFault = '';
+	// the media players are still starting for a while after a boot: a fault then isn't one
+	let bootGraceOver = $state(false);
 	$effect(() => {
+		if (!bootGraceOver) return;
 		const track = $nowPlaying;
 		const fault = track?.unavailable ? track.reason || 'failed' : track?.degraded || '';
 		if (!fault) {
@@ -1131,6 +1160,7 @@
 	/>
 
 	<div
+		bind:this={displayRootEl}
 		class="display-root"
 		class:morning={mode === 'morning'}
 		class:sleep={mode === 'sleep'}

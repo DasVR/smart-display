@@ -98,6 +98,19 @@ if systemctl is-enabled --quiet smart-display-senses 2>/dev/null; then
 	sudo systemctl restart smart-display-senses || echo "WARN: smart-display-senses did not restart"
 fi
 
+# The running browser can just load the new build (scripts/kiosk-reload.mjs):
+# the wall wakes up again in place instead of going black while cage and
+# Chromium restart. A changed start-kiosk.sh (new browser flags) still needs
+# the full restart, and so does a kiosk that isn't running or won't answer.
+KIOSK_SHA="/run/user/1000/smart-display-kiosk.sha"
+if systemctl is-active --quiet smart-display-kiosk \
+	&& [ -f "$KIOSK_SHA" ] && sha256sum --status -c "$KIOSK_SHA" 2>/dev/null \
+	&& "$(dirname "$NPM")/node" scripts/kiosk-reload.mjs; then
+	echo "[5/5] kiosk: reloaded the page in place (no restart)"
+	echo "=== deploy complete ==="
+	exit 0
+fi
+
 echo "[5/5] restarting kiosk (cage + chromium)"
 kiosk_ok=0
 for attempt in 1 2 3 4 5; do

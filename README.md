@@ -231,12 +231,15 @@ The display box runs:
 - `smart-display-server.service`: `node src/ws-server.js` on port 3000
 - `smart-display-kiosk.service`: `start-kiosk.sh`, which runs `cage` (a
   single-app Wayland compositor) with Chromium in `--kiosk` mode, forced to
-  1920×1080
+  1920×1080. It opens `static/boot.html` first, and the wall wakes up from a
+  standby light ([`docs/boot.md`](docs/boot.md); for a quiet, quick boot, run
+  `sudo scripts/boot/setup-quiet-boot.sh` once)
 
 Every push to `master` triggers `.github/workflows/deploy-kiosk.yml` on a
 self-hosted runner on the display box. It runs `scripts/deploy.sh`, which
-resets the checkout to `origin/master`, runs `npm ci && npm run build`, and
-restarts both services.
+resets the checkout to `origin/master`, runs `npm ci && npm run build`,
+restarts the server and reloads the wall's page in the running browser (a
+full kiosk restart only when `start-kiosk.sh` changed).
 
 ### Environment variables
 
@@ -276,6 +279,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/siri-shortcuts.md`](docs/siri-shortcuts.md): Siri, the Action button and Shortcuts
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
 - [`docs/agent-characters.md`](docs/agent-characters.md): the agents as pixel characters on the bottom bar, and how they're animated
+- [`docs/boot.md`](docs/boot.md): turning on: the standby light, the eyes opening, a quiet boot, and how long each boot took (`npm run boot-report`)
 - [`docs/agent-status.md`](docs/agent-status.md): live status from Claude Code and Cursor, on your computer or in the cloud, through their hooks and Cursor's Cloud Agents API
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood

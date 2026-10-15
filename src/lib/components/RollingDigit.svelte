@@ -4,6 +4,10 @@
 	// On first mount it spins up through a couple of extra cycles before
 	// landing on the real value; after that each change rolls the shortest
 	// forward distance (e.g. 9 -> 0 rolls through, it doesn't reverse).
+	// On a fresh load the spin-up waits for the wall to open its eyes
+	// (src/lib/wake.js), so it plays where you can see it, not under the cover.
+	import { whenAwake } from '$lib/wake.js';
+
 	let { digit = 0, spinCycles = 2 } = $props();
 
 	const CYCLE = 10;
@@ -30,6 +34,9 @@
 	let didMount = false;
 	let prevDigit = null;
 	let longRollTimer = 0;
+	let spun = false;
+	let cancelSpin = () => {};
+	$effect(() => () => cancelSpin());
 
 	function afterPaint(fn) {
 		requestAnimationFrame(() => requestAnimationFrame(fn));
@@ -46,19 +53,29 @@
 				ready = false;
 				return;
 			}
-			afterPaint(() => {
-				longRoll = true;
-				ready = true;
-				pos = spinCycles * CYCLE + d;
-				clearTimeout(longRollTimer);
-				longRollTimer = setTimeout(() => {
-					longRoll = false;
-				}, 1150);
-			});
+			cancelSpin = whenAwake(() =>
+				afterPaint(() => {
+					spun = true;
+					longRoll = true;
+					ready = true;
+					// the value may have moved on while the wall was waking
+					pos = spinCycles * CYCLE + prevDigit;
+					clearTimeout(longRollTimer);
+					longRollTimer = setTimeout(() => {
+						longRoll = false;
+					}, 1150);
+				})
+			);
 			return;
 		}
 
 		if (d === prevDigit) return;
+		if (!spun && !reducedMotion) {
+			// still waiting to spin up: just keep the value current
+			prevDigit = d;
+			pos = d;
+			return;
+		}
 		const steps = ((d - prevDigit + CYCLE) % CYCLE) || CYCLE;
 		prevDigit = d;
 
