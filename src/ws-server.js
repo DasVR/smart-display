@@ -1,5 +1,5 @@
 import { createServer } from 'http';
-import { existsSync, readFileSync, watch } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { WebSocketServer } from 'ws';
 import { handler } from '../build/handler.js';
@@ -19,6 +19,7 @@ import {
 	saveStationData
 } from './lib/server/hostData.js';
 import { PROJECT_ROOT, readHdmiStamp, setPanelPower } from './lib/server/displayPower.js';
+import { normalizeLook } from './lib/look/wallLook.js';
 import { createTaskHub } from './lib/server/taskHub.js';
 import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
@@ -90,6 +91,17 @@ const port = process.env.PORT || 3000;
 const SCHEDULE_PATH =
 	process.env.DISPLAY_SCHEDULE_PATH || path.join(PROJECT_ROOT, 'data/display-schedule.json');
 const SCHEDULE_TICK_MS = 15_000;
+// the wall's look (halftone painting or the classic liquid metal), set from the phone
+const LOOK_PATH = path.join(PROJECT_ROOT, 'data/look.json');
+let look = normalizeLook(readLook());
+
+function readLook() {
+	try {
+		return JSON.parse(readFileSync(LOOK_PATH, 'utf8'));
+	} catch {
+		return {};
+	}
+}
 
 let schedule = loadSchedule(SCHEDULE_PATH);
 
@@ -496,7 +508,8 @@ function displaySnapshot() {
 			source: 'camera',
 			after: schedule.phoneWakeAfter,
 			wakeWindow: isPhoneWakeWindow(new Date(), schedule)
-		}
+		},
+		look
 	};
 }
 
@@ -1003,6 +1016,16 @@ wss.on('connection', (ws, req) => {
 			}
 			if (msg.type === 'display' && msg.schedule) {
 				patchSchedule({ ...schedule, ...msg.schedule });
+			}
+			if (msg.type === 'display' && msg.look && typeof msg.look === 'object') {
+				look = normalizeLook(msg.look, look);
+				try {
+					mkdirSync(path.dirname(LOOK_PATH), { recursive: true });
+					writeFileSync(LOOK_PATH, JSON.stringify(look, null, 2));
+				} catch (e) {
+					console.warn(`look: couldn't save: ${e.message}`);
+				}
+				broadcast({ type: 'display', ...displaySnapshot() });
 			}
 			if (msg.type === 'tasks') {
 				Promise.resolve(taskHub.handleWs(msg))

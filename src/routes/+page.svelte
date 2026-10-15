@@ -62,6 +62,9 @@
 	import RadarCanvas from '$lib/components/RadarCanvas.svelte';
 	import AmbientDeck from '$lib/components/AmbientDeck.svelte';
 	import TodayTasks from '$lib/components/TodayTasks.svelte';
+	import GlassClock from '$lib/components/GlassClock.svelte';
+	import HalftoneArt from '$lib/components/HalftoneArt.svelte';
+	import { ARTWORKS, artFor, normalizeLook } from '$lib/look/wallLook.js';
 	import { tarnishLevel } from '$lib/tarnish.js';
 	import DepartureBoard from '$lib/components/DepartureBoard.svelte';
 	import ApprovalCard from '$lib/components/ApprovalCard.svelte';
@@ -81,6 +84,9 @@
 	// notes being taken through the webcam's microphone: { on, startedAt, count }
 	let notes = $state({ on: false, startedAt: null, count: 0 });
 	let hdmiOff = $state(false);
+	// the look (src/lib/look/wallLook.js): set from the phone, or ?look=classic|halftone to preview
+	let wallLook = $state(normalizeLook({}));
+	const lookParams = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
 	let navEl = $state(null);
 	let tabRefs = $state([]);
 	let indicator = $state({ left: 0, right: 0, top: 0, width: 0, height: 0, dir: 'right', ready: false });
@@ -279,6 +285,7 @@
 
 	function applyDisplay(display) {
 		if (!display) return;
+		if (display.look) wallLook = normalizeLook(display.look, wallLook);
 		if (display.hdmi === 'off') {
 			hdmiOff = true;
 			if (mode !== 'sleep') {
@@ -863,6 +870,10 @@
 			isStandBy({ view: $currentView, phase: atm.phase, now: time.getTime(), lastInput, mode }))
 	);
 	let clockKicker = $derived(phaseKicker(atm.phase, weekday));
+	let look = $derived(normalizeLook({ look: lookParams.get('look') || wallLook.look, art: lookParams.get('art') || wallLook.art }, wallLook));
+	// the halftone look stands down for StandBy, which keeps its own night face
+	let halftone = $derived(look.look === 'halftone' && !standby);
+	let artKey = $derived(artFor(look.art, Number(time.toLocaleString('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: 'America/New_York' }))));
 
 	// End-of-day receipt: the first time StandBy comes on each night, print
 	// the day's tally (src/lib/dayLog.js), then fold it away. ?receipt=1 previews.
@@ -1053,7 +1064,10 @@
 
 <a class="skip" href="#main-stage">Skip to view</a>
 
-<div class="display-shell" data-glass-tier={glass} class:standby class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
+<div class="display-shell" data-glass-tier={glass} class:look-halftone={halftone} class:standby class:sleep={mode === 'sleep'} class:hdmi-off={hdmiOff} class:eco={$displayQuality === 'eco'} class:frozen={$displayQuality === 'frozen' || $gpuLowPowerMode}>
+	{#if halftone}
+		<HalftoneArt src="/art/{artKey}.jpg" alt="{ARTWORKS[artKey].title}, {ARTWORKS[artKey].artist}, printed in dots" />
+	{:else}
 	<LiquidMetalCanvas
 		isLowPower={$gpuLowPowerMode || mode === 'sleep' || hdmiOff}
 		quality={$displayQuality}
@@ -1065,6 +1079,7 @@
 		windDir={atm.windRad}
 		{tarnish}
 	/>
+	{/if}
 
 	{#if $currentView === 'music' && $nowPlaying?.art && ($nowPlaying?.playing || $nowPlaying?.paused || $nowPlaying?.title)}
 		{#key $nowPlaying.art}
@@ -1170,6 +1185,8 @@
 				<section class="view-pane clock-pane" class:departing={board}>
 					{#if board}
 						<DepartureBoard {board} now={time} ondone={completeTask} />
+					{:else if halftone}
+						<GlassClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} />
 					{:else}
 						<div class="clock-credits">
 							<p class="clock-kicker">{clockKicker}</p>
@@ -1239,6 +1256,83 @@
 </div>
 
 <style>
+	/* ---------- the halftone look (src/lib/look/wallLook.js) ----------
+	   The painting in dots fills the screen; the page tabs become one
+	   frosted pill at the bottom centre, the island stays at the top, the
+	   footer deck folds away (the Clock page's glass cards carry the sun and
+	   weather), and the other pages keep their content on the same glass. */
+	.display-shell.look-halftone {
+		/* warm graphite glass, nearly solid: the dots behind stay out of the text */
+		--halftone-glass: linear-gradient(160deg, color-mix(in srgb, #3a3632 88%, transparent), color-mix(in srgb, #23201d 92%, transparent));
+		background: #eae3d5;
+	}
+	.look-halftone .display-root {
+		grid-template-rows: auto minmax(0, 1fr) 7.5rem;
+	}
+	.look-halftone .view-strip {
+		position: fixed;
+		left: 50%;
+		bottom: 2.25rem;
+		transform: translateX(-50%);
+		z-index: 30;
+		padding: 0.45rem;
+		border-radius: 999px;
+		background: var(--halftone-glass);
+		border: 1px solid color-mix(in srgb, #fff 16%, transparent);
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+			0 18px 40px -16px color-mix(in srgb, #000 60%, transparent);
+	}
+	.look-halftone .view-tab {
+		color: color-mix(in srgb, #f3eee4 70%, transparent);
+		font-size: clamp(1.15rem, 1.6vw, 1.7rem);
+		font-weight: 600;
+		padding: 0.55rem 1.4rem;
+	}
+	.look-halftone .view-tab.active {
+		color: #f3eee4;
+	}
+	/* a small orange dot under the page you're on */
+	.look-halftone .view-tab.active::after {
+		content: '';
+		position: absolute;
+		left: 50%;
+		bottom: 0.18rem;
+		width: 0.36rem;
+		height: 0.36rem;
+		margin-left: -0.18rem;
+		border-radius: 50%;
+		background: #ffab52;
+	}
+	.look-halftone .tab-indicator {
+		background: color-mix(in srgb, #f3eee4 16%, transparent);
+		box-shadow: none;
+	}
+	.look-halftone .status-cluster {
+		padding: 0.6rem 1.1rem;
+		border-radius: 1.25rem;
+		background: var(--halftone-glass);
+		color: #f3eee4;
+	}
+	/* every other page sits on one big glass sheet */
+	.look-halftone .view-pane:not(.clock-pane) {
+		border-radius: 2.25rem;
+		background: var(--halftone-glass);
+		border: 1px solid color-mix(in srgb, #fff 14%, transparent);
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent),
+			0 30px 60px -20px color-mix(in srgb, #000 55%, transparent);
+	}
+	.look-halftone .display-root:has(.clock-pane) .status-cluster,
+	.look-halftone .equator,
+	.look-halftone .trough {
+		display: none;
+	}
+	.look-halftone .clock-pane {
+		align-items: center;
+		justify-content: center;
+	}
+
 	/* the receipt prints up from the bottom edge, right of centre */
 	.receipt-layer {
 		position: fixed;
