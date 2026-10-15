@@ -14,6 +14,8 @@
 	import { page } from '$app/state';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
+	import WallMirror from '$lib/components/WallMirror.svelte';
+	import { surfaceProfile } from '$lib/surface.js';
 
 	// Two panes on one page, picked by the bottom tab bar: the everyday
 	// controls, and the night schedule (#night).
@@ -37,6 +39,38 @@
 		const t = setInterval(() => (callingNow = Date.now()), 15000);
 		return () => clearInterval(t);
 	});
+	// the back of the wall (src/lib/wallMirror.js): what it shows, with its buttons
+	let ledgerNow = $state(null);
+	let nowPlayingNow = $state(null);
+	let weatherNow = $state(null);
+	let mirrorNow = $state(Date.now());
+	let weatherAt = 0;
+	$effect(() => {
+		const t = setInterval(() => (mirrorNow = Date.now()), 30000);
+		return () => clearInterval(t);
+	});
+	$effect(() => {
+		// the weather view mirrors the current conditions; fetched when it's up, at most every 5 minutes
+		if ($current !== 'weather' || Date.now() - weatherAt < 300000) return;
+		weatherAt = Date.now();
+		fetch('/api/weather?hours=1')
+			.then((r) => r.json())
+			.then((d) => (weatherNow = d))
+			.catch(() => (weatherAt = 0));
+	});
+	async function mirrorAction(a) {
+		if (navigator.vibrate) navigator.vibrate(12);
+		if (a.kind === 'ack') sendAttention({ type: 'attention', op: 'ack', id: a.id });
+		else if (a.kind === 'task') sendAttention({ type: 'tasks', op: a.op, id: a.id, ...(a.op === 'snooze' ? { minutes: 60 } : {}) });
+		else if (a.kind === 'approval') sendAttention({ type: 'approvals', op: 'decide', id: a.id, decision: a.decision, by: 'phone' });
+		else if (a.kind === 'player') {
+			try {
+				await fetch(`/api/player/${a.action}`, { method: 'POST' });
+			} catch {
+				lastAction = 'the player did not answer';
+			}
+		}
+	}
 	const views = KIOSK_VIEWS.map((id) => ({ id, label: kioskViewLabel(id) }));
 	const weekDays = [
 		{ id: 0, short: 'S', name: 'Sunday' },
@@ -208,7 +242,19 @@
 			linkDown = false;
 			status = 'connected';
 			lastMessageAt = Date.now();
-			ws.send(JSON.stringify({ type: 'hello', role: 'remote' }));
+			ws.send(
+				JSON.stringify({
+					type: 'hello',
+					role: 'remote',
+					surface: surfaceProfile({
+						role: 'remote',
+						width: window.innerWidth,
+						height: window.innerHeight,
+						touch: matchMedia('(pointer: coarse)').matches,
+						reducedMotion: matchMedia('(prefers-reduced-motion: reduce)').matches
+					})
+				})
+			);
 			ws.send(JSON.stringify({ type: 'ping' }));
 		};
 		ws.onclose = () => {
@@ -233,7 +279,11 @@
 					applyDisplay(msg.display);
 					applyAudio(msg.audio);
 					if (Array.isArray(msg.attention)) calling = msg.attention;
+					if (msg.ledger) ledgerNow = msg.ledger;
+					if (msg.nowPlaying) nowPlayingNow = msg.nowPlaying;
 				}
+				if (msg.type === 'ledger' && msg.ledger) ledgerNow = msg.ledger;
+				if (msg.type === 'nowPlaying') nowPlayingNow = msg;
 				if (msg.type === 'attention' && Array.isArray(msg.items)) {
 					calling = msg.items;
 					callingNow = Date.now();
@@ -526,6 +576,7 @@
 
 	{#if pane === 'control'}
 		<div class="pane control-pane">
+			<WallMirror view={$current} ledger={ledgerNow} nowPlaying={nowPlayingNow} weather={weatherNow} now={mirrorNow} skipCalling={calling.some((i) => i.kind !== 'approval')} onaction={mirrorAction} />
 			<section class="block power-block" aria-label="Power">
 				<button
 					class="power"

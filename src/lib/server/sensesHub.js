@@ -405,7 +405,13 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 	}
 
 	/** Every so often: notes left on with nothing said, a calibration that never came back, the process gone. */
+	let wasOnline = false;
 	function tick() {
+		// the sign on the wall must not say "on" after the webcam process has gone
+		if (online() !== wasOnline) {
+			wasOnline = online();
+			tell();
+		}
 		if (notes.on && now() - notes.lastAt > settings.notesMinutes * 60000) stopNotes();
 		if (calibration && now() - calibration.at > CALIBRATE_TTL_MS) {
 			calibration = null;

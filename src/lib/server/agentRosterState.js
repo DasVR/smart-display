@@ -1,4 +1,5 @@
 import {
+	applyAgentStatus,
 	applyNotifyToRoster,
 	applyOllamaHint,
 	emptyRoster,
@@ -25,5 +26,10 @@ export function ingestOllamaStatus(status, now = Date.now()) {
 
 export function resetAgentRoster() {
 	roster = emptyRoster();
+	return roster;
+}
+
+export function setAgentStatus(id, status, now = Date.now()) {
+	roster = applyAgentStatus(roster, id, status, now);
 	return roster;
 }

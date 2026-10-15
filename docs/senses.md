@@ -23,8 +23,23 @@ One USB webcam, with its built-in microphone, lets the wall:
   across the room and softer lying down at night, and things said to an
   empty room are kept and said when you come back.
 
-Settings are on the phone: **Stats → Senses**. Both the microphone and the
+Settings are on the phone: **Home → Senses**. Both the microphone and the
 camera start **off**.
+
+## The sign on the wall, and Guest mode
+
+Whenever the camera or the microphone is on, a small sign sits in the
+wall's top-right corner: a camera and a microphone, white when on, blue
+while it's working out what it heard, amber when it's turned on but the
+webcam program isn't answering, and "Taking notes" while notes are on. It
+never moves, so it can't be mistaken for decoration, and it's gone when both
+are off ([`src/lib/sensesSign.js`](../src/lib/sensesSign.js)).
+
+**Guest mode** (Home → Senses → Privacy) is for company: calendar titles
+read "Busy", the Agents view is hidden, approval cards don't show the
+command or the folder, and what the microphone heard isn't captioned. It's
+off by default and only ever turned on by hand; nothing turns it on by
+itself.
 
 ## What leaves the webcam
 
@@ -157,9 +172,28 @@ spot):
   wake (Display schedule).
 
 And for the whole room: **Nobody in the room: screen off after** 10, 30 or
-60 minutes (or never). Coming back turns it on again when **Turn the screen
-on when someone comes in** is on (never at night). The rules are
-`placeStep` in `src/lib/senses.js`.
+60 minutes (or never).
+
+**Walk out of the picture on the** left, right or either side turns the
+screen off much sooner, after 10 seconds to 2 minutes (20 s by default).
+Left and right are as you face the wall; pick the side your door is on. The
+wall goes by where you were last seen: halfway or more to that side
+(`x` at or past ±0.5) counts as leaving that way. If you disappear in the
+middle of the picture, it's usually the camera losing you (a dark corner,
+behind the couch), so nothing happens until the away timer above. The short
+wait means a missed frame or two doesn't turn the screen off while you're
+still there.
+
+**Screen back on when you come back** (on by default) turns the screen on
+again when someone is seen, but only if the camera is what turned it off.
+If you, the schedule or anything else turned it off since, it stays off, and
+it never comes on at night (quiet hours, or the schedule's off hours).
+**Turn the screen on when someone comes near** works as before. The rules
+are `placeStep` in `src/lib/senses.js`.
+
+The answer to something you say to the wall is always spoken, even when the
+camera can't see you at that moment. Only things the wall says on its own
+(reminders, announcements) wait for **While you were out**.
 
 ### The voice and the room
 
@@ -240,7 +274,13 @@ In the order a sound goes through them:
 - **Whisper is told what talking to the wall sounds like** ("Hey wall, what
   time is it? Hey wall, pause the music."), so it expects "hey wall" and
   hears it when faint. Silero's voice filter keeps it from inventing those
-  examples out of silence or hiss.
+  examples out of silence or hiss. Out of louder noise (a fan, the TV, the
+  wall's own music) Whisper could still write the examples back, word for
+  word, which is how "pause the music" got heard when nobody spoke. So a
+  phrase that comes back as just a piece of the examples is transcribed
+  again without them, and only counts if the command is still there
+  (`confirm_echo` in `senses/wall_senses/wake.py`). Real speech still says
+  it; noise doesn't. The diary shows those as ignored, `prompt-echo`.
 - **Whisper small.en** understands noisy, distant speech much better than
   base.en. The install script fetches both; pick small.en on the phone.
 

@@ -27,7 +27,7 @@ import time
 from collections import deque
 
 from .vad import FRAME_BYTES, FRAME_MS, SAMPLE_RATE, SpeechGate, apply_gain, rms
-from .wake import is_noise, match_wake
+from .wake import confirm_echo, is_noise, match_wake
 
 HEAD_SECONDS = 3.0
 # after a bare "hey wall", how long the next thing said counts as the command
@@ -351,7 +351,9 @@ class Ears:
         """Two examples of talking to the wall, so Whisper expects "hey wall" and
         hears it even faint and across the room (tested: without them it heard
         "Wow, that's a fiber for 10 minutes"; with them, the whole sentence).
-        Silero's voice filter keeps it from inventing them out of silence."""
+        Silero's voice filter keeps it from inventing them out of silence, but
+        not out of noise (a fan, the TV, music): a piece that comes back as
+        just these examples is checked again without them (wake.confirm_echo)."""
         wake = ((self.wake_words or ["hey wall"])[0] or "hey wall").strip().capitalize()
         return f"{wake}, what time is it? {wake}, pause the music."
 
@@ -402,8 +404,14 @@ class Ears:
                     self.state = "thinking"
                 # the wake phrase is in this piece unless it came before it (awaiting) or it's notes
                 seconds = round(len(audio) / 2 / SAMPLE_RATE, 2)
-                text = self._words(audio, None if awaiting or self.notes else self._prompt())
+                prompt = None if awaiting or self.notes else self._prompt()
+                text = self._words(audio, prompt)
+                # Whisper can write its own prompt back out of noise: check those without it
+                keep, again = confirm_echo(text, prompt, lambda: self._words(audio, None), self.wake_words)
                 del audio
+                if not keep:
+                    self.decided("ignored", seconds=seconds, text=text, recheck=again, reason="prompt-echo")
+                    continue
                 what = route(text, self.wake_words, self.notes, awaiting) if text else None
                 self.decided("heard", seconds=seconds, text=text, awaiting=bool(awaiting), notes=bool(self.notes), routed=what[0] if what else None)
                 if not what:

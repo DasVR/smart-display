@@ -30,6 +30,10 @@ import { createAttentionHub } from './lib/server/attentionHub.js';
 import { ringForWarnings } from './lib/server/nwsWatch.js';
 import { createPairing, isLocalAddress } from './lib/server/pairing.js';
 import { createSensesHub } from './lib/server/sensesHub.js';
+import { createLedgerHub } from './lib/server/ledgerHub.js';
+import { createEventLog } from './lib/server/eventLog.js';
+import { normalizeSurface } from './lib/surface.js';
+import { dayKey } from './lib/dayLog.js';
 import { speechForDue } from './lib/wallVoice.js';
 import { createCalendarFeed } from './lib/server/calendarFeed.js';
 import { listAddresses } from './lib/addresses.js';
@@ -57,8 +61,10 @@ import {
 import {
 	getAgentRoster,
 	ingestAgentNotify,
-	ingestOllamaStatus
+	ingestOllamaStatus,
+	setAgentStatus
 } from './lib/server/agentRosterState.js';
+import { createAgentStatusHub } from './lib/server/agentStatusHub.js';
 import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
 import { airplayArtPath, airplayStatePath } from './lib/server/audioNowPlaying.js';
 import { applyVolumePayload, getVolume, setMute, setVolume, volumeHttpStatus } from './lib/server/audioVolume.js';
@@ -104,6 +110,16 @@ function readLook() {
 }
 
 let schedule = loadSchedule(SCHEDULE_PATH);
+
+// the day as a recording (src/lib/eventLog.js): redacted broadcasts, 14 days, replayable
+const eventLog = createEventLog({
+	dir: path.join(PROJECT_ROOT, 'data/log'),
+	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses())
+});
+
+/** The ledger hub (set up once the hubs it reads exist) and the hub messages that can move it. */
+let ledgerHub = null;
+const LEDGER_INPUTS = new Set(['tasks', 'approvals', 'attention', 'weather-alerts', 'agents']);
 
 // Chores, little jobs and alerts: /api/tasks for other platforms, /ws for the
 // kiosk and remote, a scheduler that raises due items on the island.
@@ -198,6 +214,9 @@ const approvalHub = createApprovalHub({
 	onDecide: (a) => dayLog.record('approval', { decision: a.status })
 });
 // the Action button and spoken commands (see src/lib/wallActions.js)
+// the camera turned the panel off because the room emptied: coming back turns it on (src/lib/senses.js placeStep)
+const CAMERA_OFF_REASONS = new Set(['away', 'left-room']);
+let cameraTurnedOff = false;
 const PLAYER_ARGS = { pause: ['pause'], play: ['play'], next: ['next'], previous: ['previous'] };
 const actionHub = createActionHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
@@ -231,7 +250,8 @@ const sensesHub = createSensesHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => broadcast(msg),
 	command: async (text) => (await taskHub.sayAdd({ text, source: 'Wall mic' })).data,
-	say: (text) => voiceHub.say(text, { source: 'Wall' }),
+	// the answer to something just said to the wall: never held for "while you were out"
+	say: (text) => voiceHub.say(text, { source: 'Wall', reply: true }),
 	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
 	timeZone: process.env.TZ || undefined,
 	// walking up to the wall turns the panel on, but not at night
@@ -252,6 +272,13 @@ const sensesHub = createSensesHub({
 			broadcast({ type: 'navigate', view, from: 'place' });
 		} else if (action.panel === 'off' && hdmiState === 'on') {
 			applyHdmi('off', { reason: action.reason }).catch(() => {});
+			cameraTurnedOff = CAMERA_OFF_REASONS.has(action.reason);
+		} else if (action.panel === 'on' && cameraTurnedOff) {
+			// back in the room: on again, unless something else has turned it off since, or it's night
+			cameraTurnedOff = false;
+			if (hdmiState !== 'off' || voiceHub.snapshot().quietNow) return;
+			if (isQuietHours(new Date(), schedule) || desiredHdmi(new Date(), schedule) === 'off') return;
+			handleTrigger('normal', { data: { from: 'camera' } }).catch(() => {});
 		}
 	},
 	onNear: () => {
@@ -260,6 +287,17 @@ const sensesHub = createSensesHub({
 	}
 });
 setInterval(() => sensesHub.tick(), 5000);
+// the day as one timeline (src/lib/ledger.js): built from the hubs, never stored
+ledgerHub = createLedgerHub({
+	sources: () => ({
+		tasks: taskHub.snapshot(),
+		approvals: approvalHub.snapshot(),
+		attention: attentionHub.snapshot(),
+		alerts: nwsWatch.alerts(),
+		day: dayLog.state().days?.[dayKey(Date.now())] ?? null
+	}),
+	broadcast: (msg) => broadcast(msg)
+});
 let hdmiState = readHdmiStamp() === 'off' ? 'off' : 'on';
 /** What the schedule wanted at the last check ('on' | 'off'), to notice when it changes its mind. */
 let lastDesired = null;
@@ -302,6 +340,29 @@ function publishNotify(notify) {
 	broadcast(notify);
 	broadcast({ type: 'agents', agents: roster });
 }
+
+// the agents' own hooks, local or in the cloud, and Cursor's cloud agents (src/lib/agentHooks.js)
+const AGENT_NAMES = { claude: 'Claude Code', cursor: 'Cursor' };
+const agentStatusHub = createAgentStatusHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
+	onStatus: (agent, st, before) => {
+		const name = AGENT_NAMES[agent];
+		const busy = (p) => p === 'working' || p === 'waiting';
+		// starting and finishing chime and show like /api/notify; everything in between just updates the card
+		if (st.phase === 'working' && !busy(before.phase)) {
+			publishNotify({ type: 'notify', title: `${name} working`, body: st.task, severity: 'info', source: name, kind: 'working', ttl: 9000 });
+		} else if (busy(before.phase) && (st.phase === 'done' || st.phase === 'error') && !st.stale) {
+			const failed = st.phase === 'error';
+			publishNotify({ type: 'notify', title: failed ? `${name} stopped` : `${name} finished`, body: st.task, severity: failed ? 'error' : 'ok', source: name, kind: 'done', ttl: 9000 });
+		}
+		broadcast({ type: 'agents', agents: setAgentStatus(agent, st) });
+	}
+});
+setInterval(() => agentStatusHub.tick(), 60000);
+// Cursor's cloud agents, once there's a key (a quiet no-op until then)
+agentStatusHub.pollCursor();
+setInterval(() => agentStatusHub.pollCursor(), 60000);
 
 function handleAudioConnected(req, res, parse, from) {
 	let raw = '';
@@ -533,6 +594,8 @@ async function commitHdmi(state, reason) {
 
 async function applyHdmi(state, { reason } = {}) {
 	if (state !== 'on' && state !== 'off') return hdmiState;
+	// anyone else touching the panel: coming back no longer turns it on
+	if (!CAMERA_OFF_REASONS.has(reason)) cameraTurnedOff = false;
 	// a change anyone else makes is theirs: attention won't turn it back off
 	if (reason !== 'attention') attentionHub.panelChanged();
 	if (reason !== 'schedule') {
@@ -643,9 +706,17 @@ const server = createServer(async (req, res) => {
 	if (await approvalHub.handleHttp(req, res)) return;
 	if (await actionHub.handleHttp(req, res)) return;
 	if (await dayLog.handleHttp(req, res)) return;
+	if (await ledgerHub.handleHttp(req, res)) return;
+	if (await eventLog.handleHttp(req, res)) return;
+	// who's looking at the wall's state right now (src/lib/surface.js)
+	if (req.method === 'GET' && req.url?.split('?')[0] === '/api/surfaces') {
+		const list = [...clients].filter((c) => c.surface).map((c) => ({ ...c.surface, since: new Date(c.surfaceSince).toISOString(), device: c.device || null }));
+		return json(res, { surfaces: list });
+	}
 	if (await voiceHub.handleHttp(req, res)) return;
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
+	if (await agentStatusHub.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
 		let body = '';
@@ -960,6 +1031,8 @@ function handlePair(ws, msg) {
 let currentView = 'clock';
 
 function broadcast(data) {
+	if (LEDGER_INPUTS.has(data?.type)) ledgerHub?.changed();
+	eventLog.record(data);
 	const msg = JSON.stringify(data);
 	clients.forEach((ws) => {
 		if (ws.readyState === 1) ws.send(msg);
@@ -1000,6 +1073,13 @@ wss.on('connection', (ws, req) => {
 			// not paired while pairing is required: nothing but pairing
 			if (!trusted(ws) || !clients.has(ws)) return ws.send(JSON.stringify({ type: 'pair-required' }));
 			if (msg.type === 'hello' && msg.role === 'remote') ws.isRemote = true;
+			if (msg.type === 'hello' && msg.surface) {
+				const surface = normalizeSurface(msg.surface);
+				if (surface) {
+					if (!ws.surface) ws.surfaceSince = Date.now();
+					ws.surface = surface;
+				}
+			}
 			if (msg.type === 'navigate') {
 				currentView = canonicalizeKioskView(msg.view);
 				// a hand-picked page: the spots leave it alone for a while (Smart Stack's own turns don't count)
@@ -1123,6 +1203,7 @@ wss.on('connection', (ws, req) => {
 				tasks: taskHub.snapshot(),
 				approvals: approvalHub.snapshot(),
 				attention: attentionHub.snapshot(),
+				ledger: ledgerHub.snapshot(),
 				weatherAlerts: nwsWatch.status(),
 				senses: sensesHub.snapshot(),
 				pairing: { required: pairing.required(), device: ws.device, local: ws.local }
@@ -1134,8 +1215,24 @@ wss.on('connection', (ws, req) => {
 // a deploy restarts the service: keep the last few seconds of the day's tally
 process.once('SIGTERM', () => {
 	dayLog.flush();
-	process.exit(0);
+	eventLog.flush().finally(() => process.exit(0));
 });
+
+/** A full picture for the event log, so a replay can start from any hour. */
+function logKeyframe() {
+	eventLog.keyframe({
+		view: currentView,
+		display: displaySnapshot(),
+		nowPlaying: lastNowPlaying,
+		agents: getAgentRoster(),
+		tasks: taskHub.snapshot(),
+		approvals: approvalHub.snapshot(),
+		attention: attentionHub.snapshot(),
+		ledger: ledgerHub.snapshot(),
+		weatherAlerts: nwsWatch.status(),
+		senses: sensesHub.snapshot()
+	});
+}
 
 server.listen(port, '0.0.0.0', () => {
 	console.log(`smart-display running on :${port}`);
@@ -1147,6 +1244,9 @@ server.listen(port, '0.0.0.0', () => {
 	setInterval(tickSchedule, SCHEDULE_TICK_MS);
 	taskHub.start();
 	calendarFeed.start();
+	ledgerHub.start();
+	setTimeout(logKeyframe, 5000);
+	setInterval(logKeyframe, 60 * 60 * 1000);
 	const lyricsDb = lyricsDbStats();
 	console.log(
 		lyricsDb.available

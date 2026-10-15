@@ -20,6 +20,7 @@
  *     "env": { "DISPLAY_URL": "http://kiosk.local:3000", "DISPLAY_SOURCE": "Tomo" } }
  */
 import { createInterface } from 'node:readline';
+import { intentTool } from '../src/lib/intents.js';
 
 const BASE = (process.env.DISPLAY_URL || 'http://localhost:3000').replace(/\/+$/, '');
 const TOKEN = process.env.DISPLAY_API_TOKEN || '';
@@ -151,7 +152,9 @@ const TOOLS = [
 			},
 			required: ['title']
 		}
-	}
+	},
+	// generated from src/lib/intents.js, so it knows every command the wall does
+	intentTool()
 ];
 
 async function api(method, path, body, { text = false } = {}) {
@@ -213,6 +216,8 @@ async function callTool(name, args = {}) {
 			return api('GET', '/api/senses/notes');
 		case 'read_wall_note':
 			return api('GET', `/api/senses/notes/${enc(args.name)}`, undefined, { text: true });
+		case 'run_wall_intent':
+			return api('POST', '/api/action/intent', { intent: args.intent, params: args.params ?? {} });
 		case 'notify_display':
 			return api('POST', '/api/notify', { source: SOURCE, ...args });
 		default:

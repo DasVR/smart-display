@@ -327,6 +327,14 @@ test('said to an empty room: shown, held, and said in one go on return', async (
 	assert.equal(await h.welcomeBack(), null);
 });
 
+test('an answer to someone talking to the wall is never held for later', async () => {
+	// the camera can miss you (out of frame, lights off); you still just spoke
+	const { h } = hub({ fetchImpl: fakeEleven().fetchImpl, room: () => ({ camera: true, count: 0 }) });
+	assert.equal((await h.say('Paused.', { reply: true })).silent, undefined);
+	assert.equal(h.snapshot().heldCount, 0);
+	assert.equal(await h.welcomeBack(), null);
+});
+
 test('holding and following the room can be turned off', async () => {
 	const room = () => ({ camera: true, count: 0 });
 	const { h } = hub({ fetchImpl: fakeEleven().fetchImpl, room, settings: { holdWhenAway: false } });

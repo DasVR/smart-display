@@ -106,18 +106,42 @@ export function applyOllamaHint(roster, status, now = Date.now()) {
 	});
 }
 
+/** Working, or stopped on a question for you (a 'waiting' session, src/lib/agentHooks.js). */
 export function workingAgents(roster) {
-	return (roster || []).filter((a) => a.phase === 'working');
+	return (roster || []).filter((a) => a.phase === 'working' || a.phase === 'waiting');
+}
+
+/**
+ * One agent's card set from its own hooks (src/lib/agentHooks.js agentStatus):
+ * phase working | waiting | done | error | idle, what it's on, and where.
+ */
+export function applyAgentStatus(roster, id, status, now = Date.now()) {
+	const list = Array.isArray(roster) && roster.length ? roster : emptyRoster();
+	return list.map((a) => {
+		if (a.id !== id) return a;
+		const phase = status.phase === 'idle' && a.phase !== 'idle' ? 'done' : status.phase;
+		return {
+			...a,
+			phase,
+			task: status.task || (phase === 'idle' ? 'standby' : a.task),
+			body: status.body || '',
+			remote: Boolean(status.remote),
+			sessions: status.busy || 0,
+			lastEvent: phase,
+			updatedAt: status.at || now
+		};
+	});
 }
 
 /** The agent the stage should put on the poster: whoever is working,
  *  otherwise the most recent finish, otherwise nothing (idle field). */
 export function leadAgent(roster) {
 	const list = Array.isArray(roster) ? roster : [];
-	const working = workingAgents(list).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+	// a question for you comes first, then the latest to start working
+	const working = workingAgents(list).sort((a, b) => (b.phase === 'waiting') - (a.phase === 'waiting') || (b.updatedAt || 0) - (a.updatedAt || 0));
 	if (working[0]) return working[0];
 	const done = list
-		.filter((a) => a.phase === 'done' && a.updatedAt)
+		.filter((a) => (a.phase === 'done' || a.phase === 'error') && a.updatedAt)
 		.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 	return done[0] || null;
 }

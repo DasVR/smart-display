@@ -93,7 +93,7 @@
 	<meta name="theme-color" content="#07070b">
 	<meta name="apple-mobile-web-app-capable" content="yes">
 	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-	<meta name="apple-mobile-web-app-title" content="Stats">
+	<meta name="apple-mobile-web-app-title" content="Home">
 	<link rel="manifest" href="/manifest.webmanifest">
 </svelte:head>
 

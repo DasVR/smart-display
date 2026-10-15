@@ -12,10 +12,10 @@
 
 	// base-relative so the tabs also work under the GitHub Pages sub-path
 	const TABS = [
-		{ id: 'control', label: 'Remote', href: `${base}/remote` },
+		{ id: 'control', label: 'Now', href: `${base}/remote` },
 		{ id: 'night', label: 'Night', href: `${base}/remote#night` },
-		{ id: 'tasks', label: 'Tasks', href: `${base}/remote/tasks` },
-		{ id: 'stats', label: 'Stats', href: `${base}/remote/stats` }
+		{ id: 'tasks', label: 'Day', href: `${base}/remote/tasks` },
+		{ id: 'stats', label: 'Home', href: `${base}/remote/stats` }
 	];
 </script>
 

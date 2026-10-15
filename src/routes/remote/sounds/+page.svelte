@@ -41,7 +41,7 @@
 	const KEY_RESULTS = {
 		'bad-format': "That doesn't look like an ElevenLabs key. Copy it again from elevenlabs.io → Developers → API Keys.",
 		invalid: 'ElevenLabs says that key is not valid. Nothing was saved.',
-		'not-paired': 'Only a paired phone can change the key. Pair this phone under Stats → Phones.',
+		'not-paired': 'Only a paired phone can change the key. Pair this phone under Home → Phones.',
 		unwritable: "The display couldn't save the key."
 	};
 
@@ -60,7 +60,7 @@
 		'rate-limited': 'ElevenLabs is busy. Try again in a minute.',
 		'bad-key': 'ElevenLabs refused the key.',
 		failed: "ElevenLabs didn't make that one. Try again, or describe it differently.",
-		'not-paired': 'Only a paired phone can make sounds. Pair this phone under Stats → Phones.',
+		'not-paired': 'Only a paired phone can make sounds. Pair this phone under Home → Phones.',
 		'unknown-kind': 'The wall does not know that sound.',
 		'not-found': 'That sound has gone.'
 	};

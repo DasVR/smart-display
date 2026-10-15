@@ -12,6 +12,8 @@
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 
 	let tasks = $state([]);
+	let past = $state([]);
+	const pastTime = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '');
 	let status = $state('connecting');
 	let error = $state('');
 	let openId = $state('');
@@ -52,6 +54,8 @@
 				const msg = JSON.parse(e.data);
 				if (followPairing(msg)) return;
 				if ((msg.type === 'init' || msg.type === 'tasks') && Array.isArray(msg.tasks)) tasks = msg.tasks;
+				// what already happened today, from the ledger (src/lib/ledger.js)
+				if ((msg.type === 'init' || msg.type === 'ledger') && msg.ledger) past = msg.ledger.past ?? [];
 				if (msg.type === 'tasks-error') error = msg.error;
 			} catch {
 				/* ignore */
@@ -221,6 +225,20 @@
 		</section>
 	{/each}
 
+	{#if past.length}
+		<section class="group past" aria-label="Today so far">
+			<p class="kicker">Today so far <span class="count">{past.length}</span></p>
+			<ul>
+				{#each past.slice(0, 12) as p (p.id)}
+					<li class="past-row">
+						<span class="title">{p.kind === 'track' ? `♪ ${p.title}` : p.title}</span>
+						<span class="meta num">{p.detail ? `${p.detail} · ` : ''}{pastTime(p.at)}</span>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
 	{#if error}<p class="error" role="alert">{error}</p>{/if}
 </div>
 
@@ -374,6 +392,20 @@
 		align-items: center;
 		column-gap: var(--space-3);
 		padding: 0 var(--space-3);
+	}
+	.past-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		padding: var(--space-2) var(--space-3);
+		min-width: 0;
+	}
+	.past-row + .past-row {
+		border-top: 1px solid var(--hairline);
+	}
+	.past .title {
+		font-weight: 500;
+		color: var(--text-secondary);
 	}
 	.row + .row {
 		border-top: 1px solid var(--hairline);

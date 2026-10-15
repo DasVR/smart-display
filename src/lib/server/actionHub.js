@@ -18,6 +18,7 @@
  */
 import path from 'node:path';
 import { departureBoard, currentDeparture } from '../departures.js';
+import { describeIntents, resolveIntent } from '../intents.js';
 import { speakBrief, speakDone, speakWhen } from '../quickSay.js';
 import {
 	buildMenu,
@@ -41,6 +42,7 @@ import {
 	viewName
 } from '../wallActions.js';
 import { ACK_RE } from '../attention.js';
+import { classifyPlayerctlFailure } from '../mprisPlayers.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const MAX_BODY = 8 * 1024;
@@ -215,7 +217,7 @@ export function createActionHub({
 				return { say: `Showing ${viewName(action.view)}.` };
 			case 'music': {
 				const r = await player(action.action);
-				if (!r?.ok) return { say: 'The music player didn’t answer.' };
+				if (!r?.ok) return { say: musicFailure(action.action, r) };
 				const words = { pause: 'Paused.', play: 'Playing.', next: 'Next song.', previous: 'Previous song.' };
 				return { say: words[action.action] || 'Done.' };
 			}
@@ -325,6 +327,16 @@ export function createActionHub({
 		return { did: cmd.intent, ...out };
 	}
 
+	/** Run a declared intent with params (src/lib/intents.js): the API and MCP's way in. */
+	async function runIntent(id, params = {}) {
+		const r = resolveIntent(id, params);
+		if (r.error) return { error: r.error, say: `I can't do that: ${r.error}.` };
+		const ctx = await context();
+		const out = await run(r.action, ctx, r.action.query || '');
+		remember(r.action, out);
+		return { did: r.action.intent, ...out };
+	}
+
 	/**
 	 * One-URL automations: Shortcuts' Personal Automations (arrive home,
 	 * alarm stops, CarPlay connects, a time of day) just call this and speak
@@ -398,6 +410,15 @@ export function createActionHub({
 				const how = u.command ? `Understood as ${u.command.intent}.` : u.would === 'add' ? 'Not a command, so it would be added to the list.' : 'Nothing to understand.';
 				return send(req, res, url, 200, { ...u, say: how }), true;
 			}
+			if (sub === 'intents' && req.method === 'GET') {
+				const list = describeIntents();
+				return send(req, res, url, 200, { intents: list, say: list.map((i) => `${i.label}: "${i.examples[0]}"`).join('\n') }), true;
+			}
+			if (sub === 'intent' && req.method === 'POST') {
+				const body = await readBody(req);
+				const out = await runIntent(body.intent ?? body.id, body.params ?? {});
+				return send(req, res, url, out.error ? 400 : 200, out), true;
+			}
 			if (sub === 'run' && req.method === 'POST') {
 				const body = await readBody(req);
 				return send(req, res, url, 200, await choose(body.choice ?? body.label ?? body.id ?? body.text)), true;
@@ -410,5 +431,14 @@ export function createActionHub({
 		}
 	}
 
-	return { handleHttp, press, menu, choose, command, event };
+	return { handleHttp, press, menu, choose, command, event, runIntent };
+}
+
+/** What to say when a music command didn't work, by why. */
+export function musicFailure(action, r) {
+	const why = r?.error ? classifyPlayerctlFailure(r.error) : 'failed';
+	if (why === 'idle') return action === 'pause' ? 'Nothing is playing.' : 'No music player is open on the wall.';
+	if (why === 'missing') return 'Music controls aren’t installed on the wall.';
+	if (why === 'timeout') return 'The music player took too long to answer.';
+	return 'The music player didn’t answer.';
 }

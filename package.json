@@ -12,6 +12,8 @@
     "build:demo": "STATIC_DEMO=1 VITE_STATIC_DEMO=1 vite build && cp build-demo/404.html build-demo/index.html && touch build-demo/.nojekyll",
     "api-token": "node scripts/api-token.mjs",
     "tasks-mcp": "node scripts/tasks-mcp.mjs",
+    "replay": "node scripts/replay-day.mjs",
+    "agent-status": "node scripts/setup-agent-status.mjs",
     "sounds:generate": "node scripts/generate-sounds.mjs"
   },
   "devDependencies": {

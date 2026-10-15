@@ -10,6 +10,8 @@ export const DEFAULT_SENSES = {
 	// both off until turned on from the phone
 	mic: false,
 	camera: false,
+	// Guest mode (src/lib/sensesSign.js): only ever turned on by hand
+	guest: false,
 	// a PipeWire source name (or part of one); '' picks the webcam's own mic
 	micSource: '',
 	// /dev/videoN or an index; '' is the first camera
@@ -58,7 +60,13 @@ export const DEFAULT_SENSES = {
 	// what each spot does: { [spot]: { view: 'calendar' | … | '', lieOff: bool } }
 	places: {},
 	// turn the screen off when nobody has been seen for this many minutes (0: never)
-	awayMinutes: 0
+	awayMinutes: 0,
+	// walking out of the picture on this side (as you face the wall) turns the
+	// screen off after exitSeconds: 'off' | 'left' | 'right' | 'either'
+	exitSide: 'off',
+	exitSeconds: 20,
+	// the screen comes back on when someone returns, if the camera turned it off
+	wakeOnReturn: true
 };
 
 export const LOOKS = ['body', 'face'];
@@ -82,6 +90,10 @@ function cleanZones(list) {
 }
 
 export const AWAY_CHOICES = [0, 10, 30, 60];
+export const EXIT_SIDES = ['off', 'left', 'right', 'either'];
+export const EXIT_SECONDS = [10, 20, 30, 60, 120];
+// last seen this far to a side (x is -1 left to 1 right) counts as walking out that side
+export const EXIT_EDGE = 0.5;
 
 function cleanPlaces(places, zones) {
 	const names = new Map(zones.map((z) => [z.name.toLowerCase(), z.name]));
@@ -153,7 +165,11 @@ export function normalizeSensesSettings(patch = {}, base = DEFAULT_SENSES) {
 		focalWidth: pick('focalWidth') == null ? null : num(pick('focalWidth'), 80, 4000, null),
 		notesMinutes: num(pick('notesMinutes'), 1, 240, DEFAULT_SENSES.notesMinutes),
 		places: cleanPlaces(pick('places'), cleanZones(pick('zones'))),
-		awayMinutes: AWAY_CHOICES.includes(Number(pick('awayMinutes'))) ? Number(pick('awayMinutes')) : 0
+		awayMinutes: AWAY_CHOICES.includes(Number(pick('awayMinutes'))) ? Number(pick('awayMinutes')) : 0,
+		exitSide: EXIT_SIDES.includes(pick('exitSide')) ? pick('exitSide') : 'off',
+		exitSeconds: EXIT_SECONDS.includes(Number(pick('exitSeconds'))) ? Number(pick('exitSeconds')) : DEFAULT_SENSES.exitSeconds,
+		wakeOnReturn: pick('wakeOnReturn') !== false,
+		guest: pick('guest') === true
 	};
 }
 
@@ -167,14 +183,37 @@ export const LIE_OFF_MS = 60000;
 export const MANUAL_GRACE_MS = 120000;
 
 export function newPlaceState() {
-	return { zone: null, zoneSince: 0, actedZone: null, lyingSince: null, lieActed: false, emptySince: null, awayActed: false, manualAt: -Infinity };
+	return {
+		zone: null,
+		zoneSince: 0,
+		actedZone: null,
+		lyingSince: null,
+		lieActed: false,
+		emptySince: null,
+		awayActed: false,
+		manualAt: -Infinity,
+		// where the last person was seen (x), which side they left by, and whether the camera turned the screen off
+		lastX: null,
+		exitedBy: null,
+		exitActed: false,
+		offByCamera: false
+	};
+}
+
+/** Which side someone left by, from where they were last seen: 'left', 'right' or 'middle' (lost track of). */
+export function exitSideOf(x) {
+	if (x == null || !Number.isFinite(x)) return 'middle';
+	if (x <= -EXIT_EDGE) return 'left';
+	if (x >= EXIT_EDGE) return 'right';
+	return 'middle';
 }
 
 /**
  * One step of the place rules. `state` (from newPlaceState) is kept by the
  * caller; returns what to do now: [{ navigate: view, zone }] or
- * [{ panel: 'off', reason: 'asleep' | 'away' }]. Each happens once per
- * arrival, per lying down, per absence.
+ * [{ panel: 'off', reason: 'asleep' | 'away' | 'left-room', side }] or
+ * [{ panel: 'on', reason: 'back' }] when someone returns to a screen the
+ * camera turned off. Each happens once per arrival, per lying down, per absence.
  */
 export function placeStep(state, { presence, settings, now, quiet = false }) {
 	const out = [];
@@ -204,14 +243,35 @@ export function placeStep(state, { presence, settings, now, quiet = false }) {
 	}
 	// nobody home
 	if (!presence.count) {
-		if (state.emptySince == null) state.emptySince = now;
+		if (state.emptySince == null) {
+			state.emptySince = now;
+			state.exitedBy = exitSideOf(state.lastX);
+		}
+		// walked out on the door's side: off soon. Vanished mid-picture (usually
+		// the camera losing you, not you leaving) waits for the away timer.
+		const side = settings.exitSide || 'off';
+		const byDoor = side !== 'off' && state.exitedBy !== 'middle' && (side === 'either' || side === state.exitedBy);
+		if (byDoor && !state.exitActed && now - state.emptySince >= (settings.exitSeconds || 20) * 1000) {
+			state.exitActed = true;
+			state.offByCamera = true;
+			out.push({ panel: 'off', reason: 'left-room', side: state.exitedBy });
+		}
 		if (settings.awayMinutes && !state.awayActed && now - state.emptySince >= settings.awayMinutes * 60000) {
 			state.awayActed = true;
-			out.push({ panel: 'off', reason: 'away' });
+			if (!state.exitActed) {
+				state.offByCamera = true;
+				out.push({ panel: 'off', reason: 'away' });
+			}
 		}
 	} else {
+		if (presence.x != null && Number.isFinite(presence.x)) state.lastX = presence.x;
+		// back in: the screen the camera turned off comes back on
+		if (state.offByCamera && settings.wakeOnReturn !== false) out.push({ panel: 'on', reason: 'back' });
+		state.offByCamera = false;
 		state.emptySince = null;
 		state.awayActed = false;
+		state.exitedBy = null;
+		state.exitActed = false;
 	}
 	return out;
 }

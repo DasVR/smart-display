@@ -8,6 +8,7 @@ import {
 	describeDistance,
 	hushMsFor,
 	newPlaceState,
+	exitSideOf,
 	normalizeSensesSettings,
 	placeStep,
 	notesCommand,
@@ -440,6 +441,64 @@ test('places: nobody home turns the panel off once per absence, and never withou
 	placeStep(st, { presence: empty, settings, now: 22 * 60000 });
 	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 32 * 60000 }), [{ panel: 'off', reason: 'away' }]);
 	assert.deepEqual(placeStep(newPlaceState(), { presence: { camera: false, count: 0 }, settings, now: 1e9 }), []);
+});
+
+test('places: walking out on the door side turns the screen off soon; back in turns it on', () => {
+	const settings = normalizeSensesSettings({ camera: true, exitSide: 'left', exitSeconds: 20, awayMinutes: 10 });
+	const st = newPlaceState();
+	const seen = (x) => ({ camera: true, count: 1, x });
+	const empty = { camera: true, count: 0 };
+	placeStep(st, { presence: seen(0.1), settings, now: 0 });
+	placeStep(st, { presence: seen(-0.7), settings, now: 1000 });
+	placeStep(st, { presence: empty, settings, now: 2000 });
+	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 21000 }), [], 'a short gap is the camera blinking, not you leaving');
+	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 22000 }), [{ panel: 'off', reason: 'left-room', side: 'left' }]);
+	// the away timer doesn't turn it off a second time
+	assert.deepEqual(placeStep(st, { presence: empty, settings, now: 12 * 60000 }), []);
+	assert.deepEqual(placeStep(st, { presence: seen(-0.9), settings, now: 13 * 60000 }), [{ panel: 'on', reason: 'back' }]);
+	assert.deepEqual(placeStep(st, { presence: seen(-0.5), settings, now: 13 * 60000 + 1000 }), []);
+});
+
+test('places: vanishing mid-picture, or out the other side, waits for the away timer', () => {
+	const settings = normalizeSensesSettings({ camera: true, exitSide: 'left', awayMinutes: 10 });
+	const empty = { camera: true, count: 0 };
+	for (const x of [0, 0.8]) {
+		const st = newPlaceState();
+		placeStep(st, { presence: { camera: true, count: 1, x }, settings, now: 0 });
+		placeStep(st, { presence: empty, settings, now: 1000 });
+		assert.deepEqual(placeStep(st, { presence: empty, settings, now: 5 * 60000 }), []);
+		assert.deepEqual(placeStep(st, { presence: empty, settings, now: 11 * 60000 }), [{ panel: 'off', reason: 'away' }]);
+	}
+	const either = normalizeSensesSettings({ camera: true, exitSide: 'either', exitSeconds: 10 });
+	const st = newPlaceState();
+	placeStep(st, { presence: { camera: true, count: 1, x: 0.8 }, settings: either, now: 0 });
+	placeStep(st, { presence: empty, settings: either, now: 1000 });
+	assert.deepEqual(placeStep(st, { presence: empty, settings: either, now: 11000 }), [{ panel: 'off', reason: 'left-room', side: 'right' }]);
+});
+
+test('places: coming back only wakes a screen the camera turned off, and can be turned off', () => {
+	const settings = normalizeSensesSettings({ camera: true, exitSide: 'right', exitSeconds: 10, wakeOnReturn: false });
+	const st = newPlaceState();
+	placeStep(st, { presence: { camera: true, count: 1, x: 0.9 }, settings, now: 0 });
+	placeStep(st, { presence: { camera: true, count: 0 }, settings, now: 1000 });
+	assert.equal(placeStep(st, { presence: { camera: true, count: 0 }, settings, now: 12000 }).length, 1);
+	assert.deepEqual(placeStep(st, { presence: { camera: true, count: 1, x: 0.9 }, settings, now: 20000 }), []);
+	// nothing turned off: nothing to turn back on
+	const plain = newPlaceState();
+	placeStep(plain, { presence: { camera: true, count: 0 }, settings: normalizeSensesSettings({}), now: 0 });
+	assert.deepEqual(placeStep(plain, { presence: { camera: true, count: 1 }, settings: normalizeSensesSettings({}), now: 1000 }), []);
+});
+
+test('exit side and its settings', () => {
+	assert.equal(exitSideOf(-0.6), 'left');
+	assert.equal(exitSideOf(0.5), 'right');
+	assert.equal(exitSideOf(0.2), 'middle');
+	assert.equal(exitSideOf(null), 'middle');
+	const d = normalizeSensesSettings({});
+	assert.deepEqual([d.exitSide, d.exitSeconds, d.wakeOnReturn], ['off', 20, true]);
+	const bad = normalizeSensesSettings({ exitSide: 'up', exitSeconds: 7, wakeOnReturn: 0 });
+	assert.deepEqual([bad.exitSide, bad.exitSeconds, bad.wakeOnReturn], ['off', 20, true]);
+	assert.equal(normalizeSensesSettings({ wakeOnReturn: false }).wakeOnReturn, false);
 });
 
 test('hub: a spot asks for its page; picking one by hand holds it off', async () => {
