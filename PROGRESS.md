@@ -1,5 +1,16 @@
 # Smart Display Progress Log
 
+## 2026-10-16: A free voice (Piper), and a microphone that says what's wrong
+
+### Done
+- **Piper, the free voice:** Piper voices spoken on the wall through
+  sherpa-onnx in Node: about 0.1 to 0.3 s a sentence, nothing sent anywhere,
+  nothing paid. `npm run voice:piper` fetches Lessac, Amy and Alan. The phone
+  picks **Automatic** (ElevenLabs with a key, Piper otherwise and whenever
+  ElevenLabs can't), **Piper** or **ElevenLabs**, and the Piper voice.
+- **Microphone failures show:** when speech can't be turned into words, the
+  phone's Senses page says why instead of the wall going quiet.
+
 ## 2026-10-16: Parakeet replaces Whisper on the wall's microphone
 
 ### Done

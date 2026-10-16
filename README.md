@@ -257,6 +257,7 @@ full kiosk restart only when `start-kiosk.sh` changed).
 | `FORCED_ALIGN_*` | Lyric alignment engine settings (see `scripts/forced_align/README.md`) |
 | `OLLAMA_API_KEY` | Ollama Cloud key for answering questions (or `data/ollama-key`; see [`docs/assistant.md`](docs/assistant.md)) |
 | `ASSISTANT_MODEL`, `ASSISTANT_PLACE` | The question model (default `gpt-oss:20b`) and where the wall is, for local questions |
+| `PIPER_VOICES_DIR` | Where `npm run voice:piper` puts the free voices (default `~/.cache/wall-voice`) |
 | `APPLE_MUSIC_CHROME`, `APPLE_MUSIC_STOREFRONT` | Google Chrome for the Apple Music player, and the storefront before sign-in (see [`docs/apple-music.md`](docs/apple-music.md)) |
 
 ## Performance
@@ -284,7 +285,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/agent-characters.md`](docs/agent-characters.md): the agents as pixel characters on the bottom bar, and how they're animated
 - [`docs/boot.md`](docs/boot.md): turning on: the standby light, the eyes opening, a quiet boot, and how long each boot took (`npm run boot-report`)
 - [`docs/agent-status.md`](docs/agent-status.md): live status from Claude Code and Cursor, on your computer or in the cloud, through their hooks and Cursor's Cloud Agents API
-- [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
+- [`docs/voice.md`](docs/voice.md): the wall's voice (Piper for free on the wall, or ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
 - [`docs/assistant.md`](docs/assistant.md): asking the wall questions, answered by a small model on Ollama Cloud with web search
 - [`docs/apple-music.md`](docs/apple-music.md): "play …" on Apple Music, in a slim headless Chrome, with the wall's own enhancer

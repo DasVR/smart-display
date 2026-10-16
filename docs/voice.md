@@ -1,15 +1,51 @@
 # The wall's voice and sounds
 
-The wall can talk, using [ElevenLabs](https://elevenlabs.io) text to speech,
-and it has its own library of sound effects made once with ElevenLabs sound
-generation. Both are optional: without a key the wall shows what it would
-have said on the island, and every sound falls back to the built-in tapping
-sounds.
+The wall can talk, for free with [Piper](https://github.com/OHF-Voice/piper1-gpl)
+voices made on the wall itself, or with [ElevenLabs](https://elevenlabs.io)
+text to speech. It also has its own library of sound effects made once with
+ElevenLabs sound generation. All of it is optional: with no voice set up the
+wall shows what it would have said on the island, and every sound falls back
+to the built-in tapping sounds.
 
 Phone: **Home → Sounds & voice** (`/remote/sounds`). Everything you can *say*
 to the wall is in [voice-commands.md](voice-commands.md).
 
-## Set up the key
+## Two voices: Piper (free) and ElevenLabs
+
+| | Piper | ElevenLabs |
+| --- | --- | --- |
+| Cost | free | paid by the character (cached phrases are free) |
+| Where it's made | on the wall's own CPU, through sherpa-onnx | ElevenLabs' servers |
+| Speed | about 0.1 to 0.3 s a sentence (the first after a restart about 1.5 s) | about a second |
+| Sound | clear, a little synthetic | most natural |
+
+On the phone: **Home → Sounds & voice → Voice**:
+
+- **Automatic** (default): ElevenLabs when a key is set, Piper otherwise, and
+  Piper whenever ElevenLabs can't (today's characters spent, a bad key,
+  ElevenLabs unreachable). The wall never goes quiet just because ElevenLabs did.
+- **Piper (free, on the wall)**: always Piper. Nothing leaves the wall.
+- **ElevenLabs**: always ElevenLabs; without a key the wall only shows words.
+
+### Set up Piper
+
+On the display:
+
+```bash
+npm run voice:piper
+```
+
+That fetches three voices (about 65 MB each) to `~/.cache/wall-voice`
+(`PIPER_VOICES_DIR` overrides): Lessac and Amy (US English) and Alan
+(British English). Pick one under **Piper voice**. Any other Piper voice
+sherpa-onnx packages works too: `npm run voice:piper -- en_US-ryan-high`
+(the list is the `vits-piper-*` files at
+github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models). No restart needed.
+
+Piper clips are kept like ElevenLabs ones (as `.wav`), so a phrase is only
+made once.
+
+## Set up the ElevenLabs key
 
 On your phone: **Home → Sounds & voice → ElevenLabs key**. Paste the key
 from elevenlabs.io → Developers → API Keys and tap **Save**.

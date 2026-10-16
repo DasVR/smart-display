@@ -116,6 +116,8 @@ class Ears:
         self.state = "idle"  # idle | listening (after a wake) | thinking (transcribing for the wall)
         self.level = 0.0
         self.error = ""
+        # the last thing that went wrong turning speech into words, for the phone
+        self.error_detail = ""
         self.device = ""
         self._stop = threading.Event()
         self._threads = []
@@ -164,6 +166,7 @@ class Ears:
             "wakeMode": self.wake_mode,
             "model": MODEL_NAME,
             "error": self.error or None,
+            "detail": self.error_detail or None,
         }
 
     # --- lifecycle --------------------------------------------------------
@@ -384,6 +387,8 @@ class Ears:
                 seconds = round(len(audio) / 2 / SAMPLE_RATE, 2)
                 text = self._words(audio)
                 del audio
+                if self.error == "failed":
+                    self.error, self.error_detail = "", ""
                 what = route(text, self.wake_words, self.notes, awaiting) if text else None
                 self.decided("heard", seconds=seconds, text=text, awaiting=bool(awaiting), notes=bool(self.notes), routed=what[0] if what else None)
                 if not what:
@@ -399,5 +404,9 @@ class Ears:
                 self.log(f"ears: transcription failed: {e}")
                 if self.error in ("no-sherpa", "no-model"):
                     self._stop.wait(30)
+                else:
+                    # say so on the phone instead of going quiet (cleared by the next piece that works)
+                    self.error = "failed"
+                    self.error_detail = f"{type(e).__name__}: {e}"[:200]
             finally:
                 self.state = "idle"
