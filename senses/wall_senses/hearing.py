@@ -2,16 +2,17 @@
 
 Sound comes from the webcam's microphone through PipeWire (`parec`, the same
 tool the wall's music visualiser uses), at 16 kHz mono. A loudness gate
-(vad.py) cuts it into pieces of speech; Whisper (faster-whisper, on this
-machine's CPU) turns a piece into words. Nothing is recorded: a piece lives in
+(vad.py) cuts it into pieces of speech; Parakeet (stt.py, NVIDIA's Parakeet
+TDT 0.6B through sherpa-onnx, on this machine's CPU) turns a piece into words. Nothing is recorded: a piece lives in
 memory only until it has been transcribed, and only the words go on.
 
 Two ways to wake it:
   phrase        (default) every piece's first few seconds are transcribed and
                 checked for "hey wall"; only then is the rest transcribed and
                 sent. Nothing extra to install.
-  openwakeword  a small always-on model listens for its wake word and Whisper
-                runs only after it fires. Lighter on the CPU while music plays.
+  openwakeword  a small always-on model listens for its wake word and the
+                transcriber runs only after it fires. Lighter on the CPU while
+                music plays.
 
 While the wall itself is talking, the ears are shut (the server says so), so
 the wall never answers itself. When it ends on a question ("Should I add
@@ -19,7 +20,6 @@ that to your list?"), the server keeps the ears open a few seconds longer and
 the answer needs no "hey wall".
 """
 
-import os
 import queue
 import re
 import shutil
@@ -29,7 +29,8 @@ import time
 from collections import deque
 
 from .vad import FRAME_BYTES, FRAME_MS, SAMPLE_RATE, SpeechGate, apply_gain, rms
-from .wake import confirm_echo, is_noise, match_wake
+from .stt import MODEL_NAME, Parakeet, model_ready, models_dir
+from .wake import is_noise, match_wake
 
 HEAD_SECONDS = 3.0
 # after a bare "hey wall", how long the next thing said counts as the command
@@ -102,8 +103,6 @@ class Ears:
         self.wake_mode = "phrase"
         self.wake_words = None
         self.oww_model_name = "hey_jarvis"
-        self.model_name = "base.en"
-        self.language = "en"
         self.gain = 3.0
         self.noise = "light"  # noise suppression: off | light | strong
         self.boost = True  # voice boost: cut rumble, lift the speech band
@@ -122,8 +121,7 @@ class Ears:
         self._threads = []
         self._proc = None
         self._pieces = queue.Queue(maxsize=4)
-        self._whisper = None
-        self._whisper_name = None
+        self._stt = None
         self._oww = None
         self._lock = threading.Lock()
 
@@ -135,8 +133,6 @@ class Ears:
         self.wake_mode = s.get("wakeMode") or "phrase"
         self.wake_words = s.get("wakeWords") or None
         self.oww_model_name = s.get("wakeModel") or "hey_jarvis"
-        self.model_name = s.get("model") or "base.en"
-        self.language = s.get("language") or "en"
         try:
             self.gain = max(1.0, min(10.0, float(s.get("micGain") or 3)))
         except (TypeError, ValueError):
@@ -166,7 +162,7 @@ class Ears:
             "state": "listening" if self.state == "idle" and self.listening() else self.state,
             "notes": self.notes,
             "wakeMode": self.wake_mode,
-            "model": self.model_name,
+            "model": MODEL_NAME,
             "error": self.error or None,
         }
 
@@ -179,7 +175,7 @@ class Ears:
         self.error = ""
         self._threads = [
             threading.Thread(target=self._capture, name="ears", daemon=True),
-            threading.Thread(target=self._transcribe_loop, name="whisper", daemon=True),
+            threading.Thread(target=self._transcribe_loop, name="transcribe", daemon=True),
         ]
         for t in self._threads:
             t.start()
@@ -328,24 +324,21 @@ class Ears:
 
     # --- transcription -----------------------------------------------------
 
-    def _model(self):
-        if self._whisper is None or self._whisper_name != self.model_name:
+    def _engine(self):
+        if self._stt is None:
             try:
-                from faster_whisper import WhisperModel  # noqa: PLC0415
+                import sherpa_onnx  # noqa: F401, PLC0415
             except ImportError:
-                self.error = "no-whisper"
+                self.error = "no-sherpa"
                 raise
-            threads = int(os.environ.get("WALL_SENSES_THREADS", "0")) or max(1, min(4, (os.cpu_count() or 2) - 1))
-            self.log(f"ears: loading Whisper {self.model_name} on the CPU ({threads} threads)")
-            try:
-                self._whisper = WhisperModel(self.model_name, device="cpu", compute_type="int8", cpu_threads=threads)
-            except Exception:
-                # not fetched: the service may not download (scripts/senses/install.sh --models)
+            if not model_ready(models_dir()):
+                # not fetched: the service may not download (scripts/senses/install.sh)
                 self.error = "no-model"
-                raise
-            self._whisper_name = self.model_name
+                raise FileNotFoundError(f"{MODEL_NAME} is not in {models_dir()}")
+            self._stt = Parakeet(models_dir())
+            self.log(f"ears: {MODEL_NAME} loaded on the CPU ({self._stt.threads} threads)")
             self.error = ""
-        return self._whisper
+        return self._stt
 
     def decided(self, kind, **data):
         if self.on_decision:
@@ -354,17 +347,7 @@ class Ears:
             except Exception:  # noqa: BLE001  the diary must never stop the ears
                 pass
 
-    def _prompt(self):
-        """Two examples of talking to the wall, so Whisper expects "hey wall" and
-        hears it even faint and across the room (tested: without them it heard
-        "Wow, that's a fiber for 10 minutes"; with them, the whole sentence).
-        Silero's voice filter keeps it from inventing them out of silence, but
-        not out of noise (a fan, the TV, music): a piece that comes back as
-        just these examples is checked again without them (wake.confirm_echo)."""
-        wake = ((self.wake_words or ["hey wall"])[0] or "hey wall").strip().capitalize()
-        return f"{wake}, what time is it? {wake}, pause the music."
-
-    def _words(self, audio_bytes, prompt=None):
+    def _words(self, audio_bytes):
         import numpy as np  # noqa: PLC0415
 
         audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
@@ -372,23 +355,12 @@ class Ears:
         from .denoise import clean  # noqa: PLC0415
 
         audio = clean(audio, self.profile, self.noise, self.boost)
-        # level each piece before Whisper: a quiet voice from across the room
-        # comes out as loud as one up close (at most 20x more, so hiss stays hiss)
+        # level each piece first: a quiet voice from across the room comes out
+        # as loud as one up close (at most 20x more, so hiss stays hiss)
         peak = float(np.abs(audio).max()) if audio.size else 0.0
         if peak > 1e-4:
             audio = audio * min(20.0, 0.9 / peak)
-        lang = None if self.language in ("", "auto") or self.model_name.endswith(".en") else self.language
-        segments, _ = self._model().transcribe(
-            audio,
-            language=lang,
-            beam_size=1,
-            vad_filter=True,
-            condition_on_previous_text=False,
-            without_timestamps=True,
-            initial_prompt=prompt,
-        )
-        kept = [s.text for s in segments if not (s.no_speech_prob > 0.6 and s.avg_logprob < -1.0)]
-        return " ".join(t.strip() for t in kept).strip()
+        return self._engine().words(audio)
 
     def _transcribe_loop(self):
         head_bytes = int(HEAD_SECONDS * SAMPLE_RATE) * 2
@@ -401,7 +373,7 @@ class Ears:
                 awaiting = was_listening or self.listening()
                 if not awaiting and not self.notes and len(audio) > head_bytes:
                     # phrase mode: is it even for the wall? check the start first
-                    head = self._words(audio[:head_bytes], self._prompt())
+                    head = self._words(audio[:head_bytes])
                     if match_wake(head, self.wake_words) is None:
                         self.decided("ignored", seconds=round(len(audio) / 2 / SAMPLE_RATE, 2), head=head)
                         continue
@@ -409,16 +381,9 @@ class Ears:
                     self.state = "thinking"
                 if awaiting:
                     self.state = "thinking"
-                # the wake phrase is in this piece unless it came before it (awaiting) or it's notes
                 seconds = round(len(audio) / 2 / SAMPLE_RATE, 2)
-                prompt = None if awaiting or self.notes else self._prompt()
-                text = self._words(audio, prompt)
-                # Whisper can write its own prompt back out of noise: check those without it
-                keep, again = confirm_echo(text, prompt, lambda: self._words(audio, None), self.wake_words)
+                text = self._words(audio)
                 del audio
-                if not keep:
-                    self.decided("ignored", seconds=seconds, text=text, recheck=again, reason="prompt-echo")
-                    continue
                 what = route(text, self.wake_words, self.notes, awaiting) if text else None
                 self.decided("heard", seconds=seconds, text=text, awaiting=bool(awaiting), notes=bool(self.notes), routed=what[0] if what else None)
                 if not what:
@@ -432,7 +397,7 @@ class Ears:
                 self.on_heard(kind, words)
             except Exception as e:  # noqa: BLE001  one bad piece must not stop the ears
                 self.log(f"ears: transcription failed: {e}")
-                if self.error in ("no-whisper", "no-model"):
+                if self.error in ("no-sherpa", "no-model"):
                     self._stop.wait(30)
             finally:
                 self.state = "idle"

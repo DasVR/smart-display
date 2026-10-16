@@ -94,12 +94,13 @@ test('settings: off by default, clamped, unknown values fall back', () => {
 	const s = normalizeSensesSettings({});
 	assert.equal(s.mic, false);
 	assert.equal(s.camera, false);
-	const t = normalizeSensesSettings({ nearMeters: 99, model: 'huge', wakeMode: 'telepathy', wakeWords: 'Hey Wall!, computer', language: 'xx-yy', extra: 1 });
+	const t = normalizeSensesSettings({ nearMeters: 99, model: 'small.en', wakeMode: 'telepathy', wakeWords: 'Hey Wall!, computer', language: 'xx-yy', extra: 1 });
 	assert.equal(t.nearMeters, 6);
-	assert.equal(t.model, DEFAULT_SENSES.model);
+	// the old Whisper size and language settings are dropped (Parakeet replaced Whisper)
+	assert.equal('model' in t, false);
+	assert.equal('language' in t, false);
 	assert.equal(t.wakeMode, 'phrase');
 	assert.deepEqual(t.wakeWords, ['hey wall', 'computer']);
-	assert.equal(t.language, 'en');
 	assert.equal('extra' in t, false);
 	// a patch keeps the rest
 	assert.equal(normalizeSensesSettings({ mic: true }, t).nearMeters, 6);

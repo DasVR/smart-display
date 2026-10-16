@@ -58,7 +58,7 @@ the wall's server, and only on this machine:
 
 Never pictures, never sound. A frame is looked at and dropped (people are
 looked for about twice a second); a piece of speech is held in memory only
-until Whisper has turned it into words. People are found by YOLOX (or, in
+until Parakeet has turned it into words. People are found by YOLOX (or, in
 face mode, faces by YuNet), which know a person is there and nothing about
 who. There is no face recognition. The phone's diagram is drawn from the
 boxes' numbers, never from the picture.
@@ -88,13 +88,11 @@ script, so it also works for a user other than `das`. After that,
 `scripts/deploy.sh` restarts it with each deploy.
 
 That makes a venv at `~/venvs/senses` on the newest Python that
-faster-whisper supports (3.12 on das-server), installs OpenCV 4,
-faster-whisper and numpy, fetches the YuNet face model to
-`~/.cache/wall-senses/` and the Whisper `base.en` model, then installs and
+onnxruntime supports (3.12 on das-server), installs OpenCV 4,
+sherpa-onnx and numpy, fetches the YuNet face model and NVIDIA's Parakeet
+speech model (about 480 MB) to `~/.cache/wall-senses/`, then installs and
 starts the service. Options:
 
-- `--models tiny.en,small.en` also fetches other Whisper sizes, so the phone
-  can switch to them. `tiny.en` is quickest, `small.en` most accurate.
 - `--wake-word` also installs openWakeWord, for the lighter wake-word mode
   below. It is installed without its `tflite-runtime` dependency, which has
   no Python 3.12 build; the wall only uses its ONNX models. Its pre-trained wake words are CC BY-NC-SA: fine for a wall at
@@ -118,11 +116,12 @@ installed.
 - **A phrase** (default): every piece of speech has its first three seconds
   transcribed. Only when that starts with a wake phrase ("hey wall", "okay
   wall", or your own on the phone) is the rest transcribed and acted on.
-  Whisper writes "hey wall" as "hey well" or "hey, wow" now and then; those
-  count right after "hey" or "okay", nowhere else.
+  "Hey wall" sometimes comes out as "hey well", "Hey Wal", or, said
+  quickly on its own, "K Wal"; "hey wall, it's…" can run together as "Hey
+  wallets…". Those count right after "hey" or "okay", nowhere else.
 - **A wake word** (`--wake-word`): openWakeWord listens all the time for one
   of its words ("hey jarvis", "alexa", "hey mycroft", "hey rhasspy"), and
-  Whisper only runs after it fires. It's lighter while music plays.
+  the transcriber only runs after it fires. It's lighter while music plays.
 
 "Hey wall" on its own waits about seven seconds for the command. The edge
 glow comes on while it listens and works.
@@ -220,7 +219,7 @@ the phone's Senses page right away, with a few words if you like. The
 webcam process keeps the last 30 seconds of what it decided in memory:
 what the camera counted (people, spot, posture, distance, outlines as
 numbers), what the microphone made of each piece of sound (how long it was,
-the words Whisper heard, whether they were for the wall), and its log
+the words it heard, whether they were for the wall), and its log
 lines. The tap saves that, with the presence the wall was told and its
 settings, to `data/senses-reports/report-<time>.json` (gitignored, the last
 50). Open and copy them on the phone. Numbers and words only, like
@@ -270,30 +269,37 @@ In the order a sound goes through them:
 - **Noise suppression** (Off, Light (default), Strong). While nobody talks,
   it learns the room's steady sounds at each pitch (a fan, a hum, hiss,
   even music that keeps playing) and takes them out of each phrase before
-  Whisper reads it, with the Wiener filter phones and hearing aids use, so
+  it is transcribed, with the Wiener filter phones and hearing aids use, so
   it doesn't warble. It follows the room as it changes.
 - **Voice boost** (on) cuts rumble under 90 Hz and lifts the 1 to 4 kHz
   band, where consonants live and which distance dulls first.
-- **Levelling:** every phrase is brought to full level before Whisper, so
+- **Levelling:** every phrase is brought to full level before it's transcribed, so
   a faint voice comes through as clearly as a close one.
-- **Whisper is told what talking to the wall sounds like** ("Hey wall, what
-  time is it? Hey wall, pause the music."), so it expects "hey wall" and
-  hears it when faint. Silero's voice filter keeps it from inventing those
-  examples out of silence or hiss. Out of louder noise (a fan, the TV, the
-  wall's own music) Whisper could still write the examples back, word for
-  word, which is how "pause the music" got heard when nobody spoke. So a
-  phrase that comes back as just a piece of the examples is transcribed
-  again without them, and only counts if the command is still there
-  (`confirm_echo` in `senses/wall_senses/wake.py`). Real speech still says
-  it; noise doesn't. The diary shows those as ignored, `prompt-echo`.
-- **Whisper small.en** understands noisy, distant speech much better than
-  base.en. The install script fetches both; pick small.en on the phone.
+- **Parakeet** (NVIDIA's Parakeet TDT 0.6B v2, int8, through sherpa-onnx)
+  turns a phrase into words on the CPU. It replaced Whisper: on short spoken
+  clips with 4 threads it took 0.5 s and got 2.4% of words wrong, against
+  1.9 s and 6.1% for Whisper small.en and 0.8 s and 11.6% for base.en. On
+  the wall a 2.6 s command takes about 0.35 s with 2 threads (the default;
+  `WALL_SENSES_THREADS` changes it). It loads once in about 3 s and keeps
+  about 1 GB of memory.
+- **Nothing out of nothing.** Parakeet writes nothing for silence, hiss or
+  static, where Whisper invented "Thank you." and could even write its own
+  "hey wall" examples back out of the wall's music. It needs no examples to
+  hear "hey wall" either: spoken test phrases came through word for word.
 
-In testing, "Hey wall, set a timer for ten minutes" at a twentieth of its
-volume under fan noise, hum and hiss louder than the voice: base.en alone
-heard "Hey wall, ten times or ten baby"; small.en with noise suppression,
-"Hey wall, it's a timer for 10 minutes", which the wall reads as a timer.
-Pure noise, cleaned, gives nothing.
+| Speech to text, CPU, 4 threads, 15 short phrases | Per phrase | Words wrong |
+| --- | --- | --- |
+| **Parakeet TDT 0.6B v2 int8** (the wall's) | **0.5 s** | **2.4%** |
+| Moonshine v2 small | 1.1 s | 4.3% |
+| Moonshine v2 medium | 1.5 s | 4.9% |
+| Whisper small.en int8 | 1.9 s | 6.1% |
+| Moonshine base | 0.3 s | 7.9% |
+| Whisper distil-small.en int8 | 1.7 s | 8.5% |
+| Moonshine v2 tiny | 0.6 s | 11.0% |
+| Whisper base.en int8 | 0.8 s | 11.6% |
+
+These are clean recordings (LibriSpeech); across a room with music on,
+every model gets more wrong, but the order holds. Parakeet is English only.
 
 ### Cleaner still: PipeWire's WebRTC processing (optional)
 

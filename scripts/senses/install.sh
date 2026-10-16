@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # The wall's senses: install the webcam process on the display (das-server).
 #
-#   scripts/senses/install.sh                      venv, OpenCV, faster-whisper, YOLOX, YuNet, base.en + small.en
-#   scripts/senses/install.sh --models tiny.en,small.en   also fetch these Whisper models
+#   scripts/senses/install.sh                      venv, OpenCV, sherpa-onnx + Parakeet, YOLOX, YuNet
 #   scripts/senses/install.sh --wake-word          also openWakeWord and its models
 #   scripts/senses/install.sh --apply-systemd      install and start smart-display-senses.service
 #
@@ -14,17 +13,20 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VENV="${SENSES_VENV:-$HOME/venvs/senses}"
 CACHE="${WALL_SENSES_MODELS:-$HOME/.cache/wall-senses}"
-MODELS="base.en,small.en"
 WAKE=0
 APPLY=0
 DRY=0
 YUNET_URL="https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+# NVIDIA Parakeet TDT 0.6B v2, int8, packaged for sherpa-onnx (CC-BY-4.0, ~480 MB)
+PARAKEET="sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
+PARAKEET_URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/$PARAKEET.tar.bz2"
 YOLOX_URL="https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/object_detection_yolox/object_detection_yolox_2022nov.onnx"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--models) MODELS="base.en,small.en,$2"; shift ;;
-		--models=*) MODELS="base.en,small.en,${1#*=}" ;;
+		# Whisper is gone from the microphone (Parakeet replaced it): ignore old flags
+		--models) echo "note: --models is no longer needed; the microphone uses Parakeet" >&2; shift ;;
+		--models=*) echo "note: --models is no longer needed; the microphone uses Parakeet" >&2 ;;
 		--wake-word) WAKE=1 ;;
 		--apply-systemd) APPLY=1 ;;
 		--dry-run) DRY=1 ;;
@@ -50,8 +52,8 @@ if [[ "$(id -u)" == 0 && "${SENSES_ALLOW_ROOT:-0}" != 1 ]]; then
 	exit 1
 fi
 
-# faster-whisper's CTranslate2 and onnxruntime lag new Pythons: take the
-# newest one they support (the display's own python3 is newer than that)
+# onnxruntime (OpenCV's and sherpa-onnx's) lags new Pythons: take the newest
+# one with wheels (the display's own python3 may be newer than that)
 PY=""
 for v in python3.12 python3.13 python3.11 python3.10 python3; do
 	if command -v "$v" >/dev/null 2>&1; then PY="$v"; break; fi
@@ -65,7 +67,7 @@ if [[ ! -x "$VENV/bin/python" ]]; then
 	run "$PY" -m venv "$VENV"
 fi
 run "$VENV/bin/pip" install --upgrade pip
-run "$VENV/bin/pip" install "numpy>=1.24" "opencv-python-headless>=4.8,<5" "faster-whisper>=1.0,<2"
+run "$VENV/bin/pip" install "numpy>=1.24" "opencv-python-headless>=4.8,<5" "sherpa-onnx>=1.12,<2"
 if [[ "$WAKE" == 1 ]]; then
 	# without its tflite-runtime dependency, which has no wheel for Python 3.12;
 	# the wall only uses openWakeWord's ONNX models
@@ -85,11 +87,13 @@ if [[ ! -s "$CACHE/object_detection_yolox_2022nov.onnx" ]]; then
 	run curl -fsSL "$YOLOX_URL" -o "$CACHE/object_detection_yolox_2022nov.onnx"
 fi
 
-IFS=',' read -r -a WANT <<<"$MODELS"
-for m in $(printf '%s\n' "${WANT[@]}" | awk 'NF && !seen[$0]++'); do
-	echo "fetching Whisper $m"
-	run "$VENV/bin/python" -c "from faster_whisper import WhisperModel; WhisperModel('$m', device='cpu', compute_type='int8')"
-done
+if [[ ! -s "$CACHE/$PARAKEET/encoder.int8.onnx" ]]; then
+	# the speech model: about 0.4 s to hear a command on this CPU (docs/senses.md)
+	echo "fetching $PARAKEET (about 480 MB)"
+	run curl -fL "$PARAKEET_URL" -o "$CACHE/$PARAKEET.tar.bz2"
+	run tar -xjf "$CACHE/$PARAKEET.tar.bz2" -C "$CACHE"
+	run rm -f "$CACHE/$PARAKEET.tar.bz2"
+fi
 
 if ! id -nG | tr ' ' '\n' | grep -qx video; then
 	echo "note: $(id -un) is not in the video group; the service adds it (SupplementaryGroups), or: sudo usermod -aG video $(id -un)"

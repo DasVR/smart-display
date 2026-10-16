@@ -193,13 +193,16 @@ def check():
     rows = [
         ("numpy", "numpy"),
         ("OpenCV (camera)", "cv2"),
-        ("faster-whisper (transcription)", "faster_whisper"),
+        ("sherpa-onnx (Parakeet, transcription)", "sherpa_onnx"),
         ("openWakeWord (optional)", "openwakeword"),
     ]
     for label, mod in rows:
         print(f"  {'ok ' if importlib.util.find_spec(mod) else '-- '} {label}")
     import os
 
+    from .stt import MODEL_NAME, model_path, model_ready  # noqa: PLC0415
+
+    print(f"  {'ok ' if model_ready(model_dir()) else '-- '} {MODEL_NAME} speech model ({model_path(model_dir())})")
     yunet = os.path.join(model_dir(), YUNET_NAME)
     print(f"  {'ok ' if os.path.exists(yunet) else '-- '} YuNet face model ({yunet})")
     yolox = os.path.join(model_dir(), YOLOX_NAME)

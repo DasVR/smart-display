@@ -13,7 +13,7 @@ from wall_senses.hearing import Ears, choose_source, route
 from wall_senses.vad import FRAME_MS, FRAME_SAMPLES, SpeechGate, apply_gain, rms
 from wall_senses import room
 from wall_senses.diary import Diary
-from wall_senses.wake import confirm_echo, echoes_prompt, is_noise, match_wake
+from wall_senses.wake import is_noise, match_wake
 
 
 class Distance(unittest.TestCase):
@@ -291,40 +291,53 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class PromptEcho(unittest.TestCase):
-    PROMPT = "Hey wall, what time is it? Hey wall, pause the music."
+class ParakeetWake(unittest.TestCase):
+    """What Parakeet actually wrote for spoken wake phrases (docs/senses.md)."""
 
-    def test_spots_the_prompt_coming_back(self):
-        self.assertTrue(echoes_prompt("Hey wall, pause the music.", self.PROMPT))
-        self.assertTrue(echoes_prompt("Hey wall, what time is it?", self.PROMPT))
-        self.assertTrue(echoes_prompt("Hey wall.", self.PROMPT))
-        self.assertFalse(echoes_prompt("Hey wall, pause the music in the kitchen", self.PROMPT))
-        self.assertFalse(echoes_prompt("Hey wall, what's the weather?", self.PROMPT))
-        self.assertFalse(echoes_prompt("the mus", self.PROMPT), "whole words only")
-        self.assertFalse(echoes_prompt("Hey wall, pause the music.", None))
+    def test_heard_word_for_word(self):
+        self.assertEqual(match_wake("Hey wall pause the music."), "pause the music")
+        self.assertEqual(match_wake("Okay wall set a timer for 10 minutes."), "set a timer for 10 minutes")
 
-    def test_noise_that_echoes_is_dropped(self):
-        # without the prompt, a fan is a fan
-        keep, again = confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "")
-        self.assertFalse(keep)
-        self.assertEqual(again, "")
-        self.assertFalse(confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "Thank you.")[0])
-        self.assertFalse(confirm_echo("Hey wall.", self.PROMPT, lambda: "Wow.")[0])
+    def test_a_quick_bare_hey_wall(self):
+        self.assertEqual(match_wake("K Wal"), "")
+        self.assertEqual(match_wake("Hay wall, what time is it?"), "what time is it")
 
-    def test_someone_really_saying_it_is_kept(self):
-        self.assertTrue(confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "Hey well, pause the music.")[0])
-        # the wake word misheard without the prompt still counts: the command is there
-        self.assertTrue(confirm_echo("Hey wall, pause the music.", self.PROMPT, lambda: "A fall, pause the music")[0])
-        self.assertTrue(confirm_echo("Hey wall.", self.PROMPT, lambda: "Hey wall")[0])
+    def test_wall_its_run_together(self):
+        self.assertEqual(match_wake("Hey wallets way too loud in here."), "way too loud in here")
 
-    def test_anything_else_is_not_checked_again(self):
-        def boom():
-            raise AssertionError("no recheck needed")
-
-        self.assertEqual(confirm_echo("Hey wall, what's the weather?", self.PROMPT, boom), (True, None))
-        self.assertEqual(confirm_echo("Hey wall, pause the music.", None, boom), (True, None))
+    def test_k_alone_is_not_a_wake(self):
+        self.assertIsNone(match_wake("K, that's fine"))
+        self.assertIsNone(match_wake("Kay walked in"))
 
 
+class Stt(unittest.TestCase):
+    def test_model_ready_needs_every_file(self):
+        import os
+        import tempfile
+
+        from wall_senses.stt import MODEL_FILES, model_path, model_ready
+
+        with tempfile.TemporaryDirectory() as d:
+            self.assertFalse(model_ready(d))
+            os.makedirs(model_path(d))
+            for f in MODEL_FILES[:-1]:
+                open(os.path.join(model_path(d), f), "w").close()
+            self.assertFalse(model_ready(d))
+            open(os.path.join(model_path(d), MODEL_FILES[-1]), "w").close()
+            self.assertTrue(model_ready(d))
+
+    def test_two_threads_unless_told(self):
+        import os
+
+        from wall_senses.stt import default_threads
+
+        os.environ.pop("WALL_SENSES_THREADS", None)
+        self.assertLessEqual(default_threads(), 2)
+        os.environ["WALL_SENSES_THREADS"] = "3"
+        try:
+            self.assertEqual(default_threads(), 3)
+        finally:
+            del os.environ["WALL_SENSES_THREADS"]
 
 class FollowUp(unittest.TestCase):
     def test_listen_for_opens_the_ears_without_a_wake_phrase(self):

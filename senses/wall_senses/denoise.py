@@ -1,4 +1,4 @@
-"""Cleaning a voice up before Whisper hears it: less room noise, more voice.
+"""Cleaning a voice up before it is transcribed: less room noise, more voice.
 
 Noise suppression (spectral gating). Between words the microphone hears only
 the room: a fan, a fridge, the hum of a computer, hiss. Those quiet moments

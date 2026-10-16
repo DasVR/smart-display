@@ -2,7 +2,7 @@
 
 Only numbers and words: what the camera counted (how many, where, how far,
 lying or upright), what the microphone made of a piece of sound (how long it
-was, the words Whisper heard, whether they were for the wall). Never a
+was, the words it heard, whether they were for the wall). Never a
 picture or a sound. Kept in memory only; it is sent to the wall when the
 phone asks for a report, and the wall keeps it in data/senses-reports/.
 """
