@@ -14,6 +14,7 @@ import {
 	ensureTrackDurationCached,
 	fetchLyrics,
 	fetchPlainLyricsText,
+	fetchCommunityLyrics,
 	fetchSyncedLyricsFallback,
 	hasRealWordTiming,
 	linesFromCommunityPayload,
@@ -35,6 +36,33 @@ import {
 	synthesizeWordTiming
 } from '../src/lib/server/lyrics.js';
 import { getLyricsRow, lyricsDbStats } from '../src/lib/server/lyricsStore.js';
+
+function fakeChain(lyrics, key = 'blyrics') {
+	return {
+		calls: [],
+		async fetchLyrics(ctx, options = {}) {
+			this.calls.push(ctx);
+			if (!lyrics) return null;
+			const result = { lyrics, key, source: key, sourceHref: '' };
+			if (options.validate && !options.validate(result)) return null;
+			return result;
+		}
+	};
+}
+
+const noCommunity = () => fakeChain(null);
+
+/** A Braccato `Lyric` from `[text, startSec, endSec]` words, one part per word. */
+function bLine(words) {
+	const parts = [];
+	words.forEach(([text, start, end], i) => {
+		if (i) parts.push({ startTimeMs: start * 1000, durationMs: 0, words: ' ' });
+		parts.push({ startTimeMs: start * 1000, durationMs: (end - start) * 1000, words: text });
+	});
+	const start = words[0][1];
+	const end = words[words.length - 1][2];
+	return { startTimeMs: start * 1000, durationMs: (end - start) * 1000, words: words.map((w) => w[0]).join(' '), parts };
+}
 
 function fakePythonChild(stdout) {
 	const proc = new EventEmitter();
@@ -304,7 +332,7 @@ test('pickItunesDuration prefers the matching artist duration', () => {
 	assert.equal(duration, 273);
 });
 
-test('fetchLyrics asks LRCLIB /api/get with duration once syncedlyrics has nothing', async () => {
+test('fetchLyrics asks LRCLIB /api/get with duration once Braccato has nothing', async () => {
 	const urls = [];
 	const load = async (url) => {
 		urls.push(url);
@@ -323,60 +351,80 @@ test('fetchLyrics asks LRCLIB /api/get with duration once syncedlyrics has nothi
 		album: 'Chocolate Starfish and the Hot Dog Flavored Water',
 		duration: 273.4,
 		load,
+		chain: noCommunity(),
 		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.match(urls[0], /duration=273/);
 	assert.equal(lines[0].text, 'You can take it all');
 });
 
-test('fetchSyncedLyricsFallback parses LRC text the python helper prints', async () => {
-	const calls = [];
-	const lines = await fetchSyncedLyricsFallback('Some Artist', 'Some Song', {
-		spawnFn: (bin, args) => {
-			calls.push([bin, args]);
-			return fakePythonChild(JSON.stringify({ synced: '[00:05.00]Hello there' }));
+test('fetchCommunityLyrics asks the Braccato chain with seconds and keeps its word clocks', async () => {
+	const chain = fakeChain([
+		{ startTimeMs: 0, durationMs: 4000, words: '', parts: [], isInstrumental: true },
+		{
+			startTimeMs: 5000,
+			durationMs: 1500,
+			words: 'Hello beautiful',
+			agent: 'v1',
+			parts: [
+				{ startTimeMs: 5000, durationMs: 300, words: 'Hello' },
+				{ startTimeMs: 5300, durationMs: 0, words: ' ' },
+				{ startTimeMs: 5300, durationMs: 200, words: 'beau' },
+				{ startTimeMs: 5500, durationMs: 200, words: 'ti' },
+				{ startTimeMs: 5700, durationMs: 400, words: 'ful' },
+				{ startTimeMs: 6000, durationMs: 300, words: 'yeah', isBackground: true }
+			]
 		}
-	});
-	assert.equal(calls[0][1][1], 'Some Artist');
-	assert.equal(calls[0][1][2], 'Some Song');
-	assert.equal(lines[0].text, 'Hello there');
-	assert.equal(lines[0].time, 5);
+	]);
+	const hit = await fetchCommunityLyrics('Some Artist', 'Some Song', { duration: 200.4, album: 'LP', chain });
+	assert.equal(chain.calls[0].artist, 'Some Artist');
+	assert.equal(chain.calls[0].song, 'Some Song');
+	assert.equal(chain.calls[0].album, 'LP');
+	assert.equal(chain.calls[0].duration, 200);
+	assert.equal(hit.source, 'blyrics');
+	const sung = hit.lines.find((line) => line.text);
+	assert.equal(sung.text, 'Hello beautiful');
+	assert.equal(sung.time, 5);
+	assert.deepEqual(
+		sung.words.map((w) => [w.text, w.time, Math.round(w.end * 1000) / 1000]),
+		[
+			['Hello', 5, 5.3],
+			['beautiful', 5.3, 6.1]
+		]
+	);
+	assert.equal(sung.background[0].text, 'yeah');
 });
 
 test('fetchSyncedLyricsFallback resolves null when nothing matched', async () => {
-	const lines = await fetchSyncedLyricsFallback('Nobody', 'Nothing', {
-		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
+	const lines = await fetchSyncedLyricsFallback('Nobody', 'Nothing', { chain: noCommunity() });
+	assert.equal(lines, null);
+});
+
+test('fetchSyncedLyricsFallback resolves null (not throw) when the chain fails', async () => {
+	const lines = await fetchSyncedLyricsFallback('A', 'B', {
+		chain: {
+			fetchLyrics: async () => {
+				throw new Error('network down');
+			}
+		}
 	});
 	assert.equal(lines, null);
 });
 
-test('fetchSyncedLyricsFallback resolves null (not throw) on bad output or spawn failure', async () => {
-	const badOutput = await fetchSyncedLyricsFallback('A', 'B', {
-		spawnFn: () => fakePythonChild('not json')
-	});
-	assert.equal(badOutput, null);
-
-	const spawnThrows = await fetchSyncedLyricsFallback('A', 'B', {
-		spawnFn: () => {
-			throw new Error('no python3');
-		}
-	});
-	assert.equal(spawnThrows, null);
-});
-
-test('fetchLyrics prefers syncedlyrics over LRCLIB even when LRCLIB is down', async () => {
+test('fetchLyrics prefers Braccato over LRCLIB even when LRCLIB is down', async () => {
 	const load = async (url) => {
 		throw new Error('LRCLIB should not have been called: ' + url);
 	};
 	const lines = await fetchLyrics('Some Artist', 'Some Song', {
 		duration: 200,
 		load,
-		spawnFn: () => fakePythonChild(JSON.stringify({ synced: '[00:03.00]From syncedlyrics' }))
+		chain: fakeChain([{ startTimeMs: 3000, durationMs: 2000, words: 'From Braccato' }], 'legato'),
+		spawnFn: () => fakePythonChild(JSON.stringify({ plain: null }))
 	});
-	assert.equal(lines[0].text, 'From syncedlyrics');
+	assert.equal(lines[0].text, 'From Braccato');
 });
 
-test('fetchLyrics falls back to LRCLIB when syncedlyrics has nothing', async () => {
+test('fetchLyrics falls back to LRCLIB when Braccato has nothing', async () => {
 	const load = async (url) => {
 		if (url.includes('/api/get')) throw new Error('404');
 		if (url.includes('/api/search')) return [];
@@ -385,6 +433,7 @@ test('fetchLyrics falls back to LRCLIB when syncedlyrics has nothing', async () 
 	const lines = await fetchLyrics('Obscure Artist', 'Obscure Song', {
 		duration: 200,
 		load,
+		chain: noCommunity(),
 		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.equal(lines, null);
@@ -405,6 +454,7 @@ test('fetchPlainLyricsText returns the plain lyric text LRCLIB served alongside 
 	const text = await fetchPlainLyricsText('Frank Sinatra', 'My Way', {
 		duration: 275,
 		load,
+		chain: noCommunity(),
 		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.equal(text, 'And now, the end is near\nAnd so I face the final curtain');
@@ -419,6 +469,7 @@ test('fetchPlainLyricsText returns null when there is nothing to align against',
 	const text = await fetchPlainLyricsText('Nobody', 'Nothing', {
 		duration: 200,
 		load,
+		chain: noCommunity(),
 		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.equal(text, null);
@@ -444,11 +495,12 @@ test('peekLyrics/ensureLyricsCached never block the caller on a cold cache', asy
 	ensureLyricsCached(artist, title, {
 		duration: 210,
 		load,
+		chain: noCommunity(),
 		spawnFn: () => fakePythonChild(JSON.stringify({ synced: null }))
 	});
 	assert.deepEqual(peekLyrics(artist, title, '', 210), { known: false, lines: null });
 
-	// Let the syncedlyrics tier's fake subprocess resolve (nothing found)
+	// Let the community chain and canonical fake subprocess resolve (nothing found)
 	// before LRCLIB's `load` gets called.
 	await new Promise((resolve) => setImmediate(resolve));
 	resolveLoad();
@@ -576,17 +628,14 @@ test('linesFromCommunityPayload prefers canonical word-level lines', () => {
 	assert.equal(lines[0].words[1].time, 1.4);
 });
 
-test('fetchSyncedLyricsFallback accepts a word-level community payload', async () => {
+test('fetchSyncedLyricsFallback accepts a word-level Braccato result', async () => {
 	const lines = await fetchSyncedLyricsFallback('Linkin Park', 'Numb', {
-		spawnFn: () =>
-			fakePythonChild(
-				JSON.stringify({
-					source: 'amll-ttml',
-					wordLevel: true,
-					ttml:
-						'<p begin="00:22.065"><span begin="00:22.065">I\'m</span> <span begin="00:22.154">tired</span></p>'
-				})
-			)
+		chain: fakeChain([
+			bLine([
+				["I'm", 22.065, 22.154],
+				['tired', 22.154, 22.6]
+			])
+		])
 	});
 	assert.equal(lines[0].words[0].text, "I'm");
 	assert.equal(hasRealWordTiming(lines), true);
@@ -597,22 +646,26 @@ test('fetchLyrics persists a hit to the SQLite store with its source and word-le
 	const title = 'Persist Song';
 	const lines = await fetchLyrics(artist, title, {
 		duration: 200,
-		spawnFn: () =>
-			fakePythonChild(
-				JSON.stringify({
-					source: 'netease-yrc',
-					wordLevel: true,
-					lines: [
-						{ time: 1, text: 'Hello there', words: [{ time: 1, text: 'Hello' }, { time: 1.4, text: 'there' }] },
-						{ time: 3, text: 'friend of mine', words: [{ time: 3, text: 'friend' }, { time: 3.3, text: 'of' }, { time: 3.5, text: 'mine' }] }
-					]
-				})
-			)
+		chain: fakeChain(
+			[
+				bLine([
+					['Hello', 1, 1.4],
+					['there', 1.4, 1.8]
+				]),
+				bLine([
+					['friend', 3, 3.3],
+					['of', 3.3, 3.5],
+					['mine', 3.5, 4]
+				])
+			],
+			'portato'
+		),
+		spawnFn: () => fakePythonChild(JSON.stringify({ plain: null }))
 	});
 	assert.equal(lines.length, 2);
 	const row = getLyricsRow(lyricsCacheKey(artist, title, '', 200));
 	assert.ok(row, 'hit should be written to the store');
-	assert.equal(row.source, 'netease-yrc');
+	assert.equal(row.source, 'portato');
 	assert.equal(row.wordLevel, true);
 	assert.equal(row.artist, artist);
 	assert.equal(row.duration, 200);
@@ -622,7 +675,7 @@ test('fetchLyrics persists a hit to the SQLite store with its source and word-le
 	assert.ok(row.ttl >= 300 * 24 * 60 * 60 * 1000);
 	const info = peekLyricsInfo(artist, title, '', 200);
 	assert.equal(info.known, true);
-	assert.equal(info.source, 'netease-yrc');
+	assert.equal(info.source, 'portato');
 	assert.equal(info.wordLevel, true);
 	assert.equal(info.plainText, 'Hello there\nfriend of mine');
 });
@@ -635,40 +688,26 @@ test('fetchLyrics keeps Genius canonical text while community karaoke stays the 
 		load: async () => {
 			throw new Error('LRCLIB should not run on a community hit');
 		},
-		spawnFn: (_bin, args) => {
-			const script = String(args[0] || '');
-			if (script.includes('canonical_lyrics.py')) {
-				return fakePythonChild(
-					JSON.stringify({
-						plain: 'I walk a lonely road\nThe only one that I have ever known',
-						source: 'genius',
-						artist,
-						title
-					})
-				);
-			}
-			return fakePythonChild(
+		chain: fakeChain([
+			bLine([
+				['i', 8, 8.2],
+				['walk', 8.2, 8.4],
+				['a', 8.4, 8.6]
+			])
+		]),
+		spawnFn: () =>
+			fakePythonChild(
 				JSON.stringify({
-					source: 'amll-ttml',
-					wordLevel: true,
-					lines: [
-						{
-							time: 8,
-							text: 'i walk a',
-							words: [
-								{ time: 8, text: 'i' },
-								{ time: 8.2, text: 'walk' },
-								{ time: 8.4, text: 'a' }
-							]
-						}
-					]
+					plain: 'I walk a lonely road\nThe only one that I have ever known',
+					source: 'genius',
+					artist,
+					title
 				})
-			);
-		}
+			)
 	});
 	assert.equal(lines[0].text, 'i walk a');
 	const info = peekLyricsInfo(artist, title, '', 200);
-	assert.equal(info.source, 'amll-ttml');
+	assert.equal(info.source, 'blyrics');
 	assert.equal(info.plainSource, 'genius');
 	assert.equal(info.plainText, 'I walk a lonely road\nThe only one that I have ever known');
 });
@@ -682,7 +721,7 @@ test('fetchLyrics tags an LRCLIB line-synced hit and keeps it for a shorter retr
 		}
 		throw new Error('unexpected ' + url);
 	};
-	await fetchLyrics(artist, title, { duration: 180, load, spawnFn: () => fakePythonChild(JSON.stringify({ synced: null })) });
+	await fetchLyrics(artist, title, { duration: 180, load, chain: noCommunity(), spawnFn: () => fakePythonChild(JSON.stringify({ synced: null })) });
 	const row = getLyricsRow(lyricsCacheKey(artist, title, '', 180));
 	assert.ok(row);
 	assert.equal(row.source, 'lrclib-synced');
@@ -698,21 +737,17 @@ test('fetchLyrics does not persist a miss', async () => {
 	const artist = `Miss Artist ${Date.now()}`;
 	const title = 'Miss Song';
 	const load = async () => [];
-	const lines = await fetchLyrics(artist, title, { duration: 180, load, spawnFn: () => fakePythonChild(JSON.stringify({ synced: null })) });
+	const lines = await fetchLyrics(artist, title, { duration: 180, load, chain: noCommunity(), spawnFn: () => fakePythonChild(JSON.stringify({ synced: null })) });
 	assert.equal(lines, null);
 	assert.equal(peekLyrics(artist, title, '', 180).known, true, 'miss is remembered in memory');
 	assert.equal(getLyricsRow(lyricsCacheKey(artist, title, '', 180)), null, 'but never written to disk');
 });
 
-function slowPythonChild(stdout, release) {
-	const proc = new EventEmitter();
-	proc.stdout = new EventEmitter();
-	proc.kill = () => proc.emit('close', null);
-	release.push(() => {
-		proc.stdout.emit('data', Buffer.from(stdout));
-		proc.emit('close', 0);
-	});
-	return proc;
+function slowChain(lyrics, release) {
+	const chain = fakeChain(lyrics);
+	const fetchLyrics = chain.fetchLyrics.bind(chain);
+	chain.fetchLyrics = (ctx, options) => new Promise((resolve) => release.push(() => resolve(fetchLyrics(ctx, options))));
+	return chain;
 }
 
 test('LRCLIB lines show while the karaoke lookup is still running, then the karaoke file replaces them', async () => {
@@ -728,19 +763,17 @@ test('LRCLIB lines show while the karaoke lookup is still running, then the kara
 	const done = fetchLyrics(artist, title, {
 		duration: 200,
 		load,
-		spawnFn: (bin, args) =>
-			args[0].endsWith('canonical_lyrics.py')
-				? fakePythonChild(JSON.stringify({ plain: null }))
-				: slowPythonChild(
-						JSON.stringify({
-							source: 'amll-ttml',
-							wordLevel: true,
-							lines: [
-								{ time: 5, text: 'Line from karaoke', words: [{ time: 5, text: 'Line', end: 5.3 }, { time: 5.3, text: 'from', end: 5.6 }, { time: 5.6, text: 'karaoke', end: 6 }] }
-							]
-						}),
-						release
-					)
+		chain: slowChain(
+			[
+				bLine([
+					['Line', 5, 5.3],
+					['from', 5.3, 5.6],
+					['karaoke', 5.6, 6]
+				])
+			],
+			release
+		),
+		spawnFn: () => fakePythonChild(JSON.stringify({ plain: null }))
 	});
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	const early = peekLyricsInfo(artist, title, '', 200);
@@ -752,7 +785,7 @@ test('LRCLIB lines show while the karaoke lookup is still running, then the kara
 	await done;
 	const final = peekLyricsInfo(artist, title, '', 200);
 	assert.equal(final.provisional, false);
-	assert.equal(final.source, 'amll-ttml');
+	assert.equal(final.source, 'blyrics');
 	assert.equal(final.lines[0].text, 'Line from karaoke');
 });
 
@@ -768,17 +801,16 @@ test('a karaoke file from another release is shifted onto the exact-duration LRC
 	const karaoke = texts.map((t, i) => {
 		const start = 14 + i * 5;
 		const [a, b] = t.split(' ');
-		return { time: start, text: t, words: [{ time: start, text: a, end: start + 0.4 }, { time: start + 0.4, text: b, end: start + 0.8 }] };
+		return bLine([
+			[a, start, start + 0.4],
+			[b, start + 0.4, start + 0.8]
+		]);
 	});
 	const lines = await fetchLyrics(artist, title, {
 		duration: 200,
 		load,
-		spawnFn: (bin, args) =>
-			fakePythonChild(
-				args[0].endsWith('canonical_lyrics.py')
-					? JSON.stringify({ plain: null })
-					: JSON.stringify({ source: 'netease-yrc', wordLevel: true, lines: karaoke })
-			)
+		chain: fakeChain(karaoke, 'portato'),
+		spawnFn: () => fakePythonChild(JSON.stringify({ plain: null }))
 	});
 	assert.equal(lines[0].time, 10);
 	assert.ok(Math.abs(lines[0].words[1].time - 10.4) < 1e-9);
@@ -792,12 +824,14 @@ test('fetchLyrics restores masked profanity from the canonical sheet', async () 
 		load: async () => {
 			throw new Error('offline');
 		},
-		spawnFn: (bin, args) =>
-			fakePythonChild(
-				args[0].endsWith('canonical_lyrics.py')
-					? JSON.stringify({ plain: 'I said fuck you\nThis shit is real', source: 'genius' })
-					: JSON.stringify({ synced: '[00:05.00]I said **** you\n[00:09.00]This sh*t is real' })
-			)
+		chain: fakeChain(
+			[
+				{ startTimeMs: 5000, durationMs: 4000, words: 'I said **** you' },
+				{ startTimeMs: 9000, durationMs: 3000, words: 'This sh*t is real' }
+			],
+			'legato'
+		),
+		spawnFn: () => fakePythonChild(JSON.stringify({ plain: 'I said fuck you\nThis shit is real', source: 'genius' }))
 	});
 	assert.deepEqual(
 		lines.map((l) => l.text),
