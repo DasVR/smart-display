@@ -22,7 +22,11 @@ works in the box works from Siri.
    the list, never run as a command. "Remind me to turn the volume up at 6"
    is a reminder, not a volume change.
 4. **Matched against the commands below.** The first match wins.
-5. **Otherwise it's added.** Anything that isn't a command becomes a chore
+5. **A question is answered.** With an Ollama key set, a sentence that
+   reads like a question ("how far is the moon?", "who won the game last
+   night") is answered out loud by a small AI model that can search the web.
+   See [assistant.md](assistant.md).
+6. **Otherwise it's added.** Anything that isn't a command or a question becomes a chore
    (or an alert, if it has "remind me" and a time). See "What it understands"
    in [siri-shortcuts.md](siri-shortcuts.md).
 
@@ -82,6 +86,7 @@ called "Got it".
 | --- | --- |
 | show me the weather / radar / forecast | switches the view |
 | bring up the calendar / take me to the music / switch to the agents | the same, for clock, calendar, agents, music (and lyrics), weather |
+| play bohemian rhapsody / play taylor swift / put on some jazz / play my workout playlist | plays it on Apple Music, on the wall itself (see [apple-music.md](apple-music.md)) |
 | pause / play / resume / continue the music | music transport |
 | next song / skip this song / previous song | music |
 | turn it up / volume up / louder · turn it down / quieter | volume, 10% a step ("a lot" is 25%) |

@@ -147,3 +147,25 @@ test('WebSocket ops mirror the API for the kiosk and phone', async () => {
 		await h.close();
 	}
 });
+
+test('sayAdd answers a question through `ask` instead of adding it, and adds when ask passes', async () => {
+	const dataDir = mkdtempSync(path.join(tmpdir(), 'hub-'));
+	const asked = [];
+	const hub = createTaskHub({
+		dataDir,
+		broadcast: () => {},
+		log: quiet,
+		env: {},
+		ask: async (text) => {
+			asked.push(text);
+			return /moon/.test(text) ? { say: 'About 384,000 kilometers.', answered: true } : null;
+		}
+	});
+	const answer = await hub.sayAdd({ text: 'how far away is the moon', source: 'Wall mic' });
+	assert.equal(answer.status, 200);
+	assert.equal(answer.data.say, 'About 384,000 kilometers.');
+	const added = await hub.sayAdd({ text: 'water the plants', source: 'Wall mic' });
+	assert.equal(added.status, 201);
+	assert.deepEqual(asked, ['how far away is the moon', 'water the plants']);
+	assert.deepEqual(hub.snapshot().map((t) => t.title), [added.data.task.title]);
+});

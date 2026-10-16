@@ -7,6 +7,7 @@ import {
 	getTelemetry,
 	getCalendar,
 	getNowPlaying,
+	useAppleMusicSource,
 	getDemoNowPlaying,
 	getVoiceDemoNowPlaying,
 	getGitContext,
@@ -23,6 +24,9 @@ import { createTaskHub } from './lib/server/taskHub.js';
 import { createApprovalHub } from './lib/server/approvalHub.js';
 import { createDayLogHub } from './lib/server/dayLogHub.js';
 import { createActionHub } from './lib/server/actionHub.js';
+import { createAssistantHub } from './lib/server/assistantHub.js';
+import { createAppleMusic } from './lib/server/appleMusic.js';
+import { DISPLAY_TZ } from './lib/atmosphere.js';
 import { createVoiceHub } from './lib/server/voiceHub.js';
 import { createSoundHub } from './lib/server/soundHub.js';
 import { createAttentionHub } from './lib/server/attentionHub.js';
@@ -167,6 +171,17 @@ function attentionTap(msg) {
 	else if (msg?.type === 'tasks' && Array.isArray(msg.tasks)) attentionHub.syncTasks(msg.tasks);
 	else if (msg?.type === 'approvals' && Array.isArray(msg.approvals)) attentionHub.syncApprovals(msg.approvals);
 }
+// Apple Music in a headless Chrome, started by "play …" (docs/apple-music.md)
+const appleMusic = createAppleMusic({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	onChange: () => kickNowPlaying()
+});
+useAppleMusicSource({ track: () => appleMusic.track(), pause: () => appleMusic.control('pause') });
+const assistantHub = createAssistantHub({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	timeZone: process.env.TZ || DISPLAY_TZ,
+	place: process.env.ASSISTANT_PLACE || ''
+});
 const taskHub = createTaskHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => {
@@ -187,6 +202,8 @@ const taskHub = createTaskHub({
 	},
 	// "tell the wall" commands; actionHub is defined below and only called later
 	commands: (text) => actionHub.command(text),
+	// open questions go to the Ollama Cloud assistant (src/lib/server/assistantHub.js)
+	ask: (text) => assistantHub.maybeAnswer(text),
 	// homework and reminders from Google Calendar / Tasks, read-only
 	external: () => calendarFeed.items()
 });
@@ -220,10 +237,17 @@ const actionHub = createActionHub({
 		broadcast({ type: 'navigate', view: currentView, from: 'siri' });
 	},
 	player: async (action) => {
+		// the wall's own Apple Music player takes pause/next while it's the one playing
+		if (appleMusic.isActive() && (!lastNowPlaying?.title || lastNowPlaying.source === 'apple-music')) {
+			const r = await appleMusic.control(action);
+			kickNowPlaying();
+			return r;
+		}
 		const r = await runPlayerctl(PLAYER_ARGS[action] || [action], { timeout: 2000 });
 		kickNowPlaying();
 		return r;
 	},
+	playRequest: (request) => appleMusic.play(request),
 	screen: (state) => applyHdmi(state, { reason: 'siri' }),
 	volume: {
 		get: () => getVolume(),
@@ -712,6 +736,8 @@ const server = createServer(async (req, res) => {
 		return json(res, { surfaces: list });
 	}
 	if (await voiceHub.handleHttp(req, res)) return;
+	if (await assistantHub.handleHttp(req, res)) return;
+	if (await appleMusic.handleHttp(req, res)) return;
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
 	if (await agentStatusHub.handleHttp(req, res)) return;
@@ -1130,6 +1156,15 @@ wss.on('connection', (ws, req) => {
 						.then((said) => reply({ said, settings: voiceHub.snapshot() }))
 						.catch(() => reply({ said: { ok: false } }));
 				} else reply({ settings: voiceHub.snapshot() });
+			}
+			if (msg.type === 'apple-music') {
+				// the phone's Apple Music card: { op: 'get' | 'set', patch: { enhance } }
+				const reply = () => ws.readyState === 1 && ws.send(JSON.stringify({ type: 'apple-music', state: { appleMusic: appleMusic.snapshot(), assistant: assistantHub.snapshot() } }));
+				if (msg.op === 'set' && msg.patch && typeof msg.patch === 'object') {
+					appleMusic
+						.setSettings({ enhance: msg.patch.enhance === true ? true : msg.patch.enhance === false ? false : undefined })
+						.then(reply, reply);
+				} else reply();
 			}
 			if (msg.type === 'senses') {
 				// the phone's Senses page: { op: 'get' | 'set' | 'calibrate' | 'notes-start' | 'notes-stop' | 'transcripts' | 'transcript' }

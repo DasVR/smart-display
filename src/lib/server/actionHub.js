@@ -94,6 +94,8 @@ export function createActionHub({
 	getState = () => ({}), // { nowPlaying, view, hdmi }
 	navigate = () => {},
 	player = async () => ({ ok: false }),
+	// "play Bohemian Rhapsody": { term, kind } -> { ok, say } (src/lib/server/appleMusic.js)
+	playRequest = async () => ({ ok: false, say: 'Apple Music isn’t set up on the wall.' }),
 	screen = async () => {},
 	// { volume (0..1.5), muted } now; apply({ volume } | { muted }); both resolve { ok, volume, muted }
 	volume = { get: async () => ({ ok: false }), apply: async () => ({ ok: false }) },
@@ -220,6 +222,10 @@ export function createActionHub({
 				if (!r?.ok) return { say: musicFailure(action.action, r) };
 				const words = { pause: 'Paused.', play: 'Playing.', next: 'Next song.', previous: 'Previous song.' };
 				return { say: words[action.action] || 'Done.' };
+			}
+			case 'play-request': {
+				const r = await playRequest({ term: action.term, kind: action.kind });
+				return { say: r?.say || (r?.ok ? 'Playing.' : 'I couldn’t start that.') };
 			}
 			case 'screen':
 				await screenTo(action.state);

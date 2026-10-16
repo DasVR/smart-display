@@ -347,6 +347,28 @@ async function readPlayerctlMetadata() {
 	return { ok: false, error: kind, stdout: '' };
 }
 
+// The headless Apple Music player (src/lib/server/appleMusic.js), when the
+// server has one: { track() -> now-playing track | null, pause() }.
+let appleMusicSource = null;
+export function useAppleMusicSource(source) {
+	appleMusicSource = source || null;
+}
+
+/** Apple Music on the wall is "what's playing" while it plays, or while it's
+ *  paused and nothing else is. When the phone starts AirPlay or Bluetooth
+ *  over it, the phone wins and the wall's player pauses. */
+export function pickWithAppleMusic(other, source = appleMusicSource) {
+	const am = source?.track?.() || null;
+	if (!am) return other;
+	const otherLive = Boolean(other?.playing) && !other?.unavailable;
+	if (am.playing && otherLive) {
+		Promise.resolve(source.pause?.()).catch(() => {});
+		return other;
+	}
+	if (am.playing || !(otherLive || other?.title)) return am;
+	return other;
+}
+
 export async function getNowPlaying({ skipLyrics = false } = {}) {
 	try {
 		const bluetoothConnected = await isBluetoothDeviceConnected();
@@ -361,7 +383,7 @@ export async function getNowPlaying({ skipLyrics = false } = {}) {
 			bluetoothError: probe.ok ? null : probe.error
 		});
 		if (playerctl.ok) lastMprisPlayer = assembled.prefer || '';
-		const merged = assembled.track;
+		const merged = pickWithAppleMusic(assembled.track);
 		if (merged.unavailable) return merged;
 		if (!merged.playing && !merged.title) {
 			return merged.degraded ? merged : { playing: false };
