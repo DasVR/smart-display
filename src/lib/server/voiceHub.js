@@ -10,6 +10,11 @@
  * Same Bearer token as /api/tasks, except clips: their names are hashes of
  * what was said, and an <audio> element can't send a header.
  *
+ * Two voices: ElevenLabs (a key, paid by the character) and Piper (free, on
+ * this machine: src/lib/server/piperVoice.js). The `engine` setting picks:
+ * 'auto' speaks with ElevenLabs when there's a key and Piper otherwise, and
+ * also whenever ElevenLabs can't (out of today's characters, unreachable).
+ *
  * The key comes from ELEVENLABS_API_KEY or data/elevenlabs-key (gitignored).
  * A phone can write that file over /ws (setKey) but nothing ever reads the
  * key back out: answers carry only where it came from and its last four
@@ -22,6 +27,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import { wallDayKey } from '../calendarItems.js';
+import { createPiper } from './piperVoice.js';
 import { CLIP_NAME, inQuietHours, normalizeVoiceSettings, roomEmpty, roomVolume, speechText, voiceVolumeAt, welcomeBackText } from '../wallVoice.js';
 import { authorized, loadApiToken } from './taskService.js';
 
@@ -89,7 +95,8 @@ export function createVoiceHub({
 	env = process.env,
 	log = console,
 	// where you are, from the webcam (sensesHub presence), or null without one
-	room = () => null
+	room = () => null,
+	piper = createPiper({ log })
 }) {
 	const settingsFile = path.join(dataDir, 'voice.json');
 	const usageFile = path.join(dataDir, 'voice-usage.json');
@@ -130,6 +137,9 @@ export function createVoiceHub({
 			keySource: !k ? '' : fromEnv ? 'env' : 'file',
 			keyHint: k ? `…${k.slice(-4)}` : '',
 			charsToday: usedToday(),
+			// what will actually speak now, and the free voices on this machine
+			speaking: engineNow(),
+			piperVoices: piper.voices(),
 			quietNow: inQuietHours(now(), settings),
 			volumeNow: voiceVolumeAt(now(), settings),
 			heldCount: held.length
@@ -201,11 +211,42 @@ export function createVoiceHub({
 		}
 	}
 
-	/** An mp3 for the text, from the cache or ElevenLabs. { id } or { error }. */
+	/** Which voice speaks right now: 'elevenlabs', 'piper', or '' (neither is set up). */
+	function engineNow() {
+		const hasPiper = piper.voices().length > 0;
+		if (settings.engine === 'piper') return hasPiper ? 'piper' : '';
+		if (settings.engine === 'elevenlabs') return key() ? 'elevenlabs' : '';
+		return key() ? 'elevenlabs' : hasPiper ? 'piper' : '';
+	}
+
+	/** A clip for the text, from the cache, ElevenLabs or Piper. { id, ext } or { error }. */
 	async function clip(text) {
+		if (settings.engine === 'piper' || engineNow() === 'piper') return piperClip(text);
+		const out = await elevenClip(text);
+		// auto: Piper steps in when ElevenLabs can't (no key, today's characters spent, unreachable)
+		if (out.error && settings.engine === 'auto' && piper.voices().length) {
+			const free = await piperClip(text);
+			if (free.id) return free;
+		}
+		return out;
+	}
+
+	async function piperClip(text) {
+		const id = clipKey(`piper:${settings.piperVoice}`, 'piper', text);
+		const file = path.join(clipDir, `${id}.wav`);
+		if (existsSync(file)) return { id, ext: 'wav', cached: true };
+		mkdirSync(clipDir, { recursive: true });
+		const r = await piper.speak(text, file, settings.piperVoice);
+		if (!r.ok) return { error: r.error === 'no-voice' ? 'no-voice' : 'tts-failed' };
+		prune();
+		return { id, ext: 'wav', cached: false };
+	}
+
+	/** An mp3 for the text, from the cache or ElevenLabs. { id, ext } or { error }. */
+	async function elevenClip(text) {
 		const id = clipKey(settings.voiceId, settings.model, text);
 		const file = path.join(clipDir, `${id}.mp3`);
-		if (existsSync(file)) return { id, cached: true };
+		if (existsSync(file)) return { id, ext: 'mp3', cached: true };
 		const apiKey = key();
 		if (!apiKey) return { error: 'no-key' };
 		if (usedToday() + text.length > settings.dailyChars) return { error: 'daily-limit' };
@@ -227,7 +268,7 @@ export function createVoiceHub({
 			writeFileSync(file, buf);
 			spend(text.length);
 			prune();
-			return { id, cached: false };
+			return { id, ext: 'mp3', cached: false };
 		} catch (err) {
 			log.warn?.(`[voice] ElevenLabs unreachable: ${err?.name || 'error'}`);
 			return { error: 'tts-failed' };
@@ -249,7 +290,7 @@ export function createVoiceHub({
 		if (!words) return { ok: false, error: 'empty' };
 		const id = `speak-${++seq}`;
 		let reason = '';
-		let clipId = null;
+		let clipUrl = null;
 		const here = settings.followRoom || settings.holdWhenAway ? room() : null;
 		const quiet = inQuietHours(now(), settings);
 		const volume = settings.followRoom ? roomVolume(voiceVolumeAt(now(), settings), here, { quiet }) : voiceVolumeAt(now(), settings);
@@ -261,7 +302,7 @@ export function createVoiceHub({
 			held = [...held, { text: words, at: now() }].slice(-10);
 		} else {
 			const c = await clip(words);
-			if (c.id) clipId = c.id;
+			if (c.id) clipUrl = `/api/voice/clip/${c.id}.${c.ext}`;
 			else reason = c.error;
 		}
 		broadcast({
@@ -269,13 +310,13 @@ export function createVoiceHub({
 			id,
 			text: words,
 			source,
-			url: clipId ? `/api/voice/clip/${clipId}.mp3` : null,
+			url: clipUrl,
 			caption,
 			// how loud this clip plays (0 to 1): the day or night voice, for where you are
 			volume,
 			silent: reason || undefined
 		});
-		return { ok: true, text: words, spoken: Boolean(clipId), volume, ...(reason ? { silent: reason } : {}) };
+		return { ok: true, text: words, spoken: Boolean(clipUrl), volume, ...(reason ? { silent: reason } : {}) };
 	}
 
 	/** Someone came back into the room: say what was held for them (the last 12 hours of it). */
@@ -304,7 +345,7 @@ export function createVoiceHub({
 				json(res, { error: 'not found' }, 404);
 				return true;
 			}
-			res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'public, max-age=31536000, immutable' });
+			res.writeHead(200, { 'Content-Type': name.endsWith('.wav') ? 'audio/wav' : 'audio/mpeg', 'Cache-Control': 'public, max-age=31536000, immutable' });
 			createReadStream(file).pipe(res);
 			return true;
 		}

@@ -281,6 +281,9 @@
 						The speech recogniser isn't installed on the display. Run <code>scripts/senses/install.sh</code> there again.
 					{:else if s.mic?.error === 'no-model'}
 						The Parakeet speech model isn't on the display yet. Fetch it there with <code>scripts/senses/install.sh</code>.
+					{:else if s.mic?.error === 'failed'}
+						It hears you but couldn't turn it into words: <code>{s.mic.detail}</code>. The display's log has more
+						(<code>journalctl -u smart-display-senses</code>).
 					{:else if s.mic?.error === 'no-parec'}
 						PipeWire's <code>parec</code> is missing on the display.
 					{:else if !s.mic?.ok}

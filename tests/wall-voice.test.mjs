@@ -28,7 +28,22 @@ function fakeEleven({ status = 200, bytes = 'ID3fake-mp3' } = {}) {
 	return { calls, fetchImpl };
 }
 
-function hub({ key = 'sk_test', at = NOON, fetchImpl, settings, room } = {}) {
+/** A stand-in Piper: `voices` installed; speak() writes a tiny wav. */
+function fakePiper(voices = []) {
+	const said = [];
+	return {
+		said,
+		voices: () => voices.map((name) => ({ name, label: name })),
+		speak: async (text, file, voice) => {
+			if (!voices.length) return { ok: false, error: 'no-voice' };
+			said.push({ text, voice });
+			writeFileSync(file, 'RIFFfake-wav');
+			return { ok: true, voice };
+		}
+	};
+}
+
+function hub({ key = 'sk_test', at = NOON, fetchImpl, settings, room, piper = fakePiper() } = {}) {
 	const dataDir = mkdtempSync(path.join(tmpdir(), 'voice-'));
 	if (settings) writeFileSync(path.join(dataDir, 'voice.json'), JSON.stringify(settings));
 	const sent = [];
@@ -40,6 +55,7 @@ function hub({ key = 'sk_test', at = NOON, fetchImpl, settings, room } = {}) {
 		now: () => clock.now,
 		env: key ? { ELEVENLABS_API_KEY: key } : {},
 		log: { warn() {} },
+		piper,
 		...(room ? { room } : {})
 	});
 	return { h, sent, dataDir, clock };
@@ -340,4 +356,81 @@ test('holding and following the room can be turned off', async () => {
 	const { h } = hub({ fetchImpl: fakeEleven().fetchImpl, room, settings: { holdWhenAway: false } });
 	assert.equal((await h.say('Hello')).silent, undefined);
 	assert.equal(welcomeBackText([{ text: 'a' }, { text: 'b' }, { text: 'c' }, { text: 'd' }]), 'While you were out: B. C. D. And 1 more on the wall.');
+});
+
+
+/* ---------- Piper, the free voice ---------- */
+
+test('auto with no ElevenLabs key speaks with Piper, as a wav', async () => {
+	const piper = fakePiper(['en_US-lessac-medium']);
+	const { h, sent, dataDir } = hub({ key: '', piper });
+	const r = await h.say('Pasta timer is done.');
+	assert.equal(r.spoken, true);
+	assert.match(sent[0].url, /^\/api\/voice\/clip\/[a-f0-9]{32}\.wav$/);
+	assert.deepEqual(piper.said, [{ text: 'Pasta timer is done.', voice: 'en_US-lessac-medium' }]);
+	assert.equal(h.snapshot().speaking, 'piper');
+	assert.equal(h.snapshot().charsToday, 0, 'Piper costs nothing');
+	// said again: from the cache, Piper isn't asked twice
+	await h.say('Pasta timer is done.');
+	assert.equal(piper.said.length, 1);
+	assert.equal(readdirSync(path.join(dataDir, 'voice-cache')).filter((f) => f.endsWith('.wav')).length, 1);
+});
+
+test('auto prefers ElevenLabs with a key, and falls back to Piper when it fails', async () => {
+	const piper = fakePiper(['en_US-lessac-medium']);
+	const ok = hub({ piper, fetchImpl: fakeEleven().fetchImpl });
+	await ok.h.say('Hello there.');
+	assert.match(ok.sent[0].url, /\.mp3$/);
+	assert.equal(ok.h.snapshot().speaking, 'elevenlabs');
+
+	const down = hub({ piper, fetchImpl: fakeEleven({ status: 500 }).fetchImpl });
+	const r = await down.h.say('Dinner is ready.');
+	assert.equal(r.spoken, true);
+	assert.match(down.sent[0].url, /\.wav$/);
+});
+
+test('engine: piper never calls ElevenLabs; elevenlabs never uses Piper', async () => {
+	const piper = fakePiper(['en_GB-alan-medium']);
+	const eleven = fakeEleven();
+	const free = hub({ piper, fetchImpl: eleven.fetchImpl, settings: { engine: 'piper', piperVoice: 'en_GB-alan-medium' } });
+	await free.h.say('Good morning.');
+	assert.equal(eleven.calls.length, 0);
+	assert.equal(piper.said[0].voice, 'en_GB-alan-medium');
+
+	const paid = hub({ key: '', piper, settings: { engine: 'elevenlabs' } });
+	const r = await paid.h.say('Good night.');
+	assert.equal(r.spoken, false);
+	assert.equal(r.silent, 'no-key');
+});
+
+test('engine: piper with no voices fetched says so', async () => {
+	const { h } = hub({ key: '', settings: { engine: 'piper' } });
+	const r = await h.say('Hello.');
+	assert.equal(r.silent, 'no-voice');
+});
+
+test('voice settings keep the engine and a well-formed Piper voice only', () => {
+	assert.equal(normalizeVoiceSettings({ engine: 'piper' }).engine, 'piper');
+	assert.equal(normalizeVoiceSettings({ engine: 'robot' }).engine, 'auto');
+	assert.equal(normalizeVoiceSettings({ piperVoice: 'en_GB-alan-medium' }).piperVoice, 'en_GB-alan-medium');
+	assert.equal(normalizeVoiceSettings({ piperVoice: '../../etc/passwd' }).piperVoice, DEFAULT_VOICE.piperVoice);
+});
+
+test('a wav clip is served as audio/wav', async () => {
+	const piper = fakePiper(['en_US-lessac-medium']);
+	const { h, sent } = hub({ key: '', piper });
+	await h.say('Hi.');
+	const name = sent[0].url.split('/').pop();
+	const headers = {};
+	const res = {
+		writeHead: (status, hd) => Object.assign(headers, hd, { status }),
+		on() {},
+		once() {},
+		emit() {},
+		write() {},
+		end() {}
+	};
+	await h.handleHttp({ method: 'GET', url: `/api/voice/clip/${name}`, headers: {} }, res);
+	assert.equal(headers.status, 200);
+	assert.equal(headers['Content-Type'], 'audio/wav');
 });

@@ -5,6 +5,11 @@ import { DISPLAY_TZ } from './atmosphere.js';
 
 export const DEFAULT_VOICE = {
 	enabled: true,
+	// who speaks: 'auto' (ElevenLabs with a key, else Piper, and Piper whenever
+	// ElevenLabs can't), 'elevenlabs', or 'piper' (free, on the wall itself)
+	engine: 'auto',
+	// the Piper voice (src/lib/server/piperVoice.js), by its name
+	piperVoice: 'en_US-lessac-medium',
 	// "George", one of ElevenLabs' default voices: warm, clear, British.
 	voiceId: 'JBFqnCBsd6RMkjVDRZzb',
 	// Flash is the fast, cheap model (half a credit per character).
@@ -73,7 +78,8 @@ export function speechText(text, max = 280) {
 	return s[0].toUpperCase() + s.slice(1);
 }
 
-export const CLIP_NAME = /^([a-f0-9]{32})\.mp3$/;
+export const CLIP_NAME = /^([a-f0-9]{32})\.(mp3|wav)$/;
+export const VOICE_ENGINES = ['auto', 'elevenlabs', 'piper'];
 
 /** What the wall says when an alert or timer comes due. */
 export function speechForDue(task) {
@@ -89,6 +95,8 @@ export function speechForDue(task) {
 export function normalizeVoiceSettings(raw = {}) {
 	const out = { ...DEFAULT_VOICE };
 	if (typeof raw.enabled === 'boolean') out.enabled = raw.enabled;
+	if (VOICE_ENGINES.includes(raw.engine)) out.engine = raw.engine;
+	if (typeof raw.piperVoice === 'string' && /^[a-z]{2}_[A-Z]{2}-[a-z0-9_]+-(?:x_low|low|medium|high)$/.test(raw.piperVoice)) out.piperVoice = raw.piperVoice;
 	if (typeof raw.voiceId === 'string' && /^[A-Za-z0-9]{8,40}$/.test(raw.voiceId)) out.voiceId = raw.voiceId;
 	if (typeof raw.model === 'string' && /^eleven_[a-z0-9_]+$/.test(raw.model)) out.model = raw.model;
 	if (HHMM.test(String(raw.quietStart ?? ''))) out.quietStart = raw.quietStart;

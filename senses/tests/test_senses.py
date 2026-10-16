@@ -354,3 +354,40 @@ class FollowUp(unittest.TestCase):
         until = ears.await_until
         ears.listen_for(1)
         self.assertEqual(ears.await_until, until)
+
+
+class FailuresShow(unittest.TestCase):
+    def run_pieces(self, ears, pieces):
+        import threading
+        import time
+
+        for p in pieces:
+            ears._pieces.put((p, True))
+        t = threading.Thread(target=ears._transcribe_loop, daemon=True)
+        t.start()
+        deadline = time.monotonic() + 2
+        while not ears._pieces.empty() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.05)
+        ears._stop.set()
+        t.join(1)
+
+    def test_a_failure_is_reported_then_cleared(self):
+        ears = Ears(on_heard=lambda *a: None, log=lambda *a: None)
+        calls = []
+
+        def words(_audio):
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("bad audio")
+            return "pause the music"
+
+        ears._words = words
+        self.run_pieces(ears, [b"\x00\x00" * 1600])
+        self.assertEqual(ears.snapshot()["error"], "failed")
+        self.assertIn("bad audio", ears.snapshot()["detail"])
+        self.assertFalse(ears.snapshot()["ok"])
+        ears._stop.clear()
+        self.run_pieces(ears, [b"\x00\x00" * 1600])
+        self.assertIsNone(ears.snapshot()["error"])
+        self.assertIsNone(ears.snapshot()["detail"])
