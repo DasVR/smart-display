@@ -148,24 +148,59 @@ test('WebSocket ops mirror the API for the kiosk and phone', async () => {
 	}
 });
 
-test('sayAdd answers a question through `ask` instead of adding it, and adds when ask passes', async () => {
+test('sayAdd: conversation goes to `converse`; things said to add go straight on the list', async () => {
 	const dataDir = mkdtempSync(path.join(tmpdir(), 'hub-'));
-	const asked = [];
+	const heard = [];
 	const hub = createTaskHub({
 		dataDir,
 		broadcast: () => {},
 		log: quiet,
 		env: {},
-		ask: async (text) => {
-			asked.push(text);
-			return /moon/.test(text) ? { say: 'About 384,000 kilometers.', answered: true } : null;
+		converse: async (text) => {
+			heard.push(text);
+			return { say: 'About 384,000 kilometers.' };
 		}
 	});
 	const answer = await hub.sayAdd({ text: 'how far away is the moon', source: 'Wall mic' });
-	assert.equal(answer.status, 200);
 	assert.equal(answer.data.say, 'About 384,000 kilometers.');
-	const added = await hub.sayAdd({ text: 'water the plants', source: 'Wall mic' });
+	const chat = await hub.sayAdd({ text: 'thanks, that was cool', source: 'Wall mic' });
+	assert.equal(chat.status, 200);
+	const added = await hub.sayAdd({ text: 'add milk to the shopping list', source: 'Wall mic' });
 	assert.equal(added.status, 201);
-	assert.deepEqual(asked, ['how far away is the moon', 'water the plants']);
-	assert.deepEqual(hub.snapshot().map((t) => t.title), [added.data.task.title]);
+	assert.equal(added.data.task.title, 'Milk');
+	const timer = await hub.sayAdd({ text: 'set a timer for ten minutes', source: 'Wall mic' });
+	assert.equal(timer.status, 201);
+	const dentist = await hub.sayAdd({ text: 'call the dentist tomorrow', source: 'Siri' });
+	assert.equal(dentist.status, 201, 'a time and not a question: straight on the list');
+	await hub.sayAdd({ text: 'is it going to rain tomorrow?', source: 'Wall mic' });
+	assert.deepEqual(heard, ['how far away is the moon', 'thanks, that was cool', 'is it going to rain tomorrow?']);
+	assert.deepEqual(hub.snapshot().map((t) => t.title).sort(), ['Call the dentist', 'Milk', 'Timer']);
+});
+
+test('sayAdd without an assistant: timed sentences are added, anything else is asked about first', async () => {
+	const dataDir = mkdtempSync(path.join(tmpdir(), 'hub-'));
+	const hub = createTaskHub({ dataDir, broadcast: () => {}, log: quiet, env: {} });
+	const timed = await hub.sayAdd({ text: 'take out the bins every monday at 6pm' });
+	assert.equal(timed.status, 201);
+
+	const asked = await hub.sayAdd({ text: 'tell me a joke' });
+	assert.equal(asked.status, 200);
+	assert.equal(asked.data.asking, true);
+	assert.match(asked.data.say, /Should I add “Tell me a joke” to your list\?/);
+	const no = await hub.sayAdd({ text: 'no thanks' });
+	assert.equal(no.data.say, "Okay, I won't.");
+
+	await hub.sayAdd({ text: 'buy a new kettle' });
+	const yes = await hub.sayAdd({ text: 'yes please' });
+	assert.equal(yes.status, 201);
+	assert.equal(yes.data.task.title, 'Buy a new kettle');
+	assert.deepEqual(hub.snapshot().map((t) => t.title).sort(), ['Buy a new kettle', 'Take out the bins']);
+});
+
+test('addText adds whatever the assistant decided to add', async () => {
+	const dataDir = mkdtempSync(path.join(tmpdir(), 'hub-'));
+	const hub = createTaskHub({ dataDir, broadcast: () => {}, log: quiet, env: {} });
+	const r = await hub.addText('pick up the dry cleaning', 'Wall');
+	assert.equal(r.status, 201);
+	assert.equal(r.data.task.title, 'Pick up the dry cleaning');
 });

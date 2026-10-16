@@ -127,6 +127,11 @@ installed.
 "Hey wall" on its own waits about seven seconds for the command. The edge
 glow comes on while it listens and works.
 
+**Answering without "hey wall":** when the wall ends on a question ("Should
+I add that to your list?", "What kind of music?"), the server keeps its ears
+open for six seconds after it stops talking (`listenMs` in the heartbeat's
+answer). Whatever you say then is the answer. One answer closes the window.
+
 **The wall never answers itself:** when the wall starts speaking, its ears
 close for about as long as the sentence takes (`hushMsFor` in
 `src/lib/senses.js`).

@@ -17,21 +17,31 @@ works in the box works from Siri.
    tell the wall to*. So are tails like *please, thanks, for me, now*.
 2. **Mishearings fixed.** *whether* becomes *weather*, *calender* becomes
    *calendar*, *rader* becomes *radar*. A real "whether or not" is left alone.
-3. **Checked for adding first.** A sentence that starts with *remind me,
-   alert, add, chore, to-do, I need to, I have to, I gotta* is always added to
-   the list, never run as a command. "Remind me to turn the volume up at 6"
-   is a reminder, not a volume change.
-4. **Matched against the commands below.** The first match wins.
-5. **A question is answered.** With an Ollama key set, a sentence that
-   reads like a question ("how far is the moon?", "who won the game last
-   night") is answered out loud by a small AI model that can search the web.
-   See [assistant.md](assistant.md).
-6. **Otherwise it's added.** Anything that isn't a command or a question becomes a chore
-   (or an alert, if it has "remind me" and a time). See "What it understands"
-   in [siri-shortcuts.md](siri-shortcuts.md).
+3. **Matched against the commands below.** The first match wins. These are
+   instant, free and work offline.
+4. **Said as something to add: added.** *Remind me…, add milk to the
+   (shopping) list, put … on my list, remember to…, make a note to…, I need
+   to…, I have to…, chore…, to-do…*, and timers always go on the list. So
+   does a plain sentence with a time that isn't a question ("call the
+   dentist tomorrow"); "is it going to rain tomorrow?" is a question.
+   "Remind me to turn the volume up at 6" is a reminder, not a volume change.
+5. **Everything else is conversation.** With an Ollama key set, the
+   sentence goes to a small AI model that talks back like a person and can
+   act: run any of the commands below ("it's way too loud in here" turns it
+   down), add to the list when you clearly want something remembered, play
+   music, or look something up. "Thanks", "how are you", "tell me a joke"
+   and "what should I cook tonight" get an answer, not a chore. See
+   [assistant.md](assistant.md).
+6. **No key: it asks before adding.** Anything that reached this step is
+   asked about first: *"Should I add 'Tell me a joke' to your list?"*. Say **yes** (or
+   *sure, add it*) or **no**. Nothing is added on a guess.
+
+When the wall ends on a question, the microphone keeps listening for a few
+seconds after it stops talking, so you answer without "hey wall" again (see
+[senses.md](senses.md)). From Siri, answer with "tell the wall… yes".
 
 Commands are matched against the **whole** sentence, not a word inside it.
-That's why "skip rope at 4" is a chore and "skip" is a command.
+That's why "skip rope at 4" isn't a command and "skip" is.
 
 ## The commands
 
@@ -142,7 +152,8 @@ curl 'http://<kiosk>:3000/api/action/parse?text=Hey%20wall%2C%20pause%20the%20mu
 }
 ```
 
-`would` is `run` (a command), `add` (it would go on the list) or `nothing`.
+`would` is `run` (a command), `add` (it would go on the list), `talk` (the
+assistant would answer it, or the wall would ask before adding) or `nothing`.
 `POST` with `{ "text": "…" }` works too, and `?format=text` returns just the
 `say` line. It takes the same Bearer token as `/api/tasks`.
 
@@ -151,9 +162,10 @@ phrase it knows*.
 
 ### When it doesn't understand
 
-- **It added a chore you meant as a command.** The sentence didn't match one
-  of the phrasings above. Run it through the dry run, then try a closer
-  wording, or say "undo that".
+- **It added a chore you meant as something else.** It only adds what you
+  said as something to add (step 4), what the assistant decided you wanted
+  remembered, or a sentence with a time when there's no assistant. Say "undo
+  that", and run the sentence through the dry run.
 - **It ran a command you meant as a chore.** Start with "add" or "remind me
   to", which always add.
 - **Siri sent something different from what you said.** Siri's dictation is

@@ -1,27 +1,44 @@
-# Asking the wall things
+# Talking to the wall
 
-"Hey wall, how far away is the moon?" Anything you ask the wall that isn't one
-of its [commands](voice-commands.md) and sounds like a question is answered
-by a small AI model on [Ollama Cloud](https://ollama.com), which can search
-the web. The answer is spoken (see [voice.md](voice.md)) and captioned on the
-island.
+The wall is meant to be talked to casually, like a Google or Alexa speaker.
+Its fixed [commands](voice-commands.md) ("pause", "I'm done with the bins")
+and anything said as something to add ("remind me…", "add milk to the
+list") are handled instantly on the wall. **Everything else is a
+conversation** with a small AI model on [Ollama Cloud](https://ollama.com):
 
-It works the same from the wall's microphone, "Hey Siri, tell the wall …", the
-**Try a phrase** box on the phone, and `POST /api/tasks/say`.
+| You say | The wall |
+| --- | --- |
+| how far away is the moon? | answers |
+| who won the game last night? | searches the web, then answers |
+| thanks, that was great / how are you? / tell me a joke | chats back |
+| it's way too loud in here | turns it down ("Volume 40 percent.") |
+| can we get some jazz going | plays jazz on Apple Music |
+| don't let me forget mom's birthday on Friday | adds it to the list |
+| what's happening tomorrow? | reads tomorrow's items |
+| make me a coffee | tells you it can't |
+| hmm, the thing | asks what you meant |
 
-## What counts as a question
+It answers in a sentence or two, casually, and remembers the last few
+exchanges for five minutes, so "and tomorrow?" or "how tall is it?" work.
+When it asks you something, the microphone keeps listening for the answer
+without "hey wall".
 
-After the command list has had its turn, a sentence goes to the assistant when
-it starts like a question (*who, what, when, where, why, how, is, can, should,
-tell me, explain, look up, search for, define, convert …*) or ends in a
-question mark. Filler first is fine: "hey wall, could you please look up …".
+It works the same from the wall's microphone, "Hey Siri, tell the wall …",
+the **Try a phrase** box on the phone, and `POST /api/tasks/say`.
 
-Things you want *added* still always go on the list: anything starting with
-*remind me, add, chore, to-do, I need to, I have to* is a chore or an alert,
-never a question. "Take out the bins at 6" is a chore, as before.
+## What it can do
 
-Without a key nothing changes: an unknown sentence is added to the list,
-exactly as it always was.
+The model gets four tools, and acts through the wall's own code:
+
+| Tool | Does |
+| --- | --- |
+| `wall` | any display command in plain words: music, volume, timers, the list ("I'm done with the dishes"), views, the screen, the weather, announcements, undo. The command's own answer is what the wall says, with no second model call |
+| `remember` | adds to the list, only when you clearly want something remembered or done later |
+| `play` | Apple Music on the wall (see [apple-music.md](apple-music.md)) |
+| `web_search` | Ollama's web search, for recent or uncertain facts |
+
+Without a key the wall never guesses: anything it didn't recognise gets
+"Should I add … to your list?" first.
 
 ## Set up the key
 
@@ -46,11 +63,12 @@ Every request is as small as it can be:
 | | |
 | --- | --- |
 | Model | `gpt-oss:20b`, the smallest Ollama Cloud model that can call tools. `ASSISTANT_MODEL` picks another. |
-| Prompt | Four lines: answer out loud in one or two short sentences, no lists or links, search only for recent or uncertain facts, and today's date. `ASSISTANT_PLACE` adds where you are ("Largo, Florida") for local questions. |
+| Prompt | Five short lines: casual and brief, when to use which tool, chat back when it's chat, ask when unsure, and today's date. `ASSISTANT_PLACE` adds where you are ("Largo, Florida") for local questions. |
 | Reasoning | `think: low` |
-| Search | Ollama's `web_search`, three results trimmed to 600 characters each, at most two searches per question. After that the model has to answer. |
-| Follow-ups | The last two questions and answers, for three minutes, so "and how tall is it?" works. |
-| Timeout | 20 seconds, then "That took too long to look up." |
+| Acting | When it only runs a command, adds or plays, the action's own sentence is spoken: one model call, not two. |
+| Search | Ollama's `web_search`, three results trimmed to 600 characters each, at most two searches and three rounds per sentence. |
+| Follow-ups | The last three exchanges, for five minutes. |
+| Timeout | 20 seconds, then "That took me too long. Try asking again." |
 
 When Ollama refuses (a bad key, the free limit for the day), the wall says so
 instead of guessing. `GET /api/assistant` shows whether a key is set, the
@@ -65,9 +83,10 @@ Same Bearer token as `/api/tasks`.
 
 | | |
 | --- | --- |
-| `GET /api/assistant` | `{ hasKey, keySource, model, askedToday, searchesToday }` |
-| `POST /api/assistant/ask` | `{ text }` or a text/plain body → `{ say, answered, model }` |
+| `GET /api/assistant` | `{ hasKey, keySource, model, askedToday, searchesToday, actionsToday }` |
+| `POST /api/assistant/ask` | `{ text }` or a text/plain body → `{ say, followUp, acted?, model }` |
 
-Code: `src/lib/assistant.js` (what counts as a question, the prompt, cleaning
-the answer for speech), `src/lib/server/assistantHub.js` (the Ollama calls),
-tests in `tests/assistant.test.mjs`.
+Code: `src/lib/assistant.js` (the prompt, the tools, cleaning the answer for
+speech), `src/lib/server/assistantHub.js` (the conversation and its tools),
+`src/lib/server/taskHub.js` `sayAdd` (the order a sentence goes through);
+tests in `tests/assistant.test.mjs` and `tests/task-hub.test.mjs`.

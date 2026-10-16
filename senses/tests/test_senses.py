@@ -9,7 +9,7 @@ import struct
 import unittest
 
 from wall_senses.distance import Smoother, Tracker, calibrate_focal, distance_m, focal_from_fov, scale_focal, summarize
-from wall_senses.hearing import choose_source, route
+from wall_senses.hearing import Ears, choose_source, route
 from wall_senses.vad import FRAME_MS, FRAME_SAMPLES, SpeechGate, apply_gain, rms
 from wall_senses import room
 from wall_senses.diary import Diary
@@ -324,3 +324,20 @@ class PromptEcho(unittest.TestCase):
         self.assertEqual(confirm_echo("Hey wall, what's the weather?", self.PROMPT, boom), (True, None))
         self.assertEqual(confirm_echo("Hey wall, pause the music.", None, boom), (True, None))
 
+
+
+class FollowUp(unittest.TestCase):
+    def test_listen_for_opens_the_ears_without_a_wake_phrase(self):
+        ears = Ears(on_heard=lambda *a: None, log=lambda *a: None)
+        self.assertFalse(ears.listening())
+        ears.listen_for(5)
+        self.assertTrue(ears.listening())
+        # an answer while listening is a command, no "hey wall" needed
+        self.assertEqual(route("yes please", None, False, ears.listening()), ("command", "yes please"))
+
+    def test_listen_for_never_shortens_a_window(self):
+        ears = Ears(on_heard=lambda *a: None, log=lambda *a: None)
+        ears.listen_for(10)
+        until = ears.await_until
+        ears.listen_for(1)
+        self.assertEqual(ears.await_until, until)

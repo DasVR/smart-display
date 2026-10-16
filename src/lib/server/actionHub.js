@@ -413,7 +413,7 @@ export function createActionHub({
 				// a dry run: what the wall makes of a sentence, without doing it
 				const text = req.method === 'GET' ? (url.searchParams.get('text') ?? '') : ((await readBody(req)).text ?? '');
 				const u = understand(text);
-				const how = u.command ? `Understood as ${u.command.intent}.` : u.would === 'add' ? 'Not a command, so it would be added to the list.' : 'Nothing to understand.';
+				const how = u.command ? `Understood as ${u.command.intent}.` : u.would === 'add' ? 'Said as something to add, so it would go on the list.' : u.would === 'talk' ? 'Not a command: the assistant would answer it, or ask before adding anything.' : 'Nothing to understand.';
 				return send(req, res, url, 200, { ...u, say: how }), true;
 			}
 			if (sub === 'intents' && req.method === 'GET') {

@@ -1,42 +1,43 @@
 /**
- * Answers to open questions, from a small model on Ollama Cloud
+ * The wall in conversation, from a small model on Ollama Cloud
  * (model: src/lib/assistant.js).
  *
- *   GET  /api/assistant        whether a key is set, the model, today's count
+ *   GET  /api/assistant        whether a key is set, the model, today's counts
  *   POST /api/assistant/ask    { text } (or a text/plain body): { say }
  *
- * Same Bearer token as /api/tasks. "Tell the wall" and "hey wall" reach it
- * through taskHub: a sentence that isn't a command and reads like a question
- * comes here instead of becoming a chore.
+ * Same Bearer token as /api/tasks. Everything said to the wall reaches it
+ * through taskHub.sayAdd once the fixed commands and "remind me / add …"
+ * have had their turn: questions, chat, and casual ways of asking for
+ * things ("it's way too loud", "can we get some music going"). It answers,
+ * or acts through its tools:
  *
- * Cheap on purpose: one small model (ASSISTANT_MODEL, default gpt-oss:20b),
- * a four-line system prompt, low reasoning effort, one tool (Ollama's
- * web_search, three results, trimmed), at most two searches per question,
- * and only the last two exchanges kept for follow-ups. The key comes from
- * OLLAMA_API_KEY or data/ollama-key (gitignored) and is never sent back out.
+ *   wall        a display command in plain words ("turn it down"), run by actionHub
+ *   remember    add to the list, only when clearly asked to remember something
+ *   play        Apple Music on the wall
+ *   web_search  Ollama's web search, three trimmed results
+ *
+ * When it only acts, the action's own sentence is what the wall says ("Volume
+ * 40 percent."): no second model call. Cheap on purpose: one small model
+ * (ASSISTANT_MODEL, default gpt-oss:20b), a short prompt, low reasoning
+ * effort, at most two searches and three rounds per sentence, and only the
+ * last three exchanges kept. The key comes from OLLAMA_API_KEY or
+ * data/ollama-key (gitignored) and is never sent back out.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { isQuestion, spokenAnswer, systemPrompt } from '../assistant.js';
+import { TOOLS, asksBack, spokenAnswer, systemPrompt } from '../assistant.js';
 import { authorized, loadApiToken } from './taskService.js';
 
 const API = 'https://ollama.com/api';
 const DEFAULT_MODEL = 'gpt-oss:20b';
-const ASK_TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 20000;
 const SEARCH_RESULTS = 3;
 const SNIPPET_CHARS = 600;
 const MAX_SEARCHES = 2;
-const MEMORY_MS = 3 * 60000;
+const MAX_ROUNDS = 3;
+const MEMORY_MS = 5 * 60000;
+const MEMORY_TURNS = 3;
 const MAX_BODY = 4 * 1024;
-
-const SEARCH_TOOL = {
-	type: 'function',
-	function: {
-		name: 'web_search',
-		description: 'Search the web',
-		parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] }
-	}
-};
 
 export function loadOllamaKey(file, env = process.env) {
 	const fromEnv = String(env.OLLAMA_API_KEY || '').trim();
@@ -83,6 +84,11 @@ function readBody(req) {
 	});
 }
 
+/**
+ * @param {object} o
+ * @param {{ command?: (text: string) => Promise<object|null>, add?: (text: string, source: string) => Promise<object>, play?: (text: string) => Promise<object> }} [o.actions]
+ *   what the wall can do; a tool is only offered when its action is here
+ */
 export function createAssistantHub({
 	dataDir,
 	fetchImpl = globalThis.fetch,
@@ -90,30 +96,35 @@ export function createAssistantHub({
 	env = process.env,
 	log = console,
 	timeZone = 'America/New_York',
-	place = ''
+	place = '',
+	actions = {}
 }) {
 	const keyFile = path.join(dataDir, 'ollama-key');
 	const tokenFile = path.join(dataDir, 'api-token');
 	const model = String(env.ASSISTANT_MODEL || '').trim() || DEFAULT_MODEL;
 	const key = () => loadOllamaKey(keyFile, env);
-	/** the last couple of exchanges, for "and how tall is it?" */
+	/** the last few exchanges, for "and tomorrow?" */
 	let memory = [];
-	let asked = { day: '', count: 0, searches: 0 };
+	let tally = { day: '', count: 0, searches: 0, actions: 0 };
 
-	function tally(field) {
-		const day = new Date(now()).toISOString().slice(0, 10);
-		if (asked.day !== day) asked = { day, count: 0, searches: 0 };
-		asked[field] += 1;
+	function today() {
+		return new Date(now()).toISOString().slice(0, 10);
+	}
+	function count(field) {
+		if (tally.day !== today()) tally = { day: today(), count: 0, searches: 0, actions: 0 };
+		tally[field] += 1;
 	}
 
 	function snapshot() {
 		const k = key();
+		const fresh = tally.day === today();
 		return {
 			hasKey: Boolean(k),
 			keySource: !k ? '' : String(env.OLLAMA_API_KEY || '').trim() ? 'env' : 'file',
 			model,
-			askedToday: asked.day === new Date(now()).toISOString().slice(0, 10) ? asked.count : 0,
-			searchesToday: asked.day === new Date(now()).toISOString().slice(0, 10) ? asked.searches : 0
+			askedToday: fresh ? tally.count : 0,
+			searchesToday: fresh ? tally.searches : 0,
+			actionsToday: fresh ? tally.actions : 0
 		};
 	}
 
@@ -128,23 +139,59 @@ export function createAssistantHub({
 		return res.json();
 	}
 
-	async function search(query, signal) {
-		tally('searches');
-		const data = await post('web_search', { query: String(query || '').slice(0, 200), max_results: SEARCH_RESULTS }, signal);
-		return searchDigest(data?.results);
+	function offered(searches) {
+		const tools = [];
+		if (actions.command) tools.push(TOOLS.wall);
+		if (actions.add) tools.push(TOOLS.remember);
+		if (actions.play) tools.push(TOOLS.play);
+		if (searches < MAX_SEARCHES) tools.push(TOOLS.web_search);
+		return tools;
+	}
+
+	/** Run one tool call: { say, done } where done means the sentence is the answer. */
+	async function runTool(call, source, signal) {
+		const name = call?.function?.name;
+		const args = call?.function?.arguments || {};
+		if (name === 'web_search') {
+			count('searches');
+			const data = await post('web_search', { query: String(args.query || '').slice(0, 200), max_results: SEARCH_RESULTS }, signal);
+			return { result: searchDigest(data?.results), done: false };
+		}
+		if (name === 'wall' && actions.command) {
+			const r = await actions.command(String(args.command || ''));
+			if (!r) return { result: `"${args.command}" isn't a display command.`, done: false };
+			count('actions');
+			return { result: r.say || 'Done.', say: r.say, done: true };
+		}
+		if (name === 'remember' && actions.add) {
+			const r = await actions.add(String(args.text || ''), source);
+			count('actions');
+			return { result: r?.data?.say || 'Added.', say: r?.data?.say, done: true };
+		}
+		if (name === 'play' && actions.play) {
+			const r = await actions.play(String(args.what || ''));
+			count('actions');
+			return { result: r?.say || 'Playing.', say: r?.say, done: true };
+		}
+		return { result: `No tool named ${name}.`, done: false };
+	}
+
+	function remember(q, a) {
+		memory.push({ q, a, at: now() });
+		memory = memory.slice(-MEMORY_TURNS);
 	}
 
 	/**
-	 * Answer a question out loud: `{ say, answered: true }`, or null when
-	 * there's no key (the sentence then goes on the list as before).
-	 * Never rejects: a failure is a sentence saying so.
+	 * Something said to the wall that wasn't a fixed command. Resolves
+	 * `{ say, followUp }`, or null with no key (taskHub then falls back to
+	 * asking before adding anything). Never rejects: a failure is a sentence.
 	 */
-	async function ask(question) {
-		const text = String(question || '').trim();
+	async function converse(said, { source = 'Wall' } = {}) {
+		const text = String(said || '').trim();
 		if (!text || !key()) return null;
-		tally('count');
-		const signal = AbortSignal.timeout(ASK_TIMEOUT_MS);
-		memory = memory.filter((m) => now() - m.at < MEMORY_MS).slice(-2);
+		count('count');
+		const signal = AbortSignal.timeout(TIMEOUT_MS);
+		memory = memory.filter((m) => now() - m.at < MEMORY_MS);
 		const messages = [
 			{ role: 'system', content: systemPrompt({ now: now(), timeZone, place }) },
 			...memory.flatMap((m) => [
@@ -154,39 +201,43 @@ export function createAssistantHub({
 			{ role: 'user', content: text }
 		];
 		try {
-			for (let round = 0; round <= MAX_SEARCHES; round++) {
-				const tools = round < MAX_SEARCHES ? [SEARCH_TOOL] : undefined;
-				const data = await post('chat', { model, messages, stream: false, think: 'low', ...(tools ? { tools } : {}) }, signal);
+			let searches = 0;
+			for (let round = 0; round < MAX_ROUNDS; round++) {
+				const last = round === MAX_ROUNDS - 1;
+				const tools = last ? [] : offered(searches);
+				const data = await post('chat', { model, messages, stream: false, think: 'low', ...(tools.length ? { tools } : {}) }, signal);
 				const msg = data?.message || {};
 				const calls = Array.isArray(msg.tool_calls) ? msg.tool_calls : [];
-				if (!calls.length || !tools) {
+				if (!calls.length) {
 					const say = spokenAnswer(msg.content);
 					if (!say) break;
-					memory.push({ q: text, a: say, at: now() });
-					return { say, answered: true, model };
+					remember(text, say);
+					return { say, followUp: asksBack(say), model };
 				}
 				// keep what it asked for, not what it thought: thinking costs tokens to resend
 				messages.push({ role: 'assistant', content: msg.content || '', tool_calls: calls });
+				const outs = [];
 				for (const call of calls) {
-					const fn = call?.function || {};
-					const result = fn.name === 'web_search' ? await search(fn.arguments?.query, signal) : `No tool named ${fn.name}.`;
-					messages.push({ role: 'tool', tool_name: fn.name, content: result });
+					if (call?.function?.name === 'web_search') searches += 1;
+					const out = await runTool(call, source, signal);
+					outs.push(out);
+					messages.push({ role: 'tool', tool_name: call?.function?.name, content: out.result });
+				}
+				// it only acted: the actions already said what happened
+				if (outs.every((o) => o.done)) {
+					const say = outs.map((o) => o.say).filter(Boolean).join(' ') || 'Done.';
+					remember(text, say);
+					return { say, followUp: asksBack(say), model, acted: true };
 				}
 			}
-			return { say: "Sorry, I couldn't find an answer to that.", answered: false };
+			return { say: "Sorry, I'm not sure about that one.", model };
 		} catch (e) {
 			log.warn?.(`assistant: ${e.message}`);
-			if (e.status === 401 || e.status === 403) return { say: 'My Ollama key was refused. Check it on the wall.', answered: false };
-			if (e.status === 429) return { say: "I've hit today's free limit for questions. Try again later.", answered: false };
-			if (e.name === 'TimeoutError' || e.name === 'AbortError') return { say: 'That took too long to look up. Try asking again.', answered: false };
-			return { say: "I couldn't reach my answers right now.", answered: false };
+			if (e.status === 401 || e.status === 403) return { say: 'My Ollama key was refused. Check it on the wall.' };
+			if (e.status === 429) return { say: "I've hit today's free limit. Try again later." };
+			if (e.name === 'TimeoutError' || e.name === 'AbortError') return { say: 'That took me too long. Try asking again.' };
+			return { say: "I can't think straight right now. Try again in a bit." };
 		}
-	}
-
-	/** taskHub's hook: only questions, and only with a key. */
-	async function maybeAnswer(text) {
-		if (!key() || !isQuestion(text)) return null;
-		return ask(text);
 	}
 
 	async function handleHttp(req, res) {
@@ -207,7 +258,7 @@ export function createAssistantHub({
 		if (req.method === 'POST' && url.pathname === '/api/assistant/ask') {
 			try {
 				const body = await readBody(req);
-				const answer = await ask(body.text);
+				const answer = await converse(body.text, { source: 'API' });
 				if (!answer) send(503, { error: 'no-key', say: 'Set an Ollama API key first.' });
 				else send(200, answer);
 			} catch (e) {
@@ -219,5 +270,5 @@ export function createAssistantHub({
 		return true;
 	}
 
-	return { ask, maybeAnswer, snapshot, handleHttp };
+	return { converse, snapshot, handleHttp };
 }

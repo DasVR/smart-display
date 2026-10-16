@@ -1,5 +1,25 @@
 # Smart Display Progress Log
 
+## 2026-10-16: Talking to the wall, not filing chores
+
+### Done
+- **Nothing becomes a chore on a guess.** A sentence that isn't a command
+  and wasn't said as something to add used to land on the list ("thanks",
+  "tell me a joke"). Now it's a conversation with the assistant, or, with no
+  key, "Should I add … to your list?" and a yes or no.
+- **Said to add, added:** "remind me…", "add milk to the shopping list"
+  (title "Milk", not the sentence), "put … on my list", "remember to…",
+  "make a note to…", timers, and a plain sentence with a time that isn't a
+  question ("call the dentist tomorrow").
+- **A casual assistant that acts:** tools for the wall's commands ("it's
+  way too loud" turns it down), the list, Apple Music and web search. When it
+  only acts, the action's own answer is spoken, with no second model call.
+  It chats back, asks when unsure, and remembers the last three exchanges.
+- **Answering without "hey wall":** when the wall ends on a question, its
+  ears stay open six seconds after it stops talking.
+- Tests: the routing order (`task-hub`), the tools (`assistant`), the
+  follow-up window (`senses`, and the Python ears).
+
 ## 2026-10-16: Asking the wall things, and Apple Music on the wall
 
 ### Done

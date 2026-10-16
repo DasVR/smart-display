@@ -32,6 +32,8 @@ import { MAX_ZONES, hushMsFor, newPlaceState, normalizeSensesSettings, notesComm
 import { authorized, loadApiToken } from './taskService.js';
 
 const OFFLINE_MS = 5000;
+const FOLLOW_MS = 6000;
+const SPEAK_START_MS = 2500;
 const CALIBRATE_TTL_MS = 20000;
 const MAX_BODY = 8 * 1024;
 const MAX_REPORT_BODY = 128 * 1024;
@@ -101,6 +103,9 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 	let mic = {};
 	let presence = presenceFrom(null, settings, false);
 	let hushUntil = 0;
+	// after the wall asks something back, the next thing said is the answer:
+	// the ears stay open without "hey wall" for FOLLOW_MS once it stops talking
+	let followAt = 0;
 	let calibration = null; // { id, meters, at }
 	let calibrated = null; // the last result, for the phone
 	let notes = { on: false, startedAt: null, lastAt: null, lines: [] };
@@ -245,6 +250,7 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 			return { ok: notes.on };
 		}
 		if (kind !== 'command' || !words) return { ok: false, error: 'empty' };
+		followAt = 0;
 		// what you said goes on the island; the answer is spoken (and captioned) by the voice
 		if (settings.captions) broadcast({ type: 'heard', text: words });
 		const notesOp = notesCommand(words);
@@ -264,6 +270,7 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 				log(`senses: command failed: ${e.message}`);
 			}
 			reply = result?.say || result?.error || "Sorry, I didn't catch that.";
+			if (result?.followUp || result?.asking) followAt = now();
 		}
 		await Promise.resolve(say(reply)).catch(() => {});
 		return { ok: true, say: reply };
@@ -399,6 +406,17 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 		}
 	}
 
+	/** How much longer the ears stay open for an answer, from now (0: not waiting).
+	 *  The window starts when the wall stops talking; the spoken reply may not
+	 *  have started yet, so it waits up to SPEAK_START_MS for it. */
+	function followMs() {
+		if (!followAt) return 0;
+		const end = Math.max(hushUntil, followAt + SPEAK_START_MS) + FOLLOW_MS;
+		const left = end - now();
+		if (left <= 0) followAt = 0;
+		return Math.max(0, left);
+	}
+
 	/** Ears shut while the wall talks, so it never answers itself. */
 	function noteSpeaking(text) {
 		hushUntil = Math.max(hushUntil, now() + hushMsFor(text));
@@ -473,6 +491,7 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 					json(res, {
 						settings,
 						hushMs: Math.max(0, hushUntil - now()),
+						listenMs: followMs(),
 						notes: notes.on,
 						calibrate: calibration ? (({ at, ...job }) => job)(calibration) : null,
 						report: reportJob ? reportJob.id : null

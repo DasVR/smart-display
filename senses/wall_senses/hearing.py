@@ -14,7 +14,9 @@ Two ways to wake it:
                 runs only after it fires. Lighter on the CPU while music plays.
 
 While the wall itself is talking, the ears are shut (the server says so), so
-the wall never answers itself.
+the wall never answers itself. When it ends on a question ("Should I add
+that to your list?"), the server keeps the ears open a few seconds longer and
+the answer needs no "hey wall".
 """
 
 import os
@@ -147,6 +149,11 @@ class Ears:
     def hush(self, seconds):
         """Shut the ears for a while (the wall is talking)."""
         self.hush_until = max(self.hush_until, time.monotonic() + max(0.0, seconds))
+
+    def listen_for(self, seconds):
+        """The wall asked something back: the next thing said is the answer,
+        no "hey wall" needed, for this long from now."""
+        self.await_until = max(self.await_until, time.monotonic() + max(0.0, seconds))
 
     def listening(self):
         return time.monotonic() < self.await_until

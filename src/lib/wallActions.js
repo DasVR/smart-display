@@ -21,7 +21,7 @@
  * Pure: src/lib/server/actionHub.js runs the actions; tests/wall-actions.test.mjs.
  */
 
-import { cleanSpeech, spelledNumbers, speakDuration } from './quickSay.js';
+import { cleanSpeech, parseQuick, saidToAdd, spelledNumbers, speakDuration } from './quickSay.js';
 import { eventDayKey, wallClock, wallDayKey } from './calendarItems.js';
 import { DISPLAY_TZ } from './atmosphere.js';
 import { parsePlayRequest } from './musicRequest.js';
@@ -328,7 +328,9 @@ export function parseCommand(text) {
 export function understand(text) {
 	const normalized = normalizeCommand(text);
 	const command = parseCommand(text);
-	return { text: String(text ?? ''), normalized, command, would: command ? 'run' : normalized ? 'add' : 'nothing' };
+	// the same order taskHub.sayAdd uses: a command, said as something to add, else conversation
+	const would = command ? 'run' : !normalized ? 'nothing' : saidToAdd(parseQuick(text), text) ? 'add' : 'talk';
+	return { text: String(text ?? ''), normalized, command, would };
 }
 
 function short(s, n = 34) {

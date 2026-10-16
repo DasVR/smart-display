@@ -1,37 +1,19 @@
 /**
- * The wall's answers to open questions ("how far is the moon", "who won the
- * game last night"), the part of a Google or Alexa speaker that commands and
- * chores don't cover.
+ * The wall in conversation: what the model is told, the tools it can use,
+ * and making its words fit to say out loud.
  *
- *  - isQuestion(text): is this sentence a question for the assistant, not a
- *    chore to add? Reminders and to-dos never are.
- *  - systemPrompt(ctx): the one short instruction the model gets. Kept tiny
- *    on purpose: every request pays for it.
- *  - spokenAnswer(text): what the model wrote, made fit to say out loud.
+ *  - systemPrompt(ctx): the whole briefing. Kept short on purpose: every
+ *    request pays for it.
+ *  - TOOLS: the wall's commands, the list, music, and web search.
+ *  - spokenAnswer(text): markdown, links and citations out; a couple of
+ *    sentences at most.
+ *  - asksBack(say): the wall just asked something, so the next thing said
+ *    is the answer (the microphone keeps listening for it).
  *
- * Pure: src/lib/server/assistantHub.js asks Ollama Cloud; tests/assistant.test.mjs.
+ * Pure: src/lib/server/assistantHub.js talks to Ollama Cloud; tests/assistant.test.mjs.
  */
 
-import { normalizeCommand } from './wallActions.js';
-
-// "remind me", "add", "I need to": always the list, even when phrased oddly.
-// "Do the dishes" and "have the car washed" are chores, so "do" and "have"
-// only count as a question with someone after them ("do you know", "have we").
-const ADD_START = /^(?:remind me|alert|add|put|chore|to-?do|todo|i need to|i have to|i gotta|i've got to|don't let me forget)\b/i;
-const QUESTION_START =
-	/^(?:who|whom|whose|what|what's|whats|when|when's|where|where's|why|which|how|how's|is|are|was|were|am|does|did|can|could|should|would|will|shall|(?:do|have|has) (?:you|i|we|they|he|she|it)|tell me|explain|search(?: for)?|look up|google|define|translate|calculate|convert|i wonder|i'm wondering|any idea)\b/i;
-
-/** True for a sentence the assistant should answer rather than the list. */
-export function isQuestion(text) {
-	const raw = String(text || '').trim();
-	if (!raw) return false;
-	const s = normalizeCommand(raw);
-	if (!s || ADD_START.test(s)) return false;
-	if (QUESTION_START.test(s)) return true;
-	return /\?\s*$/.test(raw);
-}
-
-/** The model's whole briefing. A few dozen tokens. */
+/** The model's whole briefing. */
 export function systemPrompt({ now = Date.now(), timeZone = 'America/New_York', place = '' } = {}) {
 	const today = new Date(now).toLocaleString('en-US', {
 		timeZone,
@@ -43,12 +25,34 @@ export function systemPrompt({ now = Date.now(), timeZone = 'America/New_York', 
 		minute: '2-digit'
 	});
 	return [
-		'You are a wall display that answers out loud.',
-		'Reply in one or two short spoken sentences. No lists, markdown, links or emoji.',
-		'Use web_search only for recent or uncertain facts.',
+		"You are the wall, the voice of a smart display in someone's home.",
+		'Talk like a friendly person: casual, warm, brief. Usually one short sentence, never more than two. No lists, markdown, links or emoji.',
+		'Use tools to act: wall for anything the display does, remember only when they clearly want something remembered or done later, play for music, web_search for recent or uncertain facts.',
+		"If they're just chatting, chat back. If you can't tell what they want, ask one short question.",
 		`Now: ${today}${place ? `, ${place}` : ''}.`
 	].join(' ');
 }
+
+const fn = (name, description, prop, propDescription) => ({
+	type: 'function',
+	function: {
+		name,
+		description,
+		parameters: { type: 'object', properties: { [prop]: { type: 'string', description: propDescription } }, required: [prop] }
+	}
+});
+
+export const TOOLS = {
+	wall: fn(
+		'wall',
+		'Run one display command, said plainly.',
+		'command',
+		'e.g. "pause", "next song", "volume 30", "turn it down", "set a timer for 10 minutes", "cancel the timer", "show the weather", "what\'s the weather", "what\'s on the wall", "what\'s tomorrow", "I\'m done with the dishes", "snooze the bins for an hour", "screen off", "announce dinner is ready", "undo that"'
+	),
+	remember: fn('remember', 'Add a chore or reminder to the list.', 'text', 'what and when, e.g. "call mom at 5pm", "take out the bins every Monday at 6pm", "buy milk"'),
+	play: fn('play', 'Play music on Apple Music.', 'what', 'e.g. "bohemian rhapsody", "some jazz", "taylor swift", "my workout playlist"'),
+	web_search: fn('web_search', 'Search the web.', 'query', 'search words')
+};
 
 const MAX_SPOKEN = 320;
 
@@ -75,4 +79,9 @@ export function spokenAnswer(text) {
 	out = out.trim();
 	if (out) return out;
 	return `${s.slice(0, MAX_SPOKEN).replace(/\s+\S*$/, '')}…`;
+}
+
+/** The wall ended on a question: the next thing said answers it. */
+export function asksBack(say) {
+	return /\?["”']?\s*$/.test(String(say || ''));
 }
