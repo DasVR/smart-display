@@ -42,3 +42,8 @@ data/log/
 data/boot-times.json
 data/weather-last.json
 data/cursor-api-key
+# open questions: the Ollama Cloud key never leaves the kiosk
+data/ollama-key
+# Apple Music: the signed-in player profile and its settings
+data/apple-music-profile/
+data/apple-music.json

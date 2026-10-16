@@ -24,6 +24,7 @@
 import { cleanSpeech, spelledNumbers, speakDuration } from './quickSay.js';
 import { eventDayKey, wallClock, wallDayKey } from './calendarItems.js';
 import { DISPLAY_TZ } from './atmosphere.js';
+import { parsePlayRequest } from './musicRequest.js';
 
 export const VIEWS = {
 	clock: 'clock',
@@ -304,6 +305,9 @@ export function parseCommand(text) {
 
 	if (/^(pause|stop)( the)?( music| song| playback)?$/i.test(s)) return { intent: 'music', action: 'pause' };
 	if (/^(play|resume|unpause|continue)( the)?( music| song| playback)?$/i.test(s)) return { intent: 'music', action: 'play' };
+	// "play Bohemian Rhapsody", "put on some jazz": started on Apple Music (src/lib/musicRequest.js)
+	const wanted = parsePlayRequest(s);
+	if (wanted) return { intent: 'play-request', ...wanted };
 	if (/^(next|skip)( this| the)?( song| track| one)?$|^next$/i.test(s)) return { intent: 'music', action: 'next' };
 	if (/^(previous|last|go back)( song| track)?$/i.test(s)) return { intent: 'music', action: 'previous' };
 

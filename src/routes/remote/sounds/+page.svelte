@@ -37,6 +37,8 @@
 	let makeMessage = $state('');
 	let makeFailed = $state(false);
 	let queue = [];
+	// Apple Music on the wall and the question answerer (docs/apple-music.md, docs/assistant.md)
+	let music = $state(null);
 
 	const KEY_RESULTS = {
 		'bad-format': "That doesn't look like an ElevenLabs key. Copy it again from elevenlabs.io → Developers → API Keys.",
@@ -87,6 +89,7 @@
 			ws.send(JSON.stringify({ type: 'hello', role: 'remote' }));
 			send({ op: 'get' });
 			sendSounds({ op: 'get' });
+			ws.send(JSON.stringify({ type: 'apple-music', op: 'get' }));
 		};
 		ws.onclose = () => {
 			status = 'offline';
@@ -101,6 +104,10 @@
 					return;
 				}
 				if (msg.type === 'sounds') return heardSounds(msg);
+				if (msg.type === 'apple-music') {
+					music = msg.state || null;
+					return;
+				}
 				if (msg.type !== 'voice') return;
 				if (msg.settings) settings = msg.settings;
 				if (msg.keyResult) {
@@ -221,6 +228,17 @@
 	function forgetKey() {
 		keyBusy = true;
 		send({ op: 'forget-key' });
+	}
+
+	function setEnhance(on) {
+		if (ws?.readyState === 1) ws.send(JSON.stringify({ type: 'apple-music', op: 'set', patch: { enhance: on } }));
+	}
+
+	function musicLine(m) {
+		if (!m.chrome) return 'Google Chrome is not installed on the display yet.';
+		if (m.signedIn === false) return 'Not signed in yet: run npm run apple-music:login on the display.';
+		if (m.nowPlaying) return `${m.nowPlaying.playing ? 'Playing' : 'Paused'}: ${m.nowPlaying.title} · ${m.nowPlaying.artist}`;
+		return m.running ? 'Ready.' : 'Starts when you ask it to play something.';
 	}
 
 	function patch(p) {
@@ -388,6 +406,31 @@
 			</form>
 			{#if reply}<p class="note" role="status">{reply}</p>{/if}
 			<p class="note">From Siri: "tell the wall" … "announce dinner is ready".</p>
+		{/if}
+	</section>
+
+	<section class="card" aria-labelledby="music-h">
+		<h2 id="music-h">Apple Music &amp; questions</h2>
+		{#if !music}
+			<p class="note">Reading the display…</p>
+		{:else}
+			<p class="note">"Hey wall, play some jazz." {musicLine(music.appleMusic)}</p>
+			<label class="row">
+				<span>Enhance the sound</span>
+				<input type="checkbox" checked={music.appleMusic.enhance} onchange={(e) => setEnhance(e.currentTarget.checked)} />
+			</label>
+			<p class="note">
+				Gives Apple Music's 256 kbps stream a gentle lift at the top and bottom, without clipping. Off plays it untouched. AirPlay from
+				your iPhone is lossless either way.
+			</p>
+			<p class="note">
+				{#if music.assistant.hasKey}
+					Questions ("hey wall, how far is the moon?") are answered by {music.assistant.model} on Ollama Cloud: {music.assistant.askedToday}
+					today.
+				{:else}
+					Add an Ollama key on the display (data/ollama-key) and the wall answers questions too.
+				{/if}
+			</p>
 		{/if}
 	</section>
 

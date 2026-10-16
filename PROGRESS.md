@@ -1,5 +1,35 @@
 # Smart Display Progress Log
 
+## 2026-10-16: Asking the wall things, and Apple Music on the wall
+
+### Done
+- **Questions:** "hey wall, how far is the moon?" is answered out loud by
+  `gpt-oss:20b` on Ollama Cloud, with Ollama's web search. The prompt is four
+  lines, reasoning is low, search returns three trimmed results at most twice
+  a question. Without a key, unknown sentences still become chores.
+  `docs/assistant.md`.
+- **"Play …":** "play Bohemian Rhapsody", "put on some jazz", "play my
+  workout playlist" start Apple Music on the wall itself: Apple's web player
+  (MusicKit) in a headless Google Chrome, signed in once with
+  `npm run apple-music:login`. Pause, next and the lyrics work on it like any
+  other player; the phone's AirPlay takes over and pauses it.
+  `docs/apple-music.md`.
+- **Slim and honest about quality:** measured open Chromium and
+  `chrome-headless-shell` (no Widevine, no AAC: can't play) against Google
+  Chrome (~540 MB stock, ~480 MB with the wall's flags). The stream is 256
+  kbps AAC, the most any Linux client gets (Cider included); AirPlay from an
+  iPhone stays the lossless route.
+- **The wall's own enhancer:** a small Web Audio chain (shelves, a presence
+  dip, headroom and a limiter), a toggle on the phone's Sounds & voice page,
+  and a watchdog that turns it off if protected audio ever comes through
+  silent.
+- 3 new test files (`assistant`, `music-request`, `apple-music`).
+
+### Not verified here
+- Full-track playback and the enhancer on real Apple Music audio need a
+  signed-in Apple ID on the wall; the sign-in page, search and the
+  enhancer on ordinary audio were checked in headless Chrome.
+
 ## 2026-10-15: Agents as pixel characters
 
 ### Done

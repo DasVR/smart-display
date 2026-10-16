@@ -96,7 +96,7 @@ function readBody(req) {
 	});
 }
 
-export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent, commands, external = () => [] }) {
+export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent, commands, ask, external = () => [] }) {
 	const tasksFile = path.join(dataDir, 'tasks.json');
 	const hooksFile = path.join(dataDir, 'webhooks.json');
 	const tokenFile = path.join(dataDir, 'api-token');
@@ -360,6 +360,9 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 
 		const cmd = commands ? await commands(text) : null;
 		if (cmd) return { status: 200, data: cmd };
+		// an open question ("how far is the moon?") is answered, not added
+		const answer = ask ? await ask(text) : null;
+		if (answer) return { status: 200, data: answer };
 		const parsed = parseQuick(text, now());
 		if (parsed.code === 'no-time') pendingAsk = { title: parsed.title, kind: 'alert', until: now() + ASK_WINDOW_MS };
 		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error, asking: parsed.code === 'no-time' } };

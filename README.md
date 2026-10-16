@@ -255,6 +255,9 @@ full kiosk restart only when `start-kiosk.sh` changed).
 | `DISPLAY_API_TOKEN` | Bearer token for `/api/tasks` (or use `npm run api-token`) |
 | `AIRPLAY_NOWPLAYING_PATH`, `AIRPLAY_ART_PATH` | shairport-sync metadata handoff |
 | `FORCED_ALIGN_*` | Lyric alignment engine settings (see `scripts/forced_align/README.md`) |
+| `OLLAMA_API_KEY` | Ollama Cloud key for answering questions (or `data/ollama-key`; see [`docs/assistant.md`](docs/assistant.md)) |
+| `ASSISTANT_MODEL`, `ASSISTANT_PLACE` | The question model (default `gpt-oss:20b`) and where the wall is, for local questions |
+| `APPLE_MUSIC_CHROME`, `APPLE_MUSIC_STOREFRONT` | Google Chrome for the Apple Music player, and the storefront before sign-in (see [`docs/apple-music.md`](docs/apple-music.md)) |
 
 ## Performance
 
@@ -283,6 +286,8 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/agent-status.md`](docs/agent-status.md): live status from Claude Code and Cursor, on your computer or in the cloud, through their hooks and Cursor's Cloud Agents API
 - [`docs/voice.md`](docs/voice.md): the wall's voice (ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
+- [`docs/assistant.md`](docs/assistant.md): asking the wall questions, answered by a small model on Ollama Cloud with web search
+- [`docs/apple-music.md`](docs/apple-music.md): "play …" on Apple Music, in a slim headless Chrome, with the wall's own enhancer
 - [`docs/display-schedule.md`](docs/display-schedule.md): when the panel turns on and off, per day of the week
 - [`docs/weather-alerts.md`](docs/weather-alerts.md): NWS watches and warnings, checked every 15 to 30 seconds, and what each one does on the wall
 - [`docs/attention.md`](docs/attention.md): how the wall gets your attention for timers, reminders, agents and severe weather, and how to answer it
