@@ -7,12 +7,13 @@
 	`accent` adds a second ink for the warm colours (poppies, a sunset),
 	printed slightly off-register like a riso print. `over` draws only the
 	darkest dots on a clear canvas, to lay over something (the depth look
-	prints the painting's shadows across the clock).
+	prints the painting's shadows across the clock). `invert` prints the
+	light instead of the dark: pale dots on dark paper, a night print.
 -->
 <script>
 	import { onMount } from 'svelte';
 
-	let { src = '/art/almond.jpg', paper = '#EAE3D5', ink = '#1C1A17', accent = '', cell = 6, angle = 45, alt = '', over = false } = $props();
+	let { src = '/art/almond.jpg', paper = '#EAE3D5', ink = '#1C1A17', accent = '', cell = 6, angle = 45, alt = '', over = false, overFrom = 0.5, invert = false } = $props();
 
 	let canvas;
 	let w = $state(0);
@@ -77,14 +78,16 @@
 				const y = h / 2 + u * sa + v * ca;
 				if (x < -cell || y < -cell || x > w + cell || y > h + cell) continue;
 				// levels: the light parts go to bare paper, the shadows to solid ink
-				let dark = Math.min(1, Math.max(0, (0.84 - lum(x, y)) / 0.66)) ** 1.35;
+				let dark = invert
+					? Math.min(1, Math.max(0, (lum(x, y) - 0.2) / 0.72)) ** 1.9 * 0.8
+					: Math.min(1, Math.max(0, (0.84 - lum(x, y)) / 0.66)) ** 1.35;
 				if (accent) {
 					const k = warmth(x, y);
 					if (k > 0.12) warm.push(x, y, k);
 					dark *= 1 - k * 0.7;
 				}
 				// laid over something: only the deep shadows
-				if (over) dark = dark > 0.5 ? (dark - 0.5) * 2 : 0;
+				if (over) dark = dark > overFrom ? (dark - overFrom) / (1 - overFrom) : 0;
 				const r = max * Math.sqrt(dark);
 				if (r < 0.35) continue;
 				ctx.moveTo(x + r, y);
@@ -135,7 +138,7 @@
 	});
 	$effect(() => {
 		// redraw on a new size or new inks without fetching again
-		void w, h, paper, ink, accent, cell, angle, over;
+		void w, h, paper, ink, accent, cell, angle, over, overFrom, invert;
 		if (loaded) draw(loaded);
 	});
 </script>

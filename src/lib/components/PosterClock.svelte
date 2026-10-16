@@ -4,23 +4,37 @@
 	date and sun, the weather, today's first three things). In the depth look
 	the painting's darkest dots are printed back over the numerals (the page
 	lays HalftoneArt `over` on top), so trees and branches seem to stand in
-	front of the time.
+	front of the time. Depth is the dark one: the painting in pale dots on
+	near-black, the tiles liquid glass, and every shadow printed in dots,
+	cast away from where the sun is (morning to the right, evening to the
+	left), drifting as the day goes.
 -->
 <script>
 	import RollingDigit from './RollingDigit.svelte';
+	import { liquidGlass } from '$lib/glass/liquidGlass.js';
 	import WeatherGlyph from './WeatherGlyph.svelte';
 	import { fmtSunTime } from '$lib/atmosphere.js';
 	import { dateLine, skyFor, timeParts } from '$lib/clockFace.js';
 	import { isLate, taskWhen, todayOpen } from '$lib/todayList.js';
 
-	let { time = new Date(), tasks = [], atm = null, temp = '--', desc = '', ondone = null, depth = false } = $props();
+	let { time = new Date(), tasks = [], atm = null, temp = '--', desc = '', ondone = null, depth = false, refract = false } = $props();
 
 	let t = $derived(timeParts(time));
 	let nowMs = $derived(time.getTime());
 	let shown = $derived(todayOpen(tasks, nowMs).slice(0, 3));
+
+	// where the shadows fall: away from the sun, which crosses from east (left
+	// of the wall) at 6 to west at 18; at night they settle straight down
+	let cast = $derived.by(() => {
+		const hour = t.h + t.m / 60;
+		if (hour < 6 || hour > 18) return { x: 0.15, y: 1 };
+		const a = (Math.PI * (hour - 6)) / 12;
+		return { x: Math.cos(a), y: 0.55 + 0.45 * Math.sin(a) };
+	});
+	const glassOpts = $derived({ enabled: refract && depth, bezel: 16, strength: 26, blur: 2, saturate: 1.5 });
 </script>
 
-<div class="poster" class:depth>
+<div class="poster" class:depth style="--cast-x: {cast.x.toFixed(3)}; --cast-y: {cast.y.toFixed(3)}">
 	<div class="clock" aria-label="{t.h12}:{t.mm} {t.ampm}">
 		<span class="stack" aria-hidden="true">
 			<span class="digits shadow">
@@ -37,15 +51,18 @@
 	</div>
 
 	<div class="tiles">
-		<section class="tile" aria-label="Date and sun">
+		<div class="tile-wrap"><span class="drop" aria-hidden="true"></span>
+		<section class="tile" aria-label="Date and sun" use:liquidGlass={glassOpts}>
 			<p class="big">{dateLine(time).replace(', ', ',\n')}</p>
 			{#if atm}<p class="small">↑ {fmtSunTime(atm.sunrise)}  ↓ {fmtSunTime(atm.sunset)}</p>{/if}
-		</section>
-		<section class="tile" aria-label="Weather">
+		</section></div>
+		<div class="tile-wrap"><span class="drop" aria-hidden="true"></span>
+		<section class="tile" aria-label="Weather" use:liquidGlass={glassOpts}>
 			<div class="temp-row"><WeatherGlyph sky={skyFor(desc, t.h)} size="2.8rem" /><span class="temp">{temp}°</span></div>
 			<p class="small strong">{desc && desc !== '--' ? desc : ''}</p>
-		</section>
-		<section class="tile wide" aria-label="Today">
+		</section></div>
+		<div class="tile-wrap"><span class="drop" aria-hidden="true"></span>
+		<section class="tile wide" aria-label="Today" use:liquidGlass={glassOpts}>
 			<p class="k">Today</p>
 			{#if shown.length}
 				<ul>
@@ -60,7 +77,7 @@
 			{:else}
 				<p class="small">Nothing waiting.</p>
 			{/if}
-		</section>
+		</section></div>
 	</div>
 </div>
 
@@ -118,9 +135,78 @@
 		-webkit-mask-size: 7px 7px;
 		mask-size: 7px 7px;
 	}
-	/* depth: a thinner outline; the painting's dots printed over it do the rest */
+	/* ---------- depth: dark, liquid glass, dithered shadows ---------- */
+	.depth {
+		--cream: #efe5d1;
+		--ink: #000;
+		--late: #ff9f45;
+	}
+	/* no outline: the painting's dark dots printed over the numerals carry the depth */
 	.depth .face {
-		-webkit-text-stroke-width: 0.012em;
+		-webkit-text-stroke-width: 0;
+		text-shadow: 0 0 0.12em color-mix(in srgb, #fff3d6 18%, transparent);
+	}
+	/* the shadow is a field of black dots, thrown away from the sun; it eases
+	   to its new angle over the minute rather than jumping */
+	.depth .shadow {
+		color: #000;
+		transform: translate(calc(var(--cast-x) * 0.07em), calc(var(--cast-y) * 0.075em));
+		transition: transform 2.4s cubic-bezier(0.25, 1, 0.5, 1);
+		-webkit-mask-image: radial-gradient(circle, #000 2.3px, transparent 2.8px);
+		mask-image: radial-gradient(circle, #000 2.3px, transparent 2.8px);
+	}
+	.depth .secs {
+		-webkit-text-stroke-width: 0;
+		text-shadow: calc(var(--cast-x) * 0.06em) calc(var(--cast-y) * 0.06em) 0 #000;
+	}
+	.depth .ampm {
+		background: color-mix(in srgb, #fff 12%, transparent);
+		color: var(--cream);
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent),
+			inset 0 0 0 1px color-mix(in srgb, #fff 18%, transparent);
+		backdrop-filter: blur(10px) saturate(1.4);
+		-webkit-backdrop-filter: blur(10px) saturate(1.4);
+	}
+	/* liquid glass: smoked, see-through, a bright rim on top and a dark one
+	   below, with a printed dot shadow thrown the same way as the clock's */
+	.depth .tile {
+		position: relative;
+		background:
+			linear-gradient(170deg, color-mix(in srgb, #fff 14%, transparent), transparent 42%),
+			color-mix(in srgb, #0d0c0b 42%, transparent);
+		backdrop-filter: blur(16px) saturate(1.5) brightness(0.72);
+		-webkit-backdrop-filter: blur(16px) saturate(1.5) brightness(0.72);
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, #fff 42%, transparent),
+			inset 0 -1px 0 color-mix(in srgb, #000 50%, transparent),
+			inset 0 0 0 1px color-mix(in srgb, #fff 12%, transparent),
+			inset 0 0 26px color-mix(in srgb, #fff 5%, transparent);
+	}
+	/* the printed shadow sits behind the glass, so the glass blurs it where they overlap */
+	.tile-wrap {
+		position: relative;
+		display: grid;
+	}
+	.drop {
+		display: none;
+	}
+	.depth .drop {
+		display: block;
+		position: absolute;
+		inset: 0;
+		border-radius: 1.6rem;
+		transform: translate(calc(var(--cast-x) * 0.9rem), calc(var(--cast-y) * 0.9rem));
+		transition: transform 2.4s cubic-bezier(0.25, 1, 0.5, 1);
+		background-image: radial-gradient(circle, #000 1.9px, transparent 2.4px);
+		background-size: 6px 6px;
+		pointer-events: none;
+	}
+	@media (prefers-reduced-motion: reduce) {
+		.depth .shadow,
+		.depth .drop {
+			transition: none;
+		}
 	}
 	.side {
 		display: flex;

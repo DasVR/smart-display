@@ -891,7 +891,14 @@
 	let skin = $derived(look.look === 'classic' || standby ? null : look.look);
 	let halftone = $derived(Boolean(skin));
 	// riso prints the painting in two inks; console has no painting at all
-	let inks = $derived(skin === 'riso' ? { paper: '#F3EDE2', ink: '#0B5F66', accent: '#FF6B3D' } : { paper: '#EAE3D5', ink: '#1C1A17', accent: '' });
+	// depth is the dark one: the painting's light printed in pale dots on near-black
+	let inks = $derived(
+		skin === 'riso'
+			? { paper: '#F3EDE2', ink: '#0B5F66', accent: '#FF6B3D', invert: false }
+			: skin === 'depth'
+				? { paper: '#121110', ink: '#b8aa8c', accent: '', invert: true }
+				: { paper: '#EAE3D5', ink: '#1C1A17', accent: '', invert: false }
+	);
 	let artKey = $derived(artFor(look.art, Number(time.toLocaleString('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: 'America/New_York' }))));
 
 	// End-of-day receipt: the first time StandBy comes on each night, print
@@ -1107,7 +1114,7 @@
 	{#if skin === 'console'}
 		<!-- console: the off-white of the shell is the whole background -->
 	{:else if halftone}
-		<HalftoneArt src="/art/{artKey}.jpg" paper={inks.paper} ink={inks.ink} accent={inks.accent} alt="{ARTWORKS[artKey].title}, {ARTWORKS[artKey].artist}, printed in dots" />
+		<HalftoneArt src="/art/{artKey}.jpg" paper={inks.paper} ink={inks.ink} accent={inks.accent} invert={inks.invert} alt="{ARTWORKS[artKey].title}, {ARTWORKS[artKey].artist}, printed in dots" />
 	{:else}
 	<LiquidMetalCanvas
 		isLowPower={$gpuLowPowerMode || mode === 'sleep' || hdmiOff}
@@ -1232,7 +1239,7 @@
 					{:else if skin === 'paper' || skin === 'riso'}
 						<PaperClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} mode={skin} />
 					{:else if skin === 'poster' || skin === 'depth'}
-						<PosterClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} depth={skin === 'depth'} />
+						<PosterClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} depth={skin === 'depth'} refract={glass === 'refract'} />
 					{:else if skin === 'console'}
 						<ConsoleClock {time} tasks={$tasks} {atm} temp={$weather.temp} desc={$weather.desc} ondone={completeTask} />
 					{:else if halftone}
@@ -1304,7 +1311,8 @@
 	{#if skin === 'depth' && $currentView === 'clock' && !board}
 		<!-- the painting's shadows printed back over the giant time (the tiles below stay clear) -->
 		<div class="depth-over" aria-hidden="true">
-			<HalftoneArt src="/art/{artKey}.jpg" over />
+			<!-- the dark of the painting, in the paper's own black -->
+			<HalftoneArt src="/art/{artKey}.jpg" over overFrom={0.74} ink="#131210" />
 		</div>
 	{/if}
 
@@ -1407,6 +1415,49 @@
 		-webkit-mask-image: linear-gradient(transparent 0 7%, #000 11% 50%, transparent 58%);
 		mask-image: linear-gradient(transparent 0 7%, #000 11% 50%, transparent 58%);
 	}
+	/* depth: near-black, liquid glass everywhere, printed dot shadows */
+	.display-shell[data-skin='depth'] {
+		--halftone-glass:
+			linear-gradient(170deg, color-mix(in srgb, #fff 12%, transparent), transparent 40%),
+			color-mix(in srgb, #0d0c0b 46%, transparent);
+		background: #131210;
+	}
+	[data-skin='depth'] .view-strip,
+	[data-skin='depth'] .status-cluster,
+	[data-skin='depth'] .view-pane:not(.clock-pane) {
+		backdrop-filter: blur(16px) saturate(1.5) brightness(0.72);
+		-webkit-backdrop-filter: blur(16px) saturate(1.5) brightness(0.72);
+		border: 0;
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, #fff 40%, transparent),
+			inset 0 -1px 0 color-mix(in srgb, #000 50%, transparent),
+			inset 0 0 0 1px color-mix(in srgb, #fff 12%, transparent);
+	}
+	/* the tab pill throws a dot shadow too (straight down; it sits on the floor of the screen) */
+	[data-skin='depth'] .view-strip::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		border-radius: inherit;
+		transform: translateY(0.75rem);
+		/* only the part that shows below the pill; the pill's own glass stays clear */
+		clip-path: inset(calc(100% - 0.75rem) 0 0 0);
+		background-image: radial-gradient(circle, #000 1.9px, transparent 2.4px);
+		background-size: 6px 6px;
+		pointer-events: none;
+	}
+	[data-skin='depth'] .tab-indicator {
+		background:
+			linear-gradient(180deg, color-mix(in srgb, #fff 26%, transparent), color-mix(in srgb, #fff 8%, transparent));
+		box-shadow:
+			inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent),
+			inset 0 0 0 1px color-mix(in srgb, #fff 14%, transparent);
+	}
+	[data-skin='depth'] .view-tab.active::after {
+		background: #ff9f45;
+	}
+
 	/* paper and riso: the tab pill is paper too */
 	[data-skin='paper'] .view-strip,
 	[data-skin='riso'] .view-strip {
@@ -1859,7 +1910,7 @@
 	}
 	@media (prefers-reduced-motion: no-preference) {
 		.view-pane {
-			animation: pane-in-next var(--dur-pane) var(--spring-smooth) both;
+			animation: pane-in-next var(--dur-pane) var(--spring-smooth) backwards;
 		}
 		.display-root[data-dir='prev'] .view-pane {
 			animation-name: pane-in-prev;

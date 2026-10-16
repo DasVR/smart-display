@@ -5,7 +5,9 @@
  *  halftone  the painting in dots behind two graphite glass cards, tabs in a pill at the bottom
  *  paper     cream paper cards across the top with dotted shadows, the painting below
  *  poster    the time huge across the painting, three small tiles underneath
- *  depth     the poster, with the painting's shadows printed back over the numerals
+ *  depth     (the default) dark: the painting in pale dots on near-black, the time huge
+ *            with the painting's shadows printed back over it, liquid glass tiles,
+ *            dot shadows cast away from the sun
  *  riso      paper cards printed in two inks, teal and tangerine, slightly off-register
  *  console   no painting: off-white hardware, dot-matrix time, signal orange, page tiles
  *  classic   the liquid-metal wall from before */
@@ -29,7 +31,7 @@ export const ARTWORKS = {
 	starry: { title: 'The Starry Night', artist: 'Vincent van Gogh, 1889' }
 };
 
-export const DEFAULT_LOOK = { look: 'halftone', art: 'auto' };
+export const DEFAULT_LOOK = { look: 'depth', art: 'auto' };
 
 export function normalizeLook(raw = {}, prev = DEFAULT_LOOK) {
 	const src = raw && typeof raw === 'object' ? raw : {};
