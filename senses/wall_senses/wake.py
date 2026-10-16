@@ -1,20 +1,22 @@
 """Is this sentence for the wall? "Hey wall, pause the music" is; "the wall
 looks nice" isn't.
 
-Whisper writes what it hears with punctuation and capitals, and hears "wall"
-as "well" or "war" now and then right after "hey", so both are forgiven there
-(and only there: "well, I think" is not a command).
+The transcriber writes what it hears with punctuation and capitals, and hears
+"wall" as "well", "war" or "Wal" now and then right after "hey" (and a bare
+"hey wall" as "K Wal"), so those are forgiven there and only there: "well, I
+think" is not a command.
 """
 
 import re
 
 DEFAULT_WAKE = ["hey wall", "okay wall", "ok wall"]
 
-# what Whisper sometimes writes for "wall" straight after "hey" or "okay"
-_SOUNDS_LIKE_WALL = r"(?:wall|walls|wal|waul|well|war|whoa|wow)"
+# what speech-to-text sometimes writes for "wall" straight after "hey" or "okay"
+# ("Hey wallets way too loud": "wall, it's" run together)
+_SOUNDS_LIKE_WALL = r"(?:wall|walls|wal|waul|well|war|whoa|wow|wallet|wallets)"
 _GREETING = r"(?:hey|hi|okay|ok|o\.k\.)"
 
-# things Whisper invents in silence or music; never commands, never notes
+# things speech-to-text has made up out of silence or music; never commands, never notes
 HALLUCINATIONS = {
     "",
     "you",
@@ -36,7 +38,7 @@ def clean(text):
 
 
 def is_noise(text):
-    """True for a piece Whisper made up out of nothing ("Thank you." in silence)."""
+    """True for a piece made up out of nothing ("Thank you." in silence)."""
     t = clean(text)
     return t in HALLUCINATIONS or bool(re.fullmatch(r"(?:\[.*\]|\(.*\)|♪.*)", str(text or "").strip()))
 
@@ -47,10 +49,14 @@ def _phrase_pattern(phrase):
         return None
     parts = []
     for i, w in enumerate(words):
+        before_wall = i + 1 < len(words) and words[i + 1] == "wall"
         if w == "wall" and i > 0 and re.fullmatch(_GREETING, words[i - 1]):
             parts.append(_SOUNDS_LIKE_WALL)
+        elif w == "hey" and before_wall:
+            # a quick "hey wall" comes out as "K Wal" or "hay wall"
+            parts.append(r"(?:hey|hay|k|kay)")
         elif w in ("okay", "ok"):
-            parts.append(r"(?:okay|ok|o k)")
+            parts.append(r"(?:okay|ok|o k|k|kay)" if before_wall else r"(?:okay|ok|o k)")
         else:
             parts.append(re.escape(w))
     return r"\s+".join(parts)
@@ -78,7 +84,7 @@ def _after_words(raw, count):
     """The raw text after its first `count` words (as clean() counts them).
 
     The wall's parser reads times like "5:30" and "p.m.", so the command is
-    handed on as Whisper wrote it, only trimmed of the wake phrase and of
+    handed on as it was written, only trimmed of the wake phrase and of
     trailing punctuation.
     """
     for tok in re.finditer(r"\S+", raw):
@@ -86,30 +92,3 @@ def _after_words(raw, count):
             return raw[tok.start():].strip().rstrip(".!?,").strip()
         count -= len(clean(tok.group(0)).split())
     return ""
-
-
-def echoes_prompt(text, prompt):
-    """True when what Whisper wrote is only (part of) the example it was primed
-    with. On noise (a fan, the TV, the wall's own music) Whisper sometimes
-    "hears" its prompt back: "Hey wall, pause the music." out of nothing."""
-    t, p = clean(text), clean(prompt)
-    return bool(t and p) and f" {t} " in f" {p} "
-
-
-def confirm_echo(text, prompt, recheck, wake_words=None):
-    """Keep a piece that echoes the prompt only if it says the same without it.
-
-    recheck() transcribes the same sound with no prompt. Someone really saying
-    "hey wall, pause the music" still comes out as "pause the music" (the wake
-    word may be misheard, so only the command must be there); noise doesn't.
-    Returns (keep, what the recheck heard).
-    """
-    if not prompt or not echoes_prompt(text, prompt):
-        return True, None
-    command = clean(match_wake(text, wake_words) or "")
-    if not command:
-        # a bare "hey wall" out of the prompt: only a real one says it twice
-        again = recheck()
-        return match_wake(again, wake_words) is not None, again
-    again = recheck()
-    return f" {command} " in f" {clean(again)} ", again

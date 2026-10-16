@@ -15,7 +15,7 @@
 	import { wallSocketUrl, followPairing } from '$lib/remoteAuth.js';
 	import { onMount } from 'svelte';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
-	import { WHISPER_MODELS, WAKE_MODELS, AWAY_CHOICES, EXIT_SIDES, EXIT_SECONDS, describeDistance } from '$lib/senses.js';
+	import { WAKE_MODELS, AWAY_CHOICES, EXIT_SIDES, EXIT_SECONDS, describeDistance } from '$lib/senses.js';
 	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
 
 	let ws;
@@ -52,15 +52,6 @@
 		timeout: "The webcam process didn't answer. Is it running?",
 		failed: 'That didn\'t work. Try again.',
 		'not-found': 'That file has gone.'
-	};
-
-	const MODEL_NOTES = {
-		'tiny.en': 'fastest, rougher',
-		'base.en': 'a good balance',
-		'small.en': 'most accurate, slower',
-		tiny: 'any language, fastest',
-		base: 'any language',
-		small: 'any language, slower'
 	};
 
 	function send(msg) {
@@ -286,11 +277,10 @@
 			{#if s.settings.mic && s.online}
 				<div class="meter" aria-label="Microphone level"><span style:width="{level}%"></span></div>
 				<p class="note">
-					{#if s.mic?.error === 'no-whisper'}
-						Whisper isn't installed on the display. Run the install script again.
+					{#if s.mic?.error === 'no-sherpa'}
+						The speech recogniser isn't installed on the display. Run <code>scripts/senses/install.sh</code> there again.
 					{:else if s.mic?.error === 'no-model'}
-						Whisper {s.settings.model} isn't on the display yet. Fetch it there with
-						<code>scripts/senses/install.sh --models {s.settings.model}</code>.
+						The Parakeet speech model isn't on the display yet. Fetch it there with <code>scripts/senses/install.sh</code>.
 					{:else if s.mic?.error === 'no-parec'}
 						PipeWire's <code>parec</code> is missing on the display.
 					{:else if !s.mic?.ok}
@@ -346,7 +336,7 @@
 			</label>
 			<p class="note">
 				Noise suppression learns the room's steady sounds (a fan, a hum, hiss) while nobody talks and takes them out of what it hears. Voice
-				boost cuts low rumble and brings the speech band forward. For talking from across the room, also pick Whisper small.en below.
+				boost cuts low rumble and brings the speech band forward.
 			</p>
 			<label class="row">
 				<span>Show what it heard</span>
@@ -619,17 +609,11 @@
 					</select>
 				</label>
 				<p class="note">
-					A small always-on model hears the wake word and Whisper starts after it. Better while music plays. Needs openWakeWord on the display
+					A small always-on model hears the wake word and the transcriber starts after it. Better while music plays. Needs openWakeWord on the display
 					(the install script's <code>--wake-word</code>).
 				</p>
 			{/if}
-			<label class="row">
-				<span>Whisper</span>
-				<select value={s.settings.model} onchange={(e) => patch({ model: e.currentTarget.value })}>
-					{#each WHISPER_MODELS as m (m)}<option value={m}>{m}</option>{/each}
-				</select>
-			</label>
-			<p class="note">Whisper {s.settings.model}: {MODEL_NOTES[s.settings.model]}. Others need fetching on the display first (<code>install.sh --models</code>).</p>
+			<p class="note">Speech is turned into words on the display by NVIDIA's Parakeet (English), in under half a second. Nothing leaves it.</p>
 		</section>
 	{/if}
 </div>

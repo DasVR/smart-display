@@ -35,14 +35,11 @@ export const DEFAULT_SENSES = {
 	floorMap: null,
 	paper: 'letter',
 	paperWall: null,
-	// 'phrase': "hey wall …" spotted by Whisper itself; 'openwakeword': a small
-	// always-on model (its own wake word) wakes Whisper
+	// 'phrase': "hey wall …" spotted by the transcriber (Parakeet) itself;
+	// 'openwakeword': a small always-on model (its own wake word) wakes it
 	wakeMode: 'phrase',
 	wakeWords: ['hey wall', 'okay wall'],
 	wakeModel: 'hey_jarvis',
-	// faster-whisper model: tiny.en is quickest, base.en a good default, small.en most accurate
-	model: 'base.en',
-	language: 'en',
 	// someone closer than this counts as "at the wall"
 	nearMeters: 1.5,
 	// turn the panel on when someone comes up to the wall (never during the night)
@@ -109,7 +106,6 @@ function cleanPlaces(places, zones) {
 	return out;
 }
 
-export const WHISPER_MODELS = ['tiny.en', 'base.en', 'small.en', 'tiny', 'base', 'small'];
 export const WAKE_MODES = ['phrase', 'openwakeword'];
 export const WAKE_MODELS = ['hey_jarvis', 'alexa', 'hey_mycroft', 'hey_rhasspy'];
 
@@ -154,8 +150,6 @@ export function normalizeSensesSettings(patch = {}, base = DEFAULT_SENSES) {
 		wakeMode: WAKE_MODES.includes(pick('wakeMode')) ? pick('wakeMode') : b.wakeMode,
 		wakeWords: wakeWords.length ? wakeWords : [...DEFAULT_SENSES.wakeWords],
 		wakeModel: WAKE_MODELS.includes(pick('wakeModel')) ? pick('wakeModel') : DEFAULT_SENSES.wakeModel,
-		model: WHISPER_MODELS.includes(pick('model')) ? pick('model') : DEFAULT_SENSES.model,
-		language: /^(auto|[a-z]{2})$/.test(String(pick('language'))) ? pick('language') : 'en',
 		nearMeters: num(pick('nearMeters'), 0.3, 6, DEFAULT_SENSES.nearMeters),
 		wakePanel: Boolean(pick('wakePanel')),
 		captions: Boolean(pick('captions')),

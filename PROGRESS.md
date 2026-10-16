@@ -1,5 +1,22 @@
 # Smart Display Progress Log
 
+## 2026-10-16: Parakeet replaces Whisper on the wall's microphone
+
+### Done
+- **Faster and more accurate ears:** NVIDIA's Parakeet TDT 0.6B v2 (int8,
+  sherpa-onnx, CPU) now turns speech into words. Benchmarked on short
+  phrases with 4 threads: 0.5 s and 2.4% of words wrong, against 1.9 s and
+  6.1% for Whisper small.en. On the wall a command takes about 0.35 s.
+- **No more invented words:** it writes nothing for silence and noise, so the
+  Whisper "example sentence" and its prompt-echo recheck are gone.
+- **Wake phrase:** "K Wal" (a quick "hey wall") and "Hey wallets…" ("wall,
+  it's" run together) now count.
+- `install.sh` fetches the model (about 480 MB) instead of Whisper sizes; the
+  phone's Whisper picker is gone.
+
+### Needs doing on the display
+- Run `scripts/senses/install.sh --apply-systemd` once after this deploys.
+
 ## 2026-10-16: Talking to the wall, not filing chores
 
 ### Done

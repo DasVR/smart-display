@@ -6,8 +6,7 @@ quickly downward, so a fan or a fridge is ignored and a voice is not. Speech
 starts after a few loud frames in a row, and ends after a stretch of quiet
 (the "hangover"), so the pauses between words don't cut a sentence in two.
 
-Pure Python, no numpy, so it is tested without a microphone. Whisper runs its
-own finer voice check on each piece afterwards.
+Pure Python, no numpy, so it is tested without a microphone.
 """
 
 import math
@@ -58,7 +57,7 @@ class SpeechGate:
     """Feed it one frame's loudness at a time; it says when speech starts and ends.
 
     push() returns "start", "end", or None. While speaking, the caller keeps
-    the frames; at "end" it hands them to Whisper. A piece longer than
+    the frames; at "end" it hands them to the transcriber. A piece longer than
     max_seconds is cut there ("end") so music can't hold the gate open.
     """
 
@@ -135,5 +134,5 @@ class SpeechGate:
         return None
 
     def was_speech(self):
-        """After "end": was there enough voice in it to bother Whisper with?"""
+        """After "end": was there enough voice in it to bother the transcriber with?"""
         return self.voiced >= self.min_speech
