@@ -6,8 +6,7 @@
 	so an unused feature leaves the clock face clean.
 -->
 <script>
-	import { eventDayKey, wallClock, wallDayKey } from '$lib/calendarItems.js';
-	import { DISPLAY_TZ } from '$lib/atmosphere.js';
+	import { isLate, nextWhen, taskWhen, todayOpen } from '$lib/todayList.js';
 
 	let { tasks = [], ondone = null, now = new Date() } = $props();
 
@@ -15,38 +14,12 @@
 
 	// Only what's waiting or due today on the wall's clock: a snooze that runs
 	// into tomorrow belongs to tomorrow, not under "Today".
-	let todayKey = $derived(wallDayKey(now.getTime()));
-	let open = $derived(
-		tasks.filter(
-			(t) =>
-				['overdue', 'due', 'today'].includes(t.status) ||
-				(t.status === 'snoozed' && eventDayKey(t.snoozedUntil) === todayKey)
-		)
-	);
+	let open = $derived(todayOpen(tasks, now.getTime()));
 	let shown = $derived(open.slice(0, LIST_MAX));
 	let more = $derived(Math.max(0, open.length - shown.length));
 	let next = $derived(tasks.find((t) => t.status === 'upcoming') || null);
-	let overdueCount = $derived(open.filter((t) => t.status === 'overdue' || t.status === 'due').length);
-
-	function clock(iso) {
-		return wallClock(Date.parse(iso)).toLowerCase();
-	}
-	function lateBy(iso) {
-		const mins = Math.max(0, Math.round((now.getTime() - Date.parse(iso)) / 60000));
-		if (mins < 60) return `${mins} min late`;
-		const h = Math.round(mins / 60);
-		return h < 24 ? `${h} h late` : `${Math.round(h / 24)} d late`;
-	}
-	function when(t) {
-		if (t.allDay) return t.status === 'due' ? 'today' : t.kind === 'homework' ? 'due today' : 'today';
-		if (t.status === 'overdue' || t.status === 'due') return lateBy(t.nextDue);
-		if (t.status === 'snoozed') return `snoozed to ${clock(t.snoozedUntil)}`;
-		return clock(t.nextDue);
-	}
-	function nextWhen(t) {
-		const day = new Date(t.nextDue).toLocaleDateString('en-US', { weekday: 'short', timeZone: DISPLAY_TZ });
-		return t.allDay ? day : `${day} ${clock(t.nextDue)}`;
-	}
+	let overdueCount = $derived(open.filter(isLate).length);
+	const when = (t) => taskWhen(t, now.getTime());
 </script>
 
 {#if tasks.length}

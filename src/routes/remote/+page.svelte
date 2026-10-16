@@ -10,6 +10,7 @@
 	import { writable } from 'svelte/store';
 	import { primeAudio, playChime, playVolumeTick } from '$lib/services/chime.js';
 	import { KIOSK_VIEWS, kioskViewLabel } from '$lib/kioskViews.js';
+	import { ARTWORKS, LOOK_LABELS, LOOKS, normalizeLook } from '$lib/look/wallLook.js';
 	import { page } from '$app/state';
 	import RemoteTabBar from '$lib/components/RemoteTabBar.svelte';
 	import AttentionCard from '$lib/components/AttentionCard.svelte';
@@ -139,6 +140,7 @@
 
 	function applyDisplay(display) {
 		if (!display) return;
+		if (display.look) wallLook = normalizeLook(display.look, wallLook);
 		if (display.hdmi === 'on' || display.hdmi === 'off') hdmi = display.hdmi;
 		if (display.hold === 'on' || display.hold === 'off') hold = display.hold;
 		else if ('hold' in display) hold = null;
@@ -304,6 +306,13 @@
 			status = 'disconnected';
 			connect();
 		}
+	}
+
+	let wallLook = $state(normalizeLook({}));
+	function setLook(patch) {
+		wallLook = normalizeLook(patch, wallLook);
+		send({ type: 'display', look: wallLook });
+		playChime('tap');
 	}
 
 	function send(obj) {
@@ -755,6 +764,29 @@
 					On, then off. An off time earlier than the on time means after midnight: Fri 8 AM – 1 AM stays on until 1 AM
 					Saturday. {phoneNote()}.
 				</p>
+			</section>
+
+			<section class="block night-block" aria-label="Look">
+				<header class="night-head">
+					<span>Look</span>
+					<span class="night-summary">{LOOK_LABELS[wallLook.look]}</span>
+				</header>
+				<div class="rockers">
+					{#each LOOKS as l (l)}
+						<button class="rocker" class:on={wallLook.look === l} aria-pressed={wallLook.look === l} onclick={() => setLook({ look: l })}>
+							{LOOK_LABELS[l]}
+						</button>
+					{/each}
+				</div>
+				{#if wallLook.look !== 'classic' && wallLook.look !== 'console'}
+					<div class="rockers">
+						<button class="rocker" class:on={wallLook.art === 'auto'} aria-pressed={wallLook.art === 'auto'} onclick={() => setLook({ art: 'auto' })}>By the hour</button>
+						{#each Object.entries(ARTWORKS) as [key, a] (key)}
+							<button class="rocker" class:on={wallLook.art === key} aria-pressed={wallLook.art === key} onclick={() => setLook({ art: key })}>{a.title}</button>
+						{/each}
+					</div>
+					<p class="note">By the hour: Almond Blossom in the morning, the Poppy Field by day, The Magpie in the evening, The Starry Night at night. All public domain.</p>
+				{/if}
 			</section>
 
 		</div>
