@@ -36,6 +36,10 @@ export function providerLabel(id) {
 		return `Align (${engine})`;
 	}
 	if (key === 'genius') return 'Genius';
+	if (key === 'blyrics') return 'Better Lyrics';
+	if (key === 'binimum') return 'BiniLyrics';
+	if (key === 'portato') return 'Better Lyrics Portato';
+	if (key === 'legato') return 'Better Lyrics Legato';
 	if (key === 'amll-ttml') return 'AMLL TTML';
 	if (key === 'kugou-krc') return 'Kugou KRC';
 	if (key === 'netease-yrc') return 'NetEase YRC';

@@ -3,18 +3,18 @@
 `src/lib/server/lyrics.js` runs the community lookup, the canonical sheet,
 and LRCLIB at the same time. LRCLIB answers in well under a second, so its
 lines go on screen right away (memory only, flagged provisional) and the
-karaoke file replaces them when it lands, a few seconds later. The community
-lookup stops early: nothing beats TTML, and once any word-level file is in
-hand it waits at most 1.5 s more for a better one (12 s budget overall).
+karaoke file replaces them when it lands, usually well under a second later.
+The community lookup stops at the first provider that has the song.
 
 Sources, best first:
 
-1. **Community word-sync** (`scripts/forced_align/community_lyrics.py`) - several
-   free, keyless sources that publish per-word or per-syllable timing:
-   - **AMLL TTML DB** (`api.amll.dev`) - community Apple-Music-like TTML
-   - **NetEase Cloud Music YRC** - karaoke word clocks
-   - **Kugou KRC** - karaoke word clocks
-   - **syncedlyrics** with `enhanced=True` - Musixmatch word-level LRC, then line LRC
+1. **Community word-sync** via the [Braccato provider chain](https://docs.betterlyrics.org/braccato/provider)
+   (`@braccato/provider-blyrics`, in `src/lib/server/lyrics.js`) - free,
+   keyless sources tried in this order:
+   - **Better Lyrics** (`lyrics-api.boidu.dev`) - syllable-synced TTML
+   - **BiniLyrics** (`lyrics-api.binimum.org`) - syllable-synced TTML
+   - **Better Lyrics Portato** - QQ Music QRC word clocks
+   - **Better Lyrics Legato** - Kugou line-synced LRC
 2. **Canonical lyric sheet** (`scripts/forced_align/canonical_lyrics.py`) - the
    text the singing aligner times against, looked up even when a karaoke
    file already exists (those files often clip or rewrite the words):
@@ -34,7 +34,7 @@ stamps are the reference: a karaoke file from another release that sits a
 constant offset away is shifted onto them, and an aligned line that drifted
 more than 2 s off its stamp is moved back.
 
-Providers (NetEase, Kugou, Musixmatch, some LRCLIB uploads) mask profanity
+Providers (QQ Music, Kugou, some LRCLIB uploads) mask profanity
 as `f**k`, `ni**a`, `*********in`. `src/lib/lyricProfanity.js` restores the
 real words: from the canonical sheet first (which also fills fully masked
 `****`), then from a dictionary matched on the visible letters and mask
@@ -164,9 +164,8 @@ First transcription downloads faster-whisper `large-v3`. Diarization stays
 off: no HuggingFace token. Demucs isolates vocals before WhisperX / CTC /
 Qwen. Force off with `FORCED_ALIGN_SEPARATE=0`.
 
-If you only want a timed lyric sheet and not on-device alignment,
-**syncedlyrics** (already the community lookup) is the short road. It pulls
-time-synced LRC from public sources with no token.
+If you only want a timed lyric sheet and not on-device alignment, the
+Braccato community lookup already covers it in Node: no Python needed.
 
 Genius / `lyricsgenius` is optional and usually the wrong tool here. It
 needs a free client token from genius.com/api-clients, it is scrape-backed
@@ -210,6 +209,6 @@ Then start the server with `FORCED_ALIGN_ENGINE=mfa` and that env on `PATH`.
 - `FORCED_ALIGN_QWEN_MAX_SEC` - seconds per Qwen pass before chunking (default 240).
 - `FORCED_ALIGN_SEPARATE` - `auto` / `1` / `0`: run Demucs before `wav2vec` / `whisperx` / `qwen` / `ctc`.
 - `FORCED_ALIGN_DEMUCS` - optional path to the demucs CLI (defaults to the venv sibling of `LYRICS_PYTHON_BIN`).
-- `GENIUS_ACCESS_TOKEN` - optional. Unsynced Genius sheet only; timed lyrics come from syncedlyrics.
+- `GENIUS_ACCESS_TOKEN` - optional. Unsynced Genius sheet only; timed lyrics come from Braccato.
 - `FORCED_ALIGN_CACHE_DIR` - legacy JSON cache dir, imported into the DB (default `data/forced-align-cache/`).
 - `FORCED_ALIGN_OFFSET` - set by the Node wrapper when recording did not start at 0:00.

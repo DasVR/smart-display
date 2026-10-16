@@ -1,5 +1,12 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+	ProviderChain,
+	createBLyricsProvider,
+	createBinimumProvider,
+	createLegatoProvider,
+	createPortatoProvider
+} from '@braccato/provider-blyrics';
 import { coalesceLyricWords, lineWithCoalescedWords } from '../lyricWords.js';
 import { annotateLyricVoices } from '../lyricVoices.js';
 import { uncensorLines, uncensorPlain } from '../lyricProfanity.js';
@@ -112,10 +119,6 @@ export function seedLyricsCache(artist, title, { album = '', duration = 0, sourc
 	);
 	return true;
 }
-
-const SYNCEDLYRICS_SCRIPT = fileURLToPath(
-	new URL('../../../scripts/forced_align/syncedlyrics_lookup.py', import.meta.url)
-);
 
 const CANONICAL_SCRIPT = fileURLToPath(
 	new URL('../../../scripts/forced_align/canonical_lyrics.py', import.meta.url)
@@ -901,66 +904,135 @@ export function lyricsCacheKey(artist, title, album, rounded) {
 	return `${normalizeLyricText(artist)}|${normalizeLyricText(title)}|${normalizeLyricText(album)}|${rounded}`;
 }
 
-/** Community lookup: AMLL TTML, NetEase YRC, Kugou KRC, then the
- *  syncedlyrics package (Musixmatch enhanced / line LRC). Resolves to
- *  `{ lines, plain, source, wordLevel }` or null. Never rejects. */
-export function fetchCommunityLyrics(
-	artist,
-	title,
-	{ album = '', duration = 0, spawnFn = spawn, pythonBin, timeoutMs = 22000 } = {}
-) {
-	return new Promise((resolve) => {
-		const bin = pythonBin || process.env.LYRICS_PYTHON_BIN || 'python3';
-		let child;
-		try {
-			child = spawnFn(
-				bin,
-				[SYNCEDLYRICS_SCRIPT, artist, title, album || '', String(Math.round(Number(duration) || 0))],
-				{ stdio: ['ignore', 'pipe', 'ignore'] }
-			);
-		} catch {
-			resolve(null);
-			return;
+// Community karaoke sources, via Braccato (docs.betterlyrics.org/braccato).
+// The chain tries them in order and stops at the first that has the song:
+// Better Lyrics and BiniLyrics serve syllable-timed TTML, Portato QQ Music
+// QRC word clocks, Legato Kugou line LRC. LRCLIB is queried on its own below.
+const BRACCATO_PROVIDERS = [
+	{ key: 'blyrics', displayName: 'Better Lyrics', syncType: 'syllable', create: createBLyricsProvider },
+	{ key: 'binimum', displayName: 'BiniLyrics', syncType: 'syllable', create: createBinimumProvider },
+	{ key: 'portato', displayName: 'Better Lyrics Portato', syncType: 'word', create: createPortatoProvider },
+	{ key: 'legato', displayName: 'Better Lyrics Legato', syncType: 'line', create: createLegatoProvider }
+];
+
+/** A Braccato chain with every community provider registered. The chain
+ *  caches by provider rather than by song, so each lookup builds its own. */
+export function createLyricsChain({ timeoutMs = 10000 } = {}) {
+	const chain = new ProviderChain();
+	for (const { key, displayName, syncType, create } of BRACCATO_PROVIDERS) {
+		const fetchFn = create({ timeout: timeoutMs });
+		chain.register({
+			key,
+			displayName,
+			syncType,
+			fetch: async (ctx) => {
+				const result = await fetchFn(ctx);
+				return result ? { ...result, key } : null;
+			}
+		});
+	}
+	return chain;
+}
+
+/** Braccato `parts` are syllables, with whitespace parts (or a trailing
+ *  space) between words. Syllables of one word join into one timed word. */
+function braccatoWords(parts) {
+	const words = [];
+	let joinNext = false;
+	for (const part of parts) {
+		const raw = String(part?.words ?? '');
+		if (!raw.trim()) {
+			joinNext = false;
+			continue;
 		}
-		let out = '';
-		let settled = false;
-		const finish = (value) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			resolve(value);
-		};
-		const timer = setTimeout(() => {
-			try {
-				child.kill('SIGKILL');
-			} catch {
-				/* already gone */
-			}
-			finish(null);
-		}, timeoutMs);
-		child.stdout?.on('data', (chunk) => {
-			out += chunk;
-		});
-		child.on('error', () => finish(null));
-		child.on('close', () => {
-			try {
-				const parsed = JSON.parse(out);
-				const lines = linesFromCommunityPayload(parsed, { artist, title });
-				if (!lines) {
-					finish(null);
-					return;
+		const startMs = Number(part.startTimeMs) || 0;
+		const time = startMs / 1000;
+		const end = (startMs + (Number(part.durationMs) || 0)) / 1000;
+		const text = raw.trim();
+		const prev = words[words.length - 1];
+		if (prev && joinNext && !/^\s/.test(raw)) {
+			prev.text += text;
+			if (end > (Number(prev.end) || prev.time)) prev.end = end;
+		} else {
+			words.push({ ...timedWord(time, text, end), breakBefore: true });
+		}
+		joinNext = !/\s$/.test(raw);
+	}
+	return coalesceLyricWords(words);
+}
+
+/** Converts Braccato `Lyric[]` (milliseconds, syllable `parts`, background
+ *  vocals flagged per part) into the `{time, text, words}` shape the rest
+ *  of the lyrics pipeline uses. An instrumental line becomes a blank marker. */
+export function linesFromBraccato(lyrics) {
+	const list = Array.isArray(lyrics) ? lyrics : [];
+	const lines = [];
+	for (const lyric of list) {
+		const startMs = Number(lyric?.startTimeMs) || 0;
+		const time = startMs / 1000;
+		const durMs = Number(lyric?.durationMs) || 0;
+		if (lyric?.isInstrumental) {
+			lines.push({ time, text: '' });
+			continue;
+		}
+		const parts = Array.isArray(lyric?.parts) ? lyric.parts : [];
+		const words = braccatoWords(parts.filter((part) => !part?.isBackground));
+		const bgWords = braccatoWords(parts.filter((part) => part?.isBackground));
+		const text = words.length ? words.map((w) => w.text).join(' ') : String(lyric?.words || '').replace(/\s+/g, ' ').trim();
+		const line = { time, text };
+		if (durMs > 0) line.end = (startMs + durMs) / 1000;
+		if (lyric?.agent) line.agent = lyric.agent;
+		if (words.length) line.words = words;
+		if (bgWords.length) {
+			const bgEnd = Number(bgWords[bgWords.length - 1].end);
+			line.background = [
+				{
+					time: bgWords[0].time,
+					text: bgWords.map((w) => w.text).join(' '),
+					...(Number.isFinite(bgEnd) && bgEnd > bgWords[0].time ? { end: bgEnd } : {}),
+					words: bgWords
 				}
-				finish({
-					lines,
-					plain: parsed.plain || lyricsToPlainText(lines),
-					source: parsed.source || null,
-					wordLevel: Boolean(parsed.wordLevel) || hasRealWordTiming(lines)
-				});
-			} catch {
-				finish(null);
-			}
-		});
-	});
+			];
+		}
+		lines.push(line);
+	}
+	return annotateLyricVoices(lines.sort((a, b) => a.time - b.time));
+}
+
+function braccatoLines(result, query) {
+	const parsed = linesFromBraccato(result?.lyrics);
+	if (!parsed.length) return null;
+	const lines = dropNonLyricLines(synthesizeWordTiming(parsed), query);
+	return lines.some((line) => String(line?.text || '').trim()) ? lines : null;
+}
+
+/** Community lookup through the Braccato provider chain. Resolves to
+ *  `{ lines, plain, source, wordLevel }` or null. Never rejects. */
+export async function fetchCommunityLyrics(artist, title, { album = '', duration = 0, chain, timeoutMs = 22000 } = {}) {
+	const query = { artist, title };
+	const providers = chain || createLyricsChain();
+	try {
+		const result = await providers.fetchLyrics(
+			{
+				song: title,
+				artist,
+				album: album || null,
+				duration: Math.round(Number(duration) || 0),
+				signal: AbortSignal.timeout(timeoutMs)
+			},
+			{ validate: (hit) => Boolean(braccatoLines(hit, query)) }
+		);
+		const lines = result ? braccatoLines(result, query) : null;
+		if (!lines) return null;
+		return {
+			lines,
+			plain: lyricsToPlainText(lines),
+			source: result.key || result.source || 'community',
+			wordLevel: hasRealWordTiming(lines)
+		};
+	} catch {
+		return null;
+	}
 }
 
 /** Genius (if GENIUS_ACCESS_TOKEN + lyricsgenius) else LRCLIB plainLyrics.
@@ -1069,7 +1141,7 @@ async function fetchLrclib(artist, title, { album = '', rounded = 0, getJson }) 
  *  community lookup is still running. */
 const PROVISIONAL_TTL = 60 * 1000;
 
-export async function fetchLyrics(artist, title, { album = '', duration = 0, load, spawnFn, pythonBin } = {}) {
+export async function fetchLyrics(artist, title, { album = '', duration = 0, load, chain, spawnFn, pythonBin } = {}) {
 	const rounded = Math.round(Number(duration) || 0);
 	const key = lyricsCacheKey(artist, title, album, rounded);
 	const cached = readLyricsEntry(key);
@@ -1102,7 +1174,7 @@ export async function fetchLyrics(artist, title, { album = '', duration = 0, loa
 			});
 		});
 		const [community, canonical, lrclib] = await Promise.all([
-			fetchCommunityLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin }),
+			fetchCommunityLyrics(artist, title, { album, duration: rounded, chain }),
 			fetchCanonicalLyrics(artist, title, { album, duration: rounded, spawnFn, pythonBin }),
 			lrclibP
 		]);
@@ -1155,7 +1227,7 @@ const lyricsInFlight = new Set();
  *  resolved for this exact artist/title/album/duration, or
  *  `{ known: false, lines: null }` if it hasn't been looked up yet (or the
  *  cache entry expired). Lets getNowPlaying() serve whatever it already
- *  has instantly instead of awaiting a fresh LRCLIB/syncedlyrics round
+ *  has instantly instead of awaiting a fresh LRCLIB/Braccato round
  *  trip on every cold track. */
 export function peekLyrics(artist, title, album = '', duration = 0) {
 	const rounded = Math.round(Number(duration) || 0);
