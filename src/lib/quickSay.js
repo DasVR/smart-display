@@ -152,9 +152,22 @@ export function parseQuick(text, now = Date.now()) {
 
 	const state = { rest: ` ${raw} ` };
 	let kind = 'chore';
+	// said as something to add ("remind me…", "add a chore…", "I need to…")
+	let explicit = false;
 
+	// "add milk to the shopping list", "put bins on my list": the thing is the title
+	cut(state, /^\s*(?:please\s+)?(?:add|put|stick|write)\s+(.+?)\s+(?:to|on|onto)\s+(?:the|my|our)\s+(?:[\w-]+\s+)?(?:list|to-?do list|to-?dos)(?=\s|$)/i, (m) => {
+		explicit = true;
+		state.rest = ` ${m[1]} ${state.rest.slice(m.index + m[0].length)} `;
+		return false;
+	});
+	// "remember to water the plants", "make a note to call the bank"
+	cut(state, /^\s*(?:please\s+)?(?:remember to|make a note to|note to self:?|make sure i)\b/i, () => {
+		explicit = true;
+	});
 	// Who it's for: a reminder is an alert, anything else is a chore.
 	cut(state, /^\s*(?:hey siri,?\s*)?(?:please\s+)?(remind me(?: to)?|alert me(?: to)?|alert|heads up(?: to)?|ping me(?: to)?|add (?:a |an )?(?:chore|job|task|to-?do)(?: to)?|chore:?|to-?do:?|i need to|i have to|i've got to|i gotta)\b/i, (m) => {
+		explicit = true;
 		if (/remind|alert|heads up|ping/i.test(m[1])) kind = 'alert';
 	});
 
@@ -270,7 +283,9 @@ export function parseQuick(text, now = Date.now()) {
 	});
 
 	const title = tidyTitle(state.rest);
-	if (!title) return { error: "I didn't catch what to add.", code: 'no-title', when: { offsetMin, day: Boolean(day), clock: Boolean(clock), repeat: Boolean(repeat || weekdays) } };
+	// any "when" at all: a time, a day, "in 20 minutes", a repeat
+	const timed = offsetMin != null || Boolean(day || clock || repeat || weekdays);
+	if (!title) return { error: "I didn't catch what to add.", code: 'no-title', explicit, timed, when: { offsetMin, day: Boolean(day), clock: Boolean(clock), repeat: Boolean(repeat || weekdays) } };
 
 	// Work out the first occurrence.
 	let at;
@@ -290,7 +305,7 @@ export function parseQuick(text, now = Date.now()) {
 	} else if (repeat) {
 		at = new Date(now);
 	} else if (kind === 'alert') {
-		return { error: `When should I remind you to ${lowerFirst(title)}?`, code: 'no-time', title };
+		return { error: `When should I remind you to ${lowerFirst(title)}?`, code: 'no-time', title, explicit };
 	} else {
 		at = new Date(now);
 	}
@@ -298,7 +313,19 @@ export function parseQuick(text, now = Date.now()) {
 	if (repeat && weekdays) repeat.days = weekdays;
 	const task = { title, kind, at: at.toISOString() };
 	if (repeat) task.repeat = repeat;
-	return { task };
+	return { task, explicit, timed };
+}
+
+// "is it going to rain tomorrow?", "what time is the game tonight": questions, even with a time in them
+const QUESTION_RE =
+	/^(?:who|whom|whose|what|what's|whats|when|when's|where|where's|why|which|how|how's|is|are|was|were|am|does|did|can|could|should|would|will|shall|(?:do|have|has) (?:you|i|we|they|he|she|it))\b|\?\s*$/i;
+
+/** Said as something to add: "remind me…", "add … to the list", a timer, or
+ *  a plain sentence with a time ("call the dentist tomorrow") that isn't a question. */
+export function saidToAdd(parsed, text) {
+	if (parsed.timer || parsed.explicit) return true;
+	if (['no-duration', 'bad-duration'].includes(parsed.code)) return true;
+	return Boolean(parsed.task && parsed.timed && !QUESTION_RE.test(cleanSpeech(text)));
 }
 
 /* ---------- spelled-out numbers ---------- */

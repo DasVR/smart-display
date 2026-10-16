@@ -180,7 +180,13 @@ useAppleMusicSource({ track: () => appleMusic.track(), pause: () => appleMusic.c
 const assistantHub = createAssistantHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	timeZone: process.env.TZ || DISPLAY_TZ,
-	place: process.env.ASSISTANT_PLACE || ''
+	place: process.env.ASSISTANT_PLACE || '',
+	// what the wall can do when asked casually ("it's way too loud", "put some music on")
+	actions: {
+		command: (text) => actionHub.command(text),
+		add: (text, source) => taskHub.addText(text, source),
+		play: (text) => appleMusic.play(`play ${String(text).replace(/^\s*play\s+/i, '')}`)
+	}
 });
 const taskHub = createTaskHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
@@ -202,8 +208,9 @@ const taskHub = createTaskHub({
 	},
 	// "tell the wall" commands; actionHub is defined below and only called later
 	commands: (text) => actionHub.command(text),
-	// open questions go to the Ollama Cloud assistant (src/lib/server/assistantHub.js)
-	ask: (text) => assistantHub.maybeAnswer(text),
+	// anything that isn't a fixed command or "remind me / add …" is conversation
+	// with the Ollama Cloud assistant (src/lib/server/assistantHub.js)
+	converse: (text, opts) => assistantHub.converse(text, opts),
 	// homework and reminders from Google Calendar / Tasks, read-only
 	external: () => calendarFeed.items()
 });

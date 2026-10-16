@@ -51,7 +51,7 @@ import {
 	saveTasks,
 	saveWebhooks
 } from './taskService.js';
-import { parseQuick, pickNext, speakAdded, speakBrief, speakDone, speakTimerSet, speakWhen } from '../quickSay.js';
+import { parseQuick, saidToAdd, pickNext, speakAdded, speakBrief, speakDone, speakTimerSet, speakWhen } from '../quickSay.js';
 
 const MAX_BODY = 64 * 1024;
 const DISMISS_KEEP_MS = 45 * 86400000;
@@ -67,6 +67,9 @@ function cleanSource(v) {
 }
 const TICK_MS = 15000;
 const ASK_WINDOW_MS = 2 * 60000;
+const YES_RE = /^\s*(?:yes|yeah|yep|yup|ya|sure|ok(?:ay)?|please|do it|add it|go ahead|sounds good|definitely|of course)\b/i;
+const NO_RE = /^\s*(?:no|nope|nah|don't|do not|never ?mind|cancel|forget it|nothing|leave it)\b/i;
+
 const UNDO_TTL_MS = 10 * 60000;
 const DUPLICATE_MS = 2 * 60000;
 
@@ -96,7 +99,7 @@ function readBody(req) {
 	});
 }
 
-export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent, commands, ask, external = () => [] }) {
+export function createTaskHub({ dataDir, broadcast, log = console, now = () => Date.now(), env = process.env, fetchImpl, onEvent, commands, converse, external = () => [] }) {
 	const tasksFile = path.join(dataDir, 'tasks.json');
 	const hooksFile = path.join(dataDir, 'webhooks.json');
 	const tokenFile = path.join(dataDir, 'api-token');
@@ -106,6 +109,8 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	let timer = 0;
 	/** a question the wall just asked back, answered by the next sentence */
 	let pendingAsk = null;
+	/** "Should I add … to your list?", answered by yes or no */
+	let pendingConfirm = null;
 
 	// What a voice command or the Action button just did, so "undo that"
 	// can take it back. Newest last; entries expire after 10 minutes.
@@ -342,28 +347,66 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 	/* ---------- Siri / Shortcuts ---------- */
 
 	/**
-	 * "Tell the wall": a command ("I'm done with the bins", "show the
-	 * weather") when `commands` recognises one, otherwise something to add.
+	 * "Tell the wall": everything said to the wall (Siri, the wall's
+	 * microphone, the phone's box) comes through here, in this order:
+	 *
+	 *   1. the answer to something the wall just asked ("at 5", "yes")
+	 *   2. a command ("pause", "I'm done with the bins"): fast, free, offline
+	 *   3. said as something to add ("remind me…", "add milk to the list",
+	 *      "I need to…", a timer, or "call the dentist tomorrow": a time and
+	 *      not a question): added
+	 *   4. anything else is conversation (`converse`, the assistant): it
+	 *      answers, chats, or acts (commands, the list, music) as it sees fit
+	 *   5. no assistant: asked about first ("Should I add …?"), never added
+	 *      on a guess
 	 */
 	async function sayAdd(body) {
 		let text = typeof body === 'string' ? body : (body.text ?? body.say ?? '');
+		const source = cleanSource(body?.source) || 'Siri';
 
 		// The wall asked "When should I remind you to call mom?" and this is
 		// the answer ("at 5", "in two minutes"): finish that reminder.
 		if (pendingAsk && now() < pendingAsk.until) {
 			const ask = pendingAsk;
 			pendingAsk = null;
-			if (/^\s*(never ?mind|cancel|forget it|no|nothing)\b/i.test(text)) return { status: 200, data: { say: 'Okay, never mind.' } };
+			if (NO_RE.test(text)) return { status: 200, data: { say: 'Okay, never mind.' } };
 			if (parseQuick(text, now()).code === 'no-title') text = `${ask.kind === 'alert' ? 'remind me to ' : ''}${ask.title} ${text}`;
 		}
 		pendingAsk = null;
 
+		// The wall asked "Should I add 'Buy a new kettle' to your list?"
+		if (pendingConfirm && now() < pendingConfirm.until) {
+			const c = pendingConfirm;
+			pendingConfirm = null;
+			if (YES_RE.test(text)) return addParsed(c.parsed, source);
+			if (NO_RE.test(text)) return { status: 200, data: { say: "Okay, I won't." } };
+		}
+		pendingConfirm = null;
+
 		const cmd = commands ? await commands(text) : null;
 		if (cmd) return { status: 200, data: cmd };
-		// an open question ("how far is the moon?") is answered, not added
-		const answer = ask ? await ask(text) : null;
-		if (answer) return { status: 200, data: answer };
+
 		const parsed = parseQuick(text, now());
+		if (saidToAdd(parsed, text)) return addParsed(parsed, source);
+
+		const reply = converse ? await converse(text, { source }) : null;
+		if (reply) return { status: 200, data: reply };
+
+		if (parsed.task) {
+			pendingConfirm = { parsed, until: now() + ASK_WINDOW_MS };
+			const title = parsed.task.title;
+			return { status: 200, data: { say: `Should I add “${title}” to your list?`, asking: true, confirm: title } };
+		}
+		return { status: 422, data: { error: parsed.error, say: parsed.error || "Sorry, I didn't catch that." } };
+	}
+
+	/** Add a sentence to the list no matter how it's phrased (the assistant's
+	 *  add_to_list: it has already decided this is something to remember). */
+	async function addText(text, source = 'Wall') {
+		return addParsed(parseQuick(text, now()), cleanSource(source) || 'Wall');
+	}
+
+	function addParsed(parsed, source) {
 		if (parsed.code === 'no-time') pendingAsk = { title: parsed.title, kind: 'alert', until: now() + ASK_WINDOW_MS };
 		if (parsed.error) return { status: 422, data: { error: parsed.error, say: parsed.error, asking: parsed.code === 'no-time' } };
 
@@ -382,7 +425,7 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 			return { status: 200, data: { task: view(twin), duplicate: true, say: parsed.timer ? 'That timer is already running.' : `Already on the list: ${twin.title}.` } };
 		}
 
-		const result = create({ ...parsed.task, source: cleanSource(body.source) || 'Siri' }, { undo: true });
+		const result = create({ ...parsed.task, source }, { undo: true });
 		if (result.error) return { status: result.status || 400, data: { error: result.error, say: `Sorry, ${result.error}.` } };
 		return { status: 201, data: { task: result.task, say: parsed.timer ? speakTimerSet(parsed.timer) : speakAdded(result.task, now()) } };
 	}
@@ -481,5 +524,5 @@ export function createTaskHub({ dataDir, broadcast, log = console, now = () => D
 		}
 	}
 
-	return { undoLast, undoLabel, externalChanged, handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove, sayAdd, brief, nextDone };
+	return { undoLast, undoLabel, externalChanged, handleHttp, handleWs, snapshot, tick, start, stop, create, update, done, snooze, remove, sayAdd, addText, brief, nextDone };
 }

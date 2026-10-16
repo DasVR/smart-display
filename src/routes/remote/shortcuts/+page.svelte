@@ -336,7 +336,7 @@
 				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
 			</button>
 		</div>
-		<p class="note small">This really runs it, the same way Siri would: commands act, anything else gets added.</p>
+		<p class="note small">This really runs it, the same way Siri would: commands act, reminders and to-dos are added, anything else is answered.</p>
 	</form>
 </div>
 

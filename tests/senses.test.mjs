@@ -179,6 +179,32 @@ test('the wall hushes its ears while it talks', async () => {
 	assert.ok(res.json().hushMs > 1500);
 });
 
+test('after the wall asks something back, its ears stay open for the answer', async () => {
+	const { h, advance } = hub({ command: async () => ({ say: 'Should I add “Buy a kettle” to your list?', asking: true }) });
+	await h.heard('command', 'buy a kettle');
+	h.noteSpeaking('Should I add “Buy a kettle” to your list?');
+	let res = await post(h, '/api/senses/state', {});
+	const first = res.json();
+	assert.ok(first.listenMs > first.hushMs, 'open past the end of the wall talking');
+	assert.ok(first.listenMs - first.hushMs <= 6000);
+	advance(first.listenMs + 1);
+	res = await post(h, '/api/senses/state', {});
+	assert.equal(res.json().listenMs, 0, 'closes on its own');
+});
+
+test('a plain answer does not keep the ears open, and the next command closes the window', async () => {
+	let reply = { say: 'Done.' };
+	const { h } = hub({ command: async () => reply });
+	await h.heard('command', 'pause');
+	assert.equal((await post(h, '/api/senses/state', {})).json().listenMs, 0);
+	reply = { say: 'What kind of music?', followUp: true };
+	await h.heard('command', 'put something on');
+	assert.ok((await post(h, '/api/senses/state', {})).json().listenMs > 0);
+	reply = { say: 'Playing jazz.' };
+	await h.heard('command', 'jazz');
+	assert.equal((await post(h, '/api/senses/state', {})).json().listenMs, 0);
+});
+
 test('presence: broadcast on change, onNear on walking up, saved settings survive', async () => {
 	const { h, sent, near, dataDir } = hub();
 	h.handleWs({ op: 'set', patch: { camera: true } });

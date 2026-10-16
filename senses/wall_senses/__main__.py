@@ -168,6 +168,8 @@ class Senses:
             self.apply(reply.get("settings"))
         if reply.get("hushMs"):
             self.ears.hush(reply["hushMs"] / 1000.0)
+        if reply.get("listenMs"):
+            self.ears.listen_for(reply["listenMs"] / 1000.0)
         self.ears.notes = bool(reply.get("notes"))
         if reply.get("calibrate"):
             self.calibrate(reply["calibrate"])
