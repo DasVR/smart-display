@@ -9,7 +9,7 @@ think" is not a command.
 
 import re
 
-DEFAULT_WAKE = ["hey wall", "okay wall", "ok wall"]
+DEFAULT_WAKE = ["hey wall", "okay wall", "ok wall", "hey display"]
 
 # what speech-to-text sometimes writes for "wall" straight after "hey" or "okay"
 # ("Hey wallets way too loud": "wall, it's" run together)

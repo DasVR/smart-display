@@ -38,7 +38,7 @@ export const DEFAULT_SENSES = {
 	// 'phrase': "hey wall …" spotted by the transcriber (Parakeet) itself;
 	// 'openwakeword': a small always-on model (its own wake word) wakes it
 	wakeMode: 'phrase',
-	wakeWords: ['hey wall', 'okay wall'],
+	wakeWords: ['hey wall', 'okay wall', 'hey display'],
 	wakeModel: 'hey_jarvis',
 	// someone closer than this counts as "at the wall"
 	nearMeters: 1.5,
@@ -126,6 +126,8 @@ export function normalizeSensesSettings(patch = {}, base = DEFAULT_SENSES) {
 		.map((w) => text(w, 40).toLowerCase().replace(/[^a-z' ]/g, '').replace(/\s+/g, ' ').trim())
 		.filter(Boolean)
 		.slice(0, 6);
+	// saved before "hey display" was a default: the untouched old defaults get it too
+	if (wakeWords.length === 2 && wakeWords[0] === 'hey wall' && wakeWords[1] === 'okay wall') wakeWords.push('hey display');
 	const focalPx = pick('focalPx');
 	const floorMap = pick('floorMap');
 	const floorQuad = pick('floorQuad');
