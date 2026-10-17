@@ -119,6 +119,32 @@ export function wordPulse(prevText, nextText) {
 	return grew > 0 ? Math.min(1, 0.45 + grew * 0.2) : 0;
 }
 
+/**
+ * One sentence out of the recogniser's result list. Some phones (Android
+ * Chrome in continuous mode) make every result hold everything heard so far,
+ * so gluing the results together says it twice: "what's the weather what's
+ * the weather", which the wall can't read as a question. A result that starts
+ * with the text so far replaces it; one that's already the end of it is
+ * dropped; anything else is a new phrase and is added.
+ */
+export function mergeResults(parts) {
+	let out = '';
+	for (const raw of parts || []) {
+		const cur = String(raw || '').replace(/\s+/g, ' ').trim();
+		if (!cur) continue;
+		if (!out) out = cur;
+		else if (cur.toLowerCase().startsWith(out.toLowerCase())) out = cur;
+		else if (out.toLowerCase().endsWith(cur.toLowerCase())) continue;
+		else out += ` ${cur}`;
+	}
+	return out;
+}
+
+/** Two stretches of speech as one: what was heard before the recogniser restarted, then after. */
+export function joinSpeech(before, after) {
+	return mergeResults([before, after]);
+}
+
 /** The sentence as it should be sent: trimmed, one space between words, first letter up. */
 export function cleanHeard(text) {
 	const s = String(text || '').replace(/\s+/g, ' ').trim();

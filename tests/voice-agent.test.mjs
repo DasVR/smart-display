@@ -5,6 +5,8 @@ import {
 	HOLD_MS,
 	cleanHeard,
 	followLevel,
+	joinSpeech,
+	mergeResults,
 	levelFromRms,
 	nextPhase,
 	phaseLine,
@@ -122,4 +124,21 @@ test('the orb reads its colours from the CSS tokens', () => {
 	assert.ok(Math.abs(r - 0.663) < 0.01 && Math.abs(g - 0.694) < 0.01 && Math.abs(b - 0.941) < 0.01);
 	assert.deepEqual(parseColor('rgb(255, 0, 51)'), [1, 0, 0.2]);
 	assert.deepEqual(parseColor('nonsense', [0.1, 0.2, 0.3]), [0.1, 0.2, 0.3]);
+});
+
+test('cumulative recogniser results are not said twice', () => {
+	// Android Chrome, continuous mode: each result holds everything so far
+	assert.equal(mergeResults(["what's", "what's the", "what's the weather"]), "what's the weather");
+	// separate phrases are added
+	assert.equal(mergeResults(['turn it down', 'and pause']), 'turn it down and pause');
+	// an exact repeat of the end is dropped
+	assert.equal(mergeResults(['set a timer', 'a timer']), 'set a timer');
+	assert.equal(mergeResults(['', null, '  ']), '');
+	assert.equal(mergeResults(undefined), '');
+});
+
+test('speech before and after a restart joins into one sentence', () => {
+	assert.equal(joinSpeech('what is', 'the weather'), 'what is the weather');
+	assert.equal(joinSpeech('', 'pause'), 'pause');
+	assert.equal(joinSpeech('pause', ''), 'pause');
 });
