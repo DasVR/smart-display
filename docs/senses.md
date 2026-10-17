@@ -118,7 +118,9 @@ installed.
 
 - **A phrase** (default): every piece of speech has its first three seconds
   transcribed. Only when that starts with a wake phrase ("hey wall", "okay
-  wall", or your own on the phone) is the rest transcribed and acted on.
+  wall", "hey display", or your own on the phone: **Home → Senses → Wake**)
+  is the rest transcribed and acted on. Anything else, "hey Google"
+  included, is ignored.
   "Hey wall" sometimes comes out as "hey well", "Hey Wal", or, said
   quickly on its own, "K Wal"; "hey wall, it's…" can run together as "Hey
   wallets…". Those count right after "hey" or "okay", nowhere else.

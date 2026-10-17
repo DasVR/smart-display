@@ -106,6 +106,13 @@ test('settings: off by default, clamped, unknown values fall back', () => {
 	assert.equal(normalizeSensesSettings({ mic: true }, t).nearMeters, 6);
 });
 
+test('"hey display" wakes the wall too, also for settings saved with the old two', () => {
+	assert.deepEqual(DEFAULT_SENSES.wakeWords, ['hey wall', 'okay wall', 'hey display']);
+	assert.deepEqual(normalizeSensesSettings({}, { wakeWords: ['hey wall', 'okay wall'] }).wakeWords, ['hey wall', 'okay wall', 'hey display']);
+	// a list someone chose themselves is left alone
+	assert.deepEqual(normalizeSensesSettings({ wakeWords: 'hey wall' }).wakeWords, ['hey wall']);
+});
+
 test('notes commands', () => {
 	assert.equal(notesCommand('start taking notes'), 'start');
 	assert.equal(notesCommand('Take notes.'), 'start');
