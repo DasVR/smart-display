@@ -7,22 +7,29 @@
 <script>
 	import { base } from '$app/paths';
 	import RemoteApprovals from './RemoteApprovals.svelte';
+	import VoiceKey from './VoiceKey.svelte';
+	import VoiceSheet from './VoiceSheet.svelte';
+
+	let keyEl = $state(null);
 
 	let { active = 'control' } = $props();
 
 	// base-relative so the tabs also work under the GitHub Pages sub-path
 	const TABS = [
 		{ id: 'control', label: 'Now', href: `${base}/remote` },
-		{ id: 'night', label: 'Night', href: `${base}/remote#night` },
 		{ id: 'tasks', label: 'Day', href: `${base}/remote/tasks` },
+		{ id: 'night', label: 'Night', href: `${base}/remote#night` },
 		{ id: 'stats', label: 'Home', href: `${base}/remote/stats` }
 	];
+	// the mic key sits in the middle: two tabs either side
+	const left = TABS.slice(0, 2);
+	const right = TABS.slice(2);
 </script>
 
 <RemoteApprovals />
 <div class="edge-fade" aria-hidden="true"></div>
-<nav class="tabbar" aria-label="Remote sections">
-	{#each TABS as tab (tab.id)}
+{#snippet tabs(list)}
+	{#each list as tab (tab.id)}
 		<a
 			class="tab"
 			class:active={active === tab.id}
@@ -48,7 +55,14 @@
 			<span>{tab.label}</span>
 		</a>
 	{/each}
+{/snippet}
+
+<nav class="tabbar" aria-label="Remote sections">
+	{@render tabs(left)}
+	<VoiceKey bind:el={keyEl} />
+	{@render tabs(right)}
 </nav>
+<VoiceSheet returnFocus={keyEl} />
 
 <style>
 	.tabbar {
@@ -57,12 +71,22 @@
 		left: 50%;
 		bottom: max(0.75rem, env(safe-area-inset-bottom));
 		transform: translateX(-50%);
-		width: min(calc(22.5rem - 1.5rem), calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)));
+		width: min(calc(26rem - 2rem), calc(100vw - 1.5rem - env(safe-area-inset-left) - env(safe-area-inset-right)));
 		display: grid;
-		grid-template-columns: repeat(4, 1fr);
+		grid-template-columns: 1fr 1fr 4.1rem 1fr 1fr;
 		padding: 0.3rem;
 		border-radius: 999px;
-		/* liquid glass: frosted, lit from above, softly lifted off the page */
+		isolation: isolate;
+	}
+	/* The frosted glass is its own layer behind the buttons, not the nav itself,
+	   so the mic key (which transforms and glows) is never a child of a blurred
+	   element: lit from above, softly lifted off the page. */
+	.tabbar::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: -1;
+		border-radius: inherit;
 		background: color-mix(in srgb, var(--abyss-2) 78%, transparent);
 		backdrop-filter: blur(22px) saturate(1.6);
 		-webkit-backdrop-filter: blur(22px) saturate(1.6);
@@ -132,7 +156,7 @@
 		outline-offset: -2px;
 	}
 	@media (prefers-reduced-transparency: reduce) {
-		.tabbar {
+		.tabbar::before {
 			background: var(--abyss-2);
 			backdrop-filter: none;
 			-webkit-backdrop-filter: none;

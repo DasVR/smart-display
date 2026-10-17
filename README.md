@@ -180,14 +180,17 @@ These query parameters show a state without needing real hardware or data:
 ### Phone remote
 
 Open `/remote` on a phone and use **Add to Home Screen** to run it as an app.
-A floating tab bar at the bottom switches between:
+A floating tab bar at the bottom switches between the pages, with a **mic
+key** in the middle: hold it and a voice sheet slides up so you can talk to
+the wall like "Hey Display", from your phone. See
+[`docs/remote-voice.md`](docs/remote-voice.md).
 
 - **Now** (`/remote`): the back of the wall. It opens with what the wall is
   showing and that view's buttons: what needs you with Done / Later / Allow on
   the clock, the transport on music, waiting agents on Agents, what's coming
-  on Calendar, conditions and alerts on Weather. Below: panel power, channel
-  picker, volume.
-- **Night** (`/remote#night`): when the panel is on, per day, and the morning wake (see [`docs/display-schedule.md`](docs/display-schedule.md))
+  on Calendar, conditions and alerts on Weather. Below: one row of pages to
+  switch between, and volume. Panel power is the pill at the top.
+- **Night** (`/remote#night`): one sentence ("Off tonight at 10:30 PM"), two switches, and the week; tap a day to edit it (see [`docs/display-schedule.md`](docs/display-schedule.md))
 - **Day** (`/remote/tasks`): add, complete and snooze chores and alerts, and
   what already happened today. **Siri & Shortcuts** (`/remote/shortcuts`) has
   the Siri recipes, everything you can say, and a box to try phrases. Any
@@ -287,6 +290,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/agent-status.md`](docs/agent-status.md): live status from Claude Code and Cursor, on your computer or in the cloud, through their hooks and Cursor's Cloud Agents API
 - [`docs/voice.md`](docs/voice.md): the wall's voice (Piper for free on the wall, or ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
+- [`docs/remote-voice.md`](docs/remote-voice.md): the phone's voice agent: hold the mic key, talk to the wall, the orb shader, and the https it needs
 - [`docs/assistant.md`](docs/assistant.md): asking the wall questions, answered by a small model on Ollama Cloud with web search
 - [`docs/apple-music.md`](docs/apple-music.md): "play …" on Apple Music, in a slim headless Chrome, with the wall's own enhancer
 - [`docs/display-schedule.md`](docs/display-schedule.md): when the panel turns on and off, per day of the week
