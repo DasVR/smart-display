@@ -19,6 +19,7 @@ import {
 	HOLD_MS,
 	LINGER_MS,
 	cleanHeard,
+	joinSpeech,
 	nextPhase,
 	pressEnd,
 	pressMove,
@@ -66,6 +67,8 @@ let silenceTimer = 0;
 let lingerTimer = 0;
 let ear = null;
 let startedAt = 0;
+// what was heard before the recogniser stopped by itself while the key was still held
+let carry = '';
 
 const buzz = (ms = 10) => navigator.vibrate?.(ms);
 
@@ -198,7 +201,7 @@ function listen() {
 	if (voice.blocker || !ear) return false;
 	stopSpeaking();
 	clearTimeout(lingerTimer);
-	voice.heard = '';
+	voice.heard = carry;
 	voice.cancel = false;
 	meter.level = 0;
 	if (!ear.start()) {
@@ -217,7 +220,7 @@ function ensureEar() {
 	voice.blocker = voiceBlocker(earSupport());
 	ear = createEar({
 		onInterim: (text) => {
-			voice.heard = text;
+			voice.heard = joinSpeech(carry, text);
 			clearTimeout(silenceTimer);
 			// tap-opened listening ends itself after a pause; held listening ends on release
 			if (voice.latched && !voice.pressing && text) silenceTimer = setTimeout(() => ear?.stop(), SILENCE_MS);
@@ -230,6 +233,15 @@ function ensureEar() {
 			meter.level = 0;
 			if (voice.phase === 'idle' && !voice.open) return;
 			if (cancelled) return void (cancelled = false);
+			// the phone's recogniser gave up on its own (a pause, a time limit) while the
+			// key is still down: keep what it heard and listen on, so letting go is what sends
+			if (voice.pressing && voice.open && !voice.latched) {
+				carry = joinSpeech(carry, text);
+				setTimeout(() => voice.pressing && voice.open && listen(), 60);
+				return;
+			}
+			text = joinSpeech(carry, text);
+			carry = '';
 			// the microphone itself was refused: the note on the sheet says so, nothing to "not catch"
 			if (!text && voice.blocker) {
 				voice.phase = 'idle';
@@ -259,6 +271,7 @@ export function pressDown(e) {
 	primeAudio();
 	warm();
 	ensureEar();
+	carry = '';
 	gesture = pressStart(e.clientX, e.clientY, performance.now());
 	voice.pressing = true;
 	voice.cancel = false;
@@ -301,8 +314,13 @@ export function pressUp() {
 		return;
 	}
 	// send: finish listening; the recogniser hands over the last words
-	if (voice.phase === 'listening') ear?.stop();
-	else if (voice.phase === 'idle' && voice.typed) sendTyped();
+	if (voice.phase === 'listening' && ear?.listening) ear.stop();
+	else if (voice.phase === 'listening' || (voice.phase === 'idle' && (carry || voice.heard))) {
+		// it had already stopped (between restarts): send what was kept
+		const said = joinSpeech(carry, voice.heard);
+		carry = '';
+		deliver(said);
+	} else if (voice.phase === 'idle' && voice.typed) sendTyped();
 }
 
 export function pressCancelled() {
@@ -362,6 +380,7 @@ export function setMode(mode) {
 }
 
 export function close() {
+	carry = '';
 	clearTimers();
 	cancelled = false;
 	ear?.abort();

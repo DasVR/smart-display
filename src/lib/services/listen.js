@@ -10,7 +10,7 @@
 // once without one of them going deaf, so there the orb follows the words
 // as they arrive instead (src/lib/voiceAgent.js wordPulse).
 
-import { levelFromRms, rmsOf, wordPulse } from '../voiceAgent.js';
+import { levelFromRms, mergeResults, rmsOf, wordPulse } from '../voiceAgent.js';
 
 const IOS = typeof navigator !== 'undefined' && /iP(hone|ad|od)/.test(navigator.userAgent);
 
@@ -35,7 +35,6 @@ export function createEar({ lang = 'en-US', onInterim = () => {}, onFinal = () =
 	let active = false;
 	let aborted = false;
 	let heard = '';
-	let finalText = '';
 	let meter = null;
 
 	async function startMeter() {
@@ -79,22 +78,14 @@ export function createEar({ lang = 'en-US', onInterim = () => {}, onFinal = () =
 		if (!Ctor || active) return false;
 		aborted = false;
 		heard = '';
-		finalText = '';
 		rec = new Ctor();
 		rec.lang = lang;
 		rec.continuous = true;
 		rec.interimResults = true;
 		rec.maxAlternatives = 1;
 		rec.onresult = (e) => {
-			let interim = '';
-			let fin = '';
-			for (let i = 0; i < e.results.length; i++) {
-				const r = e.results[i];
-				if (r.isFinal) fin += r[0].transcript;
-				else interim += r[0].transcript;
-			}
-			finalText = fin;
-			const text = `${fin} ${interim}`.replace(/\s+/g, ' ').trim();
+			// final and still-changing words together: let go mid-word and the last word still counts
+			const text = mergeResults(Array.from(e.results, (r) => r[0].transcript));
 			const pulse = wordPulse(heard, text);
 			heard = text;
 			if (pulse && !meter) onLevel(pulse);
@@ -111,7 +102,7 @@ export function createEar({ lang = 'en-US', onInterim = () => {}, onFinal = () =
 			stopMeter();
 			if (!was) return;
 			onEnd();
-			if (!aborted) onFinal((finalText || heard).trim());
+			if (!aborted) onFinal(heard);
 		};
 		active = true;
 		try {
