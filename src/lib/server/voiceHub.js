@@ -24,7 +24,7 @@
  * voice, model and text, so "Pasta timer is done." is free the second time.
  */
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
+import { chmodSync, closeSync, openSync, readSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync, createReadStream } from 'node:fs';
 import path from 'node:path';
 import { wallDayKey } from '../calendarItems.js';
 import { createPiper } from './piperVoice.js';
@@ -38,6 +38,28 @@ const KEY_SHAPE = /^[A-Za-z0-9_-]{20,128}$/;
 const TTS_TIMEOUT_MS = 8000;
 const MAX_CLIPS = 300;
 const MAX_BODY = 4 * 1024;
+
+/** How long a cached clip plays, in ms, from its file: a WAV's header, or an
+ *  mp3's size at the 128 kbps ElevenLabs is asked for. 0 when unknown. */
+export function clipDurationMs(file) {
+	try {
+		if (file.endsWith('.wav')) {
+			const fd = openSync(file, 'r');
+			const head = Buffer.alloc(44);
+			try {
+				readSync(fd, head, 0, 44, 0);
+			} finally {
+				closeSync(fd);
+			}
+			const byteRate = head.readUInt32LE(28);
+			if (head.toString('ascii', 0, 4) !== 'RIFF' || !byteRate) return 0;
+			return Math.round(((statSync(file).size - 44) / byteRate) * 1000);
+		}
+		return Math.round((statSync(file).size * 8) / 128);
+	} catch {
+		return 0;
+	}
+}
 
 export function clipKey(voiceId, model, text) {
 	return createHash('sha256').update(`${voiceId}\u0000${model}\u0000${text}`).digest('hex').slice(0, 32);
@@ -234,19 +256,19 @@ export function createVoiceHub({
 	async function piperClip(text) {
 		const id = clipKey(`piper:${settings.piperVoice}`, 'piper', text);
 		const file = path.join(clipDir, `${id}.wav`);
-		if (existsSync(file)) return { id, ext: 'wav', cached: true };
+		if (existsSync(file)) return { id, ext: 'wav', cached: true, durationMs: clipDurationMs(file) };
 		mkdirSync(clipDir, { recursive: true });
 		const r = await piper.speak(text, file, settings.piperVoice);
 		if (!r.ok) return { error: r.error === 'no-voice' ? 'no-voice' : 'tts-failed' };
 		prune();
-		return { id, ext: 'wav', cached: false };
+		return { id, ext: 'wav', cached: false, durationMs: clipDurationMs(file) };
 	}
 
 	/** An mp3 for the text, from the cache or ElevenLabs. { id, ext } or { error }. */
 	async function elevenClip(text) {
 		const id = clipKey(settings.voiceId, settings.model, text);
 		const file = path.join(clipDir, `${id}.mp3`);
-		if (existsSync(file)) return { id, ext: 'mp3', cached: true };
+		if (existsSync(file)) return { id, ext: 'mp3', cached: true, durationMs: clipDurationMs(file) };
 		const apiKey = key();
 		if (!apiKey) return { error: 'no-key' };
 		if (usedToday() + text.length > settings.dailyChars) return { error: 'daily-limit' };
@@ -268,7 +290,7 @@ export function createVoiceHub({
 			writeFileSync(file, buf);
 			spend(text.length);
 			prune();
-			return { id, ext: 'mp3', cached: false };
+			return { id, ext: 'mp3', cached: false, durationMs: clipDurationMs(file) };
 		} catch (err) {
 			log.warn?.(`[voice] ElevenLabs unreachable: ${err?.name || 'error'}`);
 			return { error: 'tts-failed' };
@@ -291,6 +313,7 @@ export function createVoiceHub({
 		const id = `speak-${++seq}`;
 		let reason = '';
 		let clipUrl = null;
+		let durationMs = 0;
 		const here = settings.followRoom || settings.holdWhenAway ? room() : null;
 		const quiet = inQuietHours(now(), settings);
 		const volume = settings.followRoom ? roomVolume(voiceVolumeAt(now(), settings), here, { quiet }) : voiceVolumeAt(now(), settings);
@@ -302,7 +325,10 @@ export function createVoiceHub({
 			held = [...held, { text: words, at: now() }].slice(-10);
 		} else {
 			const c = await clip(words);
-			if (c.id) clipUrl = `/api/voice/clip/${c.id}.${c.ext}`;
+			if (c.id) {
+				clipUrl = `/api/voice/clip/${c.id}.${c.ext}`;
+				durationMs = c.durationMs || 0;
+			}
 			else reason = c.error;
 		}
 		broadcast({
@@ -311,6 +337,8 @@ export function createVoiceHub({
 			text: words,
 			source,
 			url: clipUrl,
+			// how long it plays: the ears stay shut for this long, not for a guess
+			...(durationMs ? { durationMs } : {}),
 			caption,
 			// how loud this clip plays (0 to 1): the day or night voice, for where you are
 			volume,

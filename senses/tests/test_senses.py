@@ -216,7 +216,7 @@ class Room(unittest.TestCase):
 class Wake(unittest.TestCase):
     def test_commands(self):
         self.assertEqual(match_wake("Hey wall, pause the music."), "pause the music")
-        self.assertEqual(match_wake("Okay wall what's the weather?"), "what's the weather")
+        self.assertEqual(match_wake("Okay wall what's the weather?"), "what's the weather?")
         self.assertEqual(match_wake("OK, wall. Set a timer for 10 minutes."), "Set a timer for 10 minutes")
         self.assertEqual(match_wake("Hey Wall remind me at 5:30 p.m. to call mom"), "remind me at 5:30 p.m. to call mom")
 
@@ -300,7 +300,7 @@ class ParakeetWake(unittest.TestCase):
 
     def test_a_quick_bare_hey_wall(self):
         self.assertEqual(match_wake("K Wal"), "")
-        self.assertEqual(match_wake("Hay wall, what time is it?"), "what time is it")
+        self.assertEqual(match_wake("Hay wall, what time is it?"), "what time is it?")
 
     def test_wall_its_run_together(self):
         self.assertEqual(match_wake("Hey wallets way too loud in here."), "way too loud in here")
@@ -425,3 +425,11 @@ Source #50
         ]
         self.assertEqual(choose_source(short), "alsa_input.usb-046d_0821_EDE53AA0-00.analog-stereo")
         self.assertEqual(choose_source(short, "alsa_input.pci-0000_e5_00.6.analog-stereo"), "alsa_input.pci-0000_e5_00.6.analog-stereo")
+
+
+class KeepsQuestionMarks(unittest.TestCase):
+    def test_question_mark_stays_full_stop_goes(self):
+        self.assertEqual(match_wake("Hey wall what time is it?"), "what time is it?")
+        self.assertEqual(match_wake("Hey wall pause the music."), "pause the music")
+        self.assertEqual(route("Is it going to rain?", None, False, True), ("command", "Is it going to rain?"))
+        self.assertEqual(route("Yes, please.", None, False, True), ("command", "Yes, please"))

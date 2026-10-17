@@ -32,7 +32,9 @@ import { MAX_ZONES, hushMsFor, newPlaceState, normalizeSensesSettings, notesComm
 import { authorized, loadApiToken } from './taskService.js';
 
 const OFFLINE_MS = 5000;
-const FOLLOW_MS = 6000;
+const FOLLOW_MS = 8000;
+// between the wall deciding to speak and the sound starting (fetching the clip)
+const SPEAK_LEAD_MS = 700;
 const SPEAK_START_MS = 2500;
 const CALIBRATE_TTL_MS = 20000;
 const MAX_BODY = 8 * 1024;
@@ -270,7 +272,7 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 				log(`senses: command failed: ${e.message}`);
 			}
 			reply = result?.say || result?.error || "Sorry, I didn't catch that.";
-			if (result?.followUp || result?.asking) followAt = now();
+			if (result?.followUp || result?.asking || /\?["”']?\s*$/.test(reply)) followAt = now();
 		}
 		await Promise.resolve(say(reply)).catch(() => {});
 		return { ok: true, say: reply };
@@ -418,8 +420,12 @@ export function createSensesHub({ dataDir, broadcast, command, say, isLocal, onN
 	}
 
 	/** Ears shut while the wall talks, so it never answers itself. */
-	function noteSpeaking(text) {
-		hushUntil = Math.max(hushUntil, now() + hushMsFor(text));
+	function noteSpeaking(text, durationMs = 0) {
+		// the clip's real length when the voice knows it (Piper talks much faster
+		// than the guess from the sentence's length, and the answer that follows a
+		// question was being thrown away), plus the moment the wall takes to start it
+		const ms = Number(durationMs) > 0 ? Number(durationMs) + SPEAK_LEAD_MS : hushMsFor(text);
+		hushUntil = Math.max(hushUntil, now() + ms);
 	}
 
 	/** Every so often: notes left on with nothing said, a calibration that never came back, the process gone. */

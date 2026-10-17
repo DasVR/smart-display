@@ -114,7 +114,7 @@ def route(text, wake_words, notes, awaiting):
     if rest is not None:
         return ("command", rest) if rest and not is_noise(rest) else ("wake", "")
     if awaiting:
-        return ("command", text.strip().rstrip(".!?,").strip())
+        return ("command", text.strip().rstrip(".,").strip())
     if notes:
         return ("note", text.strip())
     return None

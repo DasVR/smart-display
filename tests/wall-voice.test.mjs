@@ -4,7 +4,7 @@ import { mkdtempSync, readdirSync, writeFileSync, existsSync, readFileSync, stat
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { inQuietHours, speechText, speechForDue, normalizeVoiceSettings, voiceVolumeAt, roomVolume, welcomeBackText, DEFAULT_VOICE } from '../src/lib/wallVoice.js';
-import { createVoiceHub, clipKey, loadElevenLabsKey } from '../src/lib/server/voiceHub.js';
+import { createVoiceHub, clipKey, clipDurationMs, loadElevenLabsKey } from '../src/lib/server/voiceHub.js';
 import { parseCommand } from '../src/lib/wallActions.js';
 import { chimeKindForEvent, islandOwnsChime } from '../src/lib/chimeKind.js';
 import { SOUND_LIBRARY } from '../src/lib/sounds/library.js';
@@ -433,4 +433,24 @@ test('a wav clip is served as audio/wav', async () => {
 	await h.handleHttp({ method: 'GET', url: `/api/voice/clip/${name}`, headers: {} }, res);
 	assert.equal(headers.status, 200);
 	assert.equal(headers['Content-Type'], 'audio/wav');
+});
+
+
+test('clipDurationMs reads a wav header and sizes an mp3 at 128 kbps', () => {
+	const dir = mkdtempSync(path.join(tmpdir(), 'clip-'));
+	const wav = Buffer.alloc(44 + 22050 * 2 * 2);
+	wav.write('RIFF', 0);
+	wav.write('WAVE', 8);
+	wav.writeUInt32LE(22050 * 2, 28); // byte rate: 22.05 kHz, 16-bit mono
+	writeFileSync(path.join(dir, 'a.wav'), wav);
+	assert.equal(clipDurationMs(path.join(dir, 'a.wav')), 2000);
+	writeFileSync(path.join(dir, 'b.mp3'), Buffer.alloc(32000)); // 32 kB at 128 kbps = 2 s
+	assert.equal(clipDurationMs(path.join(dir, 'b.mp3')), 2000);
+	assert.equal(clipDurationMs(path.join(dir, 'missing.wav')), 0);
+});
+
+test('the speak broadcast says how long the clip plays', async () => {
+	const { h, sent } = hub({ fetchImpl: fakeEleven({ bytes: 'x'.repeat(16000) }).fetchImpl });
+	await h.say('Hello there.');
+	assert.equal(sent[0].durationMs, 1000);
 });
