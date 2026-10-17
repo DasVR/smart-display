@@ -108,6 +108,9 @@ installed.
   visualiser uses), so PipeWire resamples to 16 kHz. Without a setting it
   takes the first input whose name looks like a webcam (`usb`, `cam`,
   `C920`, `Brio`…), else the default source. Never a speaker monitor.
+  The phone's Senses page says which input it is listening to and has a
+  **Microphone** picker listing every input by name; if the meter hardly
+  moves when you talk, it's on the wrong one.
 - **Camera:** `/dev/video0` unless set otherwise. The service runs as `das`
   with the `video` group.
 

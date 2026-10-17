@@ -75,6 +75,33 @@ def list_sources():
         return []
 
 
+def describe_sources(pactl_long):
+    """[{name, label}] for every microphone in `pactl list sources` output, so
+    the phone can show "HD Pro Webcam C920 Analog Stereo" rather than
+    alsa_input.usb-046d_…. Monitors (what the speakers play) are left out."""
+    found = []
+    name = None
+    for raw in pactl_long:
+        line = raw.strip()
+        if line.startswith("Name:"):
+            name = line.split(":", 1)[1].strip()
+        elif line.startswith("Description:") and name:
+            if not name.endswith(".monitor"):
+                found.append({"name": name, "label": line.split(":", 1)[1].strip() or name})
+            name = None
+    return found
+
+
+def list_source_details():
+    if not shutil.which("pactl"):
+        return []
+    try:
+        out = subprocess.run(["pactl", "list", "sources"], capture_output=True, text=True, timeout=5)
+        return describe_sources(out.stdout.splitlines())
+    except (OSError, subprocess.SubprocessError):
+        return []
+
+
 def route(text, wake_words, notes, awaiting):
     """What a transcribed piece means.
 
@@ -119,6 +146,8 @@ class Ears:
         # the last thing that went wrong turning speech into words, for the phone
         self.error_detail = ""
         self.device = ""
+        # the microphones there are, for the phone's picker: [{name, label}]
+        self.sources = []
         self._stop = threading.Event()
         self._threads = []
         self._proc = None
@@ -160,6 +189,7 @@ class Ears:
         return {
             "ok": self.running() and self.error in ("", "no-openwakeword"),
             "device": self.device,
+            "sources": self.sources,
             "level": round(self.level, 4),
             "state": "listening" if self.state == "idle" and self.listening() else self.state,
             "notes": self.notes,
@@ -207,6 +237,7 @@ class Ears:
             self.log("ears: parec not found (install pulseaudio-utils)")
             return None
         self.device = choose_source(list_sources(), self.source)
+        self.sources = list_source_details()
         self.log(f"ears: listening to {self.device}, turned up {self.gain:g}x")
         # webcams often come up with their microphone at half volume: start from full
         if shutil.which("pactl"):

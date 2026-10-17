@@ -156,6 +156,15 @@
 		send({ op: 'set', patch: p });
 	}
 
+	/** "HD Pro Webcam C910 Analog Stereo" for the device the ears opened. */
+	function micLabel(mic) {
+		const name = mic?.device || '';
+		if (!name) return '';
+		if (name === 'wall_mic') return 'the cleaned webcam microphone (wall_mic)';
+		if (name === '@DEFAULT_SOURCE@') return "the computer's default input";
+		return (mic.sources || []).find((x) => x.name === name)?.label || name;
+	}
+
 	function saveWake(e) {
 		e?.preventDefault();
 		patch({ wakeWords: wakeText });
@@ -276,6 +285,18 @@
 			</label>
 			{#if s.settings.mic && s.online}
 				<div class="meter" aria-label="Microphone level"><span style:width="{level}%"></span></div>
+				{#if s.mic?.device}
+					<p class="note">Listening to {micLabel(s.mic)}. If the meter hardly moves when you talk, pick the webcam below.</p>
+				{/if}
+				{#if s.mic?.sources?.length}
+					<label class="row">
+						<span>Microphone</span>
+						<select value={s.settings.micSource || ''} onchange={(e) => patch({ micSource: e.currentTarget.value })}>
+							<option value="">Automatic (the webcam)</option>
+							{#each s.mic.sources as src (src.name)}<option value={src.name}>{src.label}</option>{/each}
+						</select>
+					</label>
+				{/if}
 				<p class="note">
 					{#if s.mic?.error === 'no-sherpa'}
 						The speech recogniser isn't installed on the display. Run <code>scripts/senses/install.sh</code> there again.
