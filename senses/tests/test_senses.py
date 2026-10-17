@@ -391,3 +391,37 @@ class FailuresShow(unittest.TestCase):
         self.run_pieces(ears, [b"\x00\x00" * 1600])
         self.assertIsNone(ears.snapshot()["error"])
         self.assertIsNone(ears.snapshot()["detail"])
+
+
+class Sources(unittest.TestCase):
+    LONG = """Source #48
+	State: SUSPENDED
+	Name: alsa_output.pci-0000_e5_00.6.analog-stereo.monitor
+	Description: Monitor of Family 17h/19h HD Audio Controller Analog Stereo
+Source #49
+	State: RUNNING
+	Name: alsa_input.usb-046d_0821_EDE53AA0-00.analog-stereo
+	Description: HD Webcam C910 Analog Stereo
+Source #50
+	Name: alsa_input.pci-0000_e5_00.6.analog-stereo
+	Description: Family 17h/19h HD Audio Controller Analog Stereo
+""".splitlines()
+
+    def test_names_and_labels_without_monitors(self):
+        from wall_senses.hearing import describe_sources
+
+        self.assertEqual(
+            describe_sources(self.LONG),
+            [
+                {"name": "alsa_input.usb-046d_0821_EDE53AA0-00.analog-stereo", "label": "HD Webcam C910 Analog Stereo"},
+                {"name": "alsa_input.pci-0000_e5_00.6.analog-stereo", "label": "Family 17h/19h HD Audio Controller Analog Stereo"},
+            ],
+        )
+
+    def test_the_webcam_wins_by_default_and_a_choice_wins_over_it(self):
+        short = [
+            "49\talsa_input.usb-046d_0821_EDE53AA0-00.analog-stereo\tPipeWire\ts16le 2ch 48000Hz\tRUNNING",
+            "50\talsa_input.pci-0000_e5_00.6.analog-stereo\tPipeWire\ts16le 2ch 48000Hz\tSUSPENDED",
+        ]
+        self.assertEqual(choose_source(short), "alsa_input.usb-046d_0821_EDE53AA0-00.analog-stereo")
+        self.assertEqual(choose_source(short, "alsa_input.pci-0000_e5_00.6.analog-stereo"), "alsa_input.pci-0000_e5_00.6.analog-stereo")
