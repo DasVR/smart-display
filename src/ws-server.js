@@ -124,7 +124,7 @@ const voiceHub = createVoiceHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => {
 		// the webcam's ears close while the wall talks, so it never answers itself
-		if (msg?.type === 'speak' && msg.url) sensesHub.noteSpeaking(msg.text);
+		if (msg?.type === 'speak' && msg.url) sensesHub.noteSpeaking(msg.text, msg.durationMs);
 		broadcast(msg);
 	},
 	// louder across the room, softer lying down at night, held for an empty room

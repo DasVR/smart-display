@@ -84,11 +84,12 @@ def _after_words(raw, count):
     """The raw text after its first `count` words (as clean() counts them).
 
     The wall's parser reads times like "5:30" and "p.m.", so the command is
-    handed on as it was written, only trimmed of the wake phrase and of
-    trailing punctuation.
+    handed on as it was written, only trimmed of the wake phrase and of a
+    trailing full stop or comma. A question mark stays: "what time is it?"
+    shows on the wall as the question it was.
     """
     for tok in re.finditer(r"\S+", raw):
         if count <= 0:
-            return raw[tok.start():].strip().rstrip(".!?,").strip()
+            return raw[tok.start():].strip().rstrip(".,").strip()
         count -= len(clean(tok.group(0)).split())
     return ""

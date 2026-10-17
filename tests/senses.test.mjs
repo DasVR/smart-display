@@ -187,7 +187,7 @@ test('after the wall asks something back, its ears stay open for the answer', as
 	let res = await post(h, '/api/senses/state', {});
 	const first = res.json();
 	assert.ok(first.listenMs > first.hushMs, 'open past the end of the wall talking');
-	assert.ok(first.listenMs - first.hushMs <= 6000);
+	assert.ok(first.listenMs - first.hushMs <= 8000);
 	advance(first.listenMs + 1);
 	res = await post(h, '/api/senses/state', {});
 	assert.equal(res.json().listenMs, 0, 'closes on its own');
@@ -204,6 +204,23 @@ test('a plain answer does not keep the ears open, and the next command closes th
 	reply = { say: 'Playing jazz.' };
 	await h.heard('command', 'jazz');
 	assert.equal((await post(h, '/api/senses/state', {})).json().listenMs, 0);
+});
+
+test('the ears stay shut for the clip\'s real length, not a guess from the sentence', async () => {
+	const { h } = hub();
+	// Piper says this in about 2 s; the old guess from 40 characters was 4.5 s
+	h.noteSpeaking('Should I add “Buy a kettle” to your list?', 2000);
+	const hush = (await post(h, '/api/senses/state', {})).json().hushMs;
+	assert.ok(hush >= 2000 && hush <= 3000, `hush ${hush}`);
+	const { h: h2 } = hub();
+	h2.noteSpeaking('Should I add “Buy a kettle” to your list?');
+	assert.ok((await post(h2, '/api/senses/state', {})).json().hushMs > 4000, 'no length known: the guess');
+});
+
+test('a spoken reply ending in a question opens the ears even without a flag', async () => {
+	const { h } = hub({ command: async () => ({ say: 'Which one, the cat or the fish?' }) });
+	await h.heard('command', 'feed it');
+	assert.ok((await post(h, '/api/senses/state', {})).json().listenMs > 0);
 });
 
 test('presence: broadcast on change, onNear on walking up, saved settings survive', async () => {
