@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # The wall's senses: install the webcam process on the display (das-server).
 #
-#   scripts/senses/install.sh                      venv, OpenCV, sherpa-onnx + Parakeet, YOLOX, YuNet
+#   scripts/senses/install.sh                      venv, OpenCV, sherpa-onnx + Parakeet, Phonon (the
+#                                                  wall's voice), YOLOX, YuNet
 #   scripts/senses/install.sh --wake-word          also openWakeWord and its models
+#   HF_TOKEN=hf_… scripts/senses/install.sh --phonon-40m
+#                                                  also Phonon's larger voice model (a Hugging Face
+#                                                  account that accepted its terms; non-commercial)
 #   scripts/senses/install.sh --apply-systemd      install and start smart-display-senses.service
 #
 # Everything runs on this machine's CPU. The service is only allowed to talk
@@ -14,6 +18,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 VENV="${SENSES_VENV:-$HOME/venvs/senses}"
 CACHE="${WALL_SENSES_MODELS:-$HOME/.cache/wall-senses}"
 WAKE=0
+PHONON40=0
 APPLY=0
 DRY=0
 YUNET_URL="https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
@@ -28,10 +33,11 @@ while [[ $# -gt 0 ]]; do
 		--models) echo "note: --models is no longer needed; the microphone uses Parakeet" >&2; shift ;;
 		--models=*) echo "note: --models is no longer needed; the microphone uses Parakeet" >&2 ;;
 		--wake-word) WAKE=1 ;;
+		--phonon-40m) PHONON40=1 ;;
 		--apply-systemd) APPLY=1 ;;
 		--dry-run) DRY=1 ;;
 		-h|--help)
-			sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+			sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'
 			exit 0
 			;;
 		*) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -67,7 +73,7 @@ if [[ ! -x "$VENV/bin/python" ]]; then
 	run "$PY" -m venv "$VENV"
 fi
 run "$VENV/bin/pip" install --upgrade pip
-run "$VENV/bin/pip" install "numpy>=1.24" "opencv-python-headless>=4.8,<5" "sherpa-onnx>=1.12,<2"
+run "$VENV/bin/pip" install "numpy>=1.24" "opencv-python-headless>=4.8,<5" "sherpa-onnx>=1.12,<2" "ptts>=0.4,<0.5"
 if [[ "$WAKE" == 1 ]]; then
 	# without its tflite-runtime dependency, which has no wheel for Python 3.12;
 	# the wall only uses openWakeWord's ONNX models
@@ -94,6 +100,15 @@ if [[ ! -s "$CACHE/$PARAKEET/encoder.int8.onnx" ]]; then
 	run tar -xjf "$CACHE/$PARAKEET.tar.bz2" -C "$CACHE"
 	run rm -f "$CACHE/$PARAKEET.tar.bz2"
 fi
+
+# the wall's voice: Phonon 31M (Apache 2.0, 64 MB) and its English voices (26 MB),
+# lent to phones, computers and Hermes by the voice box (docs/voice-server.md)
+if [[ "$PHONON40" == 1 ]]; then
+	run "$VENV/bin/python" "$ROOT/scripts/senses/fetch_phonon.py" "$CACHE" --40m
+else
+	run "$VENV/bin/python" "$ROOT/scripts/senses/fetch_phonon.py" "$CACHE"
+fi
+command -v ffmpeg >/dev/null 2>&1 || echo "note: ffmpeg is missing; the voice box then only reads WAV recordings (sudo apt install ffmpeg)"
 
 if ! id -nG | tr ' ' '\n' | grep -qx video; then
 	echo "note: $(id -un) is not in the video group; the service adds it (SupplementaryGroups), or: sudo usermod -aG video $(id -un)"

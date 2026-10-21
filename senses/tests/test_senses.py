@@ -303,7 +303,7 @@ class ParakeetWake(unittest.TestCase):
         self.assertEqual(match_wake("Hay wall, what time is it?"), "what time is it?")
 
     def test_hey_display(self):
-        self.assertEqual(match_wake("Hey display what time is it?"), "what time is it")
+        self.assertEqual(match_wake("Hey display what time is it?"), "what time is it?")
         self.assertEqual(match_wake("Hey display."), "")
 
     def test_wall_its_run_together(self):

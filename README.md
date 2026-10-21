@@ -288,9 +288,10 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/agent-characters.md`](docs/agent-characters.md): the agents as pixel characters on the bottom bar, and how they're animated
 - [`docs/boot.md`](docs/boot.md): turning on: the standby light, the eyes opening, a quiet boot, and how long each boot took (`npm run boot-report`)
 - [`docs/agent-status.md`](docs/agent-status.md): live status from Claude Code and Cursor, on your computer or in the cloud, through their hooks and Cursor's Cloud Agents API
-- [`docs/voice.md`](docs/voice.md): the wall's voice (Piper for free on the wall, or ElevenLabs), its sound library, and making new sounds from the phone
+- [`docs/voice.md`](docs/voice.md): the wall's voice (Phonon or Piper for free on the wall, or ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
 - [`docs/remote-voice.md`](docs/remote-voice.md): the phone's voice agent: hold the mic key, talk to the wall, the orb shader, and the https it needs
+- [`docs/voice-server.md`](docs/voice-server.md): the wall's ears (Parakeet) and voice (Phonon) for your phone, your computer, Hermes and any OpenAI-compatible app
 - [`docs/assistant.md`](docs/assistant.md): asking the wall questions, answered by a small model on Ollama Cloud with web search
 - [`docs/apple-music.md`](docs/apple-music.md): "play …" on Apple Music, in a slim headless Chrome, with the wall's own enhancer
 - [`docs/display-schedule.md`](docs/display-schedule.md): when the panel turns on and off, per day of the week

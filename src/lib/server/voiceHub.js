@@ -10,10 +10,12 @@
  * Same Bearer token as /api/tasks, except clips: their names are hashes of
  * what was said, and an <audio> element can't send a header.
  *
- * Two voices: ElevenLabs (a key, paid by the character) and Piper (free, on
- * this machine: src/lib/server/piperVoice.js). The `engine` setting picks:
- * 'auto' speaks with ElevenLabs when there's a key and Piper otherwise, and
- * also whenever ElevenLabs can't (out of today's characters, unreachable).
+ * Three voices: ElevenLabs (a key, paid by the character), Phonon (free, on
+ * this machine, through the voice box: src/lib/server/voiceBox.js) and Piper
+ * (free, plainer: src/lib/server/piperVoice.js). The `engine` setting picks:
+ * 'auto' speaks with ElevenLabs when there's a key, else Phonon, else Piper,
+ * and falls to the free ones whenever ElevenLabs can't (out of today's
+ * characters, unreachable).
  *
  * The key comes from ELEVENLABS_API_KEY or data/elevenlabs-key (gitignored).
  * A phone can write that file over /ws (setKey) but nothing ever reads the
@@ -118,7 +120,9 @@ export function createVoiceHub({
 	log = console,
 	// where you are, from the webcam (sensesHub presence), or null without one
 	room = () => null,
-	piper = createPiper({ log })
+	piper = createPiper({ log }),
+	// Phonon, in the webcam process (src/lib/server/voiceBox.js); null without one
+	box = null
 }) {
 	const settingsFile = path.join(dataDir, 'voice.json');
 	const usageFile = path.join(dataDir, 'voice-usage.json');
@@ -162,6 +166,7 @@ export function createVoiceHub({
 			// what will actually speak now, and the free voices on this machine
 			speaking: engineNow(),
 			piperVoices: piper.voices(),
+			phononVoices: box?.status().tts ? box.status().voices : [],
 			quietNow: inQuietHours(now(), settings),
 			volumeNow: voiceVolumeAt(now(), settings),
 			heldCount: held.length
@@ -233,24 +238,50 @@ export function createVoiceHub({
 		}
 	}
 
-	/** Which voice speaks right now: 'elevenlabs', 'piper', or '' (neither is set up). */
+	const hasPhonon = () => Boolean(box?.status().tts);
+
+	/** Which voice speaks right now: 'elevenlabs', 'phonon', 'piper', or '' (none is set up). */
 	function engineNow() {
 		const hasPiper = piper.voices().length > 0;
 		if (settings.engine === 'piper') return hasPiper ? 'piper' : '';
+		if (settings.engine === 'phonon') return hasPhonon() ? 'phonon' : hasPiper ? 'piper' : '';
 		if (settings.engine === 'elevenlabs') return key() ? 'elevenlabs' : '';
-		return key() ? 'elevenlabs' : hasPiper ? 'piper' : '';
+		return key() ? 'elevenlabs' : hasPhonon() ? 'phonon' : hasPiper ? 'piper' : '';
 	}
 
-	/** A clip for the text, from the cache, ElevenLabs or Piper. { id, ext } or { error }. */
+	/** The free voices, best first: Phonon, then Piper. */
+	async function freeClip(text) {
+		if (hasPhonon()) {
+			const out = await phononClip(text);
+			if (out.id) return out;
+		}
+		return piper.voices().length ? piperClip(text) : { error: 'no-voice' };
+	}
+
+	/** A clip for the text, from the cache, ElevenLabs, Phonon or Piper. { id, ext } or { error }. */
 	async function clip(text) {
-		if (settings.engine === 'piper' || engineNow() === 'piper') return piperClip(text);
+		const which = engineNow();
+		if (settings.engine === 'piper' || which === 'piper') return piperClip(text);
+		if (settings.engine === 'phonon' || which === 'phonon') return freeClip(text);
 		const out = await elevenClip(text);
-		// auto: Piper steps in when ElevenLabs can't (no key, today's characters spent, unreachable)
-		if (out.error && settings.engine === 'auto' && piper.voices().length) {
-			const free = await piperClip(text);
+		// auto: the free voices step in when ElevenLabs can't (no key, today's characters spent, unreachable)
+		if (out.error && settings.engine === 'auto') {
+			const free = await freeClip(text);
 			if (free.id) return free;
 		}
 		return out;
+	}
+
+	async function phononClip(text) {
+		const id = clipKey(`phonon:${settings.phononVoice}`, 'phonon', text);
+		const file = path.join(clipDir, `${id}.wav`);
+		if (existsSync(file)) return { id, ext: 'wav', cached: true, durationMs: clipDurationMs(file) };
+		const r = await box.speak(text, settings.phononVoice);
+		if (!r.ok) return { error: r.error === 'no-voice' ? 'no-voice' : 'tts-failed' };
+		mkdirSync(clipDir, { recursive: true });
+		writeFileSync(file, r.audio);
+		prune();
+		return { id, ext: 'wav', cached: false, durationMs: r.durationMs || clipDurationMs(file) };
 	}
 
 	async function piperClip(text) {

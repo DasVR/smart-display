@@ -12,8 +12,10 @@
  *  - the phase machine (idle, listening, thinking, speaking, error)
  *  - smoothing the mic level the orb follows
  *  - what to say when the microphone can't be used
+ *  - recording for the wall's own ears: resampling, WAV, noticing a pause
  *
- * The browser parts: src/lib/services/listen.js, src/lib/shaders/voiceOrb.js,
+ * The browser parts: src/lib/services/listen.js, src/lib/services/wallEar.js,
+ * src/lib/shaders/voiceOrb.js,
  * src/lib/components/VoiceAgent.svelte.
  */
 
@@ -147,7 +149,11 @@ export function joinSpeech(before, after) {
 
 /** The sentence as it should be sent: trimmed, one space between words, first letter up. */
 export function cleanHeard(text) {
-	const s = String(text || '').replace(/\s+/g, ' ').trim();
+	// "Hey display, …" out of habit: the key already said it's for the wall
+	const s = String(text || '')
+		.replace(/\s+/g, ' ')
+		.trim()
+		.replace(/^(?:hey|hay|okay|ok)[,.]? (?:display|wall)\b[,.!]?\s*/i, '');
 	return s ? s[0].toUpperCase() + s.slice(1) : '';
 }
 
@@ -161,9 +167,10 @@ export function wantsAnswer(say) {
  * `env` is the browser (injected so the tests can fake one).
  */
 export function voiceBlocker(env = {}) {
-	const { secure = true, recognition = true, standalone = false } = env;
+	const { secure = true, recognition = true, standalone = false, wallEars = false } = env;
 	if (!secure) return 'Voice needs a secure address. Open the remote over https (Tailscale serve gives you one). Typing works meanwhile.';
-	if (!recognition) return standalone ? 'This phone can’t listen from the home screen app. Typing works.' : 'This browser can’t listen. Typing works.';
+	// the wall's own ears only need the microphone, not the browser's recogniser
+	if (!recognition && !wallEars) return standalone ? 'This phone can’t listen from the home screen app. Typing works.' : 'This browser can’t listen. Typing works.';
 	return '';
 }
 
@@ -182,3 +189,63 @@ export function phaseLine(phase, { cancel = false, latched = false, hasText = fa
 
 /** A few things worth saying first, shown when the sheet opens with nothing heard. */
 export const SUGGESTIONS = ['What’s on the wall?', 'Set a timer for ten minutes', 'Play some jazz', 'What’s the weather?'];
+
+/* ---------- recording for the wall's ears (src/lib/services/wallEar.js) ---------- */
+
+/** The wall hears 16 kHz; a microphone gives 44.1 or 48 kHz. Averages each
+ *  stretch of samples into one, which is also the low-pass it needs. */
+export function downsample(samples, from, to = 16000) {
+	if (!samples?.length || from <= to) return Float32Array.from(samples || []);
+	const ratio = from / to;
+	const out = new Float32Array(Math.floor(samples.length / ratio));
+	for (let i = 0; i < out.length; i++) {
+		const a = Math.floor(i * ratio);
+		const b = Math.min(samples.length, Math.floor((i + 1) * ratio));
+		let sum = 0;
+		for (let j = a; j < b; j++) sum += samples[j];
+		out[i] = sum / Math.max(1, b - a);
+	}
+	return out;
+}
+
+/** Mono float samples -> a 16-bit PCM WAV file's bytes. */
+export function encodeWav(samples, rate = 16000) {
+	const n = samples.length;
+	const view = new DataView(new ArrayBuffer(44 + n * 2));
+	const text = (at, s) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)));
+	text(0, 'RIFF');
+	view.setUint32(4, 36 + n * 2, true);
+	text(8, 'WAVEfmt ');
+	view.setUint32(16, 16, true);
+	view.setUint16(20, 1, true); // PCM
+	view.setUint16(22, 1, true); // mono
+	view.setUint32(24, rate, true);
+	view.setUint32(28, rate * 2, true);
+	view.setUint16(32, 2, true);
+	view.setUint16(34, 16, true);
+	text(36, 'data');
+	view.setUint32(40, n * 2, true);
+	for (let i = 0; i < n; i++) {
+		const v = Math.max(-1, Math.min(1, samples[i]));
+		view.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+	}
+	return new Uint8Array(view.buffer);
+}
+
+/** Loudness (0..1, the orb's scale) above which a frame counts as speech. */
+export const SPEECH_LEVEL = 0.18;
+/** A pause this long after speech ends a tap-to-talk sentence (ms). */
+export const PAUSE_MS = 1300;
+
+/**
+ * Noticing the end of a sentence from the loudness alone, for tap-to-talk:
+ * nothing ends before someone has spoken, and then a pause of PAUSE_MS does.
+ * Returns the next state; `done` is true once the pause is long enough.
+ */
+export function pauseStep(state, level, dt) {
+	const s = state || { spoke: 0, quiet: 0, done: false };
+	if (level >= SPEECH_LEVEL) return { spoke: s.spoke + dt, quiet: 0, done: false };
+	// a word needs about a fifth of a second of sound; a click doesn't count
+	const quiet = s.spoke >= 200 ? s.quiet + dt : 0;
+	return { spoke: s.spoke, quiet, done: quiet >= PAUSE_MS };
+}

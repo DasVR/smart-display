@@ -28,6 +28,7 @@ import { createAssistantHub } from './lib/server/assistantHub.js';
 import { createAppleMusic } from './lib/server/appleMusic.js';
 import { DISPLAY_TZ } from './lib/atmosphere.js';
 import { createVoiceHub } from './lib/server/voiceHub.js';
+import { createVoiceBox } from './lib/server/voiceBox.js';
 import { createSoundHub } from './lib/server/soundHub.js';
 import { createAttentionHub } from './lib/server/attentionHub.js';
 import { ringForWarnings } from './lib/server/nwsWatch.js';
@@ -119,8 +120,18 @@ const LEDGER_INPUTS = new Set(['tasks', 'approvals', 'attention', 'weather-alert
 // kiosk and remote, a scheduler that raises due items on the island.
 // the day's tally, printed as a receipt when StandBy comes on at night
 const dayLog = createDayLogHub({ dataDir: path.join(PROJECT_ROOT, 'data') });
-// the wall's voice (ElevenLabs, cached; captions only without a key)
+// the wall's ears and voice for phones, computers and Hermes (OpenAI's audio
+// API at /v1/audio/*): Parakeet and Phonon in the webcam process
+const voiceBox = createVoiceBox({
+	dataDir: path.join(PROJECT_ROOT, 'data'),
+	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
+	device: (token) => pairing.verify(token),
+	defaultVoice: () => voiceHub.snapshot().phononVoice
+});
+voiceBox.refresh().catch(() => {});
+// the wall's voice (ElevenLabs, Phonon or Piper, cached; captions only without one)
 const voiceHub = createVoiceHub({
+	box: voiceBox,
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	broadcast: (msg) => {
 		// the webcam's ears close while the wall talks, so it never answers itself
@@ -742,6 +753,8 @@ const server = createServer(async (req, res) => {
 		const list = [...clients].filter((c) => c.surface).map((c) => ({ ...c.surface, since: new Date(c.surfaceSince).toISOString(), device: c.device || null }));
 		return json(res, { surfaces: list });
 	}
+	// before voiceHub, which answers everything under /api/voice
+	if (await voiceBox.handleHttp(req, res)) return;
 	if (await voiceHub.handleHttp(req, res)) return;
 	if (await assistantHub.handleHttp(req, res)) return;
 	if (await appleMusic.handleHttp(req, res)) return;

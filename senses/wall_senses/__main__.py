@@ -4,6 +4,9 @@
     python -m wall_senses --list     the microphones and cameras it can see
     python -m wall_senses --check    what's installed and what's missing
 
+It also runs the voice box (voicebox.py): the wall's ears and voice on
+127.0.0.1, which the wall's server lends to phones, computers and Hermes.
+
 It asks the wall's server (WALL_URL, default http://127.0.0.1:3000) what to
 do every second and tells it what it sees and hears: how many people, how
 far, where across the room, and the words said to the wall. Settings live on
@@ -24,6 +27,7 @@ from .hearing import Ears, list_sources
 from .bodies import YOLOX_NAME
 from .room import average_signature, floor_map, order_quad
 from .seeing import DETECT_WIDTH, YUNET_NAME, Eyes, model_dir
+from .voicebox import VoiceBox, phonon_model, read_voices
 from .wall import Wall
 
 VERSION = 1
@@ -195,6 +199,7 @@ def check():
         ("OpenCV (camera)", "cv2"),
         ("sherpa-onnx (Parakeet, transcription)", "sherpa_onnx"),
         ("openWakeWord (optional)", "openwakeword"),
+        ("ptts (Phonon, the wall's voice)", "ptts"),
     ]
     for label, mod in rows:
         print(f"  {'ok ' if importlib.util.find_spec(mod) else '-- '} {label}")
@@ -203,6 +208,8 @@ def check():
     from .stt import MODEL_NAME, model_path, model_ready  # noqa: PLC0415
 
     print(f"  {'ok ' if model_ready(model_dir()) else '-- '} {MODEL_NAME} speech model ({model_path(model_dir())})")
+    phonon = phonon_model(model_dir())
+    print(f"  {'ok ' if phonon else '-- '} Phonon voice ({phonon or 'not fetched'}, {len(read_voices(model_dir()))} voices)")
     yunet = os.path.join(model_dir(), YUNET_NAME)
     print(f"  {'ok ' if os.path.exists(yunet) else '-- '} YuNet face model ({yunet})")
     yolox = os.path.join(model_dir(), YOLOX_NAME)
@@ -233,6 +240,8 @@ def main(argv=None):
         return check()
 
     senses = Senses(Wall())
+    box = VoiceBox(log=senses.note)
+    box.start()
     stopping = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: stopping.set())
     signal.signal(signal.SIGINT, lambda *_: stopping.set())
@@ -242,6 +251,7 @@ def main(argv=None):
             senses.tick()
             stopping.wait(TICK)
     finally:
+        box.stop()
         senses.close()
     return 0
 
