@@ -12,6 +12,7 @@ The model is fetched by scripts/senses/install.sh into the models folder
 """
 
 import os
+import threading
 
 MODEL_NAME = "parakeet-tdt-0.6b-v2"
 MODEL_DIR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8"
@@ -62,10 +63,27 @@ class Parakeet:
             model_type="nemo_transducer",
             decoding_method="greedy_search",
         )
+        # the wall's microphone and the voice box (voicebox.py) share one model
+        self._lock = threading.Lock()
 
-    def words(self, audio):
-        """audio: float32 samples in -1..1 at 16 kHz. Returns the words, or ''."""
-        stream = self._rec.create_stream()
-        stream.accept_waveform(SAMPLE_RATE, audio)
-        self._rec.decode_stream(stream)
-        return (stream.result.text or "").strip()
+    def words(self, audio, sample_rate=SAMPLE_RATE):
+        """audio: float32 samples in -1..1 (16 kHz unless said). Returns the words, or ''."""
+        with self._lock:
+            stream = self._rec.create_stream()
+            stream.accept_waveform(sample_rate, audio)
+            self._rec.decode_stream(stream)
+            return (stream.result.text or "").strip()
+
+
+_shared = None
+_shared_lock = threading.Lock()
+
+
+def shared(folder):
+    """The one Parakeet of this process, loaded the first time it's wanted:
+    about 1 GB, so the microphone and the voice box never load two."""
+    global _shared
+    with _shared_lock:
+        if _shared is None:
+            _shared = Parakeet(folder)
+        return _shared

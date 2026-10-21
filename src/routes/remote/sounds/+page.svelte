@@ -71,7 +71,7 @@
 		off: 'The voice is off, so it was only shown.',
 		'quiet-hours': 'Night, and the voice is set to stay silent, so it was only shown.',
 		'no-key': 'No ElevenLabs key on the display yet, so it was only shown.',
-		'no-voice': 'No Piper voice on the display yet (npm run voice:piper there), so it was only shown.',
+		'no-voice': 'No free voice on the display yet (scripts/senses/install.sh there), so it was only shown.',
 		'bad-key': 'ElevenLabs refused the key. It was only shown.',
 		'daily-limit': "Today's voice budget is spent, so it was only shown.",
 		'rate-limited': 'ElevenLabs is busy. It was only shown.',
@@ -308,11 +308,26 @@
 				<span>Voice</span>
 				<select value={settings.engine} onchange={(e) => patch({ engine: e.currentTarget.value })}>
 					<option value="auto">Automatic</option>
-					<option value="piper">Piper (free, on the wall)</option>
+					<option value="phonon">Phonon (free, on the wall)</option>
+					<option value="piper">Piper (free, plainer)</option>
 					<option value="elevenlabs">ElevenLabs</option>
 				</select>
 			</label>
-			{#if settings.engine !== 'elevenlabs'}
+			{#if settings.engine === 'phonon' || settings.engine === 'auto'}
+				{#if settings.phononVoices?.length}
+					<label class="row">
+						<span>Phonon voice</span>
+						<select value={settings.phononVoices.some((v) => v.name === settings.phononVoice) ? settings.phononVoice : settings.phononVoices[0].name} onchange={(e) => patch({ phononVoice: e.currentTarget.value })}>
+							{#each settings.phononVoices as v (v.name)}<option value={v.name} title={v.description}>{v.name}</option>{/each}
+						</select>
+					</label>
+					{@const picked = settings.phononVoices.find((v) => v.name === settings.phononVoice)}
+					{#if picked?.description}<p class="note">{picked.description}</p>{/if}
+				{:else if settings.engine === 'phonon'}
+					<p class="note">Phonon isn't on the display yet. Run <code>scripts/senses/install.sh</code> there; until then Piper speaks.</p>
+				{/if}
+			{/if}
+			{#if settings.engine === 'piper' || (settings.engine !== 'elevenlabs' && !settings.phononVoices?.length)}
 				{#if settings.piperVoices?.length}
 					<label class="row">
 						<span>Piper voice</span>
@@ -325,10 +340,12 @@
 				{/if}
 			{/if}
 			<p class="note">
-				{#if settings.speaking === 'piper'}
+				{#if settings.speaking === 'phonon'}
+					Speaking with Phonon: free, made on the wall, nothing sent anywhere.
+				{:else if settings.speaking === 'piper'}
 					Speaking with Piper: free, made on the wall, nothing sent anywhere.
 				{:else if settings.speaking === 'elevenlabs'}
-					Speaking with ElevenLabs{settings.engine === 'auto' ? ', and Piper when ElevenLabs can\'t' : ''}.
+					Speaking with ElevenLabs{settings.engine === 'auto' ? `, and ${settings.phononVoices?.length ? 'Phonon' : 'Piper'} when ElevenLabs can't` : ''}.
 				{:else}
 					No voice is set up yet, so the wall only shows what it would say.
 				{/if}

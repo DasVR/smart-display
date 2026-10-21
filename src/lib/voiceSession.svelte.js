@@ -9,10 +9,18 @@
  *
  * The phone keeps its own small socket to the wall for this, opened the
  * first time the key is pressed, so voice works from any page of the remote.
+ *
+ * When the wall has its voice box (src/lib/server/voiceBox.js), it does the
+ * listening and the reading too: the wall's Parakeet hears what was said
+ * (src/lib/services/wallEar.js) and the answer is read here in the wall's
+ * Phonon voice. That works the same on a computer's browser, and nothing
+ * goes to the phone's vendor. Without it, the browser's own recogniser and
+ * voice stand in.
  */
 
 import { wallSocketUrl, followPairing } from './remoteAuth.js';
 import { createEar, earSupport, speakOnPhone, stopSpeaking } from './services/listen.js';
+import { canRecord, createWallEar, speakWithWall, stopWall, wallVoiceStatus } from './services/wallEar.js';
 import { primeAudio, playChime } from './services/chime.js';
 import {
 	CANCEL_PX,
@@ -61,6 +69,10 @@ try {
 
 let ws = null;
 let waiter = null;
+// what the wall's voice box can do for this device (asked when the key is first touched)
+let box = { up: false, stt: false, tts: false };
+let boxAsked = -Infinity;
+let earKind = '';
 let gesture = null;
 let holdTimer = 0;
 let silenceTimer = 0;
@@ -121,6 +133,31 @@ export function warm() {
 	} catch {
 		/* no socket yet: asked again when sending */
 	}
+	askBox();
+}
+
+/** Ask the wall what its voice box can do, at most once a minute. */
+function askBox() {
+	if (typeof window === 'undefined' || performance.now() - boxAsked < 60000) return;
+	boxAsked = performance.now();
+	wallVoiceStatus().then((s) => {
+		box = s;
+		if (!ear?.listening) ensureEar();
+	});
+}
+
+// asked as the page loads, so the first press already knows whose ears to use
+askBox();
+
+/** Read the answer aloud here: in the wall's voice when it has one, else the browser's. */
+async function readAloud(text) {
+	if (box.tts && (await speakWithWall(text))) return;
+	await speakOnPhone(text);
+}
+
+function quiet() {
+	stopSpeaking();
+	stopWall();
 }
 
 async function ask(text) {
@@ -177,7 +214,7 @@ async function deliver(raw) {
 	setPhase('answer');
 	playChime('tap');
 	if (voice.mode === 'wall' && ws?.readyState === 1) ws.send(JSON.stringify({ type: 'voice', op: 'say', text: answer.say }));
-	if (voice.mode === 'phone') await speakOnPhone(answer.say);
+	if (voice.mode === 'phone') await readAloud(answer.say);
 	else await new Promise((r) => setTimeout(r, Math.min(4000, 600 + answer.say.length * 28)));
 	if (!voice.open) return;
 	setPhase('spoken');
@@ -199,7 +236,7 @@ function lingerThenClose(extra = 0) {
 
 function listen() {
 	if (voice.blocker || !ear) return false;
-	stopSpeaking();
+	quiet();
 	clearTimeout(lingerTimer);
 	voice.heard = carry;
 	voice.cancel = false;
@@ -216,14 +253,22 @@ function listen() {
 }
 
 function ensureEar() {
-	if (ear) return;
-	voice.blocker = voiceBlocker(earSupport());
-	ear = createEar({
+	// the wall's ears when it has them and this device can record; the browser's otherwise
+	const kind = box.stt && canRecord() ? 'wall' : 'browser';
+	if (ear && earKind === kind) return;
+	ear?.abort();
+	earKind = kind;
+	voice.blocker = voiceBlocker({ ...earSupport(), wallEars: kind === 'wall' });
+	const make = kind === 'wall' ? createWallEar : createEar;
+	ear = make({
+		// tap-to-talk ends itself after a pause; a held key ends on release
+		autoStop: () => voice.latched && !voice.pressing,
 		onInterim: (text) => {
 			voice.heard = joinSpeech(carry, text);
 			clearTimeout(silenceTimer);
-			// tap-opened listening ends itself after a pause; held listening ends on release
-			if (voice.latched && !voice.pressing && text) silenceTimer = setTimeout(() => ear?.stop(), SILENCE_MS);
+			// tap-opened listening ends itself after a pause (the wall's ears notice it themselves);
+			// held listening ends on release
+			if (earKind === 'browser' && voice.latched && !voice.pressing && text) silenceTimer = setTimeout(() => ear?.stop(), SILENCE_MS);
 		},
 		onLevel: (v) => {
 			meter.level = v;
@@ -257,6 +302,10 @@ function ensureEar() {
 			if (code === 'denied') {
 				voice.blocker = 'The microphone is blocked for this page. Allow it in your browser’s site settings. Typing works meanwhile.';
 				voice.failed = '';
+			} else if (code === 'wall-ears') {
+				voice.failed = 'The display couldn’t hear that. Try again, or type it.';
+				box = { ...box, stt: false };
+				boxAsked = -Infinity;
 			} else voice.failed = 'Listening stopped unexpectedly.';
 			voice.phase = 'idle';
 		}
@@ -371,7 +420,7 @@ export function sendSuggestion(text) {
 export function setMode(mode) {
 	if (!MODES.includes(mode)) return;
 	voice.mode = mode;
-	if (mode !== 'phone') stopSpeaking();
+	if (mode !== 'phone') quiet();
 	try {
 		localStorage.setItem(MODE_KEY, mode);
 	} catch {
@@ -384,7 +433,7 @@ export function close() {
 	clearTimers();
 	cancelled = false;
 	ear?.abort();
-	stopSpeaking();
+	quiet();
 	waiter?.resolve({ ok: false, say: '' });
 	meter.level = 0;
 	voice.open = false;
@@ -401,4 +450,4 @@ export function keepOpen() {
 }
 
 export const HOLD = { ms: HOLD_MS, cancelPx: CANCEL_PX };
-export const MODE_LABELS = { phone: 'This phone', wall: 'The wall', text: 'Text only' };
+export const MODE_LABELS = { phone: 'This device', wall: 'The wall', text: 'Text only' };

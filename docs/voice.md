@@ -1,8 +1,8 @@
 # The wall's voice and sounds
 
-The wall can talk, for free with [Piper](https://github.com/OHF-Voice/piper1-gpl)
-voices made on the wall itself, or with [ElevenLabs](https://elevenlabs.io)
-text to speech. It also has its own library of sound effects made once with
+The wall can talk, for free with [Phonon](https://gradium.ai/blog/release-phonon-open-weight)
+or [Piper](https://github.com/OHF-Voice/piper1-gpl) voices made on the wall
+itself, or with [ElevenLabs](https://elevenlabs.io) text to speech. It also has its own library of sound effects made once with
 ElevenLabs sound generation. All of it is optional: with no voice set up the
 wall shows what it would have said on the island, and every sound falls back
 to the built-in tapping sounds.
@@ -10,22 +10,33 @@ to the built-in tapping sounds.
 Phone: **Home → Sounds & voice** (`/remote/sounds`). Everything you can *say*
 to the wall is in [voice-commands.md](voice-commands.md).
 
-## Two voices: Piper (free) and ElevenLabs
+## Three voices: Phonon and Piper (free) and ElevenLabs
 
-| | Piper | ElevenLabs |
-| --- | --- | --- |
-| Cost | free | paid by the character (cached phrases are free) |
-| Where it's made | on the wall's own CPU, through sherpa-onnx | ElevenLabs' servers |
-| Speed | about 0.1 to 0.3 s a sentence (the first after a restart about 1.5 s) | about a second |
-| Sound | clear, a little synthetic | most natural |
+| | Phonon | Piper | ElevenLabs |
+| --- | --- | --- | --- |
+| Cost | free | free | paid by the character (cached phrases are free) |
+| Where it's made | on the wall's CPU, in the webcam process's voice box | on the wall's CPU, through sherpa-onnx | ElevenLabs' servers |
+| Speed | about 3.5x real time on two cores, first sound in about 0.1 s | about 6x real time | about a second |
+| Sound | natural, 37 English voices | clear, a little synthetic | most natural |
 
 On the phone: **Home → Sounds & voice → Voice**:
 
-- **Automatic** (default): ElevenLabs when a key is set, Piper otherwise, and
-  Piper whenever ElevenLabs can't (today's characters spent, a bad key,
-  ElevenLabs unreachable). The wall never goes quiet just because ElevenLabs did.
-- **Piper (free, on the wall)**: always Piper. Nothing leaves the wall.
+- **Automatic** (default): ElevenLabs when a key is set, else Phonon, else
+  Piper, and the free ones whenever ElevenLabs can't (today's characters
+  spent, a bad key, ElevenLabs unreachable). The wall never goes quiet just
+  because ElevenLabs did.
+- **Phonon (free, on the wall)**: Phonon, and Piper if the voice box isn't
+  running. Pick one of its voices under **Phonon voice**; the line under it
+  says what it sounds like. The same voice reads answers on your phone and
+  computer and speaks for Hermes ([voice-server.md](voice-server.md)).
+- **Piper (free, plainer)**: always Piper. Nothing leaves the wall.
 - **ElevenLabs**: always ElevenLabs; without a key the wall only shows words.
+
+### Set up Phonon
+
+`scripts/senses/install.sh` fetches it with the rest of the webcam process
+(64 MB, plus 26 MB of voices); the voice box in that process speaks with it.
+See [voice-server.md](voice-server.md).
 
 ### Set up Piper
 

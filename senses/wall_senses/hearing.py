@@ -29,7 +29,7 @@ import time
 from collections import deque
 
 from .vad import FRAME_BYTES, FRAME_MS, SAMPLE_RATE, SpeechGate, apply_gain, rms
-from .stt import MODEL_NAME, Parakeet, model_ready, models_dir
+from .stt import MODEL_NAME, model_ready, models_dir, shared
 from .wake import is_noise, match_wake
 
 HEAD_SECONDS = 3.0
@@ -369,7 +369,7 @@ class Ears:
                 # not fetched: the service may not download (scripts/senses/install.sh)
                 self.error = "no-model"
                 raise FileNotFoundError(f"{MODEL_NAME} is not in {models_dir()}")
-            self._stt = Parakeet(models_dir())
+            self._stt = shared(models_dir())
             self.log(f"ears: {MODEL_NAME} loaded on the CPU ({self._stt.threads} threads)")
             self.error = ""
         return self._stt

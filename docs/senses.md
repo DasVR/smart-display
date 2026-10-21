@@ -22,6 +22,9 @@ One USB webcam, with its built-in microphone, lets the wall:
 - **talk to you where you are**: the voice is a bit louder when you're
   across the room and softer lying down at night, and things said to an
   empty room are kept and said when you come back.
+- **lend its ears and voice** to your phone, your computer and Hermes: the
+  same process runs the voice box (Parakeet and Phonon on 127.0.0.1), see
+  [voice-server.md](voice-server.md).
 
 Settings are on the phone: **Home → Senses**. Both the microphone and the
 camera start **off**.

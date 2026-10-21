@@ -16,6 +16,9 @@ import {
 	pressTick,
 	rmsOf,
 	voiceBlocker,
+	downsample,
+	encodeWav,
+	pauseStep,
 	wantsAnswer,
 	wordPulse
 } from '../src/lib/voiceAgent.js';
@@ -95,6 +98,10 @@ test('what was heard is tidied before it is sent', () => {
 	assert.equal(cleanHeard('  what’s   on the wall '), 'What’s on the wall');
 	assert.equal(cleanHeard('   '), '');
 	assert.equal(cleanHeard(null), '');
+	assert.equal(cleanHeard('Hey display, what’s the weather like tomorrow?'), 'What’s the weather like tomorrow?');
+	assert.equal(cleanHeard('okay wall play some jazz'), 'Play some jazz');
+	assert.equal(cleanHeard('Hey Wallace, hi'), 'Hey Wallace, hi');
+	assert.equal(cleanHeard('Hey display.'), '');
 });
 
 test('an answer that ends in a question wants an answer back', () => {
@@ -141,4 +148,45 @@ test('speech before and after a restart joins into one sentence', () => {
 	assert.equal(joinSpeech('what is', 'the weather'), 'what is the weather');
 	assert.equal(joinSpeech('', 'pause'), 'pause');
 	assert.equal(joinSpeech('pause', ''), 'pause');
+});
+
+test('voiceBlocker: the wall’s own ears only need the microphone', () => {
+	assert.equal(voiceBlocker({ secure: true, recognition: false, wallEars: true }), '');
+	assert.match(voiceBlocker({ secure: false, recognition: true, wallEars: true }), /https/);
+});
+
+test('downsample averages 48 kHz down to the 16 kHz the wall hears', () => {
+	const out = downsample(Float32Array.from([0.3, 0.3, 0.3, 0.6, 0.6, 0.6]), 48000);
+	assert.equal(out.length, 2);
+	assert.ok(Math.abs(out[0] - 0.3) < 1e-6 && Math.abs(out[1] - 0.6) < 1e-6);
+	assert.equal(downsample(Float32Array.from([0.1, 0.2]), 16000).length, 2);
+});
+
+test('encodeWav writes a 16-bit mono PCM WAV', () => {
+	const wav = encodeWav(Float32Array.from([0, 0.5, -1, 2]), 16000);
+	const v = new DataView(wav.buffer);
+	assert.equal(String.fromCharCode(...wav.slice(0, 4)), 'RIFF');
+	assert.equal(String.fromCharCode(...wav.slice(8, 12)), 'WAVE');
+	assert.equal(v.getUint32(24, true), 16000);
+	assert.equal(v.getUint16(34, true), 16);
+	assert.equal(v.getUint32(40, true), 8);
+	assert.equal(wav.length, 52);
+	assert.equal(v.getInt16(46, true), Math.trunc(0.5 * 0x7fff));
+	assert.equal(v.getInt16(48, true), -0x8000);
+	assert.equal(v.getInt16(50, true), 0x7fff); // clipped, not wrapped
+});
+
+test('pauseStep: a pause only ends a sentence once someone has spoken', () => {
+	let s = null;
+	for (let i = 0; i < 30; i++) s = pauseStep(s, 0.02, 100);
+	assert.equal(s.done, false, 'silence before speaking never ends it');
+	s = pauseStep(s, 0.5, 100);
+	for (let i = 0; i < 20; i++) s = pauseStep(s, 0.02, 100);
+	assert.equal(s.done, false, 'a click is not speech');
+	for (let i = 0; i < 5; i++) s = pauseStep(s, 0.5, 100);
+	for (let i = 0; i < 12; i++) s = pauseStep(s, 0.02, 100);
+	assert.equal(s.done, false);
+	for (let i = 0; i < 2; i++) s = pauseStep(s, 0.02, 100);
+	assert.equal(s.done, true);
+	assert.equal(pauseStep(s, 0.5, 100).done, false, 'talking again starts over');
 });
