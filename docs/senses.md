@@ -105,6 +105,12 @@ starts the service. Options:
 lists the microphones and cameras it can see. `--check` shows what is
 installed.
 
+**It doesn't hear me:** run `scripts/senses/doctor.sh` on the display. It
+shows whether the process is up and what it last logged, the microphone
+settings and level the wall sees, the wake phrases, and then records five
+seconds ("hey display, what time is it?") and prints what Parakeet heard, so
+a silent or wrong microphone shows up straight away.
+
 ### Which microphone and camera
 
 - **Microphone:** through PipeWire (`parec`, the same tool the music

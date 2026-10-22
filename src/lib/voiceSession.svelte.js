@@ -20,7 +20,7 @@
 
 import { wallSocketUrl, followPairing } from './remoteAuth.js';
 import { createEar, earSupport, speakOnPhone, stopSpeaking } from './services/listen.js';
-import { canRecord, createWallEar, speakWithWall, stopWall, wallVoiceStatus } from './services/wallEar.js';
+import { canRecord, createWallEar, primeRecorder, speakWithWall, stopWall, wallVoiceStatus } from './services/wallEar.js';
 import { primeAudio, playChime } from './services/chime.js';
 import {
 	CANCEL_PX,
@@ -73,6 +73,8 @@ let waiter = null;
 let box = { up: false, stt: false, tts: false };
 let boxAsked = -Infinity;
 let earKind = '';
+// this browser gave the page a silent microphone once: its own recogniser for the rest of the visit
+let silentMic = false;
 let gesture = null;
 let holdTimer = 0;
 let silenceTimer = 0;
@@ -254,7 +256,7 @@ function listen() {
 
 function ensureEar() {
 	// the wall's ears when it has them and this device can record; the browser's otherwise
-	const kind = box.stt && canRecord() ? 'wall' : 'browser';
+	const kind = box.stt && canRecord() && !silentMic ? 'wall' : 'browser';
 	if (ear && earKind === kind) return;
 	ear?.abort();
 	earKind = kind;
@@ -302,6 +304,12 @@ function ensureEar() {
 			if (code === 'denied') {
 				voice.blocker = 'The microphone is blocked for this page. Allow it in your browser’s site settings. Typing works meanwhile.';
 				voice.failed = '';
+			} else if (code === 'no-audio') {
+				// this browser gave the page a silent microphone: the browser's own recogniser takes over
+				silentMic = true;
+				ensureEar();
+				if (voice.open && !voice.blocker) listen();
+				return;
 			} else if (code === 'wall-ears') {
 				voice.failed = 'The display couldn’t hear that. Try again, or type it.';
 				box = { ...box, stt: false };
@@ -318,6 +326,7 @@ let cancelled = false;
 
 export function pressDown(e) {
 	primeAudio();
+	primeRecorder();
 	warm();
 	ensureEar();
 	carry = '';
@@ -387,6 +396,7 @@ export function pressCancelled() {
 
 /** A tap (or the keyboard): open latched, or toggle listening when already open. */
 export function tap() {
+	primeRecorder();
 	ensureEar();
 	if (!voice.open) {
 		voice.open = true;

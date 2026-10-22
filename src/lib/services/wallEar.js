@@ -14,6 +14,25 @@ import { deviceToken } from '../remoteAuth.js';
 import { downsample, encodeWav, levelFromRms, pauseStep } from '../voiceAgent.js';
 
 const DRAFT_MS = 1500;
+// no sound at all this long after starting: the microphone isn't really on
+const NO_AUDIO_MS = 1500;
+
+// One audio context for every sentence, made while a finger is on the screen:
+// iPhone keeps a context made any later (the hold starts 0.2 s after the
+// touch) suspended, and then nothing is ever recorded.
+let shared = null;
+
+function context() {
+	const AudioCtx = window.AudioContext || window.webkitAudioContext;
+	if (!shared || shared.state === 'closed') shared = new AudioCtx();
+	if (shared.state === 'suspended') shared.resume().catch(() => {});
+	return shared;
+}
+
+/** Call from the touch itself (pointerdown), before listening starts. */
+export function primeRecorder() {
+	if (canRecord()) context();
+}
 const DRAFT_UNTIL_S = 15;
 const MAX_S = 60;
 
@@ -74,17 +93,22 @@ export function createWallEar({ onInterim = () => {}, onFinal = () => {}, onLeve
 	let pause = null;
 	let last = 0;
 	let finishing = null;
+	let src = null;
+	let watchdog = 0;
+	let heardAny = false;
 
 	function release() {
 		clearInterval(draftTimer);
+		clearTimeout(watchdog);
 		try {
 			node?.disconnect();
+			src?.disconnect();
 		} catch {
 			/* already gone */
 		}
 		stream?.getTracks().forEach((t) => t.stop());
-		ctx?.close().catch(() => {});
-		node = stream = ctx = null;
+		// the context stays: it is shared, and made while a finger was down
+		node = stream = src = ctx = null;
 	}
 
 	function seconds() {
@@ -109,22 +133,26 @@ export function createWallEar({ onInterim = () => {}, onFinal = () => {}, onLeve
 		try {
 			stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
 		} catch (e) {
-			active = false;
-			onEnd();
-			onError(e?.name === 'NotAllowedError' || e?.name === 'SecurityError' ? 'denied' : 'failed');
+			fail(e?.name === 'NotAllowedError' || e?.name === 'SecurityError' ? 'denied' : 'no-audio');
 			return;
 		}
 		if (!active) return release();
-		const AudioCtx = window.AudioContext || window.webkitAudioContext;
-		ctx = new AudioCtx();
-		if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+		// the microphone is granted (the permission prompt is over); no sound at all
+		// soon after (a paused audio context, a microphone that gives nothing): say
+		// so, so the caller listens with the browser's own recogniser instead
+		watchdog = setTimeout(() => !heardAny && fail('no-audio'), NO_AUDIO_MS);
+		ctx = context();
+		// not awaited: a context the browser keeps paused never settles this, and
+		// the watchdog below is what notices
+		if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 		rate = ctx.sampleRate;
-		const src = ctx.createMediaStreamSource(stream);
+		src = ctx.createMediaStreamSource(stream);
 		// ScriptProcessor is old but runs everywhere the remote does, iPhone included
 		node = ctx.createScriptProcessor(4096, 1, 1);
 		node.onaudioprocess = (e) => {
 			if (!active) return;
 			const data = new Float32Array(e.inputBuffer.getChannelData(0));
+			heardAny = true;
 			chunks.push(data);
 			let sum = 0;
 			for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
@@ -141,14 +169,25 @@ export function createWallEar({ onInterim = () => {}, onFinal = () => {}, onLeve
 		draftTimer = setInterval(draft, DRAFT_MS);
 	}
 
+	/** Listening that never got going: let go of everything and say why. */
+	function fail(code) {
+		if (!active) return;
+		active = false;
+		release();
+		onLevel(0);
+		onEnd();
+		onError(code);
+	}
+
 	function start() {
 		if (active || finishing) return false;
 		active = true;
 		aborted = false;
 		chunks = [];
+		heardAny = false;
 		pause = null;
 		last = 0;
-		begin();
+		begin().catch(() => fail('no-audio'));
 		return true;
 	}
 
