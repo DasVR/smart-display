@@ -90,6 +90,9 @@ the wall itself, add the approval hook too ([`approvals.md`](approvals.md)).
 
 ## Quick setup
 
+The wall serves this same setup as a page: `http://<wall>:3000/connect` (plain
+markdown for an agent at `/connect.md`), with its address already filled in.
+
 Ask Claude Code in this repo to "set up agent status" (the
 [`agent-status-setup`](../.claude/skills/agent-status-setup/SKILL.md) skill
 walks through all of the below), or run it yourself:
