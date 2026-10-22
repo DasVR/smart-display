@@ -69,6 +69,7 @@ import {
 	setAgentStatus
 } from './lib/server/agentRosterState.js';
 import { createAgentStatusHub } from './lib/server/agentStatusHub.js';
+import { createConnectPage } from './lib/server/connectPage.js';
 import { createWeatherCache } from './lib/server/weatherCache.js';
 import { createBootLog } from './lib/server/bootLog.js';
 import { swipeKioskView, canonicalizeKioskView } from './lib/kioskViews.js';
@@ -406,6 +407,11 @@ setInterval(() => agentStatusHub.tick(), 60000);
 // Cursor's cloud agents, once there's a key (a quiet no-op until then)
 agentStatusHub.pollCursor();
 setInterval(() => agentStatusHub.pollCursor(), 60000);
+
+// /connect, /connect.md and /api/agents/connect: how Claude Code and Cursor hook
+// up to this wall, with the address filled in from the request. Public: a
+// session count and the last time, never a token (src/lib/server/connectPage.js)
+const connectPage = createConnectPage({ sessions: () => agentStatusHub.list() });
 
 function handleAudioConnected(req, res, parse, from) {
 	let raw = '';
@@ -763,6 +769,7 @@ const server = createServer(async (req, res) => {
 	if (await soundHub.handleHttp(req, res)) return;
 	if (await sensesHub.handleHttp(req, res)) return;
 	if (await agentStatusHub.handleHttp(req, res)) return;
+	if (connectPage.handleHttp(req, res)) return;
 	if (await bootLog.handleHttp(req, res)) return;
 
 	if (req.method === 'POST' && req.url === '/webhook/ha') {
