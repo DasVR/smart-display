@@ -1,0 +1,382 @@
+{
+	"base": "http://127.0.0.1:3000",
+	"model": "phonon-40m-en",
+	"mode": "after",
+	"lexiconApplied": true,
+	"lines": [
+		{
+			"n": 1,
+			"source": "The wall runs on a Raspberry Pi 5 with 8 GB of RAM.",
+			"expected": "The wall runs on a Raspberry Pi 5 with 8 GB of RAM.",
+			"heard": "The wall runs on a Raspberry P5 with 8GB of RAM.",
+			"errors": 4,
+			"words": 13,
+			"wer": 0.308
+		},
+		{
+			"n": 2,
+			"source": "Hermes reads voicebox.py before it speaks.",
+			"expected": "Hermes reads voicebox dot py before it speaks.",
+			"heard": "Hermes reads voicebox.py before it speaks.",
+			"errors": 1,
+			"words": 8,
+			"wer": 0.125
+		},
+		{
+			"n": 3,
+			"source": "Deploy with git pull origin master, then run npm ci.",
+			"expected": "Deploy with git pull origin master, then run npm ci.",
+			"heard": "Deploy with Git Polarigen Master, then run npm sci.",
+			"errors": 3,
+			"words": 10,
+			"wer": 0.3
+		},
+		{
+			"n": 4,
+			"source": "The repo lives at ~/projects/smart-display.",
+			"expected": "The repo lives at home projects/smart-display.",
+			"heard": "The repo lives at home projects slash smart dash display.",
+			"errors": 2,
+			"words": 8,
+			"wer": 0.25
+		},
+		{
+			"n": 5,
+			"source": "Check src/lib/server/voiceBox.js for the endpoints.",
+			"expected": "Check src/lib/server/voiceBox dot j s for the endpoints.",
+			"heard": "Check Sassy Lib Server VoiceBox.js for the endpoints.",
+			"errors": 4,
+			"words": 11,
+			"wer": 0.364
+		},
+		{
+			"n": 6,
+			"source": "node_modules holds sherpa-onnx-node 1.13.8 and ws 8.17.0.",
+			"expected": "node modules holds sherpa-onnx-node 1 point 13 point 8 and ws 8 point 17 point 0.",
+			"heard": "Node modules hold Sherpa Tan X node 1.13.8 and Boris 8.17.0.",
+			"errors": 8,
+			"words": 18,
+			"wer": 0.444
+		},
+		{
+			"n": 7,
+			"source": "The voices catalog is phonon-voices/voices.jsonl.",
+			"expected": "The voices catalog is phonon-voices/voices dot jason l.",
+			"heard": "The voices catalogue is phone on voices slash voices.jsonl.",
+			"errors": 6,
+			"words": 10,
+			"wer": 0.6
+		},
+		{
+			"n": 8,
+			"source": "ptts 0.4.1 ships phonon-31m-en and phonon-40m-en.",
+			"expected": "ptts 0 point 4 point 1 ships phonon-31m-en and phonon-40m-en.",
+			"heard": "Tex 0.4.1 ships phonon 31mn and phonon 40mnn.",
+			"errors": 7,
+			"words": 14,
+			"wer": 0.5
+		},
+		{
+			"n": 9,
+			"source": "The API token sits in data/api-token, never in git.",
+			"expected": "The A P I token sits in data/api-token, never in git.",
+			"heard": "the API token sits in data slash API dash token, never in git.",
+			"errors": 5,
+			"words": 13,
+			"wer": 0.385
+		},
+		{
+			"n": 10,
+			"source": "Open http://127.0.0.1:3000/v1/audio/voices for the list.",
+			"expected": "Open http://127 point 0 point 0.1:3000/v1/audio/voices for the list.",
+			"heard": "open http colon slash slash one two seven point zero point zero v1 fed me one audio slash voices for the list",
+			"errors": 13,
+			"words": 15,
+			"wer": 0.867
+		},
+		{
+			"n": 11,
+			"source": "POST to 127.0.0.1:3000/v1/audio/speech with an input field.",
+			"expected": "POST to 127 point 0 point 0.1:3000/v1/audio/speech with an input field.",
+			"heard": "pus to 127.mil point dilteen 30 v1 audio slash speech with an input field",
+			"errors": 7,
+			"words": 16,
+			"wer": 0.438
+		},
+		{
+			"n": 12,
+			"source": "The docs are under https://github.com/gradium-ai/xn-ptts.",
+			"expected": "The docs are under https://github.com/gradium-ai/xn-ptts.",
+			"heard": "The docs are under https colon slash slash github dot com slash gradium dash ai slash xn dash pts.",
+			"errors": 9,
+			"words": 11,
+			"wer": 0.818
+		},
+		{
+			"n": 13,
+			"source": "Mail the log to otto@example.com before 18:45.",
+			"expected": "Mail the log to otto@example.com before 18:45.",
+			"heard": "Mail the log to otto at example.com before 1845.",
+			"errors": 3,
+			"words": 10,
+			"wer": 0.3
+		},
+		{
+			"n": 14,
+			"source": "The invoice total is $1,299.00 plus $11.50 shipping.",
+			"expected": "The invoice total is $1,299.00 plus $11.50 shipping.",
+			"heard": "The invoice total is$1,299 plus$11.50 shipping.",
+			"errors": 1,
+			"words": 11,
+			"wer": 0.091
+		},
+		{
+			"n": 15,
+			"source": "SSH into the wall with ssh das@wall.local on port 22.",
+			"expected": "S S H into the wall with ssh das@wall.local on port 22.",
+			"heard": "SSH into the wall with shade das at wall.local on port 22.",
+			"errors": 5,
+			"words": 14,
+			"wer": 0.357
+		},
+		{
+			"n": 16,
+			"source": "The GPU stays idle; Parakeet and Phonon run on the CPU.",
+			"expected": "The G P U stays idle; Parakeet and Phonon run on the C P U.",
+			"heard": "The GPU stays idle, Hurricane Phonon run on the CPU.",
+			"errors": 8,
+			"words": 15,
+			"wer": 0.533
+		},
+		{
+			"n": 17,
+			"source": "Use the CLI: python -m wall_senses --check.",
+			"expected": "Use the C L I: python -m wall_senses --check.",
+			"heard": "use the CLI python memwar underscore sensors dash check",
+			"errors": 6,
+			"words": 9,
+			"wer": 0.667
+		},
+		{
+			"n": 18,
+			"source": "STT hears you, TTS answers.",
+			"expected": "S T T hears you, T T S answers.",
+			"heard": "STT hears UTTS answers.",
+			"errors": 7,
+			"words": 9,
+			"wer": 0.778
+		},
+		{
+			"n": 19,
+			"source": "The JSON body has model, voice, and input fields.",
+			"expected": "The Jason body has model, voice, and input fields.",
+			"heard": "The JSON body has model, voice, and input fields.",
+			"errors": 1,
+			"words": 9,
+			"wer": 0.111
+		},
+		{
+			"n": 20,
+			"source": "URLs with HTTPS fail without a token in .env.",
+			"expected": "U R Ls with H T T P S fail without a token in dot env.",
+			"heard": "URLs with https fail without a token in.invin.",
+			"errors": 10,
+			"words": 16,
+			"wer": 0.625
+		},
+		{
+			"n": 21,
+			"source": "Restart at 09:30; the 6:05 AM cron fires at 6:05.",
+			"expected": "Restart at 09:30; the 6:05 AM cron fires at 6:05.",
+			"heard": "Restart at 9.30, the 6.05 Amcron fires at 6.05.",
+			"errors": 3,
+			"words": 13,
+			"wer": 0.231
+		},
+		{
+			"n": 22,
+			"source": "On 2026-10-22 the backup took 3 hours 12 minutes.",
+			"expected": "On 2026-10-22 the backup took 3 hours 12 minutes.",
+			"heard": "On 2026 DEN22, the backup took 3 hours 12 minutes.",
+			"errors": 2,
+			"words": 11,
+			"wer": 0.182
+		},
+		{
+			"n": 23,
+			"source": "v0.22.2 -> v0.23.0 is queued for Friday.",
+			"expected": "v0.22.2 to v0.23.0 is queued for Friday.",
+			"heard": "V0.22.2 to V0.23.0 is queued for Friday.",
+			"errors": 0,
+			"words": 11,
+			"wer": 0
+		},
+		{
+			"n": 24,
+			"source": "The UUID a8098c1a-f86e-11da-bd1a-00c04ff430c9 shows in the log.",
+			"expected": "The U U I D a8098c1a-f86e-11da-bd1a-00c04ff430c9 shows in the log.",
+			"heard": "The UUID A8098C1AF86E11 Day Day BD1A WD1A DASU0C45F430C9 shows in the log.",
+			"errors": 9,
+			"words": 14,
+			"wer": 0.643
+		},
+		{
+			"n": 25,
+			"source": "Read AGENTS.md and README.md first.",
+			"expected": "Read AGENTS dot m d and README dot m d first.",
+			"heard": "Read agents.md and readme.md first.",
+			"errors": 6,
+			"words": 11,
+			"wer": 0.545
+		},
+		{
+			"n": 26,
+			"source": "Edit svelte.config.js and vite.config.js with care.",
+			"expected": "Edit svelte.config dot j s and vite.config dot j s with care.",
+			"heard": "Edits felt.config.js and vite.config.js with care.",
+			"errors": 8,
+			"words": 14,
+			"wer": 0.571
+		},
+		{
+			"n": 27,
+			"source": "The WAV file lands in voice-tests/before/01.wav.",
+			"expected": "The wave file lands in voice-tests/before/01.wav.",
+			"heard": "The wav file lands in voicetest slash before slash o1.wav.",
+			"errors": 5,
+			"words": 10,
+			"wer": 0.5
+		},
+		{
+			"n": 28,
+			"source": "SQL lives in data/lyrics.db; don't hand-edit it.",
+			"expected": "SQL lives in data/lyrics.db; don't hand-edit it.",
+			"heard": "sql lives in data slash lyrics.db don't hand edit it",
+			"errors": 1,
+			"words": 10,
+			"wer": 0.1
+		},
+		{
+			"n": 29,
+			"source": "Parakeet-TDT-0.6B-v2-int8 is the ear; phonon-40m-en the voice.",
+			"expected": "Parakeet-TDT-0.6B-v2-int8 is the ear; phonon-40m-en the voice.",
+			"heard": "Parakeet TTT 0.6B V2int88 is the ear, phonon-40m in the voice.",
+			"errors": 4,
+			"words": 14,
+			"wer": 0.286
+		},
+		{
+			"n": 30,
+			"source": "The OAuth callback URL is https://wall.example.ts.net/auth/callback.",
+			"expected": "The OAuth callback U R L is https://wall.example dot t s.net/auth/callback.",
+			"heard": "The OAuth callback URL is https colon slash slash wall dot example dot ts dot net slash auth slash callback.",
+			"errors": 11,
+			"words": 16,
+			"wer": 0.688
+		},
+		{
+			"n": 31,
+			"source": "Run npx svelte-check after touching src/.",
+			"expected": "Run npx svelte-check after touching src/.",
+			"heard": "Run MPX felt to check after touching SAS C.",
+			"errors": 5,
+			"words": 7,
+			"wer": 0.714
+		},
+		{
+			"n": 32,
+			"source": "The SSID is Das Home 5G and the password is in 1Password.",
+			"expected": "The S S I D is Das Home 5G and the password is in 1Password.",
+			"heard": "The SSID is DAS Home 5G and the password is in one password.",
+			"errors": 6,
+			"words": 15,
+			"wer": 0.4
+		},
+		{
+			"n": 33,
+			"source": "2 + 2 = 4, but 2 * 365 = 730.",
+			"expected": "2 + 2 = 4, but 2 * 365 = 730.",
+			"heard": "2 plus 2 equals 4, but 2365 equals 730 point.",
+			"errors": 5,
+			"words": 7,
+			"wer": 0.714
+		},
+		{
+			"n": 34,
+			"source": "The drive takes 45 minutes; that's 72.4 km each way.",
+			"expected": "The drive takes 45 minutes; that's 72.4 km each way.",
+			"heard": "The drive takes 45 minutes, that's 72.4km each way.",
+			"errors": 2,
+			"words": 11,
+			"wer": 0.182
+		},
+		{
+			"n": 35,
+			"source": "It's 17 degrees outside, dropping to 11 by 22:00.",
+			"expected": "It's 17 degrees outside, dropping to 11 by 22:00.",
+			"heard": "It's 17 degrees outside, dropping to 11 by 22.",
+			"errors": 1,
+			"words": 10,
+			"wer": 0.1
+		},
+		{
+			"n": 36,
+			"source": "The wall's IP is 192.168.1.42 on port 3000.",
+			"expected": "The wall's IP is 192 point 168 point 1.42 on port 3000.",
+			"heard": "The wall's IP is 192.168.1.42 on port 3000.",
+			"errors": 2,
+			"words": 13,
+			"wer": 0.154
+		},
+		{
+			"n": 37,
+			"source": "Say sudo systemctl restart smart-display-senses slowly.",
+			"expected": "Say sudo systemctl restart smart-display-senses slowly.",
+			"heard": "Say pseudo system till we start smart display sensors slowly.",
+			"errors": 6,
+			"words": 8,
+			"wer": 0.75
+		},
+		{
+			"n": 38,
+			"source": "The kanban-watchers-notifier sleeps 8 ticks, then settles the cursor.",
+			"expected": "The kanban-watchers-notifier sleeps 8 ticks, then settles the cursor.",
+			"heard": "The Kanban watchers Dashifire sleeps 8 ticks, then settles the cursor.",
+			"errors": 1,
+			"words": 11,
+			"wer": 0.091
+		},
+		{
+			"n": 39,
+			"source": "When the overnight backup finishes, Hermes posts a note to the wall, the island shows it until someone taps got it, and the ledger records who answered and when.",
+			"expected": "When the overnight backup finishes, Hermes posts a note to the wall, the island shows it until someone taps got it, and the ledger records who answered and when.",
+			"heard": "When the overnight backup finishes, Hermes posts a note to the wall, the island shows it until someone taps got it, and the ledger records who answered and when.",
+			"errors": 0,
+			"words": 29,
+			"wer": 0
+		},
+		{
+			"n": 40,
+			"source": "Claude, Cursor, and Hermes each have a card on the Agents tab.",
+			"expected": "Claude, Cursor, and Hermes each have a card on the Agents tab.",
+			"heard": "Claude, Cursor, and Hermes each have a card on the agents tab.",
+			"errors": 0,
+			"words": 12,
+			"wer": 0
+		},
+		{
+			"n": 41,
+			"source": "Phonon ships 37 English voices; the wall speaks Easton.",
+			"expected": "Phonon ships 37 English voices; the wall speaks Easton.",
+			"heard": "Phonon ships 37 English voices. The wall speaks Eastern.",
+			"errors": 1,
+			"words": 9,
+			"wer": 0.111
+		}
+	],
+	"total": {
+		"errors": 188,
+		"words": 496,
+		"wer": 0.379
+	}
+}

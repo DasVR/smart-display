@@ -4,11 +4,18 @@ Hermes: docs/voice-server.md).
 
     GET  /health       { stt, tts, model, voices: [{ name, description }] }
     POST /transcribe   a WAV (any rate, 16-bit) -> { text }
-    POST /speech       { text, voice? } -> a 24 kHz WAV
+    POST /speech       { text, voice?, duration_delta? } -> a 24 kHz WAV
 
 It listens on 127.0.0.1 only (WALL_VOICEBOX_PORT, default 3011): the
 service may talk to nothing but this machine, and the wall's server is the
 one that checks who is asking.
+
+Pace: WALL_VOICE_DURATION_DELTA shifts every reply's speaking rate
+(phonon's duration_delta: +0.2/0.3 slower and calmer, -0.3 faster, 0 the
+default). A request's own duration_delta paces that reply alone, clamped
+to ±0.5 — beyond that speech gets unreliable. What the voice says for
+things it trips on (acronyms, file names, symbols) lives in
+data/voice-lexicon.json, re-read the moment the file changes.
 
 Ears: the same Parakeet the microphone uses (stt.shared), so it costs no
 extra memory. Voice: Phonon (Gradium), a 31M-parameter speech model that
@@ -21,6 +28,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -37,6 +45,8 @@ PHONON_MODELS = ("phonon-40m-en", "phonon-31m-en")
 PHONON_FILES = ("config.json", "model.q8.gguf", "tokenizer.json")
 VOICES_DIR = "phonon-voices"
 DEFAULT_VOICE = "Easton"
+DELTA_MAX = 0.5
+LEXICON_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "voice-lexicon.json")
 
 
 def port():
@@ -72,6 +82,84 @@ def read_voices(folder):
     except OSError:
         pass
     return out
+
+
+def clamp_delta(value):
+    """A pace shift kept where Phonon stays reliable (small is best)."""
+    return max(-DELTA_MAX, min(DELTA_MAX, value))
+
+
+def duration_delta_env():
+    """Every reply's pace: WALL_VOICE_DURATION_DELTA (0.0, the default, is unchanged)."""
+    try:
+        return clamp_delta(float(os.environ.get("WALL_VOICE_DURATION_DELTA", "") or 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def request_delta(value):
+    """One request's pace (the duration_delta body key): a number clamped
+    to ±0.5, or None when absent or not a number (the env's pace applies)."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return clamp_delta(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+_lexicon = {"path": None, "mtime": None, "rules": []}
+
+
+def lexicon_path():
+    return os.environ.get("WALL_VOICE_LEXICON") or LEXICON_FILE
+
+
+def load_lexicon(log=print):
+    """data/voice-lexicon.json -> [(regex, replacement)]: acronym entries first
+    (whole-word, case-sensitive), then the ordered rewrites. Re-read the moment
+    the file changes; a half-written or broken save keeps the last good copy,
+    and a missing one says nothing. Never raises."""
+    path = lexicon_path()
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = None
+    if _lexicon["path"] == path and _lexicon["mtime"] == mtime:
+        return _lexicon["rules"]
+    if mtime is None:
+        _lexicon.update({"path": path, "mtime": None, "rules": []})
+        return []
+    rules = []
+    try:
+        with open(path, encoding="utf8") as f:
+            data = json.load(f)
+    except (OSError, ValueError) as e:
+        log("voice: lexicon unreadable:", e)
+        rules = _lexicon["rules"] if _lexicon["path"] == path else []
+    else:
+        for word, said in (data.get("acronyms") or {}).items():
+            if isinstance(word, str) and isinstance(said, str) and word:
+                rules.append((re.compile(r"\b" + re.escape(word) + r"\b"), said))
+        for rewrite in data.get("rewrites") or []:
+            if not isinstance(rewrite, dict):
+                continue
+            try:
+                rx = re.compile(str(rewrite.get("pattern", "")))
+                said = str(rewrite.get("replace", ""))
+                rx.sub(said, "")  # a bad backreference fails here, not mid-speech
+            except re.error:
+                continue
+            rules.append((rx, said))
+    _lexicon.update({"path": path, "mtime": mtime, "rules": rules})
+    return rules
+
+
+def speakable(text, rules):
+    """The text said right: the lexicon's acronyms spelt out and its rewrites applied."""
+    for rx, said in rules:
+        text = rx.sub(said, text)
+    return " ".join(text.split())
 
 
 def decode_wav(data):
@@ -176,19 +264,33 @@ class Voice:
                 raise FileNotFoundError("Phonon is not in " + self.folder)
             voices = os.path.join(self.folder, VOICES_DIR)
             ptts.set_num_threads(int(os.environ.get("WALL_VOICE_THREADS", "2")))
+            delta = duration_delta_env()
             self._tts = ptts.TTS(
-                path, lang="en", quant="q8_0", voice_catalog=voices if os.path.isdir(voices) else None
+                path,
+                lang="en",
+                quant="q8_0",
+                conditions={"duration_delta": delta} if delta else None,
+                voice_catalog=voices if os.path.isdir(voices) else None,
             )
             self.log(f"voice: {os.path.basename(path)} loaded")
         return self._tts
 
-    def speak(self, text, voice=None):
-        """-> (WAV bytes, seconds). Unknown voices fall back to the default."""
+    def speak(self, text, voice=None, duration_delta=None):
+        """-> (WAV bytes, seconds). Unknown voices fall back to the default.
+        duration_delta paces this reply alone (+ slower, - faster); without it,
+        WALL_VOICE_DURATION_DELTA paces them all."""
         with self._lock:
             tts = self._engine()
+            text = speakable(text, load_lexicon(self.log))
             names = {v["name"].lower(): v["name"] for v in read_voices(self.folder)}
             pick = names.get(str(voice or "").lower()) or names.get(DEFAULT_VOICE.lower())
-            samples = tts.synth(text, voice=pick) if pick else tts.synth(text)
+            if duration_delta is not None:
+                tts.set_conditions({"duration_delta": duration_delta})
+            try:
+                samples = tts.synth(text, voice=pick) if pick else tts.synth(text)
+            finally:
+                if duration_delta is not None:
+                    tts.set_conditions({"duration_delta": duration_delta_env()})
             return wav_bytes(samples, tts.sample_rate), len(samples) / tts.sample_rate
 
 
@@ -253,7 +355,7 @@ class VoiceBox:
                             return self._send(400, {"error": "no-text"})
                         if not box.voice.ready():
                             return self._send(503, {"error": "no-voice"})
-                        audio, seconds = box.voice.speak(text, req.get("voice"))
+                        audio, seconds = box.voice.speak(text, req.get("voice"), request_delta(req.get("duration_delta")))
                         self.send_response(200)
                         self.send_header("Content-Type", "audio/wav")
                         self.send_header("Content-Length", str(len(audio)))

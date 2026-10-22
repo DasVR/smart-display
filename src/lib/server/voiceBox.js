@@ -7,7 +7,7 @@
  *
  *   GET  /v1/models                    what's here, OpenAI-style
  *   GET  /v1/audio/voices              Phonon's voices: [{ name, description }]
- *   POST /v1/audio/speech              { input, voice?, response_format? } -> audio
+ *   POST /v1/audio/speech              { input, voice?, response_format?, duration_delta? } -> audio
  *   POST /v1/audio/transcriptions      multipart `file` (or a raw audio body) -> { text }
  *   GET  /api/voice/box                { up, stt, tts, model, voices } for the phone
  *
@@ -26,7 +26,7 @@ const MAX_TEXT = 1000;
 const TIMEOUT_MS = 30000;
 const TYPES = { mp3: 'audio/mpeg', opus: 'audio/ogg', aac: 'audio/aac', flac: 'audio/flac', wav: 'audio/wav', pcm: 'audio/L16' };
 
-/** OpenAI's speech request -> what the voice box needs. { text, voice, format } or { error }. */
+/** OpenAI's speech request -> what the voice box needs. { text, voice, format, durationDelta? } or { error }. */
 export function speechRequest(body = {}) {
 	const text = String(body.input ?? body.text ?? '')
 		.replace(/\s+/g, ' ')
@@ -37,7 +37,13 @@ export function speechRequest(body = {}) {
 	if (!TYPES[format]) return { error: 'bad-format' };
 	// OpenAI's own voice names (alloy, nova…) aren't Phonon's: those get the wall's voice
 	const voice = typeof body.voice === 'string' && /^[A-Za-z][A-Za-z ._-]{0,30}$/.test(body.voice) ? body.voice : '';
-	return { text, voice, format };
+	const out = { text, voice, format };
+	// a per-request pace shift (Phonon's duration_delta: + slower, - faster), clamped to what stays reliable
+	const delta = Number(body.duration_delta);
+	if (body.duration_delta != null && body.duration_delta !== '' && Number.isFinite(delta)) {
+		out.durationDelta = Math.max(-0.5, Math.min(0.5, delta));
+	}
+	return out;
 }
 
 /** The Bearer token a request carries, or ''. */
@@ -161,12 +167,12 @@ export function createVoiceBox({
 	}
 
 	/** Speak with Phonon: { ok, audio (WAV), durationMs } or { ok: false, error }. */
-	async function speak(text, voice = '') {
+	async function speak(text, voice = '', durationDelta = null) {
 		try {
 			const res = await fetchImpl(`${url}/speech`, {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ text, voice }),
+				body: JSON.stringify({ text, voice, ...(durationDelta == null ? {} : { duration_delta: durationDelta }) }),
 				signal: AbortSignal.timeout(TIMEOUT_MS)
 			});
 			if (!res.ok) {
@@ -252,8 +258,8 @@ export function createVoiceBox({
 					fail(res, 400, 'invalid_request_error', ask.error === 'no-input' ? 'Nothing to say: send "input".' : 'response_format is one of mp3, opus, aac, flac, wav, pcm.');
 					return true;
 				}
-				if (!checkedAt) await refresh();
-				const out = await speak(ask.text, voiceFor(ask.voice));
+			if (!checkedAt) await refresh();
+			const out = await speak(ask.text, voiceFor(ask.voice), ask.durationDelta ?? null);
 				if (!out.ok) {
 					fail(res, 503, out.error, out.error === 'no-voice' ? 'Phonon is not installed on the wall (scripts/senses/install.sh).' : 'The wall’s voice isn’t answering.');
 					return true;
