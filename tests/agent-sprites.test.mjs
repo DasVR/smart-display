@@ -107,11 +107,20 @@ test('Cursor’s caret blinks on its own clock; Gemini’s twinkle glints', () =
 	assert.equal(glints(500), 0);
 });
 
+test('Hermes’s wing tips beat by colour on their own clock', () => {
+	const stand = CHARACTERS.hermes.poses.stand;
+	const tips = (t) => renderFrame('hermes', { pose: stand }, t).filter((p) => p.y === GRID.GROUND - stand.length).map((p) => p.color);
+	assert.deepEqual(tips(0), [CHARACTERS.hermes.palette.X, CHARACTERS.hermes.palette.X]);
+	assert.deepEqual(tips(400), [mix(CHARACTERS.hermes.palette.X, '#0c0c0c'), mix(CHARACTERS.hermes.palette.X, '#0c0c0c')]);
+});
+
 test('characterFor maps agent names to characters', () => {
 	assert.equal(characterFor('Claude Code'), 'claude');
 	assert.equal(characterFor('claude'), 'claude');
 	assert.equal(characterFor('Cursor'), 'cursor');
 	assert.equal(characterFor('Gemini CLI'), 'gemini');
+	assert.equal(characterFor('Hermes'), 'hermes');
+	assert.equal(characterFor('hermes-agent'), 'hermes');
 	assert.equal(characterFor('Ollama'), null);
 	assert.equal(characterFor(''), null);
 });

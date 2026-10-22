@@ -2,8 +2,8 @@
  * The agents as little pixel characters (the wall's bottom edge).
  *
  * Clawd is decoded from the "Clawd opens a laptop" GIF (12 × 8, two oranges);
- * Cursor is a lit cube with a text-caret eye and Gemini a pair of twins, both
- * drawn in his style. Every character has the same five poses (stand, windup,
+ * Cursor is a lit cube with a text-caret eye, Gemini a pair of twins and
+ * Hermes a little messenger in a winged helmet, all drawn in his style. Every character has the same five poses (stand, windup,
  * stretch, sit, slump), so every state works for all of them.
  *
  * Pixel-art rules this follows (.claude/skills/pixel-art): whole pixels only,
@@ -206,6 +206,70 @@ export const CHARACTERS = {
 				'.A.A....V.V.'
 			]
 		}
+	},
+	hermes: {
+		label: 'Hermes',
+		accent: '#5fb3a8',
+		// teal messenger, gold winged helmet and sandals, a darker side when turned
+		palette: { B: '#5fb3a8', D: '#468a81', G: '#d9a441', g: '#a87a2a', W: '#f3efe4', X: '#f3efe4', E: '#0c0c0c' },
+		// the wing tips (X) beat: full, then half-toned into the dark
+		flutter: { ms: 330 },
+		hand: [2, 4],
+		poses: {
+			stand: [
+				'.X........X.',
+				'WW.GGGGGG.WW',
+				'.WGGGGGGGGW.',
+				'..BEBBBBEB..',
+				'BBBBBBBBBBBB',
+				'..BBBBBBBB..',
+				'..B.B..B.B..',
+				'..G.G..G.G..'
+			],
+			// tilted a pixel right, one arm up, a wink
+			windup: [
+				'..X.......X.',
+				'.WW.GGGGGGWW',
+				'..WGGGGGGGGW',
+				'...BEBBBEEB.',
+				'..BBBBBBBBBB',
+				'BBBBBBBBBB..',
+				'..B.B..B.B..',
+				'..G.G..G.G..'
+			],
+			// arms up beside the helmet, a pixel taller
+			stretch: [
+				'.BX......XB.',
+				'WB.GGGGGG.BW',
+				'.BGGGGGGGGB.',
+				'..BEBBBBEB..',
+				'..BBBBBBBB..',
+				'..BBBBBBBB..',
+				'..BBBBBBBB..',
+				'..B.B..B.B..',
+				'..G.G..G.G..'
+			],
+			// sitting turned to the laptop: the far wing up behind, the near one folded
+			sit: [
+				'.....GGGGg.X',
+				'...WGGGGGGgW',
+				'....EBBEBBDD',
+				'..BBBBBBBBDD',
+				'..BBBBBBBBDD',
+				'...B..B..D..',
+				'...GG.GG.gg.'
+			],
+			// head down, the wings drooping to its sides
+			slump: [
+				'...GGGGGG...',
+				'..GGGGGGGG..',
+				'WWBEBBBBEBWW',
+				'.BBBBBBBBBB.',
+				'.BBBBBBBBBB.',
+				'..B.B..B.B..',
+				'..G.G..G.G..'
+			]
+		}
 	}
 };
 
@@ -215,6 +279,7 @@ export function characterFor(source = '') {
 	if (s.includes('cursor')) return 'cursor';
 	if (s.includes('gemini')) return 'gemini';
 	if (s.includes('claude')) return 'claude';
+	if (s.includes('hermes')) return 'hermes';
 	return null;
 }
 
@@ -418,7 +483,12 @@ export function renderFrame(characterId, frame, t = 0) {
 	const { OX, GROUND } = GRID;
 	const out = [];
 	const dot = (x, y, color, alpha) => out.push(alpha ? { x, y, color, alpha } : { x, y, color });
-	const paint = (c) => (c === 'C' ? (Math.floor(t / ch.caret.ms) % 2 ? ch.caret.off : ch.caret.on) : ch.palette[c]);
+	const paint = (c) => {
+		if (c === 'C') return Math.floor(t / ch.caret.ms) % 2 ? ch.caret.off : ch.caret.on;
+		// a wing beat by colour, not position: the tip half-tones into the dark and back
+		if (c === 'X' && ch.flutter) return Math.floor(t / ch.flutter.ms) % 2 ? mix(ch.palette.X, BG) : ch.palette.X;
+		return ch.palette[c];
+	};
 
 	// a keystroke lifts the near arm's bottom two pixels; a half keystroke fades them
 	const [hx, hy] = ch.hand;

@@ -15,7 +15,7 @@ the wall's bottom bar, so you can see who's working from across the room.
 On the **Agents** view, the lead agent's character is the hero, large, beside
 its name: at its laptop while it works, standing when it's idle, and one hop
 when it finishes a run. The other agents get small portraits in the roster
-(Hermes and Ollama keep their orbs). On that view the bottom bar only shows
+(Ollama keeps its orb). On that view the bottom bar only shows
 characters that are asking, so nobody is drawn twice.
 
 Characters climb in and out a pixel at a time. While any are on stage, the
@@ -30,11 +30,15 @@ room.
 - **Cursor**: a little cube lit from above, with a text caret for one eye that
   blinks every 530 ms.
 - **Gemini**: twins holding hands, one blue, one violet, with a twinkle above.
+- **Hermes**: a little teal messenger in a gold winged helmet and gold
+  sandals. The wing tips beat by colour (full, then half-toned into the dark,
+  every 330 ms); sitting at the laptop the far wing stands up behind it, and
+  when you say no the wings droop to its sides.
 
-An approval from an agent without a character (Hermes, say) is asked by
+An approval from an agent without a character (Codex, say) is asked by
 Clawd, with the agent's own name on the bubble. Ollama doesn't get one.
 
-All three share five poses (stand, wind-up, stretch, sit, slump), so every
+All four share five poses (stand, wind-up, stretch, sit, slump), so every
 state works for all of them.
 
 ## How it's built
