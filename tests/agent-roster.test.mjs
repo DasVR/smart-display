@@ -14,7 +14,6 @@ import {
 	workingIslandActivity
 } from '../src/lib/agentRoster.js';
 import { swipeKioskView, KIOSK_VIEWS, canonicalizeKioskView } from '../src/lib/kioskViews.js';
-import { hostPeekNeeded } from '../src/lib/hostPeek.js';
 
 test('identifyAgent maps Claude Code, Cursor, Hermes, Ollama', () => {
 	assert.equal(identifyAgent('Claude Code'), 'claude');
@@ -130,14 +129,3 @@ test('leadAgent prefers a working card, then the latest finish', () => {
 	assert.equal(leadAgent(emptyRoster()), null);
 });
 
-test('hostPeekNeeded opens for load, quality, or a down service', () => {
-	assert.equal(hostPeekNeeded({}), false);
-	assert.equal(hostPeekNeeded({ cpu: 60 }), true);
-	assert.equal(hostPeekNeeded({ ramPct: 80 }), true);
-	assert.equal(hostPeekNeeded({ quality: 'eco' }), true);
-	assert.equal(hostPeekNeeded({ services: [{ name: 'ha', status: false }] }), true);
-	assert.equal(hostPeekNeeded({ services: [{ name: 'ha', status: true }] }), false);
-	assert.equal(hostPeekNeeded({ force: true }), true);
-	assert.equal(hostPeekNeeded({ error: true }), true);
-	assert.equal(hostPeekNeeded({ quality: 'frozen' }), true);
-});

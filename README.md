@@ -287,7 +287,7 @@ The kiosk runs on an integrated GPU, so the rendering budget is tight:
 - [`docs/approvals.md`](docs/approvals.md): Allow / Deny agent requests from the wall
 - [`docs/agent-characters.md`](docs/agent-characters.md): the agents as pixel characters on the bottom bar, and how they're animated
 - [`docs/boot.md`](docs/boot.md): turning on: the standby light, the eyes opening, a quiet boot, and how long each boot took (`npm run boot-report`)
-- [`docs/agent-status.md`](docs/agent-status.md): live status from Claude Code and Cursor, on your computer or in the cloud, through their hooks and Cursor's Cloud Agents API
+- [`docs/agent-status.md`](docs/agent-status.md): live status from Claude Code and Cursor, on your computer or in the cloud, through their hooks and Cursor's Cloud Agents API; the Agents view's lanes; the `report_progress` tool and the `wall-status` Claude Code plugin ([`plugins/wall-status`](plugins/wall-status/README.md))
 - [`docs/voice.md`](docs/voice.md): the wall's voice (Phonon or Piper for free on the wall, or ElevenLabs), its sound library, and making new sounds from the phone
 - [`docs/voice-commands.md`](docs/voice-commands.md): everything you can say to the wall, and how it's understood
 - [`docs/remote-voice.md`](docs/remote-voice.md): the phone's voice agent: hold the mic key, talk to the wall, the orb shader, and the https it needs

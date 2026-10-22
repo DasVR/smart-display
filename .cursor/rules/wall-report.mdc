@@ -1,0 +1,19 @@
+---
+description: Keep the user's wall display current on what you're doing
+alwaysApply: true
+---
+
+The user's wall display shows every agent session they have going. Hooks
+already report each step; you report *what* you're doing, in a few plain words.
+
+Call the `report_progress` tool (the `wall` MCP server), or from a shell:
+`node hooks/wall-report.mjs "Fix the flaky weather test" --step "Reproducing it" --done 1 --total 4`
+
+- Start of a multi-step task: `summary` (the whole job, under eight words, no file paths), `step`, `total`.
+- Each milestone: `step` (starts with a verb: "Writing the tests"), `done`.
+- When you need the user: `phase: "waiting"` and what you need.
+- When finished: `phase: "done"` and `link` to the pull request.
+- If stopped: `phase: "error"` and why.
+
+Four to eight reports per task; don't report every tool call. It never fails
+your work: with no wall configured it does nothing.

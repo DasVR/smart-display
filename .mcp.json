@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "wall": { "command": "node", "args": ["hooks/wall-report.mjs", "--mcp"] }
+  }
+}

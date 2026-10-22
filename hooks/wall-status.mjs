@@ -22,8 +22,9 @@
 //
 // docs/agent-status.md has the settings for each tool.
 
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 /** The saved settings, or {} (none, unreadable, not JSON). */
@@ -46,6 +47,30 @@ const remote = process.env.CLAUDE_CODE_REMOTE === 'true' || /^(1|true)$/i.test(p
 
 const clip = (v, n = 200) => (v == null ? undefined : String(v).slice(0, n));
 
+/** Where the latest session in a folder is noted, so hooks/wall-report.mjs (run by
+ *  the agent itself, which isn't told its session id) reports on the right one. */
+export function sessionNote(cwd = process.cwd()) {
+	return path.join(tmpdir(), 'wall-status', `${createHash('sha1').update(String(cwd)).digest('hex').slice(0, 16)}.json`);
+}
+
+function noteSession(body, agent) {
+	const id = body?.session_id || body?.conversation_id;
+	if (!id) return;
+	try {
+		const file = sessionNote(body.cwd || (Array.isArray(body.workspace_roots) && body.workspace_roots[0]) || process.cwd());
+		mkdirSync(path.dirname(file), { recursive: true });
+		writeFileSync(file, JSON.stringify({ session_id: String(id).slice(0, 80), agent: agent || (body.conversation_id ? 'cursor' : 'claude'), at: Date.now() }));
+	} catch {
+		/* a note is a convenience; reporting still works with WALL_SESSION_ID */
+	}
+}
+
+/** The to-do list's items, trimmed: what TodoWrite plans is the step and the progress. */
+function todos(list) {
+	if (!Array.isArray(list)) return undefined;
+	return list.slice(0, 50).map((t) => ({ content: clip(t?.content, 100), activeForm: clip(t?.activeForm, 100), status: clip(t?.status, 20) }));
+}
+
 /** Only what src/lib/agentHooks.js reads. */
 export function slim(body, { sendPrompt = true } = {}) {
 	const i = body?.tool_input && typeof body.tool_input === 'object' ? body.tool_input : {};
@@ -58,7 +83,7 @@ export function slim(body, { sendPrompt = true } = {}) {
 		prompt: sendPrompt ? clip(body?.prompt, 200) : undefined,
 		tool_name: clip(body?.tool_name, 60),
 		tool_input: body?.tool_input
-			? { command: clip(i.command), file_path: clip(i.file_path, 300), path: clip(i.path, 300), pattern: clip(i.pattern, 100), description: clip(i.description, 100), url: clip(i.url, 200) }
+			? { command: clip(i.command), file_path: clip(i.file_path, 300), path: clip(i.path, 300), pattern: clip(i.pattern, 100), description: clip(i.description, 100), url: clip(i.url, 200), todos: todos(i.todos) }
 			: undefined,
 		notification_type: clip(body?.notification_type, 60),
 		message: clip(body?.message),
@@ -83,6 +108,7 @@ async function main() {
 	// Cursor waits on beforeSubmitPrompt's answer: always let the prompt through
 	if (body.hook_event_name === 'beforeSubmitPrompt') process.stdout.write('{"continue":true}\n');
 	if (!base) return;
+	noteSession(body, agent);
 	const q = new URLSearchParams();
 	if (agent) q.set('agent', agent);
 	if (remote) q.set('remote', '1');
