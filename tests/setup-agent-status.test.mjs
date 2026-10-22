@@ -114,6 +114,23 @@ test('into another repo, for its cloud sessions', async () => {
 	assert.equal(s.hooks.UserPromptSubmit[0].hooks[0].command, 'node "$CLAUDE_PROJECT_DIR"/hooks/wall-status.mjs claude');
 	assert.ok(existsSync(path.join(repo, 'hooks', 'wall-status.mjs')));
 	assert.equal(JSON.parse(readFileSync(path.join(repo, '.cursor', 'hooks.json'), 'utf8')).hooks.stop[0].command, 'node hooks/wall-status.mjs cursor');
+	// the report tool, and the words telling each agent to use it
+	assert.ok(existsSync(path.join(repo, 'hooks', 'wall-report.mjs')));
+	assert.ok(existsSync(path.join(repo, '.claude', 'skills', 'wall-report', 'SKILL.md')));
+	assert.ok(existsSync(path.join(repo, '.cursor', 'rules', 'wall-report.mdc')));
+	assert.deepEqual(JSON.parse(readFileSync(path.join(repo, '.mcp.json'), 'utf8')).mcpServers.wall.args, ['hooks/wall-report.mjs', '--mcp']);
+	assert.deepEqual(JSON.parse(readFileSync(path.join(repo, '.cursor', 'mcp.json'), 'utf8')).mcpServers.wall.args, ['${workspaceFolder}/hooks/wall-report.mjs', '--mcp']);
+});
+
+test('another repo keeps its own MCP servers, and uninstall takes out only ours', async () => {
+	const repo = mkdtempSync(path.join(tmpdir(), 'repo-'));
+	writeFileSync(path.join(repo, '.mcp.json'), JSON.stringify({ mcpServers: { db: { command: 'db-mcp' } } }));
+	await main(['--repo', repo], () => {});
+	assert.deepEqual(Object.keys(JSON.parse(readFileSync(path.join(repo, '.mcp.json'), 'utf8')).mcpServers).sort(), ['db', 'wall']);
+	await main(['--repo', repo, '--uninstall'], () => {});
+	assert.deepEqual(Object.keys(JSON.parse(readFileSync(path.join(repo, '.mcp.json'), 'utf8')).mcpServers), ['db']);
+	assert.ok(!existsSync(path.join(repo, 'hooks', 'wall-report.mjs')));
+	assert.ok(!existsSync(path.join(repo, '.cursor', 'rules', 'wall-report.mdc')));
 });
 
 test('the Cursor key is saved on the wall, for it alone to read', async () => {

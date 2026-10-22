@@ -93,7 +93,9 @@ Claude Code and Cursor.
 do the last two:
 
 1. Hooks in each repo they use in the cloud. This repo has them. For another:
-   `npm run agent-status -- --repo <path to that repo>`, then commit what it
+   `npm run agent-status -- --repo <path to that repo>` (the hooks, plus the
+   `report_progress` tool, its skill and its Cursor rule, so the agents say
+   what they're working on), then commit what it
    wrote there (`hooks/wall-status.mjs`, `.claude/settings.json`,
    `.cursor/hooks.json`). Don't push to their repos without asking.
 2. The wall reachable from the internet, by an `https://` address: Tailscale
@@ -116,6 +118,11 @@ npm run agent-status -- --cursor-key <key>   # empty string removes it
 The wall picks it up within a minute; the key is stored in `data/cursor-api-key`,
 readable only by the wall's user. If you're not on the wall, give the user that
 command to run there.
+
+For Claude Code, the `wall-status` plugin is the other way in
+(`/plugin marketplace add dasvr/smart-display`, then
+`/plugin install wall-status@smart-display`; `plugins/wall-status/README.md`
+has the repo setting that turns it on for every cloud session there).
 
 ## Undo
 

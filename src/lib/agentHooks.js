@@ -8,7 +8,13 @@
  * and Cursor's cloud agents, as long as the hook can reach the wall.
  *
  * Each agent can have several sessions going (a terminal, the web, a cloud
- * agent); the wall shows the busiest: needs you > working > done > idle.
+ * agent); the Agents view shows each one, and the roster the busiest:
+ * needs you > working > done > idle.
+ *
+ * Beyond the raw steps, a session can say what it's doing in its own words:
+ * Claude Code's to-do list (TodoWrite) gives the current step and "2 of 5",
+ * and an agent can report a headline itself (the WallReport step, from
+ * hooks/wall-report.mjs, its MCP tool `report_progress` or its CLI).
  * A session that goes quiet for STALE_MS without finishing (closed laptop,
  * reclaimed container) stops counting as working.
  *
@@ -44,17 +50,43 @@ export function toolLine(name, input) {
 	return detail ? `${tool}: ${detail}` : tool;
 }
 
+/** A to-do list (TodoWrite's `todos`) as { step, done, total }, or null. */
+export function todoProgress(todos) {
+	if (!Array.isArray(todos) || !todos.length) return null;
+	const items = todos.filter((t) => t && typeof t === 'object').slice(0, 50);
+	if (!items.length) return null;
+	const done = items.filter((t) => t.status === 'completed').length;
+	const now = items.find((t) => t.status === 'in_progress');
+	const step = clip(now?.activeForm || now?.content || '', 80);
+	return { step, done, total: items.length };
+}
+
+const num = (v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.min(999, Math.floor(Number(v))) : null);
+/** { done, total } from a report, or null when it doesn't make sense. */
+function progressOf(done, total) {
+	const d = num(done);
+	const t = num(total);
+	return t && d !== null && d <= t ? { done: d, total: t } : null;
+}
+/** Only http(s) links, so a report can't put anything else on the wall. */
+export function safeLink(v) {
+	const s = clip(v, 300);
+	return /^https?:\/\/[^\s]+$/i.test(s) ? s : '';
+}
+
 /** Which agent sent a hook: the `agent` the hook named, or a guess from the JSON's shape. */
 export function agentOfHook(body = {}, named = '') {
 	const n = String(named || '').toLowerCase();
 	if (n === 'claude' || n === 'cursor') return n;
+	if (body.agent === 'claude' || body.agent === 'cursor') return body.agent;
 	// Cursor's hooks carry conversation_id and camelCase event names; Claude Code's session_id and PascalCase
 	if (body.conversation_id || /^[a-z]/.test(String(body.hook_event_name || ''))) return 'cursor';
 	return 'claude';
 }
 
 /**
- * One hook's JSON as { agent, session, phase, task, prompt, project, remote } or null
+ * One hook's JSON as { agent, session, phase, task, prompt, project, remote,
+ * title?, progress?, link? } or null
  * when the step says nothing about the session's state. phase:
  * 'working' | 'waiting' (needs you) | 'done' | 'error' | 'ended'.
  */
@@ -67,7 +99,22 @@ export function readHook(body = {}, { agent: named = '', remote = false } = {}) 
 	const prompt = clip(String(body.prompt ?? '').split('\n')[0], 80);
 	let phase = null;
 	let task = '';
+	let title;
+	let progress;
+	let link;
 	switch (event) {
+		// the agent's own words (hooks/wall-report.mjs): a headline, the step, how far along
+		case 'WallReport': {
+			const p = String(body.phase || 'working');
+			phase = ['working', 'waiting', 'done', 'error'].includes(p) ? p : 'working';
+			title = clip(body.summary, 80);
+			task = clip(body.step, 80);
+			const pr = progressOf(body.done, body.total);
+			if (pr) progress = pr;
+			link = safeLink(body.link);
+			if (!title && !task && !pr && phase === 'working') return null;
+			break;
+		}
 		// Claude Code
 		case 'UserPromptSubmit':
 		case 'beforeSubmitPrompt':
@@ -78,10 +125,16 @@ export function readHook(body = {}, { agent: named = '', remote = false } = {}) 
 		case 'PostToolUse':
 		case 'PostToolUseFailure':
 		case 'preToolUse':
-		case 'postToolUse':
+		case 'postToolUse': {
 			phase = 'working';
-			task = toolLine(body.tool_name, body.tool_input);
+			// the to-do list is the plan: its current item is the step, and how many are done
+			const todo = body.tool_name === 'TodoWrite' ? todoProgress(body.tool_input?.todos) : null;
+			if (todo) {
+				task = todo.step || 'Planning';
+				progress = { done: todo.done, total: todo.total };
+			} else task = toolLine(body.tool_name, body.tool_input);
 			break;
+		}
 		case 'SubagentStart':
 			phase = 'working';
 			task = clip(`Subagent${body.agent_type ? `: ${body.agent_type}` : ''}`, 60);
@@ -140,13 +193,20 @@ export function readHook(body = {}, { agent: named = '', remote = false } = {}) 
 	}
 	if (!phase) return null;
 	const asked = event === 'UserPromptSubmit' || event === 'beforeSubmitPrompt' ? prompt : '';
-	return { agent, session, phase, task, prompt: asked, project, remote: Boolean(remote) };
+	const out = { agent, session, phase, task, prompt: asked, project, remote: Boolean(remote) };
+	if (title) out.title = title;
+	if (progress) out.progress = progress;
+	if (link) out.link = link;
+	return out;
 }
 
 /**
  * The sessions with one hook's step applied. `sessions` is
- * { [agent:session]: { agent, session, phase, task, project, remote, prompt, since, at } }.
- * `prompt` keeps what you asked while the tools run underneath it.
+ * { [agent:session]: { agent, session, phase, task, project, remote, prompt,
+ *   title, progress, link, since, at } }.
+ * `prompt` keeps what you asked while the tools run underneath it; `title`
+ * (the agent's own headline), `progress` and `link` last until a new prompt
+ * starts a fresh turn (a headline and link last the whole session).
  */
 export function applyHook(sessions = {}, step, now = Date.now()) {
 	if (!step) return sessions;
@@ -161,7 +221,10 @@ export function applyHook(sessions = {}, step, now = Date.now()) {
 	// what you asked stays with the session while its tools run, and names the finish
 	const prompt = step.prompt || (fresh && step.phase === 'working' ? '' : was?.prompt || '');
 	let task = step.task;
+	// a report with only a headline keeps the step it was on
+	if (!task && step.title && was?.task) task = was.task;
 	if (!task) task = step.phase === 'working' ? was?.task || 'Working' : step.phase === 'done' ? prompt : '';
+	const newTurn = Boolean(step.prompt);
 	next[key] = {
 		agent: step.agent,
 		session: step.session,
@@ -170,6 +233,9 @@ export function applyHook(sessions = {}, step, now = Date.now()) {
 		prompt,
 		project: step.project || was?.project || '',
 		remote: step.remote || Boolean(was?.remote),
+		title: step.title || was?.title || '',
+		progress: step.progress || (newTurn ? null : was?.progress || null),
+		link: step.link || was?.link || '',
 		since: fresh && (step.phase === 'working' || step.phase === 'waiting') ? now : (was?.since ?? now),
 		at: now
 	};
@@ -225,14 +291,18 @@ export function withCursorCloud(sessions = {}, items = [], now = Date.now()) {
 		const key = `cursor:cloud-${clip(a.id, 60)}`;
 		const was = sessions[key];
 		const phase = status === 'ACTIVE' ? 'working' : 'done';
+		const repo = a.source?.repository || a.repository || '';
 		next[key] = {
 			agent: 'cursor',
 			session: `cloud-${clip(a.id, 60)}`,
 			phase,
-			task: clip(a.name, 80) || (phase === 'working' ? 'Working' : 'finished'),
+			task: clip(a.summary, 80) || clip(a.name, 80) || (phase === 'working' ? 'Working' : 'finished'),
 			prompt: '',
-			project: '',
+			project: projectOf(String(repo).replace(/\.git$/, '')),
 			remote: true,
+			title: clip(a.name, 80) || was?.title || '',
+			progress: was?.progress || null,
+			link: safeLink(a.target?.prUrl || a.prUrl || a.target?.url || '') || was?.link || '',
 			since: phase === 'working' && was?.phase !== 'working' ? now : (was?.since ?? at),
 			// a cloud agent's own clock, so an idle one keeps its finish time
 			at: phase === 'working' ? Math.max(at, was?.at || 0) : at

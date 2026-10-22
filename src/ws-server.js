@@ -387,6 +387,8 @@ const AGENT_NAMES = { claude: 'Claude Code', cursor: 'Cursor' };
 const agentStatusHub = createAgentStatusHub({
 	dataDir: path.join(PROJECT_ROOT, 'data'),
 	isLocal: (req) => isLocalAddress(req.socket?.remoteAddress, ownAddresses()),
+	// every session, for the Agents view's lanes (src/lib/agentBoard.js)
+	onSessions: (sessions) => broadcast({ type: 'agent-sessions', sessions }),
 	onStatus: (agent, st, before) => {
 		const name = AGENT_NAMES[agent];
 		const busy = (p) => p === 'working' || p === 'waiting';
@@ -921,7 +923,7 @@ const server = createServer(async (req, res) => {
 	}
 
 	if (req.method === 'GET' && reqPath(req) === '/api/agents') {
-		json(res, { agents: getAgentRoster() });
+		json(res, { agents: getAgentRoster(), sessions: agentStatusHub.list() });
 		return;
 	}
 
@@ -1244,6 +1246,7 @@ wss.on('connection', (ws, req) => {
 				audio,
 				installProgress: getInstallProgress(),
 				agents: getAgentRoster(),
+				agentSessions: agentStatusHub.list(),
 				tasks: taskHub.snapshot(),
 				approvals: approvalHub.snapshot(),
 				attention: attentionHub.snapshot(),

@@ -1,0 +1,9 @@
+{
+  "name": "wall-status",
+  "version": "1.0.0",
+  "description": "Shows what this Claude Code session is doing on the smart-display wall: its hooks report each step, and the report_progress tool lets Claude say what it's working on in its own words, with progress and the pull request.",
+  "author": { "name": "dasvr" },
+  "homepage": "https://github.com/dasvr/smart-display/blob/master/docs/agent-status.md",
+  "license": "MIT",
+  "keywords": ["status", "display", "dashboard", "cloud"]
+}

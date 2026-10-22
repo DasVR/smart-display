@@ -1,380 +1,393 @@
+<!--
+	The Agents view: one lane per session, so two Claude Code terminals, a
+	Claude Code web session and a Cursor cloud agent are four lanes, with
+	Hermes and Ollama when they're at it (src/lib/agentBoard.js). Beside them,
+	the box's CPU and RAM as two dithered bars, and nothing else.
+
+	Everything fits the wall without scrolling: at most six lanes (the rest are
+	"+N more"), each one line of who and where, one headline, one step, and a
+	progress bar when the agent knows how far along it is. One lane gets the
+	whole stage, two or three stack, four to six go in two columns.
+
+	Motion is for change only: a lane slides into place when the order changes
+	(FLIP), arrives with a short rise and leaves with a fade; the bars dissolve
+	between levels in dither. The characters are the only thing alive at rest.
+-->
 <script>
 	import { onMount } from 'svelte';
-	import ThinkingOrbs from '$lib/components/ThinkingOrbs.svelte';
+	import { flip } from 'svelte/animate';
+	import { fade, fly } from 'svelte/transition';
 	import DitherField from '$lib/components/DitherField.svelte';
-	import HostPeek from '$lib/components/HostPeek.svelte';
+	import DitherMeter from '$lib/components/DitherMeter.svelte';
+	import ThinkingOrbs from '$lib/components/ThinkingOrbs.svelte';
 	import AgentCharacter from '$lib/components/AgentCharacter.svelte';
-	import { characterFor } from '$lib/agentSprites.js';
-	import { agentRoster, telemetry, pushTelemetrySample } from '$lib/stores.js';
+	import { agentRoster, agentSessions, telemetry, pushTelemetrySample } from '$lib/stores.js';
 	import { displayQuality } from '$lib/services/ollamaArbiter.js';
-	import { hostPeekNeeded } from '$lib/hostPeek.js';
-	import { leadAgent, relativeAge } from '$lib/agentRoster.js';
+	import { agentBoard, boardSummary, elapsed } from '$lib/agentBoard.js';
 
 	let now = $state(Date.now());
-	let pinned = $state(false);
-	let loading = $state(true);
-	let error = $state('');
-
-	function rosterHasSignal(list) {
-		return (list || []).some((a) => Number(a.updatedAt) > 0);
-	}
-
-	function forcePeek() {
-		if (typeof window === 'undefined') return false;
-		return new URLSearchParams(window.location.search).get('peek') === '1';
-	}
 
 	async function fetchTelemetry() {
 		try {
 			const r = await fetch('/api/telemetry');
-			if (!r.ok) throw new Error('telemetry failed');
-			pushTelemetrySample(await r.json());
-			error = '';
+			if (r.ok) pushTelemetrySample(await r.json());
 		} catch {
-			error = 'live feed offline';
-		} finally {
-			loading = false;
+			/* the bars hold their last reading */
 		}
 	}
 
 	onMount(() => {
 		fetchTelemetry();
-		const tick = setInterval(() => {
-			now = Date.now();
-		}, 1000);
+		const tick = setInterval(() => (now = Date.now()), 15000);
+		// ?demo=agents pins a made-up board (src/routes/+page.svelte); leave it be
+		const demo = new URLSearchParams(window.location.search).has('demo');
 		async function pull() {
+			if (demo) return;
 			try {
 				const r = await fetch('/api/agents');
 				if (!r.ok) return;
 				const data = await r.json();
-				if (!Array.isArray(data.agents) || !rosterHasSignal(data.agents)) return;
-				agentRoster.set(data.agents);
+				if (Array.isArray(data.sessions)) agentSessions.set(data.sessions);
+				if (Array.isArray(data.agents) && data.agents.some((a) => Number(a.updatedAt) > 0)) agentRoster.set(data.agents);
 			} catch {
-				/* agents endpoint is optional in vite */
+				/* the socket keeps them current; this is only a catch-up */
 			}
 		}
 		pull();
-		const poll = setInterval(pull, 2500);
+		const poll = setInterval(pull, 10000);
 		return () => {
 			clearInterval(tick);
 			clearInterval(poll);
 		};
 	});
 
-	let lead = $derived(leadAgent($agentRoster));
-	let others = $derived($agentRoster.filter((a) => a.id !== lead?.id));
-	let thinking = $derived(lead?.phase === 'working');
+	let board = $derived(agentBoard({ sessions: $agentSessions, roster: $agentRoster, now }));
+	let lanes = $derived(board.lanes);
+	let layout = $derived(lanes.length <= 1 ? 'solo' : lanes.length <= 3 ? 'stack' : 'grid');
+	let charSize = $derived(layout === 'solo' ? 360 : layout === 'stack' ? 150 : 112);
+	let busy = $derived(board.counts.working + board.counts.waiting > 0);
 	let paused = $derived($displayQuality !== 'full');
-	let ramPct = $derived(
-		$telemetry?.stats?.ram_total
-			? Math.round(($telemetry.stats.ram_used / $telemetry.stats.ram_total) * 100)
-			: 0
-	);
-	let cpuPct = $derived($telemetry?.stats?.cpu ?? 0);
-	let containers = $derived($telemetry?.stats?.containers ?? 0);
-	let netMbps = $derived($telemetry?.stats?.net_mbps ?? 0);
-	let services = $derived($telemetry?.services ?? []);
-	let ramHint = $derived(
-		`${$telemetry?.stats?.ram_used ?? '--'} / ${$telemetry?.stats?.ram_total ?? '--'} GB`
-	);
-	let needed = $derived(
-		hostPeekNeeded({
-			cpu: cpuPct,
-			ramPct,
-			quality: $displayQuality,
-			services,
-			error: Boolean(error),
-			force: forcePeek()
-		})
-	);
-	let peekOpen = $derived(pinned || needed);
+	let cpu = $derived(Math.round(Number($telemetry?.stats?.cpu) || 0));
+	let ram = $derived($telemetry?.stats?.ram_total ? Math.round(($telemetry.stats.ram_used / $telemetry.stats.ram_total) * 100) : 0);
 
-	// the lead agent as its pixel character (src/lib/agentSprites.js): at its
-	// laptop while it works, standing otherwise; finishing a run is worth one hop
-	let leadChar = $derived(lead ? characterFor(lead.name || lead.id) : null);
-	let leadTarget = $derived(targetOf(lead?.phase));
-	let finish = $state({ key: 0, id: '' });
-	let lastPhase = { id: '', phase: '' };
-	$effect(() => {
-		const id = lead?.id || '';
-		const phase = lead?.phase || '';
-		if (id && id === lastPhase.id && lastPhase.phase === 'working' && phase === 'done') finish = { key: finish.key + 1, id };
-		lastPhase = { id, phase };
-	});
-	// waiting: a session asked you something (answer it where it runs); it stands with a "?"
 	const targetOf = (phase) => (phase === 'working' ? 'work' : phase === 'waiting' ? 'ask' : 'idle');
-	const statusLine = (a) =>
-		a.phase === 'working'
-			? a.task && a.task !== 'working' ? a.task : 'Working'
-			: a.phase === 'waiting'
-				? `Needs you: ${a.task || 'a question'}`
-				: a.phase === 'error'
-					? a.task || 'Stopped with an error'
-					: a.phase === 'done'
-						? `Finished ${relativeAge(a.updatedAt, now)}`
-						: 'Idle';
-	let kicker = $derived(
-		!lead ? 'Standby' : lead.phase === 'working' ? 'Thinking' : lead.phase === 'waiting' ? 'Needs you' : lead.phase === 'error' ? 'Stopped' : lead.phase === 'done' ? 'Finished' : lead.phase
-	);
-	let title = $derived(lead?.name || 'Agents');
-	let body = $derived(lead?.task && lead.task !== 'standby' ? lead.task : thinking ? 'Working' : 'No run on the box');
+	const stateWord = (l) => ({ working: 'Working', waiting: 'Needs you', error: 'Stopped', done: 'Finished' })[l.phase] || '';
+	const reduce = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+	const enter = (node) => fly(node, { y: reduce ? 0 : 10, duration: reduce ? 0 : 260, easing: (t) => 1 - Math.pow(1 - t, 3) });
+	const leave = (node) => fade(node, { duration: reduce ? 0 : 150 });
 </script>
 
-<div class="agents-stage" class:peeking={peekOpen} data-phase={lead?.phase || 'idle'}>
-	<DitherField active={thinking} {paused} />
+<div class="agents" class:busy data-layout={layout}>
+	<DitherField active={busy} {paused} />
 
-	{#if !leadChar}
-		<div class="think" aria-hidden="true">
-			<ThinkingOrbs phase={lead?.phase || 'idle'} size="lg" />
-		</div>
-	{/if}
+	<section class="board" aria-label="Agents">
+		<p class="summary" class:attn={board.counts.waiting > 0}>
+			{boardSummary(board.counts)}{#if board.more}<span class="more"> · {board.more} more not shown</span>{/if}
+		</p>
 
-	<div class="hero" class:with-char={leadChar}>
-		{#if leadChar}
-			<!-- keyed, so a new lead arrives as itself rather than morphing from the last one -->
-			{#key leadChar}
-				<div class="portrait">
-					<AgentCharacter
-						character={leadChar}
-						target={leadTarget}
-						verdict={finish.id === lead?.id ? 'yes' : null}
-						verdictKey={finish.id === lead?.id ? finish.key : 0}
-						size={440}
-						{paused}
-						label={`${title}: ${kicker.toLowerCase()}`}
-					/>
-				</div>
-			{/key}
+		{#if lanes.length}
+			<ol class="lanes" style:--rows={Math.ceil(lanes.length / 2)}>
+				{#each lanes as l (l.key)}
+					<li class="lane" data-phase={l.phase} animate:flip={{ duration: reduce ? 0 : 300, easing: (t) => 1 - Math.pow(1 - t, 3) }} in:enter out:leave>
+						<div class="who" class:orb={!l.character}>
+							{#if l.character}
+								<AgentCharacter character={l.character} target={targetOf(l.phase)} size={charSize} {paused} label={`${l.name}: ${stateWord(l).toLowerCase()}`} />
+							{:else}
+								<ThinkingOrbs phase={l.phase} size={layout === 'solo' ? 'lg' : 'sm'} />
+							{/if}
+						</div>
+						<div class="text">
+							<p class="meta">
+								<span class="name">{l.name}</span>
+								{#if l.where}<span class="where">{l.where}</span>{/if}
+								<span class="time">{elapsed(l.phase === 'working' || l.phase === 'waiting' ? l.since : l.at, now)}</span>
+							</p>
+							<h3 class="headline">{l.headline}</h3>
+							<p class="step"><span class="state">{stateWord(l)}</span>{#if l.step}<span class="detail">{l.step}</span>{/if}</p>
+							{#if l.progress}
+								<div class="progress">
+									<div class="bar"><DitherMeter value={(l.progress.done / l.progress.total) * 100} tone={l.phase === 'waiting' ? 'warn' : 'ok'} cell={layout === 'solo' ? 4 : 3} label={`${l.progress.done} of ${l.progress.total} done`} /></div>
+									<span class="count">{l.progress.done} of {l.progress.total}</span>
+								</div>
+							{/if}
+						</div>
+					</li>
+				{/each}
+			</ol>
+		{:else}
+			<div class="quiet" in:enter>
+				<p class="quiet-title">No agents running</p>
+				<p class="quiet-body">Claude Code, Cursor and Hermes show up here the moment they start.</p>
+			</div>
 		{/if}
-		<div class="words">
-			<p class="kicker">{kicker}</p>
-			<h2 class="name">{title}</h2>
-			<p class="task">{body}</p>
-			{#if lead?.body}<p class="where">{lead.body}</p>{/if}
-			{#if lead?.updatedAt}
-				<time class="age" datetime={new Date(lead.updatedAt).toISOString()}>
-					{relativeAge(lead.updatedAt, now)}
-				</time>
-			{/if}
+	</section>
+
+	<aside class="vitals" aria-label="This computer">
+		<div class="vital">
+			<div class="track"><DitherMeter vertical value={cpu} label="CPU" /></div>
+			<p class="vital-num">{cpu}<span>%</span></p>
+			<p class="vital-label">CPU</p>
 		</div>
-	</div>
-
-	<ul class="strip" aria-label="Other agents">
-		{#each others as a (a.id)}
-			{@const ch = characterFor(a.name || a.id)}
-			<li data-phase={a.phase}>
-				<div class="mini" class:orbs={!ch}>
-					{#if ch}
-						<AgentCharacter character={ch} target={targetOf(a.phase)} size={132} {paused} label={`${a.name}: ${statusLine(a)}`} />
-					{:else}
-						<ThinkingOrbs phase={a.phase} />
-					{/if}
-				</div>
-				<div class="meta">
-					<div class="strip-name">{a.name}</div>
-					<div class="strip-task">{statusLine(a)}</div>
-				</div>
-			</li>
-		{/each}
-	</ul>
-
-	<button
-		class="rail"
-		class:lit={peekOpen}
-		onclick={() => (pinned = !pinned)}
-		aria-pressed={peekOpen}
-		aria-label={peekOpen ? 'Hide host stats' : 'Show host stats'}
-	></button>
-
-	<HostPeek
-		open={peekOpen}
-		cpu={loading ? 0 : cpuPct}
-		ram={loading ? 0 : ramPct}
-		{ramHint}
-		{containers}
-		net={loading ? 0 : netMbps}
-		quality={$displayQuality}
-		{services}
-		{error}
-	/>
+		<div class="vital">
+			<div class="track"><DitherMeter vertical value={ram} label="Memory" /></div>
+			<p class="vital-num">{ram}<span>%</span></p>
+			<p class="vital-label">RAM</p>
+		</div>
+	</aside>
 </div>
 
 <style>
-	.agents-stage {
+	.agents {
 		position: relative;
 		flex: 1;
 		height: 100%;
 		min-height: 0;
 		min-width: 0;
 		overflow: hidden;
-		padding: var(--space-6) var(--space-2) var(--space-4) 0;
-		display: flex;
-		flex-direction: column;
-		justify-content: flex-end;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
+		gap: var(--space-8);
+		padding: var(--space-6) var(--space-6) var(--space-6) var(--space-4);
 	}
-	.think {
-		position: absolute;
-		z-index: 1;
-		left: 0;
-		top: 8%;
-		pointer-events: none;
-	}
-	.hero {
+	.board {
 		position: relative;
 		z-index: 1;
-		max-width: min(46rem, 72%);
-		padding-bottom: var(--space-6);
-		display: flex;
-		align-items: flex-end;
-		gap: var(--space-6);
+		min-height: 0;
 		min-width: 0;
-		transition: max-width 520ms var(--spring-smooth);
-	}
-	.hero.with-char {
-		max-width: min(70rem, 92%);
-	}
-	.words {
 		display: flex;
 		flex-direction: column;
-		gap: var(--space-3);
-		min-width: 0;
-		/* the last line sits on the same ground as the character's feet */
-		padding-bottom: 0;
+		gap: var(--space-5);
 	}
-	.portrait {
-		flex: none;
-		/* the sprite's feet sit two art pixels (20px each) above its canvas's bottom edge */
-		margin-bottom: -40px;
-	}
-	.agents-stage.peeking .hero,
-	.agents-stage.peeking .strip {
-		max-width: min(42rem, 56%);
-	}
-	.agents-stage.peeking .hero.with-char {
-		max-width: min(62rem, 66%);
-	}
-	.kicker {
+	.summary {
 		margin: 0;
 		font-size: var(--text-xl);
 		font-weight: 500;
-		letter-spacing: -0.02em;
 		color: var(--text-tertiary);
 		transition: color 200ms ease;
 	}
-	.agents-stage[data-phase='working'] .kicker {
-		color: var(--ok);
+	.summary.attn {
+		color: var(--warn);
 	}
-	.agents-stage[data-phase='done'] .kicker {
-		color: var(--scan);
-	}
-	.agents-stage[data-phase='waiting'] .kicker {
-		color: var(--warn, #ffb547);
-	}
-	.name {
-		margin: 0;
-		font-family: var(--font-body);
-		font-size: clamp(2.6rem, 6vw, 5.2rem);
-		font-weight: 700;
-		letter-spacing: -0.05em;
-		line-height: 0.92;
-		color: var(--foreground);
-		overflow-wrap: anywhere;
-	}
-	.task {
-		margin: 0;
-		font-size: clamp(1.15rem, 2.2vw, 1.75rem);
-		color: var(--text-secondary);
-		max-width: 28rem;
-		overflow-wrap: anywhere;
-	}
-	.where {
-		margin: 0;
-		font-size: var(--text-base);
-		color: var(--text-tertiary);
-		max-width: 32rem;
-		overflow-wrap: anywhere;
-	}
-	.age {
-		font-size: var(--text-sm);
-		color: var(--text-tertiary);
-	}
-	.strip {
-		position: relative;
-		z-index: 1;
+
+	/* ---------- lanes ---------- */
+	.lanes {
 		list-style: none;
 		margin: 0;
 		padding: 0;
+		flex: 1;
+		min-height: 0;
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
-		gap: var(--space-4);
-		max-width: min(46rem, 72%);
-		transition: max-width 520ms var(--spring-smooth);
+		gap: var(--space-4) var(--space-8);
+		align-content: start;
 	}
-	.strip li {
+	[data-layout='solo'] .lanes {
+		align-content: end;
+	}
+	[data-layout='grid'] .lanes {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		grid-template-rows: repeat(var(--rows, 3), minmax(0, 1fr));
+		grid-auto-flow: column;
+	}
+	.lane {
+		display: flex;
+		align-items: center;
+		gap: var(--space-5);
+		min-width: 0;
+		min-height: 0;
+		padding: var(--space-3) var(--space-4) var(--space-3) var(--space-2);
+		border-radius: var(--radius-md);
+		transition: background-color 200ms ease;
+	}
+	/* the one thing worth noticing from across the room */
+	.lane[data-phase='waiting'] {
+		background: color-mix(in srgb, var(--warn) 10%, transparent);
+	}
+	.lane[data-phase='done'],
+	.lane[data-phase='error'] {
+		opacity: 0.62;
+	}
+	.who {
+		flex: none;
+		display: grid;
+		place-items: end center;
+	}
+	.who.orb {
+		width: 112px;
+		place-items: center;
+	}
+	[data-layout='solo'] .who.orb {
+		width: 260px;
+	}
+	.text {
+		min-width: 0;
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+	.meta {
+		margin: 0;
+		display: flex;
+		align-items: baseline;
+		gap: var(--space-3);
+		min-width: 0;
+		font-size: var(--text-lg);
+		color: var(--text-tertiary);
+		white-space: nowrap;
+	}
+	.name {
+		color: var(--text-secondary);
+		font-weight: 600;
+	}
+	.where {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
+	}
+	.time {
+		margin-left: auto;
+		font-variant-numeric: tabular-nums;
+		flex: none;
+	}
+	.headline {
+		margin: 0;
+		font-size: var(--text-3xl);
+		font-weight: 650;
+		letter-spacing: -0.02em;
+		line-height: 1.15;
+		color: var(--foreground);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	[data-layout='solo'] .headline {
+		font-size: clamp(2.6rem, 4.6vw, 4.4rem);
+		letter-spacing: -0.04em;
+		white-space: normal;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		-webkit-box-orient: vertical;
+	}
+	[data-layout='grid'] .headline {
+		font-size: var(--text-2xl);
+	}
+	.step {
+		margin: 0;
+		display: flex;
+		gap: var(--space-3);
+		min-width: 0;
+		font-size: var(--text-xl);
+		white-space: nowrap;
+	}
+	[data-layout='solo'] .step {
+		font-size: var(--text-2xl);
+	}
+	.state {
+		flex: none;
+		font-weight: 600;
+		color: var(--text-tertiary);
+		transition: color 200ms ease;
+	}
+	.lane[data-phase='working'] .state {
+		color: var(--ok);
+	}
+	.lane[data-phase='waiting'] .state {
+		color: var(--warn);
+	}
+	.lane[data-phase='error'] .state {
+		color: var(--warn);
+	}
+	.detail {
+		color: var(--text-secondary);
+		overflow: hidden;
+		text-overflow: ellipsis;
+		min-width: 0;
+	}
+	.progress {
+		margin-top: var(--space-2);
 		display: flex;
 		align-items: center;
 		gap: var(--space-3);
-		min-width: 0;
-		opacity: 0.72;
-		transition: opacity 200ms ease;
 	}
-	/* a small portrait: idle agents stand, working ones type */
-	.mini {
+	.bar {
+		flex: 1;
+		max-width: 28rem;
+		height: 0.75rem;
+	}
+	[data-layout='solo'] .bar {
+		height: 1rem;
+	}
+	.count {
 		flex: none;
-		width: 132px;
-		margin-block: calc(var(--space-2) * -1);
-	}
-	.mini.orbs {
-		width: auto;
-	}
-	.strip li[data-phase='working'] {
-		opacity: 1;
-	}
-	.meta {
-		min-width: 0;
-	}
-	.strip-name {
-		font-size: var(--text-lg);
-		font-weight: 500;
-		color: var(--foreground);
-		overflow-wrap: anywhere;
-	}
-	.strip-task {
-		font-size: var(--text-sm);
+		font-size: var(--text-base);
 		color: var(--text-tertiary);
-		overflow-wrap: anywhere;
+		font-variant-numeric: tabular-nums;
 	}
-	.rail {
-		position: absolute;
-		top: 18%;
-		right: 0;
-		bottom: 18%;
-		width: 1.1rem;
-		z-index: 3;
-		border: 0;
-		padding: 0;
-		background: transparent;
-		cursor: pointer;
+	.more {
+		color: var(--text-tertiary);
 	}
-	.rail::before {
-		content: '';
-		position: absolute;
-		top: 0;
-		bottom: 0;
-		right: 0.35rem;
-		width: 2px;
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--foreground) 18%, transparent);
+
+	/* ---------- nobody at it ---------- */
+	.quiet {
+		margin-top: auto;
+		margin-bottom: var(--space-6);
 	}
-	.rail.lit::before {
-		background: color-mix(in srgb, var(--brand) 70%, transparent);
-		box-shadow: 0 0 12px color-mix(in srgb, var(--brand) 40%, transparent);
+	.quiet-title {
+		margin: 0;
+		font-size: clamp(2.4rem, 4.4vw, 4rem);
+		font-weight: 650;
+		letter-spacing: -0.04em;
+		color: var(--text-secondary);
 	}
+	.quiet-body {
+		margin: var(--space-2) 0 0;
+		font-size: var(--text-xl);
+		color: var(--text-tertiary);
+	}
+
+	/* ---------- the box ---------- */
+	.vitals {
+		position: relative;
+		z-index: 1;
+		display: flex;
+		gap: var(--space-5);
+		min-height: 0;
+	}
+	.vital {
+		width: 3rem;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: var(--space-2);
+		min-height: 0;
+	}
+	.track {
+		flex: 1;
+		width: 100%;
+		min-height: 0;
+	}
+	.vital-num {
+		margin: 0;
+		font-size: var(--text-2xl);
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-secondary);
+	}
+	.vital-num span {
+		font-size: var(--text-base);
+		color: var(--text-tertiary);
+	}
+	.vital-label {
+		margin: 0;
+		font-size: var(--text-base);
+		color: var(--text-tertiary);
+	}
+
 	@media (prefers-reduced-motion: reduce) {
-		.hero,
-		.strip,
-		.strip li,
-		.kicker {
+		.lane,
+		.state,
+		.summary {
 			transition: none;
 		}
 	}

@@ -13,7 +13,7 @@
 	import { replaceState } from '$app/navigation';
 	import { bootMarksFrom, readyOrCap, wake } from '$lib/wake.js';
 	import { surfaceProfile } from '$lib/surface.js';
-	import { guestMode, tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
+	import { guestMode, tasks, approvals, attention, ledger, upcomingEvents, currentView, displayMode, weather, weatherDetail, rainPrediction, nowPlaying, wsStatus, islandQueue, islandActivities, installProgress, agentRoster, agentSessions, presence, pushIslandEvent, setIslandActivity, clearIslandActivity } from '$lib/stores.js';
 	import { gpuLowPowerMode, displayQuality, ollamaStatus, toggleGpuLowPower, startOllamaArbiter } from '$lib/services/ollamaArbiter.js';
 	import { startSystemWatch } from '$lib/services/systemWatch.js';
 	import { primeAudio, playChime, reloadCustomSounds } from '$lib/services/chime.js';
@@ -28,6 +28,7 @@
 		isAgentStatusEvent,
 		workingIslandActivity
 	} from '$lib/agentRoster.js';
+	import { demoSessions } from '$lib/agentBoard.js';
 	import { KIOSK_VIEWS, canonicalizeKioskView, kioskViewLabel } from '$lib/kioskViews.js';
 	import { decideSmartStack, isStandBy } from '$lib/smartStack.js';
 	import { applyNowPlayingFrame, startNowPlayingPolling } from '$lib/services/nowPlayingSync.js';
@@ -116,6 +117,7 @@
 			lockDemoView = true;
 			currentView.set('agents');
 			agentRoster.set(demoRoster());
+			agentSessions.set(demoSessions(Date.now(), Number(new URLSearchParams(window.location.search).get('lanes')) || 4));
 		}
 	}
 
@@ -428,6 +430,7 @@
 				if (msg.type === 'agents' && Array.isArray(msg.agents) && !lockDemoView) {
 					agentRoster.set(msg.agents);
 				}
+				if (msg.type === 'agent-sessions' && Array.isArray(msg.sessions) && !lockDemoView) agentSessions.set(msg.sessions);
 				if (msg.type === 'volume') {
 					announceVolume(msg);
 				}
@@ -456,6 +459,7 @@
 					applyDisplay(msg.display);
 					if (msg.installProgress) installProgress.set(msg.installProgress);
 					if (Array.isArray(msg.agents) && !lockDemoView) agentRoster.set(msg.agents);
+					if (Array.isArray(msg.agentSessions) && !lockDemoView) agentSessions.set(msg.agentSessions);
 					if (Array.isArray(msg.tasks)) tasks.set(msg.tasks);
 					if (Array.isArray(msg.approvals)) approvals.set(msg.approvals);
 					if (Array.isArray(msg.attention)) attention.set(msg.attention);
@@ -660,6 +664,7 @@
 			lockDemoView = true;
 			currentView.set('agents');
 			agentRoster.set(demoRoster());
+			agentSessions.set(demoSessions(Date.now(), Number(new URLSearchParams(window.location.search).get('lanes')) || 4));
 		}
 		connect();
 		const firstWeather = fetchWeather();

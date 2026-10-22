@@ -11,7 +11,8 @@
  * `npm run agent-status -- --cursor-key …` writes), Cursor's cloud agents are
  * polled every minute.
  * Every change calls onStatus(agent, status, before), and src/ws-server.js
- * puts it on the roster.
+ * puts it on the roster; onSessions(list) gets every session, for the
+ * Agents view, which shows each one.
  */
 
 import { readFileSync } from 'node:fs';
@@ -23,7 +24,7 @@ const AGENTS = ['claude', 'cursor'];
 const CURSOR_API = 'https://api.cursor.com/v1/agents?limit=20&includeArchived=false';
 const MAX_BODY = 256 * 1024;
 
-export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus = () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), log = console.log }) {
+export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus = () => {}, onSessions = () => {}, env = process.env, fetchImpl = globalThis.fetch, now = () => Date.now(), log = console.log }) {
 	const tokenFile = path.join(dataDir, 'api-token');
 	const cursorKeyFile = path.join(dataDir, 'cursor-api-key');
 	const cursorKey = () => {
@@ -42,6 +43,7 @@ export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus 
 		if (next === sessions) return;
 		const before = Object.fromEntries(AGENTS.map((a) => [a, agentStatus(sessions, a)]));
 		sessions = next;
+		onSessions(list());
 		for (const a of AGENTS) {
 			const after = agentStatus(sessions, a);
 			const b = before[a];
@@ -79,9 +81,14 @@ export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus 
 		return cloud;
 	}
 
+	/** Every session, newest first. */
+	function list() {
+		return Object.values(sessions).sort((a, b) => b.at - a.at);
+	}
+
 	function snapshot() {
 		return {
-			sessions: Object.values(sessions).sort((a, b) => b.at - a.at),
+			sessions: list(),
 			agents: Object.fromEntries(AGENTS.map((a) => [a, agentStatus(sessions, a)])),
 			cursorCloud: cursorKey() ? cloud : null
 		};
@@ -122,5 +129,5 @@ export function createAgentStatusHub({ dataDir, isLocal = () => false, onStatus 
 		return json(res, { ok: true, read: step ? step.phase : null }), true;
 	}
 
-	return { hook, tick, pollCursor, snapshot, handleHttp };
+	return { hook, tick, pollCursor, snapshot, list, handleHttp };
 }

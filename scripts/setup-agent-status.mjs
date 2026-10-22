@@ -4,7 +4,8 @@
 //
 //   npm run agent-status -- --url http://wall.local:3000 [--token …]
 //   npm run agent-status -- --check            is it reaching the wall?
-//   npm run agent-status -- --repo ../my-app   hooks into another repo (cloud sessions)
+//   npm run agent-status -- --repo ../my-app   hooks, the report tool and its skill/rule into
+//                                              another repo (its cloud sessions, Claude Code and Cursor)
 //   npm run agent-status -- --uninstall
 //   npm run agent-status -- --cursor-key KEY   on the wall: follow Cursor's cloud agents
 //
@@ -84,6 +85,21 @@ export function withoutCursorHooks(config = {}) {
 	return out;
 }
 
+/** An MCP config ({ mcpServers }) with the wall's report tool added, everything else as it was. */
+export function withWallMcp(config = {}, args) {
+	const out = { ...(config || {}) };
+	out.mcpServers = { ...(out.mcpServers || {}), wall: { command: 'node', args } };
+	return out;
+}
+
+export function withoutWallMcp(config = {}) {
+	const out = { ...(config || {}) };
+	if (!out.mcpServers?.wall) return out;
+	const { wall, ...rest } = out.mcpServers;
+	out.mcpServers = rest;
+	return out;
+}
+
 /** "http://wall.local:3000" from "wall.local:3000/", or '' when it isn't an address. */
 export function normalizeUrl(raw) {
 	let s = String(raw || '').trim();
@@ -154,16 +170,29 @@ export function plan(o, { home, root = ROOT, existing = readJson } = {}) {
 		const repo = path.resolve(o.repo);
 		const claudeFile = path.join(repo, '.claude', 'settings.json');
 		const cursorFile = path.join(repo, '.cursor', 'hooks.json');
-		writes.push({ file: path.join(repo, 'hooks', 'wall-status.mjs'), copy: path.join(root, 'hooks', 'wall-status.mjs'), note: 'the hook script' });
+		const kit = path.join(root, 'plugins', 'wall-status');
+		// copies: the hook, the report tool, and the words that tell each agent to use it
+		const copies = [
+			{ file: path.join(repo, 'hooks', 'wall-status.mjs'), copy: path.join(root, 'hooks', 'wall-status.mjs'), note: 'the hook script' },
+			{ file: path.join(repo, 'hooks', 'wall-report.mjs'), copy: path.join(root, 'hooks', 'wall-report.mjs'), note: 'the report tool' }
+		];
+		if (want('claude')) copies.push({ file: path.join(repo, '.claude', 'skills', 'wall-report', 'SKILL.md'), copy: path.join(kit, 'skills', 'wall-report', 'SKILL.md'), note: 'the Claude Code skill' });
+		if (want('cursor')) copies.push({ file: path.join(repo, '.cursor', 'rules', 'wall-report.mdc'), copy: path.join(kit, 'cursor', 'rules', 'wall-report.mdc'), note: 'the Cursor rule' });
+		writes.push(...copies.map((c) => (o.uninstall ? { file: c.file, remove: true, note: c.note } : c)));
 		if (want('claude')) {
 			const cur = existing(claudeFile);
 			writes.push({ file: claudeFile, content: o.uninstall ? withoutClaudeHooks(cur) : withClaudeHooks(cur, 'node "$CLAUDE_PROJECT_DIR"/hooks/wall-status.mjs claude'), note: 'Claude Code hooks' });
+			const mcpFile = path.join(repo, '.mcp.json');
+			const mcp = existing(mcpFile);
+			writes.push({ file: mcpFile, content: o.uninstall ? withoutWallMcp(mcp) : withWallMcp(mcp, ['hooks/wall-report.mjs', '--mcp']), note: 'the report tool for Claude Code' });
 		}
 		if (want('cursor')) {
 			const cur = existing(cursorFile);
 			writes.push({ file: cursorFile, content: o.uninstall ? withoutCursorHooks(cur) : withCursorHooks(cur, 'node hooks/wall-status.mjs cursor'), note: 'Cursor hooks' });
+			const mcpFile = path.join(repo, '.cursor', 'mcp.json');
+			const mcp = existing(mcpFile);
+			writes.push({ file: mcpFile, content: o.uninstall ? withoutWallMcp(mcp) : withWallMcp(mcp, ['${workspaceFolder}/hooks/wall-report.mjs', '--mcp']), note: 'the report tool for Cursor' });
 		}
-		if (o.uninstall) writes[0] = { file: writes[0].file, remove: true, note: 'the hook script' };
 		return writes;
 	}
 	const dir = path.join(home, '.config', 'smart-display');

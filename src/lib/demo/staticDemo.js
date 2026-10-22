@@ -22,6 +22,7 @@ import { calendarToItems } from '../calendarItems.js';
 import { buildReceipt, logEvent } from '../dayLog.js';
 import { normalizeApproval } from '../approvals.js';
 import { normalizeSensesSettings } from '../senses.js';
+import { demoSessions } from '../agentBoard.js';
 
 // Chicago: a public, well-covered radar location, not the kiosk's home.
 const DEMO_LAT = 41.8781;
@@ -173,7 +174,9 @@ const AGENTS = {
 		{ id: 'cursor', name: 'Cursor', phase: 'done', task: 'PR checks green', source: 'Cursor', body: '', lastEvent: 'done', updatedAt: Date.now() - 600_000 },
 		{ id: 'hermes', name: 'Hermes', phase: 'idle', task: 'standby', source: 'Hermes', body: '', lastEvent: '', updatedAt: 0 },
 		{ id: 'ollama', name: 'Ollama', phase: 'idle', task: 'standby', source: 'Ollama', body: '', lastEvent: '', updatedAt: 0 }
-	]
+	],
+	// the Agents view's lanes: a few made-up sessions (src/lib/agentBoard.js)
+	sessions: demoSessions()
 };
 
 const IDLE_PROGRESS = {
@@ -384,6 +387,7 @@ class DemoSocket extends EventTarget {
 				view: this.view,
 				display: { hdmi: 'on' },
 				agents: AGENTS.agents,
+				agentSessions: AGENTS.sessions,
 				power: 'HIGH_PERFORMANCE',
 				load: LOAD,
 				installProgress: IDLE_PROGRESS,

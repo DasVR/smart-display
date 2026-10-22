@@ -1,0 +1,17 @@
+{
+  "name": "smart-display",
+  "owner": {
+    "name": "dasvr"
+  },
+  "metadata": {
+    "description": "Plugins for the smart-display wall."
+  },
+  "plugins": [
+    {
+      "name": "wall-status",
+      "source": "./plugins/wall-status",
+      "description": "Show what Claude Code is doing on the wall, from your computer or the cloud.",
+      "version": "1.0.0"
+    }
+  ]
+}

@@ -11,9 +11,79 @@ the cloud:
 | it stopped on an error | **Stopped**, with the error |
 | it went quiet for 15 minutes without finishing (a closed laptop, a reclaimed container) | it stops counting as working, without a "finished" toast |
 
-Several sessions at once (two terminals, a web session, a cloud agent) are one
-card per agent: whichever needs you, else the latest one working, with
-"+2 more" on the card.
+## The Agents view
+
+Every session is its own **lane**: two Claude Code terminals, a Claude Code
+web session and a Cursor cloud agent are four lanes, with Hermes and Ollama
+when they're at it. Each lane is one line of who and where
+(`Claude Code  smart-display · cloud  24m`), a **headline** (what the agent
+says it's doing, else what you asked), the **step** it's on in plain words
+(`Running npm test`), and a dithered progress bar when it knows how far along
+it is (`3 of 6`). A lane that needs you is tinted and goes first; working
+lanes keep their order (longest-running first); finished ones stay dimmed for
+30 minutes.
+
+It always fits the screen, with no scrolling: one lane gets the whole stage,
+two or three stack, four to six go in two columns, and anything past six is
+counted on the summary line ("2 more not shown"). Beside the lanes are the
+box's CPU and RAM as two dithered bars that dissolve between levels; nothing
+else about the machine. Code: `src/lib/agentBoard.js` (tests
+`tests/agent-board.test.mjs`), `src/lib/components/AgentsHub.svelte`,
+`src/lib/components/DitherMeter.svelte`. `/?demo=agents&lanes=1…8` shows each
+layout with made-up sessions.
+
+The roster (the island, the bottom bar's characters) still has one entry per
+agent: whichever session needs you, else the latest one working.
+
+## Saying what it's doing
+
+The hooks say *that* a session is working and which tool is running. Two
+things say *what* it's working on:
+
+- **Claude Code's to-do list.** When it plans with TodoWrite, the wall reads
+  the current item as the step and counts the done ones (`3 of 6`). Nothing
+  to set up.
+- **The report tool.** [`hooks/wall-report.mjs`](../hooks/wall-report.mjs) is
+  an MCP server with one tool, `report_progress` (`summary`, `step`, `done`,
+  `total`, `phase`, `link`), and also works from a shell:
+
+  ```bash
+  node hooks/wall-report.mjs "Fix the flaky weather test" --step "Reproducing it" --done 1 --total 4
+  node hooks/wall-report.mjs --phase done --link https://github.com/…/pull/9
+  ```
+
+  The `wall-report` skill (Claude Code, [`.claude/skills/wall-report`](../.claude/skills/wall-report/SKILL.md))
+  and rule (Cursor, [`.cursor/rules/wall-report.mdc`](../.cursor/rules/wall-report.mdc))
+  tell the agent when to call it: at the start of a task, at milestones, when
+  it needs you, and when it's done, with the pull request. This repo's
+  `.mcp.json` and `.cursor/mcp.json` register it. It finds its session from
+  a note the hooks leave (or `WALL_SESSION_ID`), and never fails the agent's
+  work: with no wall set up it just says so.
+
+## The plugin (Claude Code) and the kit (Cursor)
+
+[`plugins/wall-status`](../plugins/wall-status/README.md) packs all of it, the
+hooks, the report tool and the skill, as a Claude Code plugin:
+
+```
+/plugin marketplace add dasvr/smart-display
+/plugin install wall-status@smart-display
+```
+
+For every cloud session in another repository, add to its `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": { "smart-display": { "source": { "source": "github", "repo": "dasvr/smart-display" } } },
+  "enabledPlugins": { "wall-status@smart-display": true }
+}
+```
+
+Cursor has no plugins, but reads hooks, MCP servers and rules from the
+repository, so `npm run agent-status -- --repo ../my-app` copies the same kit
+into it (and the Claude Code equivalents, so either works there). Either way,
+the cloud environment still needs `WALL_URL` / `WALL_TOKEN` and the wall
+reachable (below).
 
 Answering a question still happens where the session runs. For Allow / Deny on
 the wall itself, add the approval hook too ([`approvals.md`](approvals.md)).
@@ -27,7 +97,7 @@ walks through all of the below), or run it yourself:
 ```bash
 npm run agent-status -- --url http://wall.local:3000 [--token …] [--no-prompts]
 npm run agent-status -- --check                  # is it reaching the wall?
-npm run agent-status -- --repo ../my-app         # hooks into another repo, for its cloud sessions
+npm run agent-status -- --repo ../my-app         # hooks, report tool, skill and rule into another repo
 npm run agent-status -- --cursor-key <key>       # on the wall: follow Cursor's cloud agents
 npm run agent-status -- --uninstall              # take it all out again
 ```
@@ -166,6 +236,8 @@ agents, if the wall is reachable from there (see the tunnel above).
 POST /api/agents/hook?agent=claude|cursor[&remote=1]
      body: the hook's JSON. Local, or Authorization: Bearer <token>.
      → { ok: true, read: "working" | "waiting" | "done" | "error" | "ended" | null }
+     A report: { "hook_event_name": "WallReport", "session_id", "summary", "step",
+     "done", "total", "phase", "link" } (hooks/wall-report.mjs sends it)
 
 GET  /api/agents/sessions
      → { sessions: [...], agents: { claude: {...}, cursor: {...} }, cursorCloud }

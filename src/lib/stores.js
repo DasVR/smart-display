@@ -115,6 +115,8 @@ export function clearIslandActivity(id) {
 export const viewNames = { ...KIOSK_VIEW_LABELS };
 
 export const agentRoster = writable(emptyRoster());
+/** Every coding-agent session the wall knows (src/lib/agentHooks.js), for the Agents view's lanes. */
+export const agentSessions = writable([]);
 
 const HISTORY_LEN = 40;
 
