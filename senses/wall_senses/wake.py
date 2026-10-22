@@ -10,6 +10,10 @@ think" is not a command.
 import re
 
 DEFAULT_WAKE = ["hey wall", "okay wall", "ok wall", "hey display"]
+# the wall's own names always wake it, whatever wake list is saved: a list
+# set before "display" was one of its names (just "hey wall") must not leave
+# "hey display" unheard. Phrases someone adds are heard on top of these.
+BUILT_IN = ["hey wall", "okay wall", "hey display", "okay display"]
 
 # what speech-to-text sometimes writes for "wall" straight after "hey" or "okay"
 # ("Hey wallets way too loud": "wall, it's" run together)
@@ -70,7 +74,9 @@ def match_wake(text, wake_words=None):
     """
     raw = str(text or "").replace("’", "'").strip()
     t = clean(raw)
-    for phrase in wake_words or DEFAULT_WAKE:
+    phrases = list(wake_words or DEFAULT_WAKE)
+    phrases += [p for p in BUILT_IN if p not in phrases]
+    for phrase in phrases:
         pat = _phrase_pattern(phrase)
         if not pat:
             continue

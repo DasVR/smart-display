@@ -126,9 +126,10 @@ a silent or wrong microphone shows up straight away.
 ## Waking it
 
 - **A phrase** (default): every piece of speech has its first three seconds
-  transcribed. Only when that starts with a wake phrase ("hey wall", "okay
-  wall", "hey display", or your own on the phone: **Home → Senses → Wake**)
-  is the rest transcribed and acted on. Anything else, "hey Google"
+  transcribed. Only when that starts with a wake phrase is the rest
+  transcribed and acted on. The wall's own names ("hey wall", "okay wall",
+  "hey display", "okay display") always work, whatever wake list was saved;
+  your own phrases (**Home → Senses → Wake**) are heard on top of them. Anything else, "hey Google"
   included, is ignored.
   "Hey wall" sometimes comes out as "hey well", "Hey Wal", or, said
   quickly on its own, "K Wal"; "hey wall, it's…" can run together as "Hey

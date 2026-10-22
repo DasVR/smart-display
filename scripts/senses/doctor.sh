@@ -35,7 +35,7 @@ s = json.load(sys.stdin)
 st, mic = s.get("settings", {}), s.get("mic", {})
 print("  process online:", s.get("online"))
 print("  mic on (setting):", st.get("mic"), "| source:", st.get("micSource") or "(default)")
-print("  wake:", st.get("wakeMode"), st.get("wakeWords"))
+print("  wake:", st.get("wakeMode"), st.get("wakeWords"), "+ always: hey wall, okay wall, hey display, okay display")
 for k in ("ok", "state", "level", "device", "error", "detail", "model"):
     print(f"  mic.{k}:", mic.get(k))
 '
@@ -68,7 +68,7 @@ w = wave.open('$WAV'); n = w.getnframes(); d = w.readframes(n)
 v = struct.unpack('<%dh' % (len(d) // 2), d) if d else ()
 peak = max((abs(x) for x in v), default=0) / 32768
 rms = math.sqrt(sum(x * x for x in v) / max(1, len(v))) / 32768
-print(f'  {n / 16000:.1f} s recorded, loudest {peak:.3f}, average {rms:.4f}', '(silent: wrong microphone, or muted)' if peak < 0.02 else '')
+print(f'  {n / 16000:.1f} s recorded, loudest {peak:.3f}, average {rms:.4f}', '(silent: wrong microphone, or muted)' if peak < 0.02 else '(quiet: your voice is barely above the room; speak closer, or raise the input volume)' if peak < 6 * rms else '')
 " || echo "  nothing recorded (is parecord installed? pulseaudio-utils)"
 say "what Parakeet heard"
 curl -s --max-time 60 -F "file=@$WAV" -F response_format=text "$URL/v1/audio/transcriptions"
