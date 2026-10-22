@@ -10,7 +10,10 @@ const roster = [
 ];
 
 test('working agents sit at their laptops; agents without a character stay off stage', () => {
-	assert.deepEqual(castFor({ roster }), [{ character: 'claude', name: 'Claude Code', target: 'work', task: 'npm test', approval: null, waiting: 0 }]);
+	assert.deepEqual(castFor({ roster }), [
+		{ character: 'claude', name: 'Claude Code', target: 'work', task: 'npm test', approval: null, waiting: 0 },
+		{ character: 'hermes', name: 'Hermes', target: 'work', task: 'thinking', approval: null, waiting: 0 }
+	]);
 	assert.deepEqual(castFor({}), []);
 });
 
@@ -24,27 +27,36 @@ test('a question stands its agent up, even one that wasn’t working', () => {
 	const cast = castFor({ roster, approvals });
 	assert.deepEqual(cast.map((c) => [c.character, c.target, c.approval?.id, c.waiting]), [
 		['claude', 'ask', 'p1', 1],
-		['cursor', 'ask', 'p2', 0]
+		['cursor', 'ask', 'p2', 0],
+		['hermes', 'work', undefined, 0]
 	]);
 	assert.equal(speakerOf(cast).approval.id, 'p1', 'the oldest question speaks first');
 	assert.equal(speakerOf([]), null);
 });
 
 test('an approval from an agent with no character is asked by Clawd', () => {
-	const cast = castFor({ approvals: [{ id: 'x', source: 'Hermes', title: 'Send email?', status: 'pending' }] });
+	const cast = castFor({ approvals: [{ id: 'x', source: 'Codex', title: 'Send email?', status: 'pending' }] });
 	assert.equal(cast[0].character, 'claude');
-	assert.equal(cast[0].name, 'Hermes');
+	assert.equal(cast[0].name, 'Codex');
 });
 
-test('the order is always Claude, Cursor, Gemini', () => {
+test('Hermes asks its own questions', () => {
+	const cast = castFor({ approvals: [{ id: 'h', source: 'Hermes', title: 'Send email?', status: 'pending' }] });
+	assert.deepEqual([cast[0].character, cast[0].name, cast[0].target], ['hermes', 'Hermes', 'ask']);
+});
+
+test('the order is always Claude, Cursor, Gemini, Hermes', () => {
 	const cast = castFor({
 		roster: [
 			{ id: 'cursor', name: 'Cursor', phase: 'working' },
 			{ id: 'claude', name: 'Claude Code', phase: 'working' }
 		],
-		approvals: [{ id: 'g', source: 'Gemini', title: 'Push?', status: 'pending' }]
+		approvals: [
+			{ id: 'h', source: 'Hermes', title: 'Send?', status: 'pending' },
+			{ id: 'g', source: 'Gemini', title: 'Push?', status: 'pending' }
+		]
 	});
-	assert.deepEqual(cast.map((c) => c.character), ['claude', 'cursor', 'gemini']);
+	assert.deepEqual(cast.map((c) => c.character), ['claude', 'cursor', 'gemini', 'hermes']);
 });
 
 test('countdown', () => {
