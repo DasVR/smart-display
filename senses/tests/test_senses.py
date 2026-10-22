@@ -235,7 +235,9 @@ class Wake(unittest.TestCase):
 
     def test_custom_wake(self):
         self.assertEqual(match_wake("Computer, lights", ["computer"]), "lights")
-        self.assertIsNone(match_wake("Hey wall lights", ["computer"]))
+        # the wall's own names wake it on top of a custom list
+        self.assertEqual(match_wake("Hey wall lights", ["computer"]), "lights")
+        self.assertIsNone(match_wake("Hey computer lights", ["hey wall"]))
 
     def test_noise(self):
         self.assertTrue(is_noise("Thank you."))
@@ -289,6 +291,19 @@ class DiaryKeeps30Seconds(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BuiltInNames(unittest.TestCase):
+    """A wake list saved before "display" was a name still wakes on it."""
+
+    def test_old_saved_list_still_hears_hey_display(self):
+        self.assertEqual(match_wake("Hey display, what time is it?", ["hey wall"]), "what time is it?")
+        self.assertEqual(match_wake("Okay display, pause.", ["hey wall"]), "pause")
+        self.assertEqual(match_wake("Hey wall, pause.", ["hey jarvis"]), "pause")
+
+    def test_own_phrases_still_work_and_others_dont(self):
+        self.assertEqual(match_wake("Hey jarvis, pause.", ["hey jarvis"]), "pause")
+        self.assertIsNone(match_wake("The display looks nice.", ["hey wall"]))
 
 
 class ParakeetWake(unittest.TestCase):
