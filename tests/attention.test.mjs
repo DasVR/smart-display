@@ -104,6 +104,24 @@ test('raising: wakes the panel for what matters, once per thing', async () => {
 	h.stop();
 });
 
+test('the gateway wire-wrap comes off: source prefix, [timestamp], quotes', () => {
+	const { h } = hub();
+	const a = h.raise({ kind: 'chore', title: 'Hermes [2026-10-22 09:15:44] "Timer: Pasta"', body: "[2026-10-22T09:15:44Z] 'it's ready'" });
+	assert.equal(a.title, 'Timer: Pasta');
+	assert.equal(a.body, "it's ready");
+	const b = h.raise({ kind: 'chore', title: 'hermes: [10:15] Stretch your legs', body: '[09:30] Stand up' });
+	assert.equal(b.title, 'Stretch your legs');
+	assert.equal(b.body, 'Stand up');
+	assert.equal(h.raise({ kind: 'chore', title: '"Water the plants"' }).title, 'Water the plants');
+	// what isn't the wire format stays: colons, bracketed words, quoted middles
+	assert.equal(h.raise({ kind: 'chore', title: 'Timer: Pasta [note]' }).title, 'Timer: Pasta [note]');
+	assert.equal(h.raise({ kind: 'chore', title: 'Hermes: laundry done' }).title, 'Hermes: laundry done');
+	assert.equal(h.raise({ kind: 'chore', title: 'Say "hi" to grandma' }).title, 'Say "hi" to grandma');
+	// all wrap and no message is no item
+	assert.equal(h.raise({ kind: 'chore', title: 'Hermes [2026-10-22 09:15:44] ""' }), null);
+	h.stop();
+});
+
 test('quiet hours: timers still wake it, reminders wait', async () => {
 	const { h, calls } = hub({ quiet: true });
 	h.fromNotify({ kind: 'alert', title: 'Call mom', taskId: 'r1' });

@@ -1,0 +1,9 @@
+# The pace corpus: 8 sentences — short, long, numbers, a spoken URL.
+Dinner's ready.
+What time is it?
+The pasta timer just finished; the kitchen lights are on.
+Your meeting starts at 2:30 PM, and the drive takes about 45 minutes.
+The library book you reserved arrived this morning; it will be held at the front desk until Friday evening.
+Three chores are due today: feed the cat, water the plants, and take the bins out before 7.
+The photos are at https://photos.example.com/trips/autumn-2026, and the backup lives on the NAS.
+Good morning: the overnight backup finished cleanly at 3:12, the kitchen is 19 degrees, and one approval is waiting on the wall whenever you're ready.

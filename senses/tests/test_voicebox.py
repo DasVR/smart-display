@@ -117,8 +117,8 @@ class FakeVoice:
     def model(self):
         return "phonon-31m-en" if self._ready else ""
 
-    def speak(self, text, voice=None):
-        self.said.append((text, voice))
+    def speak(self, text, voice=None, duration_delta=None):
+        self.said.append((text, voice, duration_delta))
         return b"RIFFfake", 1.25
 
 
@@ -159,8 +159,18 @@ class Http(unittest.TestCase):
     def test_speech(self):
         status, headers, body = self.call("/speech", json.dumps({"text": "  Hello   there ", "voice": "harper"}).encode())
         self.assertEqual((status, body, headers["Content-Type"], headers["X-Duration-Ms"]), (200, b"RIFFfake", "audio/wav", "1250"))
-        self.assertEqual(self.box.voice.said, [("Hello there", "harper")])
+        self.assertEqual(self.box.voice.said, [("Hello there", "harper", None)])
         self.assertEqual(self.call("/speech", b"{}")[0], 400)
+
+    def test_speech_pace_per_request(self):
+        self.call("/speech", json.dumps({"text": "hi", "duration_delta": 0.2}).encode())
+        self.assertEqual(self.box.voice.said[-1], ("hi", None, 0.2))
+        self.call("/speech", json.dumps({"text": "hi", "duration_delta": 9}).encode())
+        self.assertEqual(self.box.voice.said[-1][2], 0.5, "clamped where speech stays reliable")
+        self.call("/speech", json.dumps({"text": "hi", "duration_delta": -9}).encode())
+        self.assertEqual(self.box.voice.said[-1][2], -0.5)
+        self.call("/speech", json.dumps({"text": "hi", "duration_delta": "loud"}).encode())
+        self.assertIsNone(self.box.voice.said[-1][2], "not a number: the env pace applies")
 
     def test_speech_without_phonon(self):
         self.box.voice = FakeVoice(ready=False)
@@ -170,6 +180,96 @@ class Http(unittest.TestCase):
     def test_unknown_paths(self):
         self.assertEqual(self.call("/nope")[0], 404)
         self.assertEqual(self.call("/nope", b"x")[0], 404)
+
+
+class Pace(unittest.TestCase):
+    def test_request_delta(self):
+        self.assertIsNone(voicebox.request_delta(None))
+        self.assertIsNone(voicebox.request_delta(True))
+        self.assertIsNone(voicebox.request_delta("soon"), "not a number: the env pace applies")
+        self.assertEqual(voicebox.request_delta(0.2), 0.2)
+        self.assertEqual(voicebox.request_delta("0.2"), 0.2)
+        self.assertEqual(voicebox.request_delta(9), 0.5, "clamped where speech stays reliable")
+        self.assertEqual(voicebox.request_delta(-9), -0.5)
+
+    def test_env_delta(self):
+        old = os.environ.get("WALL_VOICE_DURATION_DELTA")
+        try:
+            os.environ.pop("WALL_VOICE_DURATION_DELTA", None)
+            self.assertEqual(voicebox.duration_delta_env(), 0.0)
+            os.environ["WALL_VOICE_DURATION_DELTA"] = "0.2"
+            self.assertEqual(voicebox.duration_delta_env(), 0.2)
+            os.environ["WALL_VOICE_DURATION_DELTA"] = "9"
+            self.assertEqual(voicebox.duration_delta_env(), 0.5)
+            os.environ["WALL_VOICE_DURATION_DELTA"] = "soon"
+            self.assertEqual(voicebox.duration_delta_env(), 0.0)
+        finally:
+            if old is None:
+                os.environ.pop("WALL_VOICE_DURATION_DELTA", None)
+            else:
+                os.environ["WALL_VOICE_DURATION_DELTA"] = old
+
+
+class Lexicon(unittest.TestCase):
+    def setUp(self):
+        voicebox._lexicon.update({"path": None, "mtime": None, "rules": []})
+        self._old_lex = os.environ.pop("WALL_VOICE_LEXICON", None)
+
+    def tearDown(self):
+        if self._old_lex is None:
+            os.environ.pop("WALL_VOICE_LEXICON", None)
+        else:
+            os.environ["WALL_VOICE_LEXICON"] = self._old_lex
+        voicebox._lexicon.update({"path": None, "mtime": None, "rules": []})
+
+    def lex(self, data, ns=(1, 2)):
+        path = os.path.join(tempfile.mkdtemp(), "lexicon.json")
+        with open(path, "w") as f:
+            json.dump(data, f)
+        os.utime(path, ns=ns)
+        os.environ["WALL_VOICE_LEXICON"] = path
+        return path
+
+    def test_no_file_means_nothing_said(self):
+        os.environ["WALL_VOICE_LEXICON"] = os.path.join(tempfile.mkdtemp(), "absent.json")
+        self.assertEqual(voicebox.load_lexicon(lambda *a: None), [])
+
+    def test_acronyms_whole_word_then_rewrites(self):
+        self.lex({
+            "acronyms": {"API": "A P I"},
+            "rewrites": [
+                {"pattern": "\\bgo\\b", "replace": "went"},
+                {"pattern": "\\bgo\\b", "replace": "\\1"},  # no group 1: skipped, never fails a speech
+            ],
+        })
+        rules = voicebox.load_lexicon(lambda *a: None)
+        # "API's" matches (' ends the word), "APIs" does not (plurals need their own entry)
+        self.assertEqual(voicebox.speakable("The API's APIs go API.", rules), "The A P I's APIs went A P I.")
+
+    def test_re_read_the_moment_it_changes(self):
+        path = self.lex({"acronyms": {"API": "A P I"}})
+        quiet = lambda *a: None
+        self.assertEqual(voicebox.speakable("the API", voicebox.load_lexicon(quiet)), "the A P I")
+        with open(path, "w") as f:
+            json.dump({"acronyms": {"API": "Application Programming Interface"}}, f)
+        os.utime(path, ns=(3, 4))
+        self.assertEqual(voicebox.speakable("the API", voicebox.load_lexicon(quiet)), "the Application Programming Interface")
+
+    def test_a_broken_save_keeps_the_last_good_copy(self):
+        path = self.lex({"acronyms": {"API": "A P I"}})
+        logs = []
+        log = lambda *a: logs.append(a)
+        self.assertEqual(voicebox.speakable("the API", voicebox.load_lexicon(log)), "the A P I")
+        with open(path, "w") as f:
+            f.write("{ nope")
+        os.utime(path, ns=(3, 4))
+        self.assertEqual(voicebox.speakable("the API", voicebox.load_lexicon(log)), "the A P I")
+        self.assertTrue(logs, "a broken lexicon says so (not what was said)")
+        # fixed again: the new copy speaks
+        with open(path, "w") as f:
+            json.dump({"acronyms": {"API": "ay pee eye"}}, f)
+        os.utime(path, ns=(5, 6))
+        self.assertEqual(voicebox.speakable("the API", voicebox.load_lexicon(log)), "the ay pee eye")
 
 
 if __name__ == "__main__":

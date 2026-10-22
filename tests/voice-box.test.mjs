@@ -68,6 +68,24 @@ test('bearer and wavToPcm', () => {
 	assert.deepEqual([...wavToPcm(WAV)], [1, 2, 3, 4]);
 });
 
+test('duration_delta: a per-request pace shift, clamped and forwarded only when present', async () => {
+	assert.deepEqual(speechRequest({ input: 'Hi', duration_delta: 0.25 }), { text: 'Hi', voice: '', format: 'wav', durationDelta: 0.25 });
+	assert.deepEqual(speechRequest({ input: 'Hi' }), { text: 'Hi', voice: '', format: 'wav' }, 'no pace key, no pace field');
+	assert.equal(speechRequest({ input: 'Hi', duration_delta: 9 }).durationDelta, 0.5, 'clamped where speech stays reliable');
+	assert.equal(speechRequest({ input: 'Hi', duration_delta: -9 }).durationDelta, -0.5);
+	assert.equal(speechRequest({ input: 'Hi', duration_delta: 'garbage' }).durationDelta, undefined);
+	assert.equal(speechRequest({ input: 'Hi', duration_delta: null }).durationDelta, undefined);
+	const s = await serve();
+	try {
+		await fetch(`${s.base}/v1/audio/speech`, { method: 'POST', body: JSON.stringify({ input: 'Hi', duration_delta: 0.2 }) });
+		assert.equal(JSON.parse(s.fake.asked.filter((a) => a.path === '/speech').at(-1).body).duration_delta, 0.2);
+		await fetch(`${s.base}/v1/audio/speech`, { method: 'POST', body: JSON.stringify({ input: 'Hi' }) });
+		assert.equal('duration_delta' in JSON.parse(s.fake.asked.filter((a) => a.path === '/speech').at(-1).body), false, 'absent means the box default');
+	} finally {
+		await s.close();
+	}
+});
+
 test('who may: the kiosk, a paired device, or the API token', async () => {
 	const s = await serve({ token: 'api-secret' });
 	try {

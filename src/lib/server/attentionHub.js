@@ -19,6 +19,31 @@ import { POLICIES, attentionKindFor, shouldWake, sortAttention } from '../attent
 
 const RESTORE_MS = 60000;
 
+// Agents relayed through a gateway can arrive still wearing its wire format:
+// `Hermes [2026-10-22 09:15:44] "Timer: Pasta"`. On the island that's just
+// `Timer: Pasta` — the source has its own field, so the wrap is dropped. The
+// stamp must hold a clock time, so `Timer: Pasta [note]` is left alone.
+const WIRE_STAMP = /^(?:[A-Za-z][\w.-]{0,29}:? )?\[(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}[T ]?)?\d{1,2}:\d{2}(?::\d{2})?(?:\.\d{1,6})?(?: ?(?:Z|[+-]\d{2}:?\d{2}))?\] */;
+const WIRE_QUOTES = { '"': '"', "'": "'", '“': '”', '‘': '’' };
+
+function unquote(text) {
+	if (text.length >= 2 && WIRE_QUOTES[text[0]] === text.at(-1)) return text.slice(1, -1).trim();
+	return text;
+}
+
+/** An item's title/body without the gateway's wire wrap. */
+function unwrapWire(value) {
+	let text = String(value || '').replace(/\s+/g, ' ').trim();
+	for (let round = 0; round < 3; round++) {
+		const before = text;
+		text = unquote(text);
+		const stamped = WIRE_STAMP.exec(text);
+		if (stamped) text = unquote(text.slice(stamped[0].length));
+		if (text === before) break;
+	}
+	return text;
+}
+
 export function createAttentionHub({
 	broadcast = () => {},
 	now = () => Date.now(),
@@ -68,7 +93,8 @@ export function createAttentionHub({
 	 */
 	function raise({ kind, title, body = '', ref = '' } = {}) {
 		const policy = POLICIES[kind];
-		if (!policy || !String(title || '').trim()) return null;
+		const heading = unwrapWire(title);
+		if (!policy || !heading) return null;
 		if (ref) {
 			const twin = items.find((i) => i.ref === ref);
 			if (twin) return twin;
@@ -79,8 +105,8 @@ export function createAttentionHub({
 			kind,
 			level: policy.level,
 			sound: policy.sound,
-			title: String(title).replace(/\s+/g, ' ').trim().slice(0, 120),
-			body: String(body || '').replace(/\s+/g, ' ').trim().slice(0, 240),
+			title: heading.slice(0, 120),
+			body: unwrapWire(body).slice(0, 240),
 			ref: String(ref || ''),
 			raisedAt: new Date(now()).toISOString(),
 			quiet

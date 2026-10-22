@@ -1,0 +1,43 @@
+# The pronunciation corpus: repo and file names, acronyms, versions, times,
+# dollar amounts, URLs, emails, paths, and a few long sentences.
+The wall runs on a Raspberry Pi 5 with 8 GB of RAM.
+Hermes reads voicebox.py before it speaks.
+Deploy with git pull origin master, then run npm ci.
+The repo lives at ~/projects/smart-display.
+Check src/lib/server/voiceBox.js for the endpoints.
+node_modules holds sherpa-onnx-node 1.13.8 and ws 8.17.0.
+The voices catalog is phonon-voices/voices.jsonl.
+ptts 0.4.1 ships phonon-31m-en and phonon-40m-en.
+The API token sits in data/api-token, never in git.
+Open http://127.0.0.1:3000/v1/audio/voices for the list.
+POST to 127.0.0.1:3000/v1/audio/speech with an input field.
+The docs are under https://github.com/gradium-ai/xn-ptts.
+Mail the log to otto@example.com before 18:45.
+The invoice total is $1,299.00 plus $11.50 shipping.
+SSH into the wall with ssh das@wall.local on port 22.
+The GPU stays idle; Parakeet and Phonon run on the CPU.
+Use the CLI: python -m wall_senses --check.
+STT hears you, TTS answers.
+The JSON body has model, voice, and input fields.
+URLs with HTTPS fail without a token in .env.
+Restart at 09:30; the 6:05 AM cron fires at 6:05.
+On 2026-10-22 the backup took 3 hours 12 minutes.
+v0.22.2 -> v0.23.0 is queued for Friday.
+The UUID a8098c1a-f86e-11da-bd1a-00c04ff430c9 shows in the log.
+Read AGENTS.md and README.md first.
+Edit svelte.config.js and vite.config.js with care.
+The WAV file lands in voice-tests/before/01.wav.
+SQL lives in data/lyrics.db; don't hand-edit it.
+Parakeet-TDT-0.6B-v2-int8 is the ear; phonon-40m-en the voice.
+The OAuth callback URL is https://wall.example.ts.net/auth/callback.
+Run npx svelte-check after touching src/.
+The SSID is Das Home 5G and the password is in 1Password.
+2 + 2 = 4, but 2 * 365 = 730.
+The drive takes 45 minutes; that's 72.4 km each way.
+It's 17 degrees outside, dropping to 11 by 22:00.
+The wall's IP is 192.168.1.42 on port 3000.
+Say sudo systemctl restart smart-display-senses slowly.
+The kanban-watchers-notifier sleeps 8 ticks, then settles the cursor.
+When the overnight backup finishes, Hermes posts a note to the wall, the island shows it until someone taps got it, and the ledger records who answered and when.
+Claude, Cursor, and Hermes each have a card on the Agents tab.
+Phonon ships 37 English voices; the wall speaks Easton.
