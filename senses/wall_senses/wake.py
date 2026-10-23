@@ -17,7 +17,7 @@ BUILT_IN = ["hey wall", "okay wall", "hey display", "okay display"]
 
 # what speech-to-text sometimes writes for "wall" straight after "hey" or "okay"
 # ("Hey wallets way too loud": "wall, it's" run together)
-_SOUNDS_LIKE_WALL = r"(?:wall|walls|wal|waul|well|war|whoa|wow|wallet|wallets)"
+_SOUNDS_LIKE_WALL = r"(?:wall|walls|wal|waul|well|war|whoa|wow|wallet|wallets|ball|balls|whale|wale|bald|bold|voll|vault|walt|waddle|y'?all|all)"
 _GREETING = r"(?:hey|hi|okay|ok|o\.k\.)"
 
 # things speech-to-text has made up out of silence or music; never commands, never notes

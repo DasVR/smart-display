@@ -21,7 +21,7 @@ const dataDir = path.join(root, 'data');
 const profileDir = path.join(dataDir, 'apple-music-profile');
 const headed = process.argv.includes('--headed');
 const debugPort = Number(process.env.APPLE_MUSIC_DEBUG_PORT || 9222);
-const WAIT_MS = 10 * 60000;
+const WAIT_MS = Number(process.env.APPLE_MUSIC_LOGIN_MINUTES || 10) * 60000;
 
 async function releaseServerPlayer() {
 	const tokenFile = path.join(dataDir, 'api-token');
